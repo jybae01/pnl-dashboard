@@ -10,8 +10,9 @@ import os
 st.set_page_config(page_title="월별 손익계산서 분석표", layout="wide")
 
 # --- [보안] 관리자 및 조회자 이중 인증 로직 ---
-VIEWER_CODE = "2026!"   # 일반 직원 조회용 코드
-ADMIN_CODE = "admin!"   # 관리자 데이터 업로드용 코드
+# Streamlit Secrets 금고에서 암호 불러오기
+VIEWER_CODE = st.secrets["VIEWER_CODE"]   
+ADMIN_CODE = st.secrets["ADMIN_CODE"]
 
 if "authenticated" not in st.session_state:
     st.session_state.authenticated = False
