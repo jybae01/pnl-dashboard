@@ -10,9 +10,13 @@ import os
 st.set_page_config(page_title="월별 손익계산서 분석표", layout="wide")
 
 # --- [보안] 관리자 및 조회자 이중 인증 로직 ---
-# Streamlit Secrets 금고에서 암호 불러오기
-VIEWER_CODE = st.secrets["VIEWER_CODE"]   
-ADMIN_CODE = st.secrets["ADMIN_CODE"]
+# 💡 실제 비밀번호는 깃허브 코드에 절대 노출되지 않으며, Streamlit Secrets 금고에서만 호출합니다.
+try:
+    VIEWER_CODE = st.secrets["VIEWER_CODE"]   
+    ADMIN_CODE = st.secrets["ADMIN_CODE"]     
+except Exception:
+    st.error("⚠️ 시스템 보안 설정(Secrets)이 누락되었습니다. 관리자에게 문의하십시오.")
+    st.stop()
 
 if "authenticated" not in st.session_state:
     st.session_state.authenticated = False
@@ -121,6 +125,7 @@ months = [f"{i}월" for i in range(1, 13)]
 if st.session_state.role == "admin":
     st.sidebar.markdown("### 📁 데이터 연동 관리 (Admin)")
     
+    # 💡 엑셀 템플릿에 반제품 원가 입력 항목 추가
     original_format_items = [
         ('★손익계산서', '대분류', '소분류', '세분류'),
         ('Ⅰ.매출액', '1.제품 매출액', '금액(천원)', '제품매출입력'),
@@ -136,15 +141,19 @@ if st.session_state.role == "admin":
         ('Ⅰ.매출액', '1.제품 매출액', '단가(원)', 'BW단가입력'),
         ('Ⅰ.매출액', '1.제품 매출액', '단가(원)', 'LS단가입력'),
         ('Ⅰ.매출액', '1.제품 매출액', '단가(원)', 'FS단가입력'),
-        ('Ⅱ.매출원가', '1.제조원가(투입)', '원부재료', '원부재료비입력'),
-        ('Ⅱ.매출원가', '1.제조원가(투입)', '노무비', '노무비입력'),
-        ('Ⅱ.매출원가', '1.제조원가(투입)', '외주가공비', '외주가공비입력'),
-        ('Ⅱ.매출원가', '1.제조원가(투입)', '기타경비', '기타경비입력'),
-        ('Ⅱ.매출원가', '2.반제품 매출원가', '금액(천원)', '반제품매출원가입력'),
-        ('Ⅱ.매출원가', '3.상품 매출원가', '금액(천원)', '상품매출원가입력'),
-        ('Ⅱ.매출원가', '4.기타 매출원가', '금액(천원)', '기타매출원가입력'),
-        ('Ⅱ.매출원가', '5.표준 매출원가 차이', '금액(천원)', '표준원가차이입력'),
-        ('Ⅱ.매출원가', '6.재고자산 평가손실', '금액(천원)', '재고평가손입력'),
+        ('Ⅱ.매출원가', '1.제품 원가(투입)', '원부재료', '원부재료비입력'),
+        ('Ⅱ.매출원가', '1.제품 원가(투입)', '노무비', '노무비입력'),
+        ('Ⅱ.매출원가', '1.제품 원가(투입)', '외주가공비', '외주가공비입력'),
+        ('Ⅱ.매출원가', '1.제품 원가(투입)', '기타경비', '기타경비입력'),
+        ('Ⅱ.매출원가', '2.반제품 원가(투입)', '원부재료', '반제품_원부재료비입력'),
+        ('Ⅱ.매출원가', '2.반제품 원가(투입)', '노무비', '반제품_노무비입력'),
+        ('Ⅱ.매출원가', '2.반제품 원가(투입)', '외주가공비', '반제품_외주가공비입력'),
+        ('Ⅱ.매출원가', '2.반제품 원가(투입)', '기타경비', '반제품_기타경비입력'),
+        ('Ⅱ.매출원가', '3.반제품 매출원가(총액)', '금액(천원)', '반제품매출원가입력'),
+        ('Ⅱ.매출원가', '4.상품 매출원가', '금액(천원)', '상품매출원가입력'),
+        ('Ⅱ.매출원가', '5.기타 매출원가', '금액(천원)', '기타매출원가입력'),
+        ('Ⅱ.매출원가', '6.표준 매출원가 차이', '금액(천원)', '표준원가차이입력'),
+        ('Ⅱ.매출원가', '7.재고자산 평가손실', '금액(천원)', '재고평가손입력'),
         ('Ⅲ.매출총이익', '1.매출총이익', '금액(천원)', '매출총이익입력'), 
         ('Ⅳ.판매관리비', '1.일반관리비', '인건비', '일반관리비_인건비입력'),
         ('Ⅳ.판매관리비', '1.일반관리비', '감가상각비', '일반관리비_감가상각비입력'),
@@ -262,15 +271,22 @@ cogs_etc_a = _tmp_cogs_a * 0.02; cogs_etc_p = _tmp_cogs_p * 0.02
 cogs_std_a = np.zeros(12); cogs_std_p = np.zeros(12)
 cogs_inv_a = np.zeros(12); cogs_inv_p = np.zeros(12)
 
-# 더미 데이터 오류(합계 불일치) 방지를 위해 하단 내역이 역산분과 100% 일치하도록 보정
 _dummy_cogs_prod_a = _tmp_cogs_a - (cogs_semi_a + cogs_md_a + cogs_etc_a + cogs_std_a + cogs_inv_a)
 _dummy_cogs_prod_p = _tmp_cogs_p - (cogs_semi_p + cogs_md_p + cogs_etc_p + cogs_std_p + cogs_inv_p)
 
+# 제품 더미 데이터
 cogs_rm_a = _dummy_cogs_prod_a * 0.60; cogs_rm_p = _dummy_cogs_prod_p * 0.60
 cogs_lb_a = _dummy_cogs_prod_a * 0.20; cogs_lb_p = _dummy_cogs_prod_p * 0.20
 cogs_os_a = _dummy_cogs_prod_a * 0.15; cogs_os_p = _dummy_cogs_prod_p * 0.15
 cogs_oh_a = _dummy_cogs_prod_a - cogs_rm_a - cogs_lb_a - cogs_os_a
 cogs_oh_p = _dummy_cogs_prod_p - cogs_rm_p - cogs_lb_p - cogs_os_p
+
+# 반제품 더미 데이터
+cogs_semi_rm_a = cogs_semi_a * 0.60; cogs_semi_rm_p = cogs_semi_p * 0.60
+cogs_semi_lb_a = cogs_semi_a * 0.20; cogs_semi_lb_p = cogs_semi_p * 0.20
+cogs_semi_os_a = cogs_semi_a * 0.15; cogs_semi_os_p = cogs_semi_p * 0.15
+cogs_semi_oh_a = cogs_semi_a - cogs_semi_rm_a - cogs_semi_lb_a - cogs_semi_os_a
+cogs_semi_oh_p = cogs_semi_p - cogs_semi_rm_p - cogs_semi_lb_p - cogs_semi_os_p
 
 _tmp_sga_a = _tmp_sales_a * np.random.uniform(0.1, 0.15, 12); _tmp_sga_p = _tmp_sales_p * 0.12
 
@@ -313,8 +329,13 @@ if os.path.exists("saved_plan.xlsx"):
         sales_md_p = safe_extract('상품매출입력', df_p, 'money'); sales_etc_p = safe_extract('기타매출입력', df_p, 'money')
         sales_inc_p = safe_extract('판매장려금입력', df_p, 'money')
         
+        # 제품 파싱
         cogs_rm_p = safe_extract('원부재료비입력', df_p, 'money'); cogs_lb_p = safe_extract('노무비입력', df_p, 'money')
         cogs_os_p = safe_extract('외주가공비입력', df_p, 'money'); cogs_oh_p = safe_extract('기타경비입력', df_p, 'money')
+        
+        # 반제품 파싱
+        cogs_semi_rm_p = safe_extract('반제품_원부재료비입력', df_p, 'money'); cogs_semi_lb_p = safe_extract('반제품_노무비입력', df_p, 'money')
+        cogs_semi_os_p = safe_extract('반제품_외주가공비입력', df_p, 'money'); cogs_semi_oh_p = safe_extract('반제품_기타경비입력', df_p, 'money')
         
         cogs_semi_p = safe_extract('반제품매출원가입력', df_p, 'money')
         cogs_md_p = safe_extract('상품매출원가입력', df_p, 'money')
@@ -352,8 +373,13 @@ if os.path.exists("saved_actual.xlsx"):
         sales_md_a = safe_extract('상품매출입력', df_a, 'money'); sales_etc_a = safe_extract('기타매출입력', df_a, 'money')
         sales_inc_a = safe_extract('판매장려금입력', df_a, 'money')
         
+        # 제품 파싱
         cogs_rm_a = safe_extract('원부재료비입력', df_a, 'money'); cogs_lb_a = safe_extract('노무비입력', df_a, 'money')
         cogs_os_a = safe_extract('외주가공비입력', df_a, 'money'); cogs_oh_a = safe_extract('기타경비입력', df_a, 'money')
+
+        # 반제품 파싱
+        cogs_semi_rm_a = safe_extract('반제품_원부재료비입력', df_a, 'money'); cogs_semi_lb_a = safe_extract('반제품_노무비입력', df_a, 'money')
+        cogs_semi_os_a = safe_extract('반제품_외주가공비입력', df_a, 'money'); cogs_semi_oh_a = safe_extract('반제품_기타경비입력', df_a, 'money')
         
         cogs_semi_a = safe_extract('반제품매출원가입력', df_a, 'money')
         cogs_md_a = safe_extract('상품매출원가입력', df_a, 'money')
@@ -554,30 +580,50 @@ else:
         if col != ('항목', ''): df_table[col] = df_table.apply(lambda row: format_cell(row[col], '율' in str(row[('항목', '')]) or '률' in str(row[('항목', '')])), axis=1)
     render_pnl_table(df_table, True)
 
-# 8. 제품 매출원가 내역
+# 8. 제품/반제품 매출원가 내역
 st.markdown("---")
-st.markdown("##### 🔍 제품 매출원가 내역")
+st.markdown("##### 🔍 제품/반제품(FS) 매출원가 내역")
 
-cogs_input_sum_a = cogs_rm_a + cogs_lb_a + cogs_os_a + cogs_oh_a
-cogs_input_sum_p = cogs_rm_p + cogs_lb_p + cogs_os_p + cogs_oh_p
+# 💡 [핵심 계산] 제품과 반제품의 투입원가를 각각 합산하여 통합 분석 
+cogs_prod_input_sum_a = cogs_rm_a + cogs_lb_a + cogs_os_a + cogs_oh_a
+cogs_semi_input_sum_a = cogs_semi_rm_a + cogs_semi_lb_a + cogs_semi_os_a + cogs_semi_oh_a
+comb_input_sum_a = cogs_prod_input_sum_a + cogs_semi_input_sum_a
 
-err_msgs = []
-if abs(sum(cogs_prod_a) - sum(cogs_input_sum_a)) >= 1.0:
-    err_msgs.append(f"실적(Actual): 손익계산서 상 제품매출원가({sum(cogs_prod_a):,.0f})와 하단 내역의 합계({sum(cogs_input_sum_a):,.0f})가 일치하지 않습니다.")
-if abs(sum(cogs_prod_p) - sum(cogs_input_sum_p)) >= 1.0:
-    err_msgs.append(f"계획(Plan): 손익계산서 상 제품매출원가({sum(cogs_prod_p):,.0f})와 하단 내역의 합계({sum(cogs_input_sum_p):,.0f})가 일치하지 않습니다.")
+cogs_prod_input_sum_p = cogs_rm_p + cogs_lb_p + cogs_os_p + cogs_oh_p
+cogs_semi_input_sum_p = cogs_semi_rm_p + cogs_semi_lb_p + cogs_semi_os_p + cogs_semi_oh_p
+comb_input_sum_p = cogs_prod_input_sum_p + cogs_semi_input_sum_p
 
-if err_msgs:
-    for msg in err_msgs:
-        st.error(f"⚠️ [합계 오류] {msg}")
+target_comb_cogs_a = cogs_prod_a + cogs_semi_a
+target_comb_cogs_p = cogs_prod_p + cogs_semi_p
+
+# [개선된 월별 검증 로직] 
+mismatched_months_a = [f"{i+1}월" for i in range(12) if abs(target_comb_cogs_a[i] - comb_input_sum_a[i]) >= 1.0]
+mismatched_months_p = [f"{i+1}월" for i in range(12) if abs(target_comb_cogs_p[i] - comb_input_sum_p[i]) >= 1.0]
+
+if mismatched_months_a or mismatched_months_p:
+    st.markdown("<div style='padding: 15px; background-color: #FEE2E2; border-left: 5px solid #EF4444; border-radius: 4px; margin-bottom: 15px;'>", unsafe_allow_html=True)
+    st.markdown("<p style='color: #B91C1C; font-weight: bold; margin: 0;'>⚠️ [합계 오류] 손익계산서 상 제품/반제품 매출원가와 하단 내역의 합계가 일치하지 않습니다.</p>", unsafe_allow_html=True)
+    if mismatched_months_p:
+        st.markdown(f"<p style='color: #7F1D1D; margin: 5px 0 0 0;'>• <b>계획(Plan) 점검 필요:</b> {', '.join(mismatched_months_p)}</p>", unsafe_allow_html=True)
+    if mismatched_months_a:
+        st.markdown(f"<p style='color: #7F1D1D; margin: 5px 0 0 0;'>• <b>실적(Actual) 점검 필요:</b> {', '.join(mismatched_months_a)}</p>", unsafe_allow_html=True)
+    st.markdown("</div>", unsafe_allow_html=True)
 
 st.markdown("<div style='text-align: right; font-size: 12px; font-weight: bold; color: #4B5563; margin-bottom: 5px;'>(단위: 백만원, %)</div>", unsafe_allow_html=True)
 
-# '제품 매출원가 합계' 명칭 수정
-cogs_items = ['원부재료', '노무비', '외주가공비', '기타경비', '제품 매출원가 합계']
-cogs_rows_a = [cogs_rm_a, cogs_lb_a, cogs_os_a, cogs_oh_a, cogs_input_sum_a]
+# 제품 + 반제품 합산 데이터 배열 생성
+comb_rm_a = cogs_rm_a + cogs_semi_rm_a
+comb_lb_a = cogs_lb_a + cogs_semi_lb_a
+comb_os_a = cogs_os_a + cogs_semi_os_a
+comb_oh_a = cogs_oh_a + cogs_semi_oh_a
+
+cogs_items = ['원부재료', '노무비', '외주가공비', '기타경비', '제품/반제품(FS) 매출원가 합계']
+cogs_rows_a = [comb_rm_a, comb_lb_a, comb_os_a, comb_oh_a, comb_input_sum_a]
 cogs_sums_a = [sum(row) for row in cogs_rows_a]
-sales_prod_sum_a = sum(sales_prod_a)
+
+# 매출비율 분모를 제품매출 + 반제품매출 합산으로 변경
+sales_comb_a = sales_prod_a + sales_semi_a
+sales_comb_sum_a = sum(sales_comb_a)
 
 tuples_cogs = [('항목', '')]
 for m in months: tuples_cogs.extend([(m, '실적금액'), (m, '매출비율')])
@@ -588,10 +634,10 @@ for i, item in enumerate(cogs_items):
     row_data = [item]
     for m_idx in range(12):
         amt = cogs_rows_a[i][m_idx]
-        ratio = (amt / sales_prod_a[m_idx]) * 100 if sales_prod_a[m_idx] != 0 else 0
+        ratio = (amt / sales_comb_a[m_idx]) * 100 if sales_comb_a[m_idx] != 0 else 0
         row_data.extend([amt, format_cell(ratio, True) if amt != 0 else ""])
     sum_amt = cogs_sums_a[i]
-    sum_ratio = (sum_amt / sales_prod_sum_a) * 100 if sales_prod_sum_a != 0 else 0
+    sum_ratio = (sum_amt / sales_comb_sum_a) * 100 if sales_comb_sum_a != 0 else 0
     row_data.extend([sum_amt, format_cell(sum_ratio, True) if sum_amt != 0 else ""])
     combined_rows_cogs.append(row_data)
 
