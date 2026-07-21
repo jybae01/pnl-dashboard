@@ -66,7 +66,7 @@ st.markdown("""
     text-align: right !important; padding: 8px 4px; border: 1px solid rgba(128, 128, 128, 0.2); 
     white-space: nowrap; 
 }
-/* 항목 열 너비 및 여백 최적화 */
+/* 항목 열 너비 및 여백 최적화 (140px로 축소하여 표가 밀리지 않게 조정) */
 .custom-tbl th:first-child, .custom-tbl td:first-child { 
     width: 140px; text-align: left !important; font-weight: bold; 
     background-color: rgba(128, 128, 128, 0.02); padding-left: 10px; 
@@ -617,13 +617,14 @@ comb_lb_a = cogs_lb_a + cogs_semi_lb_a
 comb_os_a = cogs_os_a + cogs_semi_os_a
 comb_oh_a = cogs_oh_a + cogs_semi_oh_a
 
-cogs_items = ['원부재료', '노무비', '외주가공비', '기타경비', '합계'] # 💡 명칭 단순화
+# 💡 '합계' 명칭 단순화 적용
+cogs_items = ['원부재료', '노무비', '외주가공비', '기타경비', '합계'] 
 cogs_rows_a = [comb_rm_a, comb_lb_a, comb_os_a, comb_oh_a, comb_input_sum_a]
 cogs_sums_a = [sum(row) for row in cogs_rows_a]
 
-# 매출비율 분모를 제품매출 + 반제품매출 합산으로 변경
-sales_comb_a = sales_prod_a + sales_semi_a
-sales_comb_sum_a = sum(sales_comb_a)
+# 💡 매출비율 분모를 다시 '전체 매출액'으로 원복
+sales_denom_a = sales_total_a
+sales_denom_sum_a = sum(sales_denom_a)
 
 tuples_cogs = [('항목', '')]
 for m in months: tuples_cogs.extend([(m, '실적금액'), (m, '매출비율')])
@@ -634,10 +635,10 @@ for i, item in enumerate(cogs_items):
     row_data = [item]
     for m_idx in range(12):
         amt = cogs_rows_a[i][m_idx]
-        ratio = (amt / sales_comb_a[m_idx]) * 100 if sales_comb_a[m_idx] != 0 else 0
+        ratio = (amt / sales_denom_a[m_idx]) * 100 if sales_denom_a[m_idx] != 0 else 0
         row_data.extend([amt, format_cell(ratio, True) if amt != 0 else ""])
     sum_amt = cogs_sums_a[i]
-    sum_ratio = (sum_amt / sales_comb_sum_a) * 100 if sales_comb_sum_a != 0 else 0
+    sum_ratio = (sum_amt / sales_denom_sum_a) * 100 if sales_denom_sum_a != 0 else 0
     row_data.extend([sum_amt, format_cell(sum_ratio, True) if sum_amt != 0 else ""])
     combined_rows_cogs.append(row_data)
 
