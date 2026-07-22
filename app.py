@@ -108,11 +108,12 @@ st.markdown("""
 [data-testid="stHeader"] { background: rgba(252,251,250,.9); }
 .block-container { max-width: 1640px; padding-top: 2.1rem; padding-bottom: 3rem; }
 .dashboard-brand {
-    display: flex; align-items: center; gap: 20px; padding: 0 0 15px;
-    margin-bottom: 2px; border-bottom: 1px solid #E2E8F0;
+    display: flex; align-items: center; gap: 20px; min-height: 62px;
+    padding: 8px 0 14px; box-sizing: border-box;
+    margin-bottom: 2px; border-bottom: 1px solid #E2E8F0; overflow: visible;
 }
 .dashboard-brand img { width: 188px; height: auto; display: block; }
-.dashboard-brand-title { color: #172033; font-size: 27px; font-weight: 750; letter-spacing: -0.8px; }
+.dashboard-brand-title { color: #172033; font-size: 27px; font-weight: 750; letter-spacing: -0.8px; line-height: 1.35; white-space: nowrap; }
 h1 {
     color: #172033 !important; font-size: 30px !important; font-weight: 750 !important;
     letter-spacing: -0.8px !important; padding-bottom: 14px !important;
