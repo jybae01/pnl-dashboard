@@ -787,15 +787,17 @@ if view_mode == "기간 설정 비교":
                 ytd_plan[18] = (ytd_plan[idx_cogs] / ytd_plan[idx_sales]) * 100
                 ytd_plan[20] = (ytd_plan[idx_gp] / ytd_plan[idx_sales]) * 100
                 ytd_plan[23] = (ytd_plan[idx_op] / ytd_plan[idx_sales]) * 100
+                ytd_plan[25] = (ytd_plan[24] / ytd_plan[idx_sales]) * 100
             else:
-                ytd_plan[18] = ytd_plan[20] = ytd_plan[23] = 0
+                ytd_plan[18] = ytd_plan[20] = ytd_plan[23] = ytd_plan[25] = 0
                 
             if ytd_actual[idx_sales] != 0:
                 ytd_actual[18] = (ytd_actual[idx_cogs] / ytd_actual[idx_sales]) * 100
                 ytd_actual[20] = (ytd_actual[idx_gp] / ytd_actual[idx_sales]) * 100
                 ytd_actual[23] = (ytd_actual[idx_op] / ytd_actual[idx_sales]) * 100
+                ytd_actual[25] = (ytd_actual[24] / ytd_actual[idx_sales]) * 100
             else:
-                ytd_actual[18] = ytd_actual[20] = ytd_actual[23] = 0
+                ytd_actual[18] = ytd_actual[20] = ytd_actual[23] = ytd_actual[25] = 0
                 
             diff_vals = [a - p for a, p in zip(ytd_actual, ytd_plan)]
             
