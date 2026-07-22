@@ -1106,3 +1106,6 @@ with tab1:
 with tab2: 
     st.markdown("**■ 8인치 BW 손익 명세**")
     render_type_table(bw_rows_a, bw_sums_a, bw_rows_p, bw_sums_p, view_mode_type, start_idx_type, end_idx_type, selected_st_type, selected_ed_type)
+
+# Item별 구분손익 표 하단 여백
+st.markdown("<div style='height: 64px;'></div>", unsafe_allow_html=True)
