@@ -555,21 +555,25 @@ cogs_total_p = sales_total_p - gp_total_p
 cogs_prod_a = cogs_total_a - (cogs_semi_a + cogs_md_a + cogs_etc_a + cogs_std_a + cogs_inv_a)
 cogs_prod_p = cogs_total_p - (cogs_semi_p + cogs_md_p + cogs_etc_p + cogs_std_p + cogs_inv_p)
 
-def calculate_annual_progress(actual_values, plan_values):
-    """누적 실적 ÷ 연간(1~12월) 전체 계획으로 진도율을 계산한다."""
-    cumulative_actual = sum(actual_values)
+actual_months = np.flatnonzero(np.asarray(sales_total_a) != 0)
+last_actual_month = actual_months[-1] if len(actual_months) else -1
+
+def calculate_progress_metrics(actual_values, plan_values, last_month):
+    """진도율은 연간 계획, 계획 대비 달성률은 실적 입력 기간의 계획을 기준으로 계산한다."""
+    cumulative_actual = sum(actual_values[:last_month + 1]) if last_month >= 0 else 0
     annual_plan = sum(plan_values)
     progress_rate = (cumulative_actual / annual_plan) * 100 if annual_plan else 0
-    variance_rate = ((cumulative_actual - annual_plan) / annual_plan) * 100 if annual_plan else 0
-    return cumulative_actual, annual_plan, progress_rate, variance_rate
+    plan_to_date = sum(plan_values[:last_month + 1]) if last_month >= 0 else 0
+    achievement_rate = (cumulative_actual / plan_to_date) * 100 if plan_to_date else 0
+    return cumulative_actual, annual_plan, progress_rate, achievement_rate
 
-total_sales_actual_sum, total_sales_plan_sum, sales_progress_rate, sales_variance_rate = calculate_annual_progress(sales_total_a, sales_total_p)
-total_op_actual_sum, total_op_plan_sum, op_progress_rate, op_variance_rate = calculate_annual_progress(op_actual, op_plan)
-total_adj_op_actual_sum, total_adj_op_plan_sum, adj_op_progress_rate, adj_op_variance_rate = calculate_annual_progress(adj_op_input_a, adj_op_input_p)
+total_sales_actual_sum, total_sales_plan_sum, sales_progress_rate, sales_achievement_rate = calculate_progress_metrics(sales_total_a, sales_total_p, last_actual_month)
+total_op_actual_sum, total_op_plan_sum, op_progress_rate, op_achievement_rate = calculate_progress_metrics(op_actual, op_plan, last_actual_month)
+total_adj_op_actual_sum, total_adj_op_plan_sum, adj_op_progress_rate, adj_op_achievement_rate = calculate_progress_metrics(adj_op_input_a, adj_op_input_p, last_actual_month)
 
-with col2: st.metric(label="매출액", value=f"{total_sales_actual_sum:,.0f} 백만원", delta=f"진도율 {sales_progress_rate:.1f}% | 계획 대비 달성률 {sales_variance_rate:+.1f}%", delta_color="normal")
-with col3: st.metric(label="영업이익", value=f"{total_op_actual_sum:,.0f} 백만원", delta=f"진도율 {op_progress_rate:.1f}% | 계획 대비 달성률 {op_variance_rate:+.1f}%", delta_color="normal")
-with col4: st.metric(label="조정 영업이익", value=f"{total_adj_op_actual_sum:,.0f} 백만원", delta=f"진도율 {adj_op_progress_rate:.1f}% | 계획 대비 달성률 {adj_op_variance_rate:+.1f}%", delta_color="normal")
+with col2: st.metric(label="매출액", value=f"{total_sales_actual_sum:,.0f} 백만원", delta=f"진도율 {sales_progress_rate:.1f}% | 계획 대비 달성률 {sales_achievement_rate:.1f}%", delta_color="normal")
+with col3: st.metric(label="영업이익", value=f"{total_op_actual_sum:,.0f} 백만원", delta=f"진도율 {op_progress_rate:.1f}% | 계획 대비 달성률 {op_achievement_rate:.1f}%", delta_color="normal")
+with col4: st.metric(label="조정 영업이익", value=f"{total_adj_op_actual_sum:,.0f} 백만원", delta=f"진도율 {adj_op_progress_rate:.1f}% | 계획 대비 달성률 {adj_op_achievement_rate:.1f}%", delta_color="normal")
 
 st.markdown("---")
 
