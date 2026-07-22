@@ -7,7 +7,7 @@ import re
 import os
 
 # 1. 페이지 기본 설정 (반드시 최상단에 위치)
-st.set_page_config(page_title="월별 손익계산서 분석표", layout="wide")
+st.set_page_config(page_title="손익계산서 조회", layout="wide")
 
 # --- [보안] 관리자 및 조회자 이중 인증 로직 ---
 try:
@@ -91,6 +91,39 @@ if not st.session_state.authenticated:
 # [HTML/CSS] 디자인 최적화 (라디오버튼 강제 중앙정렬 & YTD 표 자연스러운 간격 복구)
 st.markdown("""
 <style>
+/* 조회 화면 공통 스타일 */
+[data-testid="stAppViewContainer"] { background: #F8FAFC; }
+[data-testid="stHeader"] { background: rgba(248,250,252,.88); }
+.block-container { max-width: 1640px; padding-top: 2.1rem; padding-bottom: 3rem; }
+h1 {
+    color: #172033 !important; font-size: 30px !important; font-weight: 750 !important;
+    letter-spacing: -0.8px !important; padding-bottom: 14px !important;
+    border-bottom: 1px solid #E2E8F0;
+}
+h5 { color: #1E293B !important; font-weight: 700 !important; letter-spacing: -0.25px; }
+[data-testid="stMetric"] {
+    padding: 16px 18px; min-height: 132px; border: 1px solid #E2E8F0;
+    border-radius: 14px; background: #FFFFFF; box-shadow: 0 6px 18px rgba(15,23,42,.045);
+}
+[data-testid="stMetricLabel"] { color: #64748B !important; font-size: 13px !important; font-weight: 650 !important; }
+[data-testid="stMetricValue"] { color: #172033 !important; font-size: 24px !important; font-weight: 750 !important; }
+[data-testid="stMetricDelta"] { font-size: 12px !important; white-space: normal !important; line-height: 1.45 !important; }
+[data-testid="stSidebar"] { background: #FFFFFF; border-right: 1px solid #E2E8F0; }
+[data-testid="stSidebar"] [data-testid="stMarkdownContainer"] h3 { color: #1E3A5F; }
+.stButton > button, [data-testid="stDownloadButton"] > button {
+    border-radius: 8px; border-color: #CBD5E1; font-weight: 650; transition: all .15s ease;
+}
+.stButton > button:hover, [data-testid="stDownloadButton"] > button:hover {
+    border-color: #2563EB; color: #1D4ED8; box-shadow: 0 3px 10px rgba(37,99,235,.12);
+}
+.stTabs [data-baseweb="tab-list"] { gap: 6px; border-bottom: 1px solid #E2E8F0; }
+.stTabs [data-baseweb="tab"] {
+    height: 38px; padding: 0 15px; border-radius: 8px 8px 0 0;
+    color: #64748B; font-weight: 650;
+}
+.stTabs [aria-selected="true"] { color: #1D4ED8 !important; background: #EFF6FF; }
+hr { border-color: #E2E8F0 !important; margin: 1.4rem 0 !important; }
+
 /* 💡 라디오 버튼 그룹 강제 중앙 정렬 */
 div[role="radiogroup"] {
     display: flex !important;
@@ -214,12 +247,12 @@ def render_table_unit(unit_text, is_period_compare=False):
 def render_centered_period_selectors(months, start_key, end_key):
     """기간 비교용 선택기를 중앙의 표 바로 위에 배치한다."""
     # 중앙 열 안에서 문구와 선택 상자를 한 그룹으로 배치해 표 중심과 맞춘다.
-    # 오른쪽 여백을 더 주어 설정 그룹을 눈에 띄게 왼쪽으로 이동한다.
-    _, selector_area, _ = st.columns([0.7, 1, 1.3], gap="small")
+    # 기간 설정 그룹 전체가 중앙의 기간 비교 표와 수평 중심을 맞추도록 배치한다.
+    _, selector_area, _ = st.columns([0.9, 1, 1.1], gap="small")
     with selector_area:
         selector_cols = st.columns([1.4, 0.75, 0.15, 0.75], gap="small")
     with selector_cols[0]:
-        st.markdown("<div style='text-align: right; font-weight: 600; margin-top: 7px; white-space: nowrap; transform: translateX(-18px);'>기간 설정 :</div>", unsafe_allow_html=True)
+        st.markdown("<div style='text-align: right; font-weight: 600; margin-top: 7px; white-space: nowrap;'>기간 설정 :</div>", unsafe_allow_html=True)
     with selector_cols[1]:
         start_month = st.selectbox("시작", months, index=0, key=start_key, label_visibility="collapsed")
     with selector_cols[2]:
