@@ -1001,8 +1001,6 @@ else:
 
 view_mode_type = st.session_state["type_toggle"]
 
-render_table_unit("(단위: 백만원, pcs, 원, %)", view_mode_type == "기간 설정 비교")
-
 def build_type_pnl(qty_a, qty_p, price_a, price_p, cogs_a, cogs_p, sga_a, sga_p):
     sales_a = (qty_a * price_a) / 1000000.0
     sales_p = (qty_p * price_p) / 1000000.0
@@ -1102,9 +1100,11 @@ def render_type_table(rows_a, sums_a, rows_p, sums_p, view_mode, st_idx=0, ed_id
 tab1, tab2 = st.tabs(["8인치 SW", "8인치 BW"])
 with tab1: 
     st.markdown("**■ 8인치 SW 손익 명세**")
+    render_table_unit("(단위: 백만원, pcs, 원, %)", view_mode_type == "기간 설정 비교")
     render_type_table(sw_rows_a, sw_sums_a, sw_rows_p, sw_sums_p, view_mode_type, start_idx_type, end_idx_type, selected_st_type, selected_ed_type)
 with tab2: 
     st.markdown("**■ 8인치 BW 손익 명세**")
+    render_table_unit("(단위: 백만원, pcs, 원, %)", view_mode_type == "기간 설정 비교")
     render_type_table(bw_rows_a, bw_sums_a, bw_rows_p, bw_sums_p, view_mode_type, start_idx_type, end_idx_type, selected_st_type, selected_ed_type)
 
 # Item별 구분손익 표 하단 여백
