@@ -5,9 +5,24 @@ import plotly.graph_objects as go
 import io
 import re
 import os
+import base64
+from pathlib import Path
 
 # 1. 페이지 기본 설정 (반드시 최상단에 위치)
 st.set_page_config(page_title="손익계산서 조회", layout="wide")
+
+APP_DIR = Path(__file__).resolve().parent
+
+def image_data_uri(filename):
+    """실행 파일 옆의 브랜드 이미지를 화면에 안전하게 표시한다."""
+    image_path = APP_DIR / filename
+    if not image_path.exists():
+        return ""
+    encoded = base64.b64encode(image_path.read_bytes()).decode("utf-8")
+    return f"data:image/png;base64,{encoded}"
+
+BLACK_LOGO_URI = image_data_uri("NanoH2O_Logo@3x_Black.png")
+WHITE_LOGO_URI = image_data_uri("NanoH2O_Logo@3x_White.png")
 
 # --- [보안] 관리자 및 조회자 이중 인증 로직 ---
 try:
@@ -26,18 +41,15 @@ if not st.session_state.authenticated:
     <style>
     [data-testid="stAppViewContainer"] {
         background:
-            radial-gradient(circle at 15% 20%, rgba(59,130,246,.12), transparent 30%),
-            radial-gradient(circle at 85% 82%, rgba(16,185,129,.10), transparent 32%),
-            #F8FAFC;
+            radial-gradient(circle at 15% 20%, rgba(255,107,44,.12), transparent 30%),
+            radial-gradient(circle at 85% 82%, rgba(31,41,55,.08), transparent 32%),
+            #FCFBFA;
     }
     [data-testid="stHeader"] { background: transparent; }
     .login-hero { text-align: center; margin: 15vh 0 22px; }
-    .login-mark {
-        display: inline-flex; align-items: center; justify-content: center;
-        width: 48px; height: 48px; border-radius: 14px; margin-bottom: 12px;
-        background: linear-gradient(135deg, #2563EB, #0F766E);
-        color: white; font-size: 23px; box-shadow: 0 10px 22px rgba(37,99,235,.22);
-    }
+    .login-brand { width: 260px; margin: 0 auto 18px; padding: 17px 22px; border-radius: 14px;
+        background: linear-gradient(135deg, #111111, #303030); box-shadow: 0 10px 22px rgba(17,17,17,.18); }
+    .login-brand img { width: 100%; height: auto; display: block; }
     .login-hero h1 { margin: 0; color: #172033; font-size: 27px; letter-spacing: -.6px; }
     .login-hero p { margin: 8px 0 0; color: #64748B; font-size: 14px; }
     div[data-testid="stForm"] {
@@ -48,22 +60,22 @@ if not st.session_state.authenticated:
     div[data-testid="stForm"] input {
         height: 44px; border-radius: 9px; border-color: #CBD5E1; font-size: 14px;
     }
-    div[data-testid="stForm"] input:focus { border-color: #2563EB; box-shadow: 0 0 0 3px rgba(37,99,235,.12); }
+    div[data-testid="stForm"] input:focus { border-color: #FF6B2C; box-shadow: 0 0 0 3px rgba(255,107,44,.14); }
     div[data-testid="stForm"] div[data-testid="stFormSubmitButton"] > button,
     div[data-testid="stForm"] button[kind="secondaryFormSubmit"] {
-        height: 42px; border: 0; border-radius: 9px; background: #2563EB; color: white;
+        height: 42px; border: 0; border-radius: 9px; background: #FF6B2C; color: white;
         font-weight: 700; letter-spacing: -.1px;
     }
     div[data-testid="stForm"] div[data-testid="stFormSubmitButton"] > button:hover,
-    div[data-testid="stForm"] button[kind="secondaryFormSubmit"]:hover { background: #1D4ED8; }
+    div[data-testid="stForm"] button[kind="secondaryFormSubmit"]:hover { background: #D9551E; }
     .login-help { text-align: center; color: #94A3B8; font-size: 12px; margin-top: 14px; }
     </style>
     <div class="login-hero">
-        <div class="login-mark">▦</div>
+        <div class="login-brand"><img src="__WHITE_LOGO_URI__" alt="NanoH2O"></div>
         <h1>손익 데이터 모니터링</h1>
         <p>접속 코드를 입력하여 대시보드를 확인하세요.</p>
     </div>
-    """, unsafe_allow_html=True)
+    """.replace("__WHITE_LOGO_URI__", WHITE_LOGO_URI), unsafe_allow_html=True)
     
     col1, col2, col3 = st.columns([1, 1, 1])
     with col2:
@@ -92,9 +104,15 @@ if not st.session_state.authenticated:
 st.markdown("""
 <style>
 /* 조회 화면 공통 스타일 */
-[data-testid="stAppViewContainer"] { background: #F8FAFC; }
-[data-testid="stHeader"] { background: rgba(248,250,252,.88); }
+[data-testid="stAppViewContainer"] { background: #FCFBFA; }
+[data-testid="stHeader"] { background: rgba(252,251,250,.9); }
 .block-container { max-width: 1640px; padding-top: 2.1rem; padding-bottom: 3rem; }
+.dashboard-brand {
+    display: flex; align-items: center; gap: 20px; padding: 0 0 15px;
+    margin-bottom: 2px; border-bottom: 1px solid #E2E8F0;
+}
+.dashboard-brand img { width: 188px; height: auto; display: block; }
+.dashboard-brand-title { color: #172033; font-size: 27px; font-weight: 750; letter-spacing: -0.8px; }
 h1 {
     color: #172033 !important; font-size: 30px !important; font-weight: 750 !important;
     letter-spacing: -0.8px !important; padding-bottom: 14px !important;
@@ -109,19 +127,19 @@ h5 { color: #1E293B !important; font-weight: 700 !important; letter-spacing: -0.
 [data-testid="stMetricValue"] { color: #172033 !important; font-size: 24px !important; font-weight: 750 !important; }
 [data-testid="stMetricDelta"] { font-size: 12px !important; white-space: normal !important; line-height: 1.45 !important; }
 [data-testid="stSidebar"] { background: #FFFFFF; border-right: 1px solid #E2E8F0; }
-[data-testid="stSidebar"] [data-testid="stMarkdownContainer"] h3 { color: #1E3A5F; }
+[data-testid="stSidebar"] [data-testid="stMarkdownContainer"] h3 { color: #242424; }
 .stButton > button, [data-testid="stDownloadButton"] > button {
     border-radius: 8px; border-color: #CBD5E1; font-weight: 650; transition: all .15s ease;
 }
 .stButton > button:hover, [data-testid="stDownloadButton"] > button:hover {
-    border-color: #2563EB; color: #1D4ED8; box-shadow: 0 3px 10px rgba(37,99,235,.12);
+    border-color: #FF6B2C; color: #D9551E; box-shadow: 0 3px 10px rgba(255,107,44,.14);
 }
 .stTabs [data-baseweb="tab-list"] { gap: 6px; border-bottom: 1px solid #E2E8F0; }
 .stTabs [data-baseweb="tab"] {
     height: 38px; padding: 0 15px; border-radius: 8px 8px 0 0;
     color: #64748B; font-weight: 650;
 }
-.stTabs [aria-selected="true"] { color: #1D4ED8 !important; background: #EFF6FF; }
+.stTabs [aria-selected="true"] { color: #D9551E !important; background: #FFF0E9; }
 hr { border-color: #E2E8F0 !important; margin: 1.4rem 0 !important; }
 
 /* 💡 라디오 버튼 그룹 강제 중앙 정렬 */
@@ -189,10 +207,10 @@ div[data-baseweb="select"] div[role="combobox"] input {
 #toggle-sales:checked ~ table tr:has(.child-sales) { display: table-row; }
 #toggle-cogs:checked ~ table tr:has(.child-cogs) { display: table-row; }
 
-.icon-qty::before, .icon-sales::before, .icon-cogs::before { content: "[+]"; color: #3B82F6; font-weight: 900; margin-right: 6px; display: inline-block; width: 18px; }
-#toggle-qty:checked ~ table .icon-qty::before { content: "[-]"; color: #EF4444; }
-#toggle-sales:checked ~ table .icon-sales::before { content: "[-]"; color: #EF4444; }
-#toggle-cogs:checked ~ table .icon-cogs::before { content: "[-]"; color: #EF4444; }
+.icon-qty::before, .icon-sales::before, .icon-cogs::before { content: "[+]"; color: #FF6B2C; font-weight: 900; margin-right: 6px; display: inline-block; width: 18px; }
+#toggle-qty:checked ~ table .icon-qty::before { content: "[-]"; color: #242424; }
+#toggle-sales:checked ~ table .icon-sales::before { content: "[-]"; color: #242424; }
+#toggle-cogs:checked ~ table .icon-cogs::before { content: "[-]"; color: #242424; }
 
 label[for="toggle-qty"], label[for="toggle-sales"], label[for="toggle-cogs"] { cursor: pointer; margin: 0; display: block; width: 100%; }
 </style>
@@ -366,7 +384,10 @@ if st.session_state.role == "admin":
         st.rerun()
 
 # --- 상단 헤더 및 연도 선택 ---
-st.title("손익계산서 조회") 
+st.markdown(
+    f'<div class="dashboard-brand"><img src="{BLACK_LOGO_URI}" alt="NanoH2O"><span class="dashboard-brand-title">손익계산서 조회</span></div>',
+    unsafe_allow_html=True,
+)
 
 available_years = ["2026년"]
 if os.path.exists("saved_plan_2025.xlsx") or os.path.exists("saved_actual_2025.xlsx"):
@@ -616,8 +637,8 @@ with col_sales_title: st.markdown("##### 📈 월별 매출액 추이")
 with col_sales_unit: st.markdown("<div style='text-align: right; font-size: 12px; font-weight: bold; color: #4B5563; margin-top: 10px;'>(단위: 백만원)</div>", unsafe_allow_html=True)
 
 fig_sales = go.Figure()
-fig_sales.add_trace(go.Bar(x=months, y=sales_total_p, name='계획 (Plan)', marker_color='#E5E7EB', text=[f"{val:,.0f}" if val!=0 else "" for val in sales_total_p], textposition='inside', insidetextanchor='end', textfont=dict(size=11, color='#6B7280'))) 
-fig_sales.add_trace(go.Bar(x=months, y=sales_total_a, name='실적 (Actual)', marker_color='#10B981', text=[f"{val:,.0f}" if val!=0 else "" for val in sales_total_a], textposition='outside', cliponaxis=False, textfont=dict(size=12, color='black', weight='bold'))) 
+fig_sales.add_trace(go.Bar(x=months, y=sales_total_p, name='계획 (Plan)', marker_color='#D8DEE8', text=[f"{val:,.0f}" if val!=0 else "" for val in sales_total_p], textposition='inside', insidetextanchor='end', textfont=dict(size=11, color='#64748B'))) 
+fig_sales.add_trace(go.Bar(x=months, y=sales_total_a, name='실적 (Actual)', marker_color='#FF7A45', text=[f"{val:,.0f}" if val!=0 else "" for val in sales_total_a], textposition='outside', cliponaxis=False, textfont=dict(size=12, color='#1F2937', weight='bold'))) 
 
 max_bar_sales = max(max(sales_total_p), max(sales_total_a)) if len(sales_total_p)>0 else 100
 min_bar_sales = min(min(sales_total_p), min(sales_total_a)) if len(sales_total_p)>0 else 0
@@ -645,9 +666,9 @@ for i in range(12):
     if sales_total_a[i] != 0:
         op_margin_actual[i] = (op_actual[i] / sales_total_a[i]) * 100
 
-fig_op.add_trace(go.Bar(x=months, y=op_plan, name='계획 (Plan)', marker_color='#F3F4F6', yaxis='y1', text=[f"{val:,.0f}" if val!=0 else "" for val in op_plan], textposition='inside', insidetextanchor='end', textfont=dict(size=11, color='#9CA3AF'))) 
-fig_op.add_trace(go.Bar(x=months, y=op_actual, name='실적 (Actual)', marker_color=['#F43F5E' if val >= 0 else '#3B82F6' for val in op_actual], yaxis='y1', text=[f"{val:,.0f}" if val!=0 else "" for val in op_actual], textposition='outside', cliponaxis=False, textfont=dict(size=12, color='black', weight='bold'))) 
-fig_op.add_trace(go.Scatter(x=months, y=op_margin_actual, name='영업이익률(%)', mode='lines+markers+text', text=[f"{val:.1f}%" if val!=0 and not pd.isna(val) and not np.isinf(val) else "" for val in op_margin_actual], textposition='top center', cliponaxis=False, textfont=dict(size=13, color='#4338CA', weight='bold'), marker=dict(color='white', size=10, line=dict(color='#4338CA', width=2.5)), line=dict(color='#4338CA', width=3, shape='spline'), yaxis='y2'))
+fig_op.add_trace(go.Bar(x=months, y=op_plan, name='계획 (Plan)', marker_color='#E2E8F0', yaxis='y1', text=[f"{val:,.0f}" if val!=0 else "" for val in op_plan], textposition='inside', insidetextanchor='end', textfont=dict(size=11, color='#94A3B8'))) 
+fig_op.add_trace(go.Bar(x=months, y=op_actual, name='실적 (Actual)', marker_color=['#6366F1' if val >= 0 else '#94A3B8' for val in op_actual], yaxis='y1', text=[f"{val:,.0f}" if val!=0 else "" for val in op_actual], textposition='outside', cliponaxis=False, textfont=dict(size=12, color='#1F2937', weight='bold'))) 
+fig_op.add_trace(go.Scatter(x=months, y=op_margin_actual, name='영업이익률(%)', mode='lines+markers+text', text=[f"{val:.1f}%" if val!=0 and not pd.isna(val) and not np.isinf(val) else "" for val in op_margin_actual], textposition='top center', cliponaxis=False, textfont=dict(size=13, color='#F59E0B', weight='bold'), marker=dict(color='white', size=10, line=dict(color='#F59E0B', width=2.5)), line=dict(color='#F59E0B', width=3, shape='spline'), yaxis='y2'))
 
 max_bar = max(max(op_plan), max(op_actual)) if len(op_plan)>0 else 100
 min_bar = min(min(op_plan), min(op_actual)) if len(op_plan)>0 else 0
@@ -677,9 +698,9 @@ for i in range(12):
         adj_op_margin_actual[i] = (adj_op_actual[i] / sales_total_a[i]) * 100
 
 fig_adj_op = go.Figure()
-fig_adj_op.add_trace(go.Bar(x=months, y=adj_op_plan, name='계획 (Plan)', marker_color='#E5E7EB', text=[f"{val:,.0f}" if val!=0 else "" for val in adj_op_plan], textposition='inside', insidetextanchor='end', textfont=dict(size=11, color='#9CA3AF'))) 
+fig_adj_op.add_trace(go.Bar(x=months, y=adj_op_plan, name='계획 (Plan)', marker_color='#E2E8F0', text=[f"{val:,.0f}" if val!=0 else "" for val in adj_op_plan], textposition='inside', insidetextanchor='end', textfont=dict(size=11, color='#94A3B8'))) 
 # 조정 영업이익 바 차트 색상: 오렌지(흑자) / 스카이블루(적자)
-fig_adj_op.add_trace(go.Bar(x=months, y=adj_op_actual, name='실적 (Actual)', marker_color=['#F97316' if val >= 0 else '#0EA5E9' for val in adj_op_actual], yaxis='y1', text=[f"{val:,.0f}" if val!=0 else "" for val in adj_op_actual], textposition='outside', cliponaxis=False, textfont=dict(size=12, color='black', weight='bold'))) 
+fig_adj_op.add_trace(go.Bar(x=months, y=adj_op_actual, name='실적 (Actual)', marker_color=['#14B8A6' if val >= 0 else '#94A3B8' for val in adj_op_actual], yaxis='y1', text=[f"{val:,.0f}" if val!=0 else "" for val in adj_op_actual], textposition='outside', cliponaxis=False, textfont=dict(size=12, color='#1F2937', weight='bold'))) 
 fig_adj_op.add_trace(go.Scatter(x=months, y=adj_op_margin_actual, name='조정 영업이익률(%)', mode='lines+markers+text', text=[f"{val:.1f}%" if val!=0 and not pd.isna(val) and not np.isinf(val) else "" for val in adj_op_margin_actual], textposition='top center', cliponaxis=False, textfont=dict(size=13, color='#8B5CF6', weight='bold'), marker=dict(color='white', size=10, line=dict(color='#8B5CF6', width=2.5)), line=dict(color='#8B5CF6', width=3, shape='spline'), yaxis='y2'))
 
 max_bar_adj = max(max(adj_op_plan), max(adj_op_actual)) if len(adj_op_plan)>0 else 100
