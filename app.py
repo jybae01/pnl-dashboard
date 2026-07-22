@@ -102,6 +102,12 @@ div[role="radiogroup"] {
 div[data-baseweb="select"] {
     font-size: 13px !important;
 }
+div[data-baseweb="select"] div[role="combobox"] {
+    justify-content: center !important;
+}
+div[data-baseweb="select"] div[role="combobox"] input {
+    text-align: center !important;
+}
 
 .custom-tbl { 
     width: 100%; min-width: 1100px; border-collapse: collapse; font-size: 13px; 
@@ -333,7 +339,7 @@ available_years = ["2026년"]
 if os.path.exists("saved_plan_2025.xlsx") or os.path.exists("saved_actual_2025.xlsx"):
     available_years.append("2025년")
 
-col1, col2, col3 = st.columns(3)
+col1, col2, col3, col4 = st.columns(4)
 with col1:
     inner_col1, inner_col2 = st.columns([1, 1])
     with inner_col1: selected_year = st.selectbox("연도", available_years)
@@ -549,16 +555,21 @@ cogs_total_p = sales_total_p - gp_total_p
 cogs_prod_a = cogs_total_a - (cogs_semi_a + cogs_md_a + cogs_etc_a + cogs_std_a + cogs_inv_a)
 cogs_prod_p = cogs_total_p - (cogs_semi_p + cogs_md_p + cogs_etc_p + cogs_std_p + cogs_inv_p)
 
-total_sales_actual_sum = sum(sales_total_a)
-total_sales_plan_sum = sum(sales_total_p)
-sales_achieve_rate = (total_sales_actual_sum / total_sales_plan_sum) * 100 if total_sales_plan_sum else 0
+def calculate_annual_progress(actual_values, plan_values):
+    """누적 실적 ÷ 연간(1~12월) 전체 계획으로 진도율을 계산한다."""
+    cumulative_actual = sum(actual_values)
+    annual_plan = sum(plan_values)
+    progress_rate = (cumulative_actual / annual_plan) * 100 if annual_plan else 0
+    variance_rate = ((cumulative_actual - annual_plan) / annual_plan) * 100 if annual_plan else 0
+    return cumulative_actual, annual_plan, progress_rate, variance_rate
 
-total_op_actual_sum = sum(op_actual)
-total_op_plan_sum = sum(op_plan)
-op_achieve_rate = (total_op_actual_sum / total_op_plan_sum) * 100 if total_op_plan_sum else 0
+total_sales_actual_sum, total_sales_plan_sum, sales_progress_rate, sales_variance_rate = calculate_annual_progress(sales_total_a, sales_total_p)
+total_op_actual_sum, total_op_plan_sum, op_progress_rate, op_variance_rate = calculate_annual_progress(op_actual, op_plan)
+total_adj_op_actual_sum, total_adj_op_plan_sum, adj_op_progress_rate, adj_op_variance_rate = calculate_annual_progress(adj_op_input_a, adj_op_input_p)
 
-with col2: st.metric(label="매출액", value=f"{total_sales_actual_sum:,.0f} 백만원", delta=f"달성률 {sales_achieve_rate:.1f}%", delta_color="normal")
-with col3: st.metric(label="영업이익", value=f"{total_op_actual_sum:,.0f} 백만원", delta=f"달성률 {op_achieve_rate:.1f}%", delta_color="normal")
+with col2: st.metric(label="매출액", value=f"{total_sales_actual_sum:,.0f} 백만원", delta=f"진도율 {sales_progress_rate:.1f}% | 계획 대비 달성률 {sales_variance_rate:+.1f}%", delta_color="normal")
+with col3: st.metric(label="영업이익", value=f"{total_op_actual_sum:,.0f} 백만원", delta=f"진도율 {op_progress_rate:.1f}% | 계획 대비 달성률 {op_variance_rate:+.1f}%", delta_color="normal")
+with col4: st.metric(label="조정 영업이익", value=f"{total_adj_op_actual_sum:,.0f} 백만원", delta=f"진도율 {adj_op_progress_rate:.1f}% | 계획 대비 달성률 {adj_op_variance_rate:+.1f}%", delta_color="normal")
 
 st.markdown("---")
 
