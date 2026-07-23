@@ -24,6 +24,57 @@ def image_data_uri(filename):
 BLACK_LOGO_URI = image_data_uri("NanoH2O_Logo@3x_Black.png")
 WHITE_LOGO_URI = image_data_uri("NanoH2O_Logo@3x_White.png")
 
+SUPABASE_BUCKET = "mis-dashboard-data"
+
+def get_supabase_client():
+    """Supabase Secrets가 설정된 경우에만 영구 저장소 클라이언트를 만든다."""
+    try:
+        from supabase import create_client
+        url = st.secrets.get("SUPABASE_URL")
+        service_key = st.secrets.get("SUPABASE_SECRET_KEY") or st.secrets.get("SUPABASE_SERVICE_ROLE_KEY")
+        if not url or not service_key:
+            return None
+        return create_client(url, service_key)
+    except Exception:
+        return None
+
+def save_uploaded_data(filename, file_bytes):
+    """배포 환경에서는 Supabase Storage, 로컬에서는 파일 시스템에 저장한다."""
+    client = get_supabase_client()
+    if client:
+        client.storage.from_(SUPABASE_BUCKET).upload(
+            filename,
+            file_bytes,
+            {"content-type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", "upsert": "true"},
+        )
+        return "Supabase Storage"
+    with open(filename, "wb") as file:
+        file.write(file_bytes)
+    return "로컬 저장소"
+
+def load_saved_data(filename):
+    """저장된 엑셀 원본을 바이트로 불러온다."""
+    client = get_supabase_client()
+    if client:
+        try:
+            return client.storage.from_(SUPABASE_BUCKET).download(filename)
+        except Exception:
+            return None
+    if os.path.exists(filename):
+        with open(filename, "rb") as file:
+            return file.read()
+    return None
+
+def delete_saved_data(filename):
+    client = get_supabase_client()
+    if client:
+        try:
+            client.storage.from_(SUPABASE_BUCKET).remove([filename])
+        except Exception:
+            pass
+    elif os.path.exists(filename):
+        os.remove(filename)
+
 # --- [보안] 관리자 및 조회자 이중 인증 로직 ---
 try:
     VIEWER_CODE = st.secrets["VIEWER_CODE"]   
@@ -370,18 +421,16 @@ if st.session_state.role == "admin":
     actual_file = st.sidebar.file_uploader("📤 2. 실적(Actual) 업로드", type=['xlsx'])
 
     if plan_file is not None:
-        with open("saved_plan.xlsx", "wb") as f:
-            f.write(plan_file.getbuffer())
-        st.sidebar.success("✅ 계획 데이터가 서버에 배포되었습니다.")
+        storage_name = save_uploaded_data("saved_plan.xlsx", plan_file.getvalue())
+        st.sidebar.success(f"✅ 계획 데이터가 {storage_name}에 저장되었습니다.")
 
     if actual_file is not None:
-        with open("saved_actual.xlsx", "wb") as f:
-            f.write(actual_file.getbuffer())
-        st.sidebar.success("✅ 실적 데이터가 서버에 배포되었습니다.")
+        storage_name = save_uploaded_data("saved_actual.xlsx", actual_file.getvalue())
+        st.sidebar.success(f"✅ 실적 데이터가 {storage_name}에 저장되었습니다.")
 
     if st.sidebar.button("🗑️ 서버 데이터 초기화 (더미로 복구)"):
-        if os.path.exists("saved_plan.xlsx"): os.remove("saved_plan.xlsx")
-        if os.path.exists("saved_actual.xlsx"): os.remove("saved_actual.xlsx")
+        delete_saved_data("saved_plan.xlsx")
+        delete_saved_data("saved_actual.xlsx")
         st.rerun()
 
 # --- 상단 헤더 및 연도 선택 ---
@@ -493,9 +542,10 @@ sga_sw_a = ((qty_sw_a*price_sw_a)/1000000.0) * np.random.uniform(0.1, 0.15, 12);
 sga_bw_a = ((qty_bw_a*price_bw_a)/1000000.0) * np.random.uniform(0.1, 0.15, 12);   sga_bw_p = ((qty_bw_p*price_bw_p)/1000000.0) * 0.12
 
 # (2) 계획 파일 파싱
-if os.path.exists("saved_plan.xlsx"):
+plan_blob = load_saved_data("saved_plan.xlsx")
+if plan_blob:
     try:
-        df_p = pd.read_excel("saved_plan.xlsx", header=None)
+        df_p = pd.read_excel(io.BytesIO(plan_blob), header=None)
         qty_sw_p = safe_extract('SW수량입력', df_p, 'qty'); qty_bw_p = safe_extract('BW수량입력', df_p, 'qty')
         qty_ls_p = safe_extract('LS수량입력', df_p, 'qty'); qty_fs_p = safe_extract('FS수량입력', df_p, 'qty')
         price_sw_p = safe_extract('SW단가입력', df_p, 'qty'); price_bw_p = safe_extract('BW단가입력', df_p, 'qty')
@@ -538,9 +588,10 @@ if os.path.exists("saved_plan.xlsx"):
     except Exception as e: st.error(f"계획 엑셀 파일 파싱 오류: {e}")
 
 # (3) 실적 파일 파싱
-if os.path.exists("saved_actual.xlsx"):
+actual_blob = load_saved_data("saved_actual.xlsx")
+if actual_blob:
     try:
-        df_a = pd.read_excel("saved_actual.xlsx", header=None)
+        df_a = pd.read_excel(io.BytesIO(actual_blob), header=None)
         qty_sw_a = safe_extract('SW수량입력', df_a, 'qty'); qty_bw_a = safe_extract('BW수량입력', df_a, 'qty')
         qty_ls_a = safe_extract('LS수량입력', df_a, 'qty'); qty_fs_a = safe_extract('FS수량입력', df_a, 'qty')
         price_sw_a = safe_extract('SW단가입력', df_a, 'qty'); price_bw_a = safe_extract('BW단가입력', df_a, 'qty')
