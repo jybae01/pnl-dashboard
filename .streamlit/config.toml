@@ -1,0 +1,11 @@
+[server]
+maxUploadSize = 10
+enableXsrfProtection = true
+enableCORS = true
+
+[client]
+showErrorDetails = "none"
+toolbarMode = "viewer"
+
+[browser]
+gatherUsageStats = false
