@@ -429,10 +429,10 @@ if st.session_state.role == "admin":
         except StorageError as exc:
             st.sidebar.error(str(exc))
 
-st.sidebar.markdown("---")
-if st.sidebar.button("로그아웃", use_container_width=True):
-    st.session_state.clear()
-    st.rerun()
+    st.sidebar.markdown("---")
+    if st.sidebar.button("로그아웃", use_container_width=True):
+        st.session_state.clear()
+        st.rerun()
 
 # --- 상단 헤더 및 연도 선택 ---
 st.markdown(
