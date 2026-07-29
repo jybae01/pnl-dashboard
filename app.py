@@ -3,15 +3,31 @@ import pandas as pd
 import numpy as np
 import plotly.graph_objects as go
 import io
+import logging
 import re
-import os
 import base64
 from pathlib import Path
+
+from forecast_dashboard.security import (
+    clear_login_failures,
+    load_credentials,
+    lockout_remaining,
+    register_failed_attempt,
+    verify_access_code,
+)
+from forecast_dashboard.storage import (
+    StorageError,
+    delete_saved_data,
+    load_saved_data,
+    save_uploaded_data,
+)
+from forecast_dashboard.workbooks import read_workbook, safe_extract
 
 # 1. 페이지 기본 설정 (반드시 최상단에 위치)
 st.set_page_config(page_title="손익계산서 조회", layout="wide")
 
 APP_DIR = Path(__file__).resolve().parent
+LOGGER = logging.getLogger(__name__)
 
 def image_data_uri(filename):
     """실행 파일 옆의 브랜드 이미지를 화면에 안전하게 표시한다."""
@@ -24,64 +40,12 @@ def image_data_uri(filename):
 BLACK_LOGO_URI = image_data_uri("NanoH2O_Logo@3x_Black.png")
 WHITE_LOGO_URI = image_data_uri("NanoH2O_Logo@3x_White.png")
 
-SUPABASE_BUCKET = "mis-dashboard-data"
-
-def get_supabase_client():
-    """Supabase Secrets가 설정된 경우에만 영구 저장소 클라이언트를 만든다."""
-    try:
-        from supabase import create_client
-        url = st.secrets.get("SUPABASE_URL")
-        service_key = st.secrets.get("SUPABASE_SECRET_KEY") or st.secrets.get("SUPABASE_SERVICE_ROLE_KEY")
-        if not url or not service_key:
-            return None
-        return create_client(url, service_key)
-    except Exception:
-        return None
-
-def save_uploaded_data(filename, file_bytes):
-    """배포 환경에서는 Supabase Storage, 로컬에서는 파일 시스템에 저장한다."""
-    client = get_supabase_client()
-    if client:
-        client.storage.from_(SUPABASE_BUCKET).upload(
-            filename,
-            file_bytes,
-            {"content-type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", "upsert": "true"},
-        )
-        return "Supabase Storage"
-    with open(filename, "wb") as file:
-        file.write(file_bytes)
-    return "로컬 저장소"
-
-def load_saved_data(filename):
-    """저장된 엑셀 원본을 바이트로 불러온다."""
-    client = get_supabase_client()
-    if client:
-        try:
-            return client.storage.from_(SUPABASE_BUCKET).download(filename)
-        except Exception:
-            return None
-    if os.path.exists(filename):
-        with open(filename, "rb") as file:
-            return file.read()
-    return None
-
-def delete_saved_data(filename):
-    client = get_supabase_client()
-    if client:
-        try:
-            client.storage.from_(SUPABASE_BUCKET).remove([filename])
-        except Exception:
-            pass
-    elif os.path.exists(filename):
-        os.remove(filename)
-
-# --- [보안] 관리자 및 조회자 이중 인증 로직 ---
 try:
-    VIEWER_CODE = st.secrets["VIEWER_CODE"]   
-    ADMIN_CODE = st.secrets["ADMIN_CODE"]     
-except Exception:
-    VIEWER_CODE = "2026!"
-    ADMIN_CODE = "admin!"
+    ACCESS_CREDENTIALS = load_credentials(st.secrets)
+except Exception as exc:
+    st.error("접속 보안 설정이 완료되지 않았습니다. 관리자에게 문의해 주세요.")
+    LOGGER.error("Invalid authentication configuration: %s", exc)
+    st.stop()
 
 if "authenticated" not in st.session_state:
     st.session_state.authenticated = False
@@ -135,16 +99,22 @@ if not st.session_state.authenticated:
             submitted = st.form_submit_button("접속", use_container_width=True)
             
             if submitted:
-                if entered_code == VIEWER_CODE:
-                    st.session_state.authenticated = True
-                    st.session_state.role = "viewer"
-                    st.rerun()
-                elif entered_code == ADMIN_CODE:
-                    st.session_state.authenticated = True
-                    st.session_state.role = "admin"
-                    st.rerun()
+                remaining = lockout_remaining(st.session_state)
+                if remaining:
+                    st.error(f"로그인 시도가 잠시 제한되었습니다. {remaining}초 후 다시 시도해 주세요.")
                 else:
-                    st.error("⚠️ 접속 코드가 일치하지 않습니다.")
+                    role = verify_access_code(entered_code, ACCESS_CREDENTIALS)
+                    if role:
+                        clear_login_failures(st.session_state)
+                        st.session_state.authenticated = True
+                        st.session_state.role = role
+                        st.rerun()
+                    register_failed_attempt(st.session_state)
+                    remaining = lockout_remaining(st.session_state)
+                    if remaining:
+                        st.error(f"로그인 시도가 잠시 제한되었습니다. {remaining}초 후 다시 시도해 주세요.")
+                    else:
+                        st.error("⚠️ 접속 코드가 일치하지 않습니다.")
         st.markdown("<div class='login-help'>권한이 필요한 경우 관리자에게 문의해 주세요.</div>", unsafe_allow_html=True)
     
     st.stop()
@@ -333,6 +303,34 @@ def render_centered_period_selectors(months, start_key, end_key):
 
 months = [f"{i}월" for i in range(1, 13)]
 
+
+@st.cache_data(show_spinner=False)
+def build_excel_template(format_items, month_labels):
+    rows = []
+    for row in format_items:
+        if row[0] == "★손익계산서":
+            rows.append(["구분", "입력 항목", "입력 키", *month_labels])
+        else:
+            rows.append([row[0], f"{row[1]} · {row[2]}", row[3], *([None] * 12)])
+
+    output = io.BytesIO()
+    with pd.ExcelWriter(output, engine="openpyxl") as writer:
+        pd.DataFrame(rows).to_excel(writer, index=False, header=False, sheet_name="Sheet1")
+        from openpyxl.styles import Font, PatternFill
+
+        worksheet = writer.sheets["Sheet1"]
+        for col, width in zip(["A", "B", "C"], [18, 28, 22]):
+            worksheet.column_dimensions[col].width = width
+        for col in range(4, 16):
+            column_letter = worksheet.cell(row=1, column=col).column_letter
+            worksheet.column_dimensions[column_letter].width = 12
+        header_fill = PatternFill(start_color="E5E7EB", end_color="E5E7EB", fill_type="solid")
+        for cell in worksheet[1]:
+            cell.fill = header_fill
+            cell.font = Font(bold=True)
+        worksheet.freeze_panes = "D2"
+    return output.getvalue()
+
 # --- 사이드바 (관리자 전용 데이터 업로드 및 양식 다운로드) ---
 if st.session_state.role == "admin":
     st.sidebar.markdown("### 📁 데이터 연동 관리 (Admin)")
@@ -387,31 +385,11 @@ if st.session_state.role == "admin":
         ('참고데이터', 'Item별 판관비', '8인치 BW', '8인치 BW 판관비'),
     ]
 
-    tpl_rows = []
-    for row in original_format_items:
-        if row[0] == '★손익계산서':
-            tpl_rows.append(['구분', '입력 항목', '입력 키'] + months)
-        else:
-            tpl_rows.append([row[0], f'{row[1]} · {row[2]}', row[3]] + [None]*12)
-
-    df_template = pd.DataFrame(tpl_rows)
-
-    buffer = io.BytesIO()
-    with pd.ExcelWriter(buffer, engine='openpyxl') as writer:
-        df_template.to_excel(writer, index=False, header=False, sheet_name='Sheet1')
-        try:
-            from openpyxl.styles import PatternFill, Font
-            worksheet = writer.sheets['Sheet1']
-            for col, width in zip(['A','B','C'], [18, 28, 22]): worksheet.column_dimensions[col].width = width
-            for col in range(4, 16): worksheet.column_dimensions[worksheet.cell(row=1, column=col).column_letter].width = 12
-            header_fill = PatternFill(start_color="E5E7EB", end_color="E5E7EB", fill_type="solid")
-            for cell in worksheet[1]: cell.fill = header_fill; cell.font = Font(bold=True)
-            worksheet.freeze_panes = 'D2'
-        except: pass
+    template_bytes = build_excel_template(tuple(original_format_items), tuple(months))
 
     st.sidebar.download_button(
         label="📥 엑셀 양식 다운로드",
-        data=buffer.getvalue(),
+        data=template_bytes,
         file_name="손익계산서_입력양식.xlsx",
         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
     )
@@ -420,18 +398,41 @@ if st.session_state.role == "admin":
     plan_file = st.sidebar.file_uploader("📤 1. 계획(Plan) 업로드", type=['xlsx'])
     actual_file = st.sidebar.file_uploader("📤 2. 실적(Actual) 업로드", type=['xlsx'])
 
-    if plan_file is not None:
-        storage_name = save_uploaded_data("saved_plan.xlsx", plan_file.getvalue())
-        st.sidebar.success(f"✅ 계획 데이터가 {storage_name}에 저장되었습니다.")
+    if st.sidebar.button("계획 데이터 저장", disabled=plan_file is None, use_container_width=True):
+        try:
+            storage_name = save_uploaded_data(
+                "saved_plan.xlsx", plan_file.getvalue(), app_dir=APP_DIR, secrets=st.secrets
+            )
+            st.sidebar.success(f"✅ 계획 데이터가 {storage_name}에 저장되었습니다.")
+        except StorageError as exc:
+            st.sidebar.error(str(exc))
 
-    if actual_file is not None:
-        storage_name = save_uploaded_data("saved_actual.xlsx", actual_file.getvalue())
-        st.sidebar.success(f"✅ 실적 데이터가 {storage_name}에 저장되었습니다.")
+    if st.sidebar.button("실적 데이터 저장", disabled=actual_file is None, use_container_width=True):
+        try:
+            storage_name = save_uploaded_data(
+                "saved_actual.xlsx", actual_file.getvalue(), app_dir=APP_DIR, secrets=st.secrets
+            )
+            st.sidebar.success(f"✅ 실적 데이터가 {storage_name}에 저장되었습니다.")
+        except StorageError as exc:
+            st.sidebar.error(str(exc))
 
-    if st.sidebar.button("🗑️ 서버 데이터 초기화 (더미로 복구)"):
-        delete_saved_data("saved_plan.xlsx")
-        delete_saved_data("saved_actual.xlsx")
-        st.rerun()
+    confirm_reset = st.sidebar.checkbox("저장된 계획·실적 데이터 삭제에 동의")
+    if st.sidebar.button(
+        "🗑️ 서버 데이터 초기화 (더미로 복구)",
+        disabled=not confirm_reset,
+        use_container_width=True,
+    ):
+        try:
+            delete_saved_data("saved_plan.xlsx", app_dir=APP_DIR, secrets=st.secrets)
+            delete_saved_data("saved_actual.xlsx", app_dir=APP_DIR, secrets=st.secrets)
+            st.rerun()
+        except StorageError as exc:
+            st.sidebar.error(str(exc))
+
+st.sidebar.markdown("---")
+if st.sidebar.button("로그아웃", use_container_width=True):
+    st.session_state.clear()
+    st.rerun()
 
 # --- 상단 헤더 및 연도 선택 ---
 st.markdown(
@@ -440,31 +441,11 @@ st.markdown(
 )
 
 available_years = ["2026년"]
-if os.path.exists("saved_plan_2025.xlsx") or os.path.exists("saved_actual_2025.xlsx"):
-    available_years.append("2025년")
 
 col1, col2, col3, col4 = st.columns(4)
 with col1:
     inner_col1, inner_col2 = st.columns([1, 1])
     with inner_col1: selected_year = st.selectbox("연도", available_years)
-
-# --- 데이터 파싱 로직 ---
-def extract_series(keyword, df_data):
-    # 간소화 양식(A~C 정보 열)과 기존 양식(A~D 정보 열)을 모두 지원한다.
-    col_start = 4 if df_data.shape[1] >= 16 else 3
-    for idx, row in df_data.iterrows():
-        if keyword in str(row[2]) or keyword in str(row[3]):
-            return pd.to_numeric(row[col_start:col_start+12], errors='coerce').fillna(0).values
-    return None
-
-def safe_extract(keyword, df_data, unit='money', default_val=None):
-    res = extract_series(keyword, df_data)
-    if res is not None:
-        if unit == 'money': return res / 1000000.0
-        return res
-    if default_val is not None:
-        return default_val
-    return np.zeros(12)
 
 # (1) 샘플 더미 데이터 세팅 
 np.random.seed(42)
@@ -542,10 +523,15 @@ sga_sw_a = ((qty_sw_a*price_sw_a)/1000000.0) * np.random.uniform(0.1, 0.15, 12);
 sga_bw_a = ((qty_bw_a*price_bw_a)/1000000.0) * np.random.uniform(0.1, 0.15, 12);   sga_bw_p = ((qty_bw_p*price_bw_p)/1000000.0) * 0.12
 
 # (2) 계획 파일 파싱
-plan_blob = load_saved_data("saved_plan.xlsx")
+try:
+    plan_blob = load_saved_data("saved_plan.xlsx", app_dir=APP_DIR, secrets=st.secrets)
+except StorageError:
+    LOGGER.exception("Unable to load the saved plan workbook")
+    st.error("저장된 계획 파일을 불러오지 못했습니다. 관리자에게 문의해 주세요.")
+    plan_blob = None
 if plan_blob:
     try:
-        df_p = pd.read_excel(io.BytesIO(plan_blob), header=None)
+        df_p = read_workbook(plan_blob)
         qty_sw_p = safe_extract('SW수량입력', df_p, 'qty'); qty_bw_p = safe_extract('BW수량입력', df_p, 'qty')
         qty_ls_p = safe_extract('LS수량입력', df_p, 'qty'); qty_fs_p = safe_extract('FS수량입력', df_p, 'qty')
         price_sw_p = safe_extract('SW단가입력', df_p, 'qty'); price_bw_p = safe_extract('BW단가입력', df_p, 'qty')
@@ -585,13 +571,20 @@ if plan_blob:
         cogs_bw_p = safe_extract('8인치 BW 매출원가', df_p, 'money', (qty_bw_p*price_bw_p/1000000.0)*0.65)
         sga_sw_p = safe_extract('8인치 SW 판관비', df_p, 'money', (qty_sw_p*price_sw_p/1000000.0)*0.12)
         sga_bw_p = safe_extract('8인치 BW 판관비', df_p, 'money', (qty_bw_p*price_bw_p/1000000.0)*0.12)
-    except Exception as e: st.error(f"계획 엑셀 파일 파싱 오류: {e}")
+    except Exception:
+        LOGGER.exception("Unable to parse the plan workbook")
+        st.error("계획 엑셀 형식이 올바르지 않습니다. 입력 양식과 값을 확인해 주세요.")
 
 # (3) 실적 파일 파싱
-actual_blob = load_saved_data("saved_actual.xlsx")
+try:
+    actual_blob = load_saved_data("saved_actual.xlsx", app_dir=APP_DIR, secrets=st.secrets)
+except StorageError:
+    LOGGER.exception("Unable to load the saved actual workbook")
+    st.error("저장된 실적 파일을 불러오지 못했습니다. 관리자에게 문의해 주세요.")
+    actual_blob = None
 if actual_blob:
     try:
-        df_a = pd.read_excel(io.BytesIO(actual_blob), header=None)
+        df_a = read_workbook(actual_blob)
         qty_sw_a = safe_extract('SW수량입력', df_a, 'qty'); qty_bw_a = safe_extract('BW수량입력', df_a, 'qty')
         qty_ls_a = safe_extract('LS수량입력', df_a, 'qty'); qty_fs_a = safe_extract('FS수량입력', df_a, 'qty')
         price_sw_a = safe_extract('SW단가입력', df_a, 'qty'); price_bw_a = safe_extract('BW단가입력', df_a, 'qty')
@@ -631,7 +624,9 @@ if actual_blob:
         cogs_bw_a = safe_extract('8인치 BW 매출원가', df_a, 'money', (qty_bw_a*price_bw_a/1000000.0)*0.65)
         sga_sw_a = safe_extract('8인치 SW 판관비', df_a, 'money', (qty_sw_a*price_sw_a/1000000.0)*0.12)
         sga_bw_a = safe_extract('8인치 BW 판관비', df_a, 'money', (qty_bw_a*price_bw_a/1000000.0)*0.12)
-    except Exception as e: st.error(f"실적 엑셀 파일 파싱 오류: {e}")
+    except Exception:
+        LOGGER.exception("Unable to parse the actual workbook")
+        st.error("실적 엑셀 형식이 올바르지 않습니다. 입력 양식과 값을 확인해 주세요.")
 
 # --- 4. 전사 파생 변수 최종 역산 로직 ---
 qty_total_a = qty_sw_a + qty_bw_a + qty_ls_a
