@@ -1,0 +1,14 @@
+{
+  "application": "손익 추정 시스템",
+  "release_name": "Forecast V1 Beta",
+  "version": "1.0.0-beta.2",
+  "released_at": "2026-07-31",
+  "status": "beta",
+  "baseline_release": "Dashboard v0.1.0",
+  "components": {
+    "손익 현황": "기존 Dashboard v0.1.0 연결 예정",
+    "추정 산출": "구현",
+    "손익 분석": "범용 비교 베타",
+    "데이터 관리": "구현"
+  }
+}

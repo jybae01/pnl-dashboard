@@ -1,6 +1,15 @@
 __pycache__/
 *.py[cod]
 .pytest_cache/
+.runtime_packages/
+.verify_artifact/
 .streamlit/secrets.toml
-data/
-work/
+
+data/**
+!data/.gitkeep
+
+models/*.xlsx
+
+*.log
+*.tmp
+~$*.xlsx
