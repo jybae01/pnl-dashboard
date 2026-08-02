@@ -1,0 +1,46 @@
+{
+  "version": "1.0.0-draft",
+  "sign_convention": "profit_improvement_positive",
+  "delta_formula": "comparison_minus_base",
+  "product_groups": ["SW", "BW", "LC", "FS", "신사업"],
+  "unit_basis": {
+    "FS": "LENGTH",
+    "SW": "PCS",
+    "BW": "PCS",
+    "LC": "PCS",
+    "신사업": "PCS"
+  },
+  "manufacturing": {
+    "variable_accounts": ["수도광열비", "소모품비", "외주가공비", "원재료운반비", "운반비(원재료)"],
+    "labor_is_fixed": true,
+    "front_activity": "FS 생산길이",
+    "back_activity": "SW+BW 생산수량(PCS)",
+    "exclude_from_back_activity": ["LC"],
+    "allocation_ratio_keys": ["노무비", "외주가공비", "기타경비"],
+    "inventory_realization_formula": "cogs/current_period_manufacturing_input",
+    "inventory_realization_cap": null
+  },
+  "sga": {
+    "variable_accounts": ["브랜드사용료", "포장비"],
+    "transport_accounts": ["운반비", "판매비_운반비"],
+    "all_other_accounts_fixed": true,
+    "tariff_source": "direct_input"
+  },
+  "material": {
+    "jpy_fx_unit": "KRW/JPY",
+    "fs_sales_basis": "sales_length",
+    "other_sales_basis": "sales_qty"
+  },
+  "reconciliation": {
+    "absolute_tolerance": 1.0,
+    "relative_tolerance": 1e-09
+  },
+  "mapping_status": {
+    "sales_fx": "explicit_mapping_required",
+    "jpy_fx": "explicit_mapping_required",
+    "product_cogs": "explicit_mapping_required",
+    "manufacturing_accounts": "explicit_mapping_required",
+    "sga_accounts": "explicit_mapping_required",
+    "allocation_ratios": "explicit_mapping_required"
+  }
+}

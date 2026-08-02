@@ -24,6 +24,7 @@ class ComparisonResult:
     period: dict[str, Any]
     pnl: list[dict[str, Any]]
     products: list[dict[str, Any]]
+    sales_groups: list[dict[str, Any]]
     production: list[dict[str, Any]]
     mcm: list[dict[str, Any]]
     cost_summary: list[dict[str, Any]]
@@ -98,6 +99,20 @@ class GenericComparisonEngine:
                 "baseline_price": left["price"], "comparison_price": right["price"],
                 "price_delta": right["price"] - left["price"],
             })
+        sales_groups = []
+        for key, spec in self.mapping["sales_groups"].items():
+            left, right = baseline["sales_groups"][key], target["sales_groups"][key]
+            sales_groups.append({
+                "product_group": spec["label"],
+                "baseline_quantity": left["quantity"],
+                "baseline_amount": left["amount"],
+                "baseline_cogs": left["cogs"],
+                "baseline_gross_margin_rate": left["gross_margin_rate"],
+                "comparison_quantity": right["quantity"],
+                "comparison_amount": right["amount"],
+                "comparison_cogs": right["cogs"],
+                "comparison_gross_margin_rate": right["gross_margin_rate"],
+            })
         production = self._rows(self.mapping["production_labels"], baseline["production"], target["production"])
         mcm = self._rows(self.mapping["mcm_labels"], baseline["mcm"], target["mcm"])
         cost_summary = self._rows(self.mapping["cost_labels"], baseline["cost_summary"], target["cost_summary"])
@@ -114,7 +129,8 @@ class GenericComparisonEngine:
         tolerance = max(1.0, abs(op_delta) * 1e-9)
         return ComparisonResult(
             baseline=asdict(baseline_meta), comparison=asdict(comparison_meta), period=asdict(period),
-            pnl=pnl, products=products, production=production, mcm=mcm, cost_summary=cost_summary,
+            pnl=pnl, products=products, sales_groups=sales_groups, production=production, mcm=mcm,
+            cost_summary=cost_summary,
             effects=effects, operating_profit_delta=op_delta, effects_total=effects_total,
             residual=residual, reconciled=abs(residual) <= tolerance,
         )
@@ -137,6 +153,17 @@ class GenericComparisonEngine:
         for key, spec in self.mapping["products"].items():
             quantity, amount = total(spec["quantity_row"]), total(spec["amount_row"])
             products[key] = {"quantity": quantity, "amount": amount, "price": amount / quantity if quantity else 0.0}
+        sales_groups: dict[str, dict[str, float]] = {}
+        for key, spec in self.mapping["sales_groups"].items():
+            quantity = total(spec["quantity_row"])
+            amount = total(spec["amount_row"])
+            cogs = total(spec["cogs_row"])
+            sales_groups[key] = {
+                "quantity": quantity,
+                "amount": amount,
+                "cogs": cogs,
+                "gross_margin_rate": (amount - cogs) / amount if amount else 0.0,
+            }
         production = {key: total(row) for key, row in self.mapping["production_rows"].items()}
         mcm = {key: total(row) for key, row in self.mapping["mcm_rows"].items()}
 
@@ -183,5 +210,6 @@ class GenericComparisonEngine:
             "tariff": tariff,
             "general_admin": total(1258),
         }
-        return {"pnl": pnl, "products": products, "production": production, "mcm": mcm,
+        return {"pnl": pnl, "products": products, "sales_groups": sales_groups,
+                "production": production, "mcm": mcm,
                 "cost_summary": cost_summary, "effect_bases": effect_bases}

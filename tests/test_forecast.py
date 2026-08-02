@@ -10,6 +10,7 @@ from xml.etree import ElementTree as ET
 from forecast.comparison import GenericComparisonEngine
 from forecast.baseline import inspect_baseline_workbook
 from forecast.engine import CostAdjustment, ForecastEngine, ForecastInput, SalesInput
+from forecast.sales_comparison import calculate_sales_effect_rows, sales_effect_totals
 from forecast.storage import BaselineStore, ModelMeta, ModelRegistry
 from forecast.workbook import GoldenWorkbook
 
@@ -145,6 +146,42 @@ class GoldenModelTests(unittest.TestCase):
             self.assertAlmostEqual(result.operating_profit_delta, forecast.operating_profit - baseline_op, delta=1.0)
             self.assertTrue(result.reconciled)
             self.assertAlmostEqual(result.residual, 0.0, delta=1.0)
+
+    def test_comparison_extracts_golden_model_sales_group_profitability(self):
+        baseline = ModelMeta("base", "기준", "계획", 2026, 1, 12, "2026-01-01", "V1", True,
+            "base.xlsx", "2026-01-01T00:00:00+09:00")
+        comparison = ModelMeta("target", "비교", "추정", 2026, 1, 12, "2026-07-01", "V1", True,
+            "target.xlsx", "2026-07-01T00:00:00+09:00")
+        engine = GenericComparisonEngine(self.mapping)
+        period = next(item for item in engine.available_periods(baseline, comparison) if item.key == "M07")
+        result = engine.compare(baseline, self.model, comparison, self.model, period)
+        self.assertEqual([row["product_group"] for row in result.sales_groups], ["SW", "BW", "LC", "FS"])
+        workbook = GoldenWorkbook(self.model)
+        sw = result.sales_groups[0]
+        self.assertAlmostEqual(sw["baseline_amount"], workbook.value("K1544"), delta=1.0)
+        expected_margin = (workbook.value("K1544") - workbook.value("K1545")) / workbook.value("K1544")
+        self.assertAlmostEqual(sw["baseline_gross_margin_rate"], expected_margin, delta=1e-12)
+
+    def test_sales_fx_input_reallocates_price_effect_without_changing_total(self):
+        rows = [{
+            "product_group": "SW",
+            "baseline_quantity": 100,
+            "baseline_amount": 100_000,
+            "baseline_gross_margin_rate": 0.4,
+            "comparison_quantity": 110,
+            "comparison_amount": 121_000,
+            "comparison_gross_margin_rate": 0.35,
+        }]
+        same_fx = calculate_sales_effect_rows(rows, 10.0, 10.0)[0]
+        changed_fx = calculate_sales_effect_rows(rows, 10.0, 11.0)[0]
+        self.assertAlmostEqual(same_fx.quantity_effect, 4_000.0)
+        self.assertAlmostEqual(same_fx.pure_price_effect, 11_000.0)
+        self.assertAlmostEqual(same_fx.sales_fx_effect, 0.0)
+        self.assertAlmostEqual(changed_fx.pure_price_effect, 0.0, delta=1e-9)
+        self.assertAlmostEqual(changed_fx.sales_fx_effect, 11_000.0, delta=1e-9)
+        self.assertAlmostEqual(same_fx.unit_value_effect, changed_fx.unit_value_effect, delta=1e-9)
+        totals = sales_effect_totals([changed_fx])
+        self.assertAlmostEqual(totals["total_sales_effect"], 15_000.0, delta=1e-9)
 
     def test_model_registry_preserves_metadata_without_type_restrictions(self):
         with tempfile.TemporaryDirectory() as directory:
