@@ -64,6 +64,7 @@ class SalesEffectsTest(unittest.TestCase):
         self.assertAlmostEqual(result.tariff, -10.0)
         self.assertAlmostEqual(result.transport_quantity, -16.0)
         self.assertAlmostEqual(result.transport_unit, -24.0)
+        self.assertAlmostEqual(result.price, result.displayed_price + result.transport_unit)
 
     def test_exact_symmetric_price_fx_split(self):
         config = AnalysisConfig.load(CONFIG)
@@ -238,6 +239,96 @@ class ManufacturingEffectsTest(unittest.TestCase):
         self.assertAlmostEqual(result.back_unit, -196363132.255559, places=4)
         self.assertAlmostEqual(result.occurrence_total, -59152094.360972434, places=4)
         self.assertAlmostEqual(result.realized_total, -45311037.227244176, places=4)
+
+    def test_sap_activity_is_used_and_mcm_is_excluded_from_outsourcing_denominator(self):
+        config = AnalysisConfig.load(CONFIG)
+        base = scenario(
+            "base",
+            products=[
+                ProductRecord("2026-07", "SW_NORMAL", "SW", sap_production_qty=100,
+                              mes_production_qty=500, outsourcing_eligible_flag=True),
+                ProductRecord("2026-07", "SW_MCM", "SW", sap_production_qty=20,
+                              mes_production_qty=200, mcm_flag=True, mcm_qty=20),
+            ],
+            manufacturing_expenses=[ExpenseRecord("2026-07", "외주가공비", 1000, "manufacturing", 0, 1)],
+            activities=[ActivityRecord("2026-07", back_activity=999, inventory_realization_rate=1)],
+            pnl=[PnlRecord("2026-07", 0, 0, 0)],
+        )
+        comp = scenario(
+            "comp",
+            products=[
+                ProductRecord("2026-07", "SW_NORMAL", "SW", sap_production_qty=80,
+                              mes_production_qty=800, outsourcing_eligible_flag=True),
+                ProductRecord("2026-07", "SW_MCM", "SW", sap_production_qty=60,
+                              mes_production_qty=600, mcm_flag=True, mcm_qty=60),
+            ],
+            manufacturing_expenses=[ExpenseRecord("2026-07", "외주가공비", 900, "manufacturing", 0, 1)],
+            activities=[ActivityRecord("2026-07", back_activity=1, inventory_realization_rate=1)],
+            pnl=[PnlRecord("2026-07", 0, 0, 0)],
+        )
+        result = calculate_manufacturing_effects(base, comp, config)
+        detail = result.details[0]
+        self.assertEqual(detail["base_back_activity"], 100)
+        self.assertEqual(detail["comparison_back_activity"], 80)
+        self.assertAlmostEqual(result.back_activity, 200.0)
+        self.assertAlmostEqual(result.back_unit, -100.0)
+        reconciliation = next(
+            row for row in result.production_reconciliation
+            if row["scenario"] == "comparison" and row["product_group"] == "SW"
+        )
+        self.assertEqual(reconciliation["qty_difference"], 1260)
+
+
+class McmMaterialIntegrationTest(unittest.TestCase):
+    @staticmethod
+    def _mcm_scenarios():
+        base = scenario(
+            "base",
+            products=[
+                ProductRecord("2026-07", "SW_NORMAL", "SW", sales_qty=100,
+                              sap_production_qty=100, raw_material_cost=1000),
+                ProductRecord("2026-07", "SW_MCM", "SW", sap_production_qty=20,
+                              raw_material_cost=200, mcm_flag=True, mcm_qty=20,
+                              mcm_issue_amount=200),
+            ],
+            manufacturing_expenses=[ExpenseRecord("2026-07", "외주가공비", 1000, "manufacturing", 0, 1)],
+            activities=[ActivityRecord("2026-07", inventory_realization_rate=1)],
+            pnl=[PnlRecord("2026-07", 0, 0, 0)],
+        )
+        comp = scenario(
+            "comp",
+            products=[
+                ProductRecord("2026-07", "SW_NORMAL", "SW", sales_qty=100,
+                              sap_production_qty=80, raw_material_cost=800),
+                ProductRecord("2026-07", "SW_MCM", "SW", sap_production_qty=60,
+                              raw_material_cost=900, mcm_flag=True, mcm_qty=60,
+                              mcm_issue_amount=900),
+            ],
+            manufacturing_expenses=[ExpenseRecord("2026-07", "외주가공비", 800, "manufacturing", 0, 1)],
+            activities=[ActivityRecord("2026-07", inventory_realization_rate=1)],
+            pnl=[PnlRecord("2026-07", 0, 0, 0)],
+        )
+        return base, comp
+
+    def test_mcm_is_full_material_detail_and_reconciles_without_bridge_duplication(self):
+        base, comp = self._mcm_scenarios()
+        result = calculate_material_effects(base, comp)
+        # Total raw material includes the complete MCM issue amounts: 200 and 900.
+        self.assertAlmostEqual(result.total, (10.0 - (1700 / 140)) * 100)
+        self.assertAlmostEqual(result.mcm_paid_supply, (10.0 - 15.0) * 100)
+        self.assertAlmostEqual(
+            result.total,
+            result.nonwoven_jpy + result.mcm_paid_supply + result.other_unit_mix,
+        )
+        self.assertAlmostEqual(result.detail_reconciliation_difference, 0.0)
+
+        engine = AnalysisEngine(CONFIG)
+        preliminary = engine.compare(base, comp)
+        comp.pnl = [PnlRecord("2026-07", 0, 0, preliminary.reconciliation.effects_total)]
+        final = engine.compare(base, comp)
+        self.assertNotIn("mcm", {row["code"] for row in final.effects})
+        self.assertTrue(final.reconciliation.reconciled)
+        self.assertIn("MCM(유상사급)", final.narrative)
 
 
 class SgaAndEngineTest(unittest.TestCase):

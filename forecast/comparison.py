@@ -33,6 +33,8 @@ class ComparisonResult:
     effects_total: float
     residual: float
     reconciled: bool
+    narrative: str = ""
+    mcm_transition: dict[str, Any] | None = None
 
 
 class GenericComparisonEngine:
@@ -80,8 +82,8 @@ class GenericComparisonEngine:
         comparison_path: str | Path,
         period: PeriodOption,
     ) -> ComparisonResult:
-        allowed = {item.key: item for item in self.available_periods(baseline_meta, comparison_meta)}
-        if period.key not in allowed:
+        common = set(self.common_months(baseline_meta, comparison_meta))
+        if not period.months or not set(period.months).issubset(common):
             raise ValueError("두 모형의 공통기간에 포함되지 않는 비교기간입니다.")
         baseline = self._extract(GoldenWorkbook(baseline_path), baseline_meta, period.months)
         target = self._extract(GoldenWorkbook(comparison_path), comparison_meta, period.months)
@@ -127,13 +129,51 @@ class GenericComparisonEngine:
         effects_total = sum(item["profit_effect"] for item in effects)
         residual = op_delta - effects_total
         tolerance = max(1.0, abs(op_delta) * 1e-9)
+        mcm_qty_delta = sum(target["mcm"].values()) - sum(baseline["mcm"].values())
+        raw_material_effect = baseline["cost_summary"]["raw_material"] - target["cost_summary"]["raw_material"]
+        outsourcing_effect = baseline["cost_summary"]["outsourcing"] - target["cost_summary"]["outsourcing"]
+        narrative = self._narrative(op_delta, effects, residual, mcm_qty_delta, raw_material_effect, outsourcing_effect)
         return ComparisonResult(
             baseline=asdict(baseline_meta), comparison=asdict(comparison_meta), period=asdict(period),
             pnl=pnl, products=products, sales_groups=sales_groups, production=production, mcm=mcm,
             cost_summary=cost_summary,
             effects=effects, operating_profit_delta=op_delta, effects_total=effects_total,
             residual=residual, reconciled=abs(residual) <= tolerance,
+            narrative=narrative,
+            mcm_transition={
+                "mcm_quantity_delta": mcm_qty_delta,
+                "raw_material_effect_including_mcm": raw_material_effect,
+                "outsourcing_effect": outsourcing_effect,
+                "bridge_duplicate": False,
+            },
         )
+
+    @staticmethod
+    def _narrative(
+        op_delta: float,
+        effects: list[dict[str, Any]],
+        residual: float,
+        mcm_qty_delta: float,
+        raw_material_effect: float,
+        outsourcing_effect: float,
+    ) -> str:
+        direction = "증가" if op_delta >= 0 else "감소"
+        ordered = sorted(effects, key=lambda row: abs(float(row["profit_effect"])), reverse=True)
+        factors = ", ".join(
+            f"{row['factor']} {abs(float(row['profit_effect'])):,.0f}원"
+            for row in ordered[:3] if row["profit_effect"]
+        )
+        sentences = [f"비교 모형의 영업이익은 기준 모형 대비 {abs(op_delta):,.0f}원 {direction}했습니다."]
+        if factors:
+            sentences.append(f"금액 기준 주요 변동요인은 {factors}입니다.")
+        if mcm_qty_delta > 0 and raw_material_effect < 0 and outsourcing_effect > 0:
+            sentences.append(
+                "MCM(유상사급) 물량 증가와 함께 원부재료 부담 및 외주가공비 감소가 동시에 나타났습니다. "
+                "MCM 영향은 원부재료 상세 원인으로만 관리하며 영업이익 브리지에 중복 반영하지 않습니다."
+            )
+        if abs(residual) > 1:
+            sentences.append(f"세부 효과로 귀속되지 않은 잔여차이는 {abs(residual):,.0f}원입니다.")
+        return " ".join(sentences)
 
     @staticmethod
     def _rows(labels: dict[str, str], baseline: dict[str, float], comparison: dict[str, float]) -> list[dict[str, Any]]:

@@ -6,7 +6,7 @@ from pathlib import Path
 from .configuration import AnalysisConfig
 from .manufacturing_effects import ManufacturingEffects, calculate_manufacturing_effects
 from .material_effects import MaterialEffects, calculate_material_effects
-from .narratives import build_narrative
+from .narratives import build_mcm_narrative, build_narrative
 from .reconciliation import ReconciliationResult, reconcile
 from .sales_effects import SalesEffects, calculate_sales_effects
 from .schema import AnalysisScenario
@@ -84,6 +84,13 @@ class AnalysisEngine:
             *material.issues,
             *manufacturing.issues,
         ]
+        narrative = build_narrative(op_delta, effects, check.residual)
+        mcm_narrative = build_mcm_narrative(
+            material.mcm_paid_supply,
+            manufacturing.outsourcing_decrease_effect,
+        )
+        if mcm_narrative:
+            narrative = f"{narrative} {mcm_narrative}"
         return AnalysisResult(
             base=asdict(base.meta),
             comparison=asdict(comparison.meta),
@@ -94,7 +101,7 @@ class AnalysisEngine:
             manufacturing=manufacturing,
             sga=sga,
             reconciliation=check,
-            narrative=build_narrative(op_delta, effects, check.residual),
+            narrative=narrative,
             issues=issues,
         )
 

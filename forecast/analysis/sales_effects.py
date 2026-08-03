@@ -11,6 +11,7 @@ class SalesEffects:
     quantity: float = 0.0
     mix: float = 0.0
     price: float = 0.0
+    displayed_price: float = 0.0
     sales_fx: float = 0.0
     transport_quantity: float = 0.0
     transport_unit: float = 0.0
@@ -85,7 +86,7 @@ def calculate_sales_effects(
                 p1_krw = rrow.sales_amount / q1 if rrow and q1 else 0.0
                 p0_foreign = p0_krw / fx0 if fx0 else 0.0
                 p1_foreign = p1_krw / fx1 if fx1 else 0.0
-                result.price += q1 * (p1_foreign - p0_foreign) * (fx0 + fx1) / 2
+                result.displayed_price += q1 * (p1_foreign - p0_foreign) * (fx0 + fx1) / 2
                 result.sales_fx += q1 * (fx1 - fx0) * (p0_foreign + p1_foreign) / 2
                 if q1 and not q0:
                     result.issues.append(f"{month} {rrow.product_code}: 기준 판매수량이 없어 신규 제품 가격효과가 비교단가 기준으로 계산됨")
@@ -115,5 +116,5 @@ def calculate_sales_effects(
             result.issues.append(f"{month}: 기준 판매운반비 활동량이 0이라 운반비 원단위 계산에서 제외됨")
 
     result.quantity += result.transport_quantity
-    result.price += result.transport_unit
+    result.price = result.displayed_price + result.transport_unit
     return result

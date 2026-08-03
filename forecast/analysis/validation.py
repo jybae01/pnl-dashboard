@@ -24,4 +24,9 @@ def validate_scenario(scenario: AnalysisScenario, config: AnalysisConfig) -> lis
             )
         if row.front_ratio < 0 or row.back_ratio < 0:
             issues.append(f"{row.year_month} {row.account}: 음수 배부율")
+    for row in scenario.products:
+        if row.mcm_issue_amount and not (row.mcm_flag or row.mcm_qty):
+            issues.append(f"{row.year_month} {row.product_code}: MCM 출고금액은 있으나 MCM 식별값이 없음")
+        if row.effective_jpy_fx < 0:
+            issues.append(f"{row.year_month} {row.product_code}: 원/JPY 환율이 음수임")
     return issues

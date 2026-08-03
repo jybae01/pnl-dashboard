@@ -57,7 +57,8 @@
       "SW":{"label":"SW","quantity_row":1543,"amount_row":1544,"cogs_row":1545},
       "BW":{"label":"BW","quantity_row":1582,"amount_row":1583,"cogs_row":1584},
       "LC":{"label":"LC","quantity_row":1621,"amount_row":1622,"cogs_row":1623},
-      "FS":{"label":"FS","quantity_row":1673,"amount_row":1674,"cogs_row":1675}
+      "FS":{"label":"FS","quantity_row":1673,"amount_row":1674,"cogs_row":1675},
+      "NEW_BUSINESS":{"label":"신사업","quantity_row":113,"amount_row":114,"cogs_row":1241}
     },
     "production_rows":{"SW400":547,"SW440":548,"BW400":549,"BW440":550,"LC":551,"FS_SW":119,"FS_BW":122,"FS_TW":125},
     "production_labels":{"SW400":"SW400 생산량","SW440":"SW440 생산량","BW400":"BW400 생산량","BW440":"BW440 생산량","LC":"LC 생산량","FS_SW":"FS_SW 생산량","FS_BW":"FS_BW 생산량","FS_TW":"FS_TW 생산량"},

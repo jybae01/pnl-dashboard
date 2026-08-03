@@ -15,6 +15,8 @@ class AnalysisConfig:
     variable_manufacturing_accounts: frozenset[str]
     variable_sga_accounts: frozenset[str]
     transport_accounts: frozenset[str]
+    outsourcing_accounts: frozenset[str]
+    labor_accounts: frozenset[str]
     absolute_tolerance: float = 1.0
     relative_tolerance: float = 1e-9
 
@@ -32,6 +34,12 @@ class AnalysisConfig:
             transport_accounts=frozenset(
                 normalize_account(item) for item in payload["sga"]["transport_accounts"]
             ),
+            outsourcing_accounts=frozenset(
+                normalize_account(item) for item in payload["manufacturing"].get("outsourcing_accounts", ["외주가공비"])
+            ),
+            labor_accounts=frozenset(
+                normalize_account(item) for item in payload["manufacturing"].get("labor_accounts", ["노무비"])
+            ),
             absolute_tolerance=float(payload["reconciliation"]["absolute_tolerance"]),
             relative_tolerance=float(payload["reconciliation"]["relative_tolerance"]),
         )
@@ -44,3 +52,10 @@ class AnalysisConfig:
 
     def is_transport(self, account: str) -> bool:
         return normalize_account(account) in self.transport_accounts
+
+    def is_outsourcing(self, account: str) -> bool:
+        return normalize_account(account) in self.outsourcing_accounts
+
+    def is_labor(self, account: str) -> bool:
+        normalized = normalize_account(account)
+        return normalized in self.labor_accounts or "노무비" in normalized

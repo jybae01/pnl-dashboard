@@ -23,12 +23,22 @@ class ProductRecord:
     product_cogs: float = 0.0
     production_qty: float = 0.0
     production_length: float = 0.0
+    sap_production_qty: float | None = None
+    sap_production_length: float | None = None
+    mes_production_qty: float | None = None
+    mes_production_length: float | None = None
     raw_material_cost: float = 0.0
     nonwoven_cost: float = 0.0
     nonwoven_sales_input_length: float = 0.0
     sales_fx: float = 1.0
     jpy_fx: float = 0.0
+    jpy_fx_krw_per_jpy: float | None = None
     sales_currency: str = "KRW"
+    mcm_flag: bool = False
+    mcm_qty: float = 0.0
+    mcm_issue_amount: float = 0.0
+    mcm_product_group: str = ""
+    outsourcing_eligible_flag: bool = True
 
     @property
     def sales_basis(self) -> float:
@@ -36,7 +46,29 @@ class ProductRecord:
 
     @property
     def production_basis(self) -> float:
-        return self.production_length if self.unit_basis.upper() == "LENGTH" else self.production_qty
+        if self.unit_basis.upper() == "LENGTH":
+            return self.sap_production_length if self.sap_production_length is not None else self.production_length
+        return self.sap_production_qty if self.sap_production_qty is not None else self.production_qty
+
+    @property
+    def sap_qty(self) -> float:
+        return self.sap_production_qty if self.sap_production_qty is not None else self.production_qty
+
+    @property
+    def sap_length(self) -> float:
+        return self.sap_production_length if self.sap_production_length is not None else self.production_length
+
+    @property
+    def mes_qty(self) -> float | None:
+        return self.mes_production_qty
+
+    @property
+    def mes_length(self) -> float | None:
+        return self.mes_production_length
+
+    @property
+    def effective_jpy_fx(self) -> float:
+        return self.jpy_fx_krw_per_jpy if self.jpy_fx_krw_per_jpy is not None else self.jpy_fx
 
 
 @dataclass(frozen=True)
@@ -59,6 +91,9 @@ class ActivityRecord:
     inventory_realization_rate: float | None = None
     tariff_input: float = 0.0
     tariff_in_transport: bool = True
+    labor_front_ratio: float | None = None
+    outsourcing_front_ratio: float | None = None
+    other_expense_front_ratio: float | None = None
 
 
 @dataclass(frozen=True)

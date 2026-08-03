@@ -7,7 +7,7 @@ from datetime import date
 from pathlib import Path
 from xml.etree import ElementTree as ET
 
-from forecast.comparison import GenericComparisonEngine
+from forecast.comparison import GenericComparisonEngine, PeriodOption
 from forecast.baseline import inspect_baseline_workbook
 from forecast.engine import CostAdjustment, ForecastEngine, ForecastInput, SalesInput
 from forecast.sales_comparison import calculate_sales_effect_rows, sales_effect_totals
@@ -147,6 +147,18 @@ class GoldenModelTests(unittest.TestCase):
             self.assertTrue(result.reconciled)
             self.assertAlmostEqual(result.residual, 0.0, delta=1.0)
 
+    def test_comparison_accepts_arbitrary_common_start_end_range(self):
+        baseline = ModelMeta("base", "기준", "계획", 2026, 1, 12, "2026-01-01", "V1", True,
+            "base.xlsx", "2026-01-01T00:00:00+09:00")
+        comparison = ModelMeta("target", "비교", "추정", 2026, 7, 12, "2026-07-01", "V1", True,
+            "target.xlsx", "2026-07-01T00:00:00+09:00")
+        period = PeriodOption("R2026_07_09", "7~9월", (7, 8, 9), "선택기간")
+        result = GenericComparisonEngine(self.mapping).compare(
+            baseline, self.model, comparison, self.model, period,
+        )
+        self.assertEqual(result.period["months"], (7, 8, 9))
+        self.assertTrue(result.reconciled)
+
     def test_comparison_extracts_golden_model_sales_group_profitability(self):
         baseline = ModelMeta("base", "기준", "계획", 2026, 1, 12, "2026-01-01", "V1", True,
             "base.xlsx", "2026-01-01T00:00:00+09:00")
@@ -155,7 +167,10 @@ class GoldenModelTests(unittest.TestCase):
         engine = GenericComparisonEngine(self.mapping)
         period = next(item for item in engine.available_periods(baseline, comparison) if item.key == "M07")
         result = engine.compare(baseline, self.model, comparison, self.model, period)
-        self.assertEqual([row["product_group"] for row in result.sales_groups], ["SW", "BW", "LC", "FS"])
+        self.assertEqual(
+            [row["product_group"] for row in result.sales_groups],
+            ["SW", "BW", "LC", "FS", "신사업"],
+        )
         workbook = GoldenWorkbook(self.model)
         sw = result.sales_groups[0]
         self.assertAlmostEqual(sw["baseline_amount"], workbook.value("K1544"), delta=1.0)

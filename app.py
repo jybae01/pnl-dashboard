@@ -1228,12 +1228,47 @@ def comparison_page(role: str) -> None:
     st.caption("모든 증감액은 ‘비교 모형 - 기준 모형’으로 계산됩니다.")
 
     engine = GenericComparisonEngine(MAPPING)
-    periods = engine.available_periods(baseline_meta, comparison_meta)
-    if not periods:
+    common_months = engine.common_months(baseline_meta, comparison_meta)
+    if not common_months:
         st.error("두 모형에 공통으로 존재하는 분석기간이 없습니다.")
         st.button("비교 분석", disabled=True)
         return
-    selected_period = st.selectbox("분석기간", periods, format_func=lambda item: item.label)
+
+    st.markdown("**분석 기간**")
+    c1, c2, separator, c3, _ = st.columns([0.7, 0.7, 0.08, 0.7, 2.82])
+    if st.session_state.get("comparison_analysis_year") != baseline_meta.year:
+        st.session_state["comparison_analysis_year"] = baseline_meta.year
+    analysis_year = c1.selectbox(
+        "분석 연도",
+        [baseline_meta.year],
+        key="comparison_analysis_year",
+    )
+    if st.session_state.get("comparison_start_month") not in common_months:
+        st.session_state["comparison_start_month"] = common_months[0]
+    start_month = c2.selectbox(
+        "시작 월",
+        list(common_months),
+        index=0,
+        format_func=lambda value: f"{value}월",
+        key="comparison_start_month",
+    )
+    separator.markdown("<div style='text-align:center;padding-top:2rem;'>~</div>", unsafe_allow_html=True)
+    end_options = [month for month in common_months if month >= start_month]
+    if st.session_state.get("comparison_end_month") not in end_options:
+        st.session_state["comparison_end_month"] = start_month
+    end_month = c3.selectbox(
+        "종료 월",
+        end_options,
+        format_func=lambda value: f"{value}월",
+        key="comparison_end_month",
+    )
+    selected_months = tuple(range(start_month, end_month + 1))
+    selected_period = PeriodOption(
+        key=f"R{analysis_year}_{start_month:02d}_{end_month:02d}",
+        label=(f"{start_month}월" if start_month == end_month else f"{start_month}~{end_month}월"),
+        months=selected_months,
+        period_type="월" if start_month == end_month else "선택기간",
+    )
     if st.button("비교 분석", type="primary", disabled=len(selected) != 2):
         result = engine.compare(baseline_meta, REGISTRY.path(baseline_meta.id), comparison_meta,
                                 REGISTRY.path(comparison_meta.id), selected_period)
@@ -1297,13 +1332,25 @@ def comparison_page(role: str) -> None:
             )
 
     with effect_tabs[1]:
-        material_codes = {"raw_material", "customs_refund", "disposal", "obsolescence"}
+        material_codes = {"raw_material", "customs_refund"}
         material_rows = [row for row in result["cost_summary"] if row["code"] in material_codes]
+        st.markdown("#### 원부재료 총액 증감")
         st.dataframe(center_table_text(amount_frame(material_rows)), use_container_width=True, hide_index=True)
-        st.caption("원부재료 사용량·원단위·엔화 효과 상세 화면은 공통 분석 스키마 연결 후 이 영역에 확장됩니다.")
+        st.markdown("#### MCM(유상사급) 상세 원인")
+        st.dataframe(center_table_text(pd.DataFrame(result["mcm"])), use_container_width=True, hide_index=True)
+        transition = result.get("mcm_transition") or {}
+        if transition:
+            c1, c2, c3 = st.columns(3)
+            c1.metric("MCM 수량 증감", f"{transition.get('mcm_quantity_delta', 0):,.0f}")
+            c2.metric("원부재료 효과(MCM 포함)", money(transition.get("raw_material_effect_including_mcm", 0)))
+            c3.metric("외주가공비 효과", money(transition.get("outsourcing_effect", 0)))
+        st.caption(
+            "MCM 금액은 회계 분류대로 원부재료에 전액 유지하며 외주가공비로 재분류하지 않습니다. "
+            "MCM 상세 영향은 원부재료 효과의 하위원인이므로 손익 브리지에 별도로 더하지 않습니다."
+        )
 
     with effect_tabs[2]:
-        st.markdown("#### 생산량")
+        st.markdown("#### SAP 수불부 생산입고 기준 생산량")
         st.dataframe(center_table_text(pd.DataFrame(result["production"])), use_container_width=True, hide_index=True)
         st.markdown("#### MCM(유상사급)")
         st.dataframe(center_table_text(pd.DataFrame(result["mcm"])), use_container_width=True, hide_index=True)
@@ -1311,6 +1358,10 @@ def comparison_page(role: str) -> None:
         manufacturing_rows = [row for row in result["cost_summary"] if row["code"] in manufacturing_codes]
         st.markdown("#### 제조경비")
         st.dataframe(center_table_text(amount_frame(manufacturing_rows)), use_container_width=True, hide_index=True)
+        st.caption(
+            "제조경비 조업도는 SAP 수불부 생산입고를 기준으로 계산합니다. MES 자료가 연결된 경우에는 "
+            "MES-SAP 차이를 보조 검증값으로만 표시하고 제조경비 계산에는 사용하지 않습니다."
+        )
 
     with effect_tabs[3]:
         sga_codes = {"selling_expense", "general_admin", "sga_total", "tariff"}
@@ -1326,6 +1377,9 @@ def comparison_page(role: str) -> None:
             st.success("영업이익 증감과 세부 변동효과 합계가 일치합니다.")
         else:
             st.warning("잔여차이가 허용범위를 초과했습니다. 모형의 신규 계정 또는 매핑 누락을 확인해 주세요.")
+
+    st.subheader("주요 변동원인 자동 설명")
+    st.write(result.get("narrative") or "분석 가능한 주요 변동원인이 없습니다.")
 
 
 role = authenticate()
