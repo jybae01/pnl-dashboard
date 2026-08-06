@@ -305,33 +305,33 @@
     "sales_groups": {
       "SW": {
         "label": "SW",
-        "quantity_row": 1543,
-        "amount_row": 1544,
-        "cogs_row": 1545
+        "quantity_row": 1593,
+        "amount_row": 1594,
+        "cogs_row": 1595
       },
       "BW": {
         "label": "BW",
-        "quantity_row": 1582,
-        "amount_row": 1583,
-        "cogs_row": 1584
+        "quantity_row": 1632,
+        "amount_row": 1633,
+        "cogs_row": 1634
       },
       "LC": {
         "label": "LC",
-        "quantity_row": 1621,
-        "amount_row": 1622,
-        "cogs_row": 1623
+        "quantity_row": 1668,
+        "amount_row": 1669,
+        "cogs_row": 1670
       },
       "FS": {
         "label": "FS",
-        "quantity_row": 1673,
-        "amount_row": 1674,
-        "cogs_row": 1675
+        "quantity_row": 1720,
+        "amount_row": 1721,
+        "cogs_row": 1722
       },
       "NEW_BUSINESS": {
         "label": "신사업",
         "quantity_row": 113,
         "amount_row": 114,
-        "cogs_row": 1241
+        "cogs_row": 1734
       }
     },
     "production_rows": {
@@ -401,6 +401,62 @@
       "selling_ex_tariff": "판매비",
       "tariff": "북미/남미 관세 참고금액",
       "general_admin": "일반관리비"
+    },
+    "cost_rows": {
+      "raw_material": {
+        "add": [
+          1276,
+          1285
+        ],
+        "subtract": [
+          1273,
+          1274
+        ]
+      },
+      "labor": [
+        1277,
+        1286
+      ],
+      "outsourcing": [
+        1278,
+        1287
+      ],
+      "other_processing": [
+        1279,
+        1288
+      ],
+      "manufacturing_expense": 296,
+      "selling_expense": 1302,
+      "general_admin": 1303,
+      "disposal": 1273,
+      "obsolescence": 1295,
+      "customs_refund": 1294
+    },
+    "effect_rows": {
+      "revenue": 1248,
+      "product_raw_material": {
+        "add": [
+          1276
+        ],
+        "subtract": [
+          1273,
+          1274
+        ]
+      },
+      "product_labor": 1277,
+      "product_outsourcing": 1278,
+      "product_other": 1279,
+      "semi_raw_material": 1285,
+      "semi_labor": 1286,
+      "semi_outsourcing": 1287,
+      "semi_other": 1288,
+      "goods_cogs": 1289,
+      "other_cogs": 1292,
+      "paid_supply_cancel": 1293,
+      "customs_refund": 1294,
+      "disposal": 1273,
+      "other_standard_cogs": 1274,
+      "obsolescence": 1295
     }
   }
 }
