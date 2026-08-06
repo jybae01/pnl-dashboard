@@ -27,7 +27,9 @@ def read_workbook(payload: bytes, scenario_type: str | None = None) -> pd.DataFr
     per content hash.
     """
     validate_xlsx(payload)
-    frame, _ = GoldenModelAdapter().read(payload, scenario_type=scenario_type)
+    frame, inspection = GoldenModelAdapter().read(payload, scenario_type=scenario_type)
+    if inspection.warnings:
+        raise WorkbookFormatError(inspection.warnings[0])
     return frame
 
 
