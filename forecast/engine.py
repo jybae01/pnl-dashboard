@@ -73,7 +73,37 @@ class ForecastResult:
 class ForecastEngine:
     def __init__(self, model_path: str | Path, mapping_path: str | Path):
         self.model_path = Path(model_path)
-        self.mapping = json.loads(Path(mapping_path).read_text(encoding="utf-8"))
+        raw_mapping = json.loads(Path(mapping_path).read_text(encoding="utf-8"))
+        self.mapping = {
+            key: value for key, value in raw_mapping.items()
+            if key != "schema_overrides"
+        }
+        self.schema_name = "legacy"
+        workbook = GoldenWorkbook(self.model_path)
+        for schema in raw_mapping.get("schema_overrides", []):
+            detected = all(
+                self._mapping_token(workbook.raw_value(address))
+                == self._mapping_token(expected)
+                for address, expected in schema.get("detect_cells", {}).items()
+            )
+            if detected:
+                self.mapping = self._deep_merge(self.mapping, schema.get("mapping", {}))
+                self.schema_name = str(schema.get("name") or "custom")
+                break
+
+    @staticmethod
+    def _mapping_token(value: Any) -> str:
+        return re.sub(r"[\s_]+", "", str(value or "")).casefold()
+
+    @classmethod
+    def _deep_merge(cls, base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any]:
+        merged = dict(base)
+        for key, value in override.items():
+            if isinstance(value, dict) and isinstance(merged.get(key), dict):
+                merged[key] = cls._deep_merge(merged[key], value)
+            else:
+                merged[key] = value
+        return merged
 
     @staticmethod
     def column(month: int) -> str:
@@ -225,11 +255,14 @@ class ForecastEngine:
                 "message": "전공정+후공정=구매팀 예상 총액",
             })
         output = wb.save(destination)
-        revenue = float(wb.value(f"{col}1201") or 0)
-        cogs = float(wb.value(f"{col}1222") or 0)
-        gp = float(wb.value(f"{col}1253") or 0)
-        model_sga = float(wb.value(f"{col}1177") or 0)
-        model_op = float(wb.value(f"{col}1260") or 0)
+        pnl_rows = self.mapping["comparison"]["pnl_rows"]
+        revenue = float(wb.value(f"{col}{pnl_rows['revenue']}") or 0)
+        cogs = float(wb.value(f"{col}{pnl_rows['cogs']}") or 0)
+        gp = float(wb.value(f"{col}{pnl_rows['gross_profit']}") or 0)
+        selling_expense = float(wb.value(f"{col}{pnl_rows['selling_expense']}") or 0)
+        general_admin = float(wb.value(f"{col}{pnl_rows['general_admin']}") or 0)
+        model_sga = selling_expense + general_admin
+        model_op = float(wb.value(f"{col}{pnl_rows['operating_profit']}") or 0)
         sga = model_sga
         op = model_op
         web_bridge_delta = revenue - cogs - sga - op
@@ -280,8 +313,14 @@ class ForecastEngine:
             target = group.get("target", 1.0)
             ok = (not missing) and abs(total-target) <= group.get("tolerance", 1e-6)
             checks.append({"name": group["name"], "ok": ok, "value": total, "message": "정상" if ok else "누락 또는 합계 불일치"})
-        op_bridge = float(wb.value(f"{col}1201") or 0) - float(wb.value(f"{col}1222") or 0) - float(wb.value(f"{col}1177") or 0)
-        op = float(wb.value(f"{col}1260") or 0)
+        pnl_rows = self.mapping["comparison"]["pnl_rows"]
+        op_bridge = (
+            float(wb.value(f"{col}{pnl_rows['revenue']}") or 0)
+            - float(wb.value(f"{col}{pnl_rows['cogs']}") or 0)
+            - float(wb.value(f"{col}{pnl_rows['selling_expense']}") or 0)
+            - float(wb.value(f"{col}{pnl_rows['general_admin']}") or 0)
+        )
+        op = float(wb.value(f"{col}{pnl_rows['operating_profit']}") or 0)
         checks.append({"name":"영업이익 정합성", "ok":abs(op_bridge-op)<1, "value":op_bridge-op, "message":"허용오차 1원"})
         overwritten = wb.formula_changes()
         allowed = set(self.mapping["formula_input_exceptions"])
