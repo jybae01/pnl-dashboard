@@ -1,70 +1,406 @@
 {
   "sales": {
-    "SW400": {"quantity_row": 32, "amount_row": 33},
-    "SW440": {"quantity_row": 38, "amount_row": 39},
-    "BW400": {"quantity_row": 44, "amount_row": 45},
-    "BW440": {"quantity_row": 50, "amount_row": 51},
-    "LC": {"quantity_row": 56, "amount_row": 57},
-    "FS_SW": {"quantity_row": 62, "amount_row": 63},
-    "FS_BW": {"quantity_row": 68, "amount_row": 69},
-    "FS_TW": {"quantity_row": 74, "amount_row": 75}
-  },
-  "lc_goods": {"quantity_row": 104, "amount_row": 105},
-  "new_business_revenue_row": 114,
-  "other_revenue_row": 1218,
-  "production": {"FS_SW":119,"FS_BW":122,"FS_TW":125,"SW400":547,"SW440":548,"BW400":549,"BW440":550,"LC":551},
-  "mcm": {"SW400":559,"SW440":560,"BW400":561,"BW440":562},
-  "manufacturing_input_rows": [290,291,292,293,295,297,298,299,300,301,302,303,304,305,306,307,308,309,310,311,312,313,314,315,316,317,318],
-  "sga_input_rows": [1121,1122,1123,1124,1125,1126,1127,1128,1129,1130,1131,1132,1133,1134,1135,1136,1137,1138,1139,1140,1141,1142,1143,1144,1145,1146,1147,1151,1152,1153,1154,1155,1156,1157,1158,1159,1160,1161,1162,1163,1164,1165,1166,1167,1168,1169,1170,1171,1172,1173,1174,1175],
-  "special_rows": {
-    "selling_transport": 1121,
-    "packaging": 1147,
-    "goods_cogs": 1241,
-    "customs_refund": 1246,
-    "disposal": 1248,
-    "obsolescence": 1250,
-    "lc_unit_cost": 938,
-    "raw_material_input_rows": [211,690],
-    "raw_material_process_rows": {
-      "front_process": 211,
-      "back_process": 690
+    "SW400": {
+      "quantity_row": 32,
+      "amount_row": 33
+    },
+    "SW440": {
+      "quantity_row": 38,
+      "amount_row": 39
+    },
+    "BW400": {
+      "quantity_row": 44,
+      "amount_row": 45
+    },
+    "BW440": {
+      "quantity_row": 50,
+      "amount_row": 51
+    },
+    "LC": {
+      "quantity_row": 56,
+      "amount_row": 57
+    },
+    "FS_SW": {
+      "quantity_row": 62,
+      "amount_row": 63
+    },
+    "FS_BW": {
+      "quantity_row": 68,
+      "amount_row": 69
+    },
+    "FS_TW": {
+      "quantity_row": 74,
+      "amount_row": 75
     }
   },
-  "formula_input_exceptions": ["*63","*69","*75","*114","*211","*690","*1218","*1241","*1246"],
+  "lc_goods": {
+    "quantity_row": 104,
+    "amount_row": 105
+  },
+  "new_business_revenue_row": 114,
+  "other_revenue_row": 1265,
+  "production": {
+    "FS_SW": 119,
+    "FS_BW": 122,
+    "FS_TW": 125,
+    "SW400": 556,
+    "SW440": 557,
+    "BW400": 558,
+    "BW440": 559,
+    "LC": 560
+  },
+  "mcm": {
+    "SW400": 568,
+    "SW440": 569,
+    "BW400": 570,
+    "BW440": 571
+  },
+  "manufacturing_input_rows": [
+    290,
+    291,
+    292,
+    293,
+    295,
+    297,
+    298,
+    299,
+    300,
+    301,
+    302,
+    303,
+    304,
+    305,
+    306,
+    307,
+    308,
+    309,
+    310,
+    311,
+    312,
+    313,
+    314,
+    315,
+    316,
+    317,
+    318
+  ],
+  "sga_input_rows": [
+    1168,
+    1169,
+    1170,
+    1171,
+    1172,
+    1173,
+    1174,
+    1175,
+    1176,
+    1177,
+    1178,
+    1179,
+    1180,
+    1181,
+    1182,
+    1183,
+    1184,
+    1185,
+    1186,
+    1187,
+    1188,
+    1189,
+    1190,
+    1191,
+    1192,
+    1193,
+    1194,
+    1198,
+    1199,
+    1200,
+    1201,
+    1202,
+    1203,
+    1204,
+    1205,
+    1206,
+    1207,
+    1208,
+    1209,
+    1210,
+    1211,
+    1212,
+    1213,
+    1214,
+    1215,
+    1216,
+    1217,
+    1218,
+    1219,
+    1220,
+    1221,
+    1222
+  ],
+  "special_rows": {
+    "selling_transport": 1168,
+    "packaging": 1194,
+    "goods_cogs": 1289,
+    "customs_refund": 1294,
+    "disposal": 1273,
+    "obsolescence": 1295,
+    "lc_unit_cost": 936,
+    "raw_material_input_rows": [
+      211,
+      699
+    ],
+    "raw_material_process_rows": {
+      "front_process": 211,
+      "back_process": 699
+    }
+  },
+  "formula_input_exceptions": [
+    "*63",
+    "*69",
+    "*75",
+    "*114",
+    "*211",
+    "*699",
+    "*1265",
+    "*1289",
+    "*1294"
+  ],
   "allocation_validation": [
-    {"name":"전공정 원재료 제품군 배부율", "rows":[273,274,275], "target":1.0},
-    {"name":"전공정 노무비 배부율", "rows":[375,376,377], "target":1.0},
-    {"name":"전공정 외주가공비 배부율", "rows":[378,379,380], "target":1.0},
-    {"name":"전공정 기타경비 배부율", "rows":[381,382,383], "target":1.0},
-    {"name":"후공정 원재료 제품군 배부율", "rows":[779,780,781,782,783], "target":1.0},
-    {"name":"후공정 노무비 배부율", "rows":[854,855,856,857,858], "target":1.0},
-    {"name":"후공정 외주가공비 배부율", "rows":[859,860,861,862,863], "target":1.0},
-    {"name":"후공정 기타경비 배부율", "rows":[864,865,866,867,868], "target":1.0}
+    {
+      "name": "전공정 원재료 제품군 배부율",
+      "rows": [
+        273,
+        274,
+        275
+      ],
+      "target": 1
+    },
+    {
+      "name": "전공정 노무비 배부율",
+      "rows": [
+        392,
+        393,
+        394
+      ],
+      "target": 1
+    },
+    {
+      "name": "전공정 외주가공비 배부율",
+      "rows": [
+        395,
+        396,
+        397
+      ],
+      "target": 1
+    },
+    {
+      "name": "전공정 기타경비 배부율",
+      "rows": [
+        398,
+        399,
+        400
+      ],
+      "target": 1
+    },
+    {
+      "name": "후공정 원재료 제품군 배부율",
+      "rows": [
+        788,
+        789,
+        790,
+        791,
+        792
+      ],
+      "target": 1
+    },
+    {
+      "name": "후공정 노무비 배부율",
+      "rows": [
+        863,
+        864,
+        865,
+        866,
+        867
+      ],
+      "target": 1
+    },
+    {
+      "name": "후공정 외주가공비 배부율",
+      "rows": [
+        868,
+        869,
+        870,
+        871,
+        872
+      ],
+      "target": 1
+    },
+    {
+      "name": "후공정 기타경비 배부율",
+      "rows": [
+        873,
+        874,
+        875,
+        876,
+        877
+      ],
+      "target": 1
+    }
   ],
   "comparison": {
-    "pnl_rows": {"revenue":1201,"cogs":1222,"gross_profit":1253,"selling_expense":1257,"general_admin":1258,"operating_profit":1260},
-    "pnl_labels": {"revenue":"매출액","cogs":"매출원가","gross_profit":"매출총이익","selling_expense":"판매비","general_admin":"일반관리비","operating_profit":"영업이익"},
+    "pnl_rows": {
+      "revenue": 1248,
+      "cogs": 1268,
+      "gross_profit": 1298,
+      "selling_expense": 1302,
+      "general_admin": 1303,
+      "operating_profit": 1306
+    },
+    "pnl_labels": {
+      "revenue": "매출액",
+      "cogs": "매출원가",
+      "gross_profit": "매출총이익",
+      "selling_expense": "판매비",
+      "general_admin": "일반관리비",
+      "operating_profit": "영업이익"
+    },
     "products": {
-      "SW400":{"label":"SW400","quantity_row":32,"amount_row":33},
-      "SW440":{"label":"SW440","quantity_row":38,"amount_row":39},
-      "BW400":{"label":"BW400","quantity_row":44,"amount_row":45},
-      "BW440":{"label":"BW440","quantity_row":50,"amount_row":51},
-      "LC":{"label":"LC 전체","quantity_row":107,"amount_row":108},
-      "FS":{"label":"FS 전체","quantity_row":110,"amount_row":111},
-      "NEW_BUSINESS":{"label":"신사업","quantity_row":113,"amount_row":114}
+      "SW400": {
+        "label": "SW400",
+        "quantity_row": 32,
+        "amount_row": 33
+      },
+      "SW440": {
+        "label": "SW440",
+        "quantity_row": 38,
+        "amount_row": 39
+      },
+      "BW400": {
+        "label": "BW400",
+        "quantity_row": 44,
+        "amount_row": 45
+      },
+      "BW440": {
+        "label": "BW440",
+        "quantity_row": 50,
+        "amount_row": 51
+      },
+      "LC": {
+        "label": "LC 전체",
+        "quantity_row": 107,
+        "amount_row": 108
+      },
+      "FS": {
+        "label": "FS 전체",
+        "quantity_row": 110,
+        "amount_row": 111
+      },
+      "NEW_BUSINESS": {
+        "label": "신사업",
+        "quantity_row": 113,
+        "amount_row": 114
+      }
     },
     "sales_groups": {
-      "SW":{"label":"SW","quantity_row":1543,"amount_row":1544,"cogs_row":1545},
-      "BW":{"label":"BW","quantity_row":1582,"amount_row":1583,"cogs_row":1584},
-      "LC":{"label":"LC","quantity_row":1621,"amount_row":1622,"cogs_row":1623},
-      "FS":{"label":"FS","quantity_row":1673,"amount_row":1674,"cogs_row":1675},
-      "NEW_BUSINESS":{"label":"신사업","quantity_row":113,"amount_row":114,"cogs_row":1241}
+      "SW": {
+        "label": "SW",
+        "quantity_row": 1543,
+        "amount_row": 1544,
+        "cogs_row": 1545
+      },
+      "BW": {
+        "label": "BW",
+        "quantity_row": 1582,
+        "amount_row": 1583,
+        "cogs_row": 1584
+      },
+      "LC": {
+        "label": "LC",
+        "quantity_row": 1621,
+        "amount_row": 1622,
+        "cogs_row": 1623
+      },
+      "FS": {
+        "label": "FS",
+        "quantity_row": 1673,
+        "amount_row": 1674,
+        "cogs_row": 1675
+      },
+      "NEW_BUSINESS": {
+        "label": "신사업",
+        "quantity_row": 113,
+        "amount_row": 114,
+        "cogs_row": 1241
+      }
     },
-    "production_rows":{"SW400":547,"SW440":548,"BW400":549,"BW440":550,"LC":551,"FS_SW":119,"FS_BW":122,"FS_TW":125},
-    "production_labels":{"SW400":"SW400 생산량","SW440":"SW440 생산량","BW400":"BW400 생산량","BW440":"BW440 생산량","LC":"LC 생산량","FS_SW":"FS_SW 생산량","FS_BW":"FS_BW 생산량","FS_TW":"FS_TW 생산량"},
-    "mcm_rows":{"SW400":559,"SW440":560,"BW400":561,"BW440":562},
-    "mcm_labels":{"SW400":"MCM(유상사급) SW400","SW440":"MCM(유상사급) SW440","BW400":"MCM(유상사급) BW400","BW440":"MCM(유상사급) BW440"},
-    "cost_labels":{"raw_material":"원재료비","labor":"노무비","outsourcing":"외주가공비","other_processing":"기타경비","processing_total":"가공비 합계","manufacturing_expense":"제조경비 발생액","selling_expense":"판매비","general_admin":"일반관리비","sga_total":"판관비 합계","disposal":"제품 폐기손실","obsolescence":"진부화 평가손실","tariff":"북미/남미 관세 참고금액","customs_refund":"원재료 관세 환급금"},
-    "effect_labels":{"revenue":"매출액","product_raw_material":"제품 원재료비","product_labor":"제품 노무비","product_outsourcing":"제품 외주가공비","product_other":"제품 기타경비","semi_raw_material":"반제품 원재료비","semi_labor":"반제품 노무비","semi_outsourcing":"반제품 외주가공비","semi_other":"반제품 기타경비","goods_cogs":"상품 매출원가","other_cogs":"기타 매출원가","paid_supply_cancel":"유상사급 원가취소","customs_refund":"원재료 관세 환급금","disposal":"제품 폐기손실","other_standard_cogs":"기타 표준 매출원가","obsolescence":"진부화 평가손실","selling_ex_tariff":"판매비","tariff":"북미/남미 관세 참고금액","general_admin":"일반관리비"}
+    "production_rows": {
+      "SW400": 556,
+      "SW440": 557,
+      "BW400": 558,
+      "BW440": 559,
+      "LC": 560,
+      "FS_SW": 119,
+      "FS_BW": 122,
+      "FS_TW": 125
+    },
+    "production_labels": {
+      "SW400": "SW400 생산량",
+      "SW440": "SW440 생산량",
+      "BW400": "BW400 생산량",
+      "BW440": "BW440 생산량",
+      "LC": "LC 생산량",
+      "FS_SW": "FS_SW 생산량",
+      "FS_BW": "FS_BW 생산량",
+      "FS_TW": "FS_TW 생산량"
+    },
+    "mcm_rows": {
+      "SW400": 568,
+      "SW440": 569,
+      "BW400": 570,
+      "BW440": 571
+    },
+    "mcm_labels": {
+      "SW400": "MCM(유상사급) SW400",
+      "SW440": "MCM(유상사급) SW440",
+      "BW400": "MCM(유상사급) BW400",
+      "BW440": "MCM(유상사급) BW440"
+    },
+    "cost_labels": {
+      "raw_material": "원재료비",
+      "labor": "노무비",
+      "outsourcing": "외주가공비",
+      "other_processing": "기타경비",
+      "processing_total": "가공비 합계",
+      "manufacturing_expense": "제조경비 발생액",
+      "selling_expense": "판매비",
+      "general_admin": "일반관리비",
+      "sga_total": "판관비 합계",
+      "disposal": "제품 폐기손실",
+      "obsolescence": "진부화 평가손실",
+      "tariff": "북미/남미 관세 참고금액",
+      "customs_refund": "원재료 관세 환급금"
+    },
+    "effect_labels": {
+      "revenue": "매출액",
+      "product_raw_material": "제품 원재료비",
+      "product_labor": "제품 노무비",
+      "product_outsourcing": "제품 외주가공비",
+      "product_other": "제품 기타경비",
+      "semi_raw_material": "반제품 원재료비",
+      "semi_labor": "반제품 노무비",
+      "semi_outsourcing": "반제품 외주가공비",
+      "semi_other": "반제품 기타경비",
+      "goods_cogs": "상품 매출원가",
+      "other_cogs": "기타 매출원가",
+      "paid_supply_cancel": "유상사급 원가취소",
+      "customs_refund": "원재료 관세 환급금",
+      "disposal": "제품 폐기손실",
+      "other_standard_cogs": "기타 표준 매출원가",
+      "obsolescence": "진부화 평가손실",
+      "selling_ex_tariff": "판매비",
+      "tariff": "북미/남미 관세 참고금액",
+      "general_admin": "일반관리비"
+    }
   }
 }

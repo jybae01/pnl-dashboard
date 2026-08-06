@@ -225,11 +225,14 @@ class ForecastEngine:
                 "message": "전공정+후공정=구매팀 예상 총액",
             })
         output = wb.save(destination)
-        revenue = float(wb.value(f"{col}1201") or 0)
-        cogs = float(wb.value(f"{col}1222") or 0)
-        gp = float(wb.value(f"{col}1253") or 0)
-        model_sga = float(wb.value(f"{col}1177") or 0)
-        model_op = float(wb.value(f"{col}1260") or 0)
+        pnl_rows = self.mapping["comparison"]["pnl_rows"]
+        revenue = float(wb.value(f"{col}{pnl_rows['revenue']}") or 0)
+        cogs = float(wb.value(f"{col}{pnl_rows['cogs']}") or 0)
+        gp = float(wb.value(f"{col}{pnl_rows['gross_profit']}") or 0)
+        selling_expense = float(wb.value(f"{col}{pnl_rows['selling_expense']}") or 0)
+        general_admin = float(wb.value(f"{col}{pnl_rows['general_admin']}") or 0)
+        model_sga = selling_expense + general_admin
+        model_op = float(wb.value(f"{col}{pnl_rows['operating_profit']}") or 0)
         sga = model_sga
         op = model_op
         web_bridge_delta = revenue - cogs - sga - op
@@ -280,8 +283,14 @@ class ForecastEngine:
             target = group.get("target", 1.0)
             ok = (not missing) and abs(total-target) <= group.get("tolerance", 1e-6)
             checks.append({"name": group["name"], "ok": ok, "value": total, "message": "정상" if ok else "누락 또는 합계 불일치"})
-        op_bridge = float(wb.value(f"{col}1201") or 0) - float(wb.value(f"{col}1222") or 0) - float(wb.value(f"{col}1177") or 0)
-        op = float(wb.value(f"{col}1260") or 0)
+        pnl_rows = self.mapping["comparison"]["pnl_rows"]
+        op_bridge = (
+            float(wb.value(f"{col}{pnl_rows['revenue']}") or 0)
+            - float(wb.value(f"{col}{pnl_rows['cogs']}") or 0)
+            - float(wb.value(f"{col}{pnl_rows['selling_expense']}") or 0)
+            - float(wb.value(f"{col}{pnl_rows['general_admin']}") or 0)
+        )
+        op = float(wb.value(f"{col}{pnl_rows['operating_profit']}") or 0)
         checks.append({"name":"영업이익 정합성", "ok":abs(op_bridge-op)<1, "value":op_bridge-op, "message":"허용오차 1원"})
         overwritten = wb.formula_changes()
         allowed = set(self.mapping["formula_input_exceptions"])

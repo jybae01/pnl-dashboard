@@ -341,21 +341,10 @@ def forecast_page(role: str) -> None:
 
     current_year = date.today().year
     active_baseline = BASELINE.load()
-    baseline_path = (
-        BASELINE.workbook_file
-        if active_baseline
-        else (MODEL if MODEL.exists() else None)
-    )
-    fallback_actual_through = (
-        inspect_baseline_workbook(baseline_path)[0]
-        if baseline_path is not None
-        else 0
-    )
-    actual_through = (
-        active_baseline.actual_through_month if active_baseline else fallback_actual_through
-    )
-    baseline_year = active_baseline.year if active_baseline else 2026
-    baseline_token = active_baseline.uploaded_at if active_baseline else "builtin"
+    baseline_path = BASELINE.workbook_file if active_baseline else None
+    actual_through = active_baseline.actual_through_month if active_baseline else 0
+    baseline_year = active_baseline.year if active_baseline else current_year
+    baseline_token = active_baseline.uploaded_at if active_baseline else "not-uploaded"
 
     if st.session_state.get("baseline_notice"):
         st.success(st.session_state.pop("baseline_notice"))
