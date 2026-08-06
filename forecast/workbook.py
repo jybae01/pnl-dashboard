@@ -85,13 +85,25 @@ class ChangeLog:
 class GoldenWorkbook:
     """OOXML adapter that changes only configured cells and preserves the package."""
 
-    def __init__(self, path: str | Path, sheet_xml: str = "xl/worksheets/sheet1.xml"):
+    def __init__(self, path: str | Path, sheet_xml: str | None = None):
         self.path = Path(path)
-        self.sheet_xml = sheet_xml
         with zipfile.ZipFile(self.path) as archive:
             self.entries = {name: archive.read(name) for name in archive.namelist()}
+        if sheet_xml is None:
+            sheet_xml = self._default_model_sheet_xml()
+        if sheet_xml not in self.entries:
+            raise ValueError(f"워크북에서 모형 시트를 찾을 수 없습니다: {sheet_xml}")
+        self.sheet_xml = sheet_xml
         self.shared_strings = self._read_shared_strings()
         self.root = ET.fromstring(self.entries[self.sheet_xml])
+
+    def _default_model_sheet_xml(self) -> str:
+        """Prefer the approved Data sheet even when a README sheet comes first."""
+        for alias in ("Data", "DATA", "원본_Data", "원본데이터"):
+            resolved = self._worksheet_target(self.entries, alias)
+            if resolved is not None:
+                return resolved[0]
+        return "xl/worksheets/sheet1.xml"
         self.cells = {cell.attrib["r"].upper(): cell for cell in self.root.iter(Q("c"))}
         self.formulas: dict[str, str] = {}
         self._expand_formulas()
