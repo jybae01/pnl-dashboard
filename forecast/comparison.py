@@ -207,12 +207,23 @@ class GenericComparisonEngine:
         production = {key: total(row) for key, row in self.mapping["production_rows"].items()}
         mcm = {key: total(row) for key, row in self.mapping["mcm_rows"].items()}
 
-        raw_material = total(1229) + total(1237)
-        labor = total(1230) + total(1238)
-        outsourcing = total(1231) + total(1239)
-        other_processing = total(1232) + total(1240)
+        def mapped_total(spec: int | list[int] | dict[str, list[int]]) -> float:
+            if isinstance(spec, int):
+                return total(spec)
+            if isinstance(spec, list):
+                return sum(total(row) for row in spec)
+            added = sum(total(row) for row in spec.get("add", []))
+            subtracted = sum(total(row) for row in spec.get("subtract", []))
+            return added - subtracted
+
+        cost_rows = self.mapping["cost_rows"]
+        raw_material = mapped_total(cost_rows["raw_material"])
+        labor = mapped_total(cost_rows["labor"])
+        outsourcing = mapped_total(cost_rows["outsourcing"])
+        other_processing = mapped_total(cost_rows["other_processing"])
         tariff = web_tariff
-        selling = total(1257) + external_tariff
+        selling = mapped_total(cost_rows["selling_expense"]) + external_tariff
+        general_admin = mapped_total(cost_rows["general_admin"])
         selling_before_tariff = selling - tariff
         cost_summary = {
             "raw_material": raw_material,
@@ -220,36 +231,24 @@ class GenericComparisonEngine:
             "outsourcing": outsourcing,
             "other_processing": other_processing,
             "processing_total": labor + outsourcing + other_processing,
-            "manufacturing_expense": total(296),
+            "manufacturing_expense": mapped_total(cost_rows["manufacturing_expense"]),
             "selling_expense": selling,
-            "general_admin": total(1258),
-            "sga_total": selling + total(1258),
-            "disposal": total(1248),
-            "obsolescence": total(1250),
+            "general_admin": general_admin,
+            "sga_total": selling + general_admin,
+            "disposal": mapped_total(cost_rows["disposal"]),
+            "obsolescence": mapped_total(cost_rows["obsolescence"]),
             "tariff": tariff,
-            "customs_refund": total(1246),
+            "customs_refund": mapped_total(cost_rows["customs_refund"]),
         }
         effect_bases = {
-            "revenue": total(1201),
-            "product_raw_material": total(1229),
-            "product_labor": total(1230),
-            "product_outsourcing": total(1231),
-            "product_other": total(1232),
-            "semi_raw_material": total(1237),
-            "semi_labor": total(1238),
-            "semi_outsourcing": total(1239),
-            "semi_other": total(1240),
-            "goods_cogs": total(1241),
-            "other_cogs": total(1244),
-            "paid_supply_cancel": total(1245),
-            "customs_refund": total(1246),
-            "disposal": total(1248),
-            "other_standard_cogs": total(1249),
-            "obsolescence": total(1250),
+            key: mapped_total(spec)
+            for key, spec in self.mapping["effect_rows"].items()
+        }
+        effect_bases.update({
             "selling_ex_tariff": selling_before_tariff,
             "tariff": tariff,
-            "general_admin": total(1258),
-        }
+            "general_admin": general_admin,
+        })
         return {"pnl": pnl, "products": products, "sales_groups": sales_groups,
                 "production": production, "mcm": mcm,
                 "cost_summary": cost_summary, "effect_bases": effect_bases}
