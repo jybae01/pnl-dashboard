@@ -1,0 +1,99 @@
+name: Feature analysis audit export integration
+
+on:
+  push:
+    branches: [main]
+    paths: [.github/workflows/feature-analysis-audit-export.yml]
+
+permissions:
+  contents: write
+
+jobs:
+  integrate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/add-analysis-audit-export
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Patch Streamlit comparison page
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          path = Path('app.py')
+          text = path.read_text(encoding='utf-8')
+          old_import = 'from forecast.comparison import GenericComparisonEngine, PeriodOption\n'
+          new_import = old_import + 'from forecast.analysis_export import MIME_XLSX, build_comparison_audit_workbook\n'
+          if 'from forecast.analysis_export import' not in text:
+              if old_import not in text: raise SystemExit('comparison import anchor not found')
+              text = text.replace(old_import, new_import, 1)
+          tabs_anchor = '    effect_tabs = st.tabs(["판매효과", "원부재료 효과", "생산(제조경비)효과", "판관비 효과"])\n'
+          tabs_replacement = (
+              '    baseline_fx = 1.0\n'
+              '    comparison_fx = 1.0\n'
+              '    sales_rows = []\n'
+              '    sales_totals = {\n'
+              '        "quantity_effect": 0.0, "pure_price_effect": 0.0,\n'
+              '        "sales_fx_effect": 0.0, "unit_value_effect": 0.0, "total_sales_effect": 0.0,\n'
+              '    }\n' + tabs_anchor
+          )
+          tail = text[text.find('def comparison_page'):]
+          if 'sales_totals = {' not in tail:
+              if tabs_anchor not in text: raise SystemExit('effect tabs anchor not found')
+              text = text.replace(tabs_anchor, tabs_replacement, 1)
+          narrative_anchor = (
+              '    st.subheader("주요 변동원인 자동 설명")\n'
+              '    st.write(result.get("narrative") or "분석 가능한 주요 변동원인이 없습니다.")\n'
+          )
+          export_block = narrative_anchor + '''
+
+    st.divider()
+    st.subheader("분석 계산근거 다운로드")
+    st.caption(
+        "기준·비교 원천값, 실제 참조 셀, 원본 수식, 분석 수식, 엔진 계산값과 "
+        "정합성 확인 결과를 하나의 엑셀에서 확인할 수 있습니다."
+    )
+    try:
+        audit_workbook = build_comparison_audit_workbook(
+            result=result, sales_rows=sales_rows, sales_totals=sales_totals,
+            baseline_fx=float(baseline_fx), comparison_fx=float(comparison_fx),
+            baseline_path=REGISTRY.path(baseline_meta.id),
+            comparison_path=REGISTRY.path(comparison_meta.id),
+            mapping_path=MAPPING,
+        )
+    except Exception as exc:
+        st.warning(f"검증 엑셀을 생성할 수 없습니다: {exc}")
+    else:
+        export_timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        safe_base = "".join(char if char.isalnum() or char in "-_" else "_" for char in baseline_meta.name)
+        safe_comparison = "".join(char if char.isalnum() or char in "-_" else "_" for char in comparison_meta.name)
+        st.download_button(
+            "손익분석 검증 엑셀 다운로드", audit_workbook,
+            file_name=(
+                f"손익분석_검증_{safe_base}_{safe_comparison}_"
+                f"{selected_period.key}_{export_timestamp}.xlsx"
+            ),
+            mime=MIME_XLSX, on_click="ignore",
+        )
+'''
+          if '손익분석 검증 엑셀 다운로드' not in text:
+              if narrative_anchor not in text: raise SystemExit('narrative anchor not found')
+              text = text.replace(narrative_anchor, export_block, 1)
+          path.write_text(text, encoding='utf-8')
+          PY
+      - name: Install and test
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt pytest
+          pytest -q
+      - name: Commit feature branch
+        run: |
+          if git diff --quiet; then exit 0; fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add app.py
+          git commit -m "Integrate analysis audit Excel download"
+          git push origin HEAD:agent/add-analysis-audit-export
