@@ -65,7 +65,7 @@ class ComparisonMappingTests(unittest.TestCase):
         self.assertEqual(result["effect_bases"]["general_admin"], 50)
 
     def test_sales_group_rows_match_new_detail_section(self):
-        mapping = engine_mapping = GenericComparisonEngine(MAPPING).mapping
+        mapping = GenericComparisonEngine(MAPPING).mapping
         self.assertEqual(
             {
                 key: (
