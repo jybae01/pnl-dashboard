@@ -13,7 +13,7 @@ def inspect_baseline_workbook(path: str | Path) -> tuple[int, list[str]]:
     if not zipfile.is_zipfile(path):
         raise ValueError("유효한 xlsx 파일이 아닙니다.")
     workbook = GoldenWorkbook(path)
-    required_cells = ["B1197", "E1201", "E1260", "P1201", "P1260"]
+    required_cells = ["B1166", "B1244", "E1248", "E1306", "P1248", "P1306"]
     missing = [
         address for address in required_cells
         if address not in workbook.cells and address not in workbook.formulas
