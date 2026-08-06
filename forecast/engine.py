@@ -73,37 +73,7 @@ class ForecastResult:
 class ForecastEngine:
     def __init__(self, model_path: str | Path, mapping_path: str | Path):
         self.model_path = Path(model_path)
-        raw_mapping = json.loads(Path(mapping_path).read_text(encoding="utf-8"))
-        self.mapping = {
-            key: value for key, value in raw_mapping.items()
-            if key != "schema_overrides"
-        }
-        self.schema_name = "legacy"
-        workbook = GoldenWorkbook(self.model_path)
-        for schema in raw_mapping.get("schema_overrides", []):
-            detected = all(
-                self._mapping_token(workbook.raw_value(address))
-                == self._mapping_token(expected)
-                for address, expected in schema.get("detect_cells", {}).items()
-            )
-            if detected:
-                self.mapping = self._deep_merge(self.mapping, schema.get("mapping", {}))
-                self.schema_name = str(schema.get("name") or "custom")
-                break
-
-    @staticmethod
-    def _mapping_token(value: Any) -> str:
-        return re.sub(r"[\s_]+", "", str(value or "")).casefold()
-
-    @classmethod
-    def _deep_merge(cls, base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any]:
-        merged = dict(base)
-        for key, value in override.items():
-            if isinstance(value, dict) and isinstance(merged.get(key), dict):
-                merged[key] = cls._deep_merge(merged[key], value)
-            else:
-                merged[key] = value
-        return merged
+        self.mapping = json.loads(Path(mapping_path).read_text(encoding="utf-8"))
 
     @staticmethod
     def column(month: int) -> str:
