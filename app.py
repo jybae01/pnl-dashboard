@@ -1,1179 +1,1385 @@
-import streamlit as st
-import pandas as pd
-import numpy as np
-import plotly.graph_objects as go
-import io
-import logging
-import re
-import base64
+from __future__ import annotations
+
+import html
+import json
+import os
+import tempfile
+import zipfile
+from dataclasses import asdict
+from datetime import date, datetime
 from pathlib import Path
 
-from forecast_dashboard.security import (
-    clear_login_failures,
-    load_credentials,
-    lockout_remaining,
-    register_failed_attempt,
-    verify_access_code,
+import pandas as pd
+import streamlit as st
+
+from forecast.comparison import GenericComparisonEngine, PeriodOption
+from forecast.baseline import inspect_baseline_workbook
+from forecast.engine import CostAdjustment, ForecastEngine, ForecastInput, ForecastResult, SalesInput
+from forecast.sales_comparison import calculate_sales_effect_rows, sales_effect_totals
+from forecast.storage import BaselineStore, ModelRegistry, ResultStore
+from forecast.workbook import GoldenWorkbook
+
+ROOT = Path(__file__).resolve().parent
+MODEL = ROOT / "models" / "golden_model.xlsx"
+MAPPING = ROOT / "config" / "model_mapping.json"
+STORE = ResultStore(ROOT / "data")
+REGISTRY = ModelRegistry(ROOT / "data" / "registry")
+BASELINE = BaselineStore(ROOT / "data" / "baseline")
+RELEASE_FILE = ROOT / "config" / "release.json"
+
+
+def load_release_info() -> dict:
+    default = {
+        "release_name": "Forecast V1 Beta",
+        "version": "1.0.0-beta.1",
+    }
+    try:
+        loaded = json.loads(RELEASE_FILE.read_text(encoding="utf-8"))
+        return {**default, **loaded}
+    except (OSError, ValueError, TypeError):
+        return default
+
+
+RELEASE = load_release_info()
+
+st.set_page_config(
+    page_title=f"손익 추정 시스템 · {RELEASE['release_name']}",
+    layout="wide",
 )
-from forecast_dashboard.storage import (
-    StorageError,
-    delete_saved_data,
-    load_saved_data,
-    save_uploaded_data,
-)
-from forecast_dashboard.workbooks import read_workbook, safe_extract
-
-# 1. 페이지 기본 설정 (반드시 최상단에 위치)
-st.set_page_config(page_title="손익계산서 조회", layout="wide")
-
-APP_DIR = Path(__file__).resolve().parent
-LOGGER = logging.getLogger(__name__)
-
-def image_data_uri(filename):
-    """실행 파일 옆의 브랜드 이미지를 화면에 안전하게 표시한다."""
-    image_path = APP_DIR / filename
-    if not image_path.exists():
-        return ""
-    encoded = base64.b64encode(image_path.read_bytes()).decode("utf-8")
-    return f"data:image/png;base64,{encoded}"
-
-BLACK_LOGO_URI = image_data_uri("NanoH2O_Logo@3x_Black.png")
-WHITE_LOGO_URI = image_data_uri("NanoH2O_Logo@3x_White.png")
-
-try:
-    ACCESS_CREDENTIALS = load_credentials(st.secrets)
-except Exception as exc:
-    st.error("접속 보안 설정이 완료되지 않았습니다. 관리자에게 문의해 주세요.")
-    LOGGER.error("Invalid authentication configuration: %s", exc)
-    st.stop()
-
-if "authenticated" not in st.session_state:
-    st.session_state.authenticated = False
-    st.session_state.role = None
-
-if not st.session_state.authenticated:
-    st.markdown("""
-    <style>
-    [data-testid="stAppViewContainer"] {
-        background:
-            radial-gradient(circle at 15% 20%, rgba(255,107,44,.12), transparent 30%),
-            radial-gradient(circle at 85% 82%, rgba(31,41,55,.08), transparent 32%),
-            #FCFBFA;
-    }
-    [data-testid="stHeader"] { background: transparent; }
-    .login-hero { text-align: center; margin: 15vh 0 22px; }
-    .login-brand { width: 260px; margin: 0 auto 18px; padding: 17px 22px; border-radius: 14px;
-        background: linear-gradient(135deg, #111111, #303030); box-shadow: 0 10px 22px rgba(17,17,17,.18); }
-    .login-brand img { width: 100%; height: auto; display: block; }
-    .login-hero h1 { margin: 0; color: #172033; font-size: 27px; letter-spacing: -.6px; }
-    .login-hero p { margin: 8px 0 0; color: #64748B; font-size: 14px; }
-    div[data-testid="stForm"] {
-        max-width: 380px; margin: 0 auto; padding: 24px 24px 20px;
-        border: 1px solid #E2E8F0; border-radius: 16px; background: rgba(255,255,255,.94);
-        box-shadow: 0 18px 42px rgba(15,23,42,.10);
-    }
-    div[data-testid="stForm"] input {
-        height: 44px; border-radius: 9px; border-color: #CBD5E1; font-size: 14px;
-    }
-    div[data-testid="stForm"] input:focus { border-color: #FF6B2C; box-shadow: 0 0 0 3px rgba(255,107,44,.14); }
-    div[data-testid="stForm"] div[data-testid="stFormSubmitButton"] > button,
-    div[data-testid="stForm"] button[kind="secondaryFormSubmit"] {
-        height: 42px; border: 0; border-radius: 9px; background: #FF6B2C; color: white;
-        font-weight: 700; letter-spacing: -.1px;
-    }
-    div[data-testid="stForm"] div[data-testid="stFormSubmitButton"] > button:hover,
-    div[data-testid="stForm"] button[kind="secondaryFormSubmit"]:hover { background: #D9551E; }
-    .login-help { text-align: center; color: #94A3B8; font-size: 12px; margin-top: 14px; }
-    </style>
-    <div class="login-hero">
-        <div class="login-brand"><img src="__WHITE_LOGO_URI__" alt="NanoH2O"></div>
-        <h1>손익 데이터 모니터링</h1>
-        <p>접속 코드를 입력하여 대시보드를 확인하세요.</p>
-    </div>
-    """.replace("__WHITE_LOGO_URI__", WHITE_LOGO_URI), unsafe_allow_html=True)
-    
-    col1, col2, col3 = st.columns([1, 1, 1])
-    with col2:
-        with st.form("login_form"):
-            entered_code = st.text_input("Access Code", type="password", label_visibility="collapsed", placeholder="접속 코드를 입력하세요")
-            submitted = st.form_submit_button("접속", use_container_width=True)
-            
-            if submitted:
-                remaining = lockout_remaining(st.session_state)
-                if remaining:
-                    st.error(f"로그인 시도가 잠시 제한되었습니다. {remaining}초 후 다시 시도해 주세요.")
-                else:
-                    role = verify_access_code(entered_code, ACCESS_CREDENTIALS)
-                    if role:
-                        clear_login_failures(st.session_state)
-                        st.session_state.authenticated = True
-                        st.session_state.role = role
-                        st.rerun()
-                    register_failed_attempt(st.session_state)
-                    remaining = lockout_remaining(st.session_state)
-                    if remaining:
-                        st.error(f"로그인 시도가 잠시 제한되었습니다. {remaining}초 후 다시 시도해 주세요.")
-                    else:
-                        st.error("⚠️ 접속 코드가 일치하지 않습니다.")
-        st.markdown("<div class='login-help'>권한이 필요한 경우 관리자에게 문의해 주세요.</div>", unsafe_allow_html=True)
-    
-    st.stop()
-# ---------------------------------------------
 
 
-# [HTML/CSS] 디자인 최적화 (라디오버튼 강제 중앙정렬 & YTD 표 자연스러운 간격 복구)
-st.markdown("""
-<style>
-/* 조회 화면 공통 스타일 */
-[data-testid="stAppViewContainer"] { background: #FCFBFA; }
-[data-testid="stHeader"] { background: rgba(252,251,250,.9); }
-.block-container { max-width: 1640px; padding-top: 2.1rem; padding-bottom: 3rem; }
-.dashboard-brand {
-    display: flex; align-items: center; gap: 20px; min-height: 62px;
-    padding: 8px 0 14px; box-sizing: border-box;
-    margin-bottom: 2px; border-bottom: 1px solid #E2E8F0; overflow: visible;
-}
-.dashboard-brand img { width: 188px; height: auto; display: block; }
-.dashboard-brand-title { color: #172033; font-size: 27px; font-weight: 750; letter-spacing: -0.8px; line-height: 1.35; white-space: nowrap; }
-h1 {
-    color: #172033 !important; font-size: 30px !important; font-weight: 750 !important;
-    letter-spacing: -0.8px !important; padding-bottom: 14px !important;
-    border-bottom: 1px solid #E2E8F0;
-}
-h5 { color: #1E293B !important; font-weight: 700 !important; letter-spacing: -0.25px; }
-[data-testid="stMetric"] {
-    padding: 16px 18px; min-height: 132px; border: 1px solid #E2E8F0;
-    border-radius: 14px; background: #FFFFFF; box-shadow: 0 6px 18px rgba(15,23,42,.045);
-}
-[data-testid="stMetricLabel"] { color: #64748B !important; font-size: 13px !important; font-weight: 650 !important; }
-[data-testid="stMetricValue"] { color: #172033 !important; font-size: 24px !important; font-weight: 750 !important; }
-[data-testid="stMetricDelta"] { font-size: 12px !important; white-space: normal !important; line-height: 1.45 !important; }
-[data-testid="stSidebar"] { background: #FFFFFF; border-right: 1px solid #E2E8F0; }
-[data-testid="stSidebar"] [data-testid="stMarkdownContainer"] h3 { color: #242424; }
-.stButton > button, [data-testid="stDownloadButton"] > button {
-    border-radius: 8px; border-color: #CBD5E1; font-weight: 650; transition: all .15s ease;
-}
-.stButton > button:hover, [data-testid="stDownloadButton"] > button:hover {
-    border-color: #FF6B2C; color: #D9551E; box-shadow: 0 3px 10px rgba(255,107,44,.14);
-}
-.stTabs [data-baseweb="tab-list"] { gap: 6px; border-bottom: 1px solid #E2E8F0; }
-.stTabs [data-baseweb="tab"] {
-    height: 38px; padding: 0 15px; border-radius: 8px 8px 0 0;
-    color: #64748B; font-weight: 650;
-}
-.stTabs [aria-selected="true"] { color: #D9551E !important; background: #FFF0E9; }
-hr { border-color: #E2E8F0 !important; margin: 1.4rem 0 !important; }
+def secret(name: str) -> str | None:
+    try:
+        return st.secrets[name]
+    except Exception:
+        return os.getenv(name)
 
-/* 💡 라디오 버튼 그룹 강제 중앙 정렬 */
-div[role="radiogroup"] {
-    display: flex !important;
-    justify-content: center !important;
-    margin-bottom: 5px !important;
-}
 
-/* 💡 드롭다운 사이즈 최소화 및 여백 제거 */
-div[data-baseweb="select"] {
-    font-size: 13px !important;
-}
-div[data-baseweb="select"] div[role="combobox"] {
-    justify-content: center !important;
-}
-div[data-baseweb="select"] div[role="combobox"] input {
-    text-align: center !important;
-}
-
-.custom-tbl { 
-    width: 100%; min-width: 1100px; border-collapse: collapse; font-size: 13px; 
-    font-family: "Pretendard", "Malgun Gothic", sans-serif; margin-bottom: 20px; 
-    table-layout: fixed; 
-}
-.custom-tbl.compare-mode {
-    min-width: 1900px; 
-}
-.ytd-wrapper { 
-    display: flex; justify-content: center; width: 100%; overflow-x: auto; 
-}
-
-/* 💡 YTD 전용 테이블: 보기 좋은 간격(600px)으로 콤팩트하게 복구 */
-.custom-tbl.ytd-mode {
-    width: 600px !important; 
-    min-width: 600px !important;
-    max-width: 600px !important;
-    margin: 0 auto;
-}
-.custom-tbl.ytd-mode td, .custom-tbl.ytd-mode th {
-    padding: 6px 8px !important; 
-}
-
-.custom-tbl th { 
-    text-align: center !important; padding: 10px 4px; border: 1px solid rgba(128, 128, 128, 0.2); 
-    background-color: rgba(128, 128, 128, 0.05); color: inherit; white-space: nowrap; vertical-align: middle;
-}
-.custom-tbl td { 
-    text-align: right !important; padding: 8px 10px; border: 1px solid rgba(128, 128, 128, 0.2); 
-    white-space: nowrap; 
-}
-.custom-tbl.ytd-mode thead th {
-    text-align: center !important;
-}
-.custom-tbl tbody td:first-child, .custom-tbl thead th.col-item { 
-    width: 140px; text-align: left !important; font-weight: bold; 
-    background-color: rgba(128, 128, 128, 0.02); padding-left: 10px; 
-}
-
-.pnl-container tr:has(.child-qty) { display: none; }
-.pnl-container tr:has(.child-sales) { display: none; }
-.pnl-container tr:has(.child-cogs) { display: none; }
-
-#toggle-qty:checked ~ table tr:has(.child-qty) { display: table-row; }
-#toggle-sales:checked ~ table tr:has(.child-sales) { display: table-row; }
-#toggle-cogs:checked ~ table tr:has(.child-cogs) { display: table-row; }
-
-.icon-qty::before, .icon-sales::before, .icon-cogs::before { content: "[+]"; color: #FF6B2C; font-weight: 900; margin-right: 6px; display: inline-block; width: 18px; }
-#toggle-qty:checked ~ table .icon-qty::before { content: "[-]"; color: #242424; }
-#toggle-sales:checked ~ table .icon-sales::before { content: "[-]"; color: #242424; }
-#toggle-cogs:checked ~ table .icon-cogs::before { content: "[-]"; color: #242424; }
-
-label[for="toggle-qty"], label[for="toggle-sales"], label[for="toggle-cogs"] { cursor: pointer; margin: 0; display: block; width: 100%; }
-</style>
-""", unsafe_allow_html=True)
-
-def format_cell(val, is_margin):
-    if pd.isna(val) or val == 0 or np.isinf(val): 
-        return ""
-    if is_margin: 
-        return f"{val:.1f}%"
-    return f"{val:,.0f}"
-
-def clean_multiindex_html(html, is_multi=False):
-    if is_multi:
-        if '<th>항목</th>' in html:
-            html = html.replace('<th>항목</th>', '<th class="col-item" rowspan="2" style="vertical-align: middle; border-bottom: 1px solid rgba(128,128,128,0.2);">항목</th>', 1)
-            html = re.sub(r'<th[^>]*>(?:&nbsp;|\s*)</th>', '', html, count=1)
-            html = re.sub(r'<th[^>]*>Unnamed[^<]*</th>', '', html)
-    else:
-        html = html.replace('<th>항목</th>', '<th class="col-item">항목</th>')
-    return html
-
-def render_html_table(df, mode=""):
-    mode_class = " compare-mode" if mode == "compare" else (" ytd-mode" if mode == "ytd" else "")
-    html = df.to_html(index=False, classes=f"custom-tbl{mode_class}", escape=False)
-    html = clean_multiindex_html(html, mode in ["compare", "ytd"])
-    html = html.replace("\n", "").replace("\r", "")
-    wrapper_class = "ytd-wrapper" if mode == "ytd" else ""
-    wrapper = f'<div class="{wrapper_class}" style="width:100%; overflow-x:auto;">{html}</div>'
-    st.markdown(wrapper, unsafe_allow_html=True)
-
-def render_pnl_table(df, mode=""):
-    mode_class = " compare-mode" if mode == "compare" else (" ytd-mode" if mode == "ytd" else "")
-    html = df.to_html(index=False, classes=f"custom-tbl{mode_class}", escape=False)
-    html = clean_multiindex_html(html, mode in ["compare", "ytd"])
-    html = html.replace("\n", "").replace("\r", "")
-    wrapper_class = "pnl-container ytd-wrapper" if mode == "ytd" else "pnl-container"
-    wrapper = f'<div class="{wrapper_class}" style="width:100%; overflow-x:auto;"><input type="checkbox" id="toggle-qty" style="display:none;"><input type="checkbox" id="toggle-sales" style="display:none;"><input type="checkbox" id="toggle-cogs" style="display:none;">{html}</div>'
-    st.markdown(wrapper, unsafe_allow_html=True)
-
-def render_table_unit(unit_text, is_period_compare=False):
-    """표 폭에 맞춰 단위 표기를 배치한다."""
-    if is_period_compare:
-        style = "width: 600px; margin: 0 auto 5px auto; text-align: right;"
-    else:
-        style = "width: 100%; margin-bottom: 5px; text-align: right;"
-    st.markdown(
-        f"<div style='{style} font-size: 12px; font-weight: bold; color: #4B5563;'>{unit_text}</div>",
-        unsafe_allow_html=True,
+def authenticate() -> str:
+    if "role" in st.session_state:
+        return st.session_state.role
+    viewer, admin = secret("VIEWER_CODE"), secret("ADMIN_CODE")
+    if not viewer or not admin:
+        st.error("인증코드 없이 앱이 실행되었습니다.")
+        st.info("현재 실행 창을 종료한 뒤 프로젝트 폴더의 `start_forecast.cmd`를 실행해 주세요. 일반 사용자 코드와 관리자 코드를 차례로 입력하면 앱이 다시 열립니다.")
+        st.code(".\\run.ps1", language="powershell")
+        st.stop()
+    code = st.text_input(
+        "접속 코드",
+        type="password",
+        key="forecast_access_code",
+        autocomplete="one-time-code",
+        placeholder="접속 코드를 입력하세요",
     )
-
-def render_centered_period_selectors(months, start_key, end_key):
-    """기간 비교용 선택기를 중앙의 표 바로 위에 배치한다."""
-    # 중앙 열 안에서 문구와 선택 상자를 한 그룹으로 배치해 표 중심과 맞춘다.
-    # 기간 설정 그룹 전체가 중앙의 기간 비교 표와 수평 중심을 맞추도록 배치한다.
-    _, selector_area, _ = st.columns([0.9, 1, 1.1], gap="small")
-    with selector_area:
-        selector_cols = st.columns([1.4, 0.75, 0.15, 0.75], gap="small")
-    with selector_cols[0]:
-        st.markdown("<div style='text-align: right; font-weight: 600; margin-top: 7px; white-space: nowrap;'>기간 설정 :</div>", unsafe_allow_html=True)
-    with selector_cols[1]:
-        start_month = st.selectbox("시작", months, index=0, key=start_key, label_visibility="collapsed")
-    with selector_cols[2]:
-        st.markdown("<div style='text-align: center; font-weight: bold; margin-top: 5px; font-size: 16px; color: #4B5563;'>~</div>", unsafe_allow_html=True)
-    with selector_cols[3]:
-        end_month = st.selectbox("종료", months, index=0, key=end_key, label_visibility="collapsed")
-    return start_month, end_month
-
-months = [f"{i}월" for i in range(1, 13)]
-
-
-@st.cache_data(show_spinner=False)
-def build_excel_template(format_items, month_labels):
-    rows = []
-    for row in format_items:
-        if row[0] == "★손익계산서":
-            rows.append(["구분", "입력 항목", "입력 키", *month_labels])
-        else:
-            rows.append([row[0], f"{row[1]} · {row[2]}", row[3], *([None] * 12)])
-
-    output = io.BytesIO()
-    with pd.ExcelWriter(output, engine="openpyxl") as writer:
-        pd.DataFrame(rows).to_excel(writer, index=False, header=False, sheet_name="Sheet1")
-        from openpyxl.styles import Font, PatternFill
-
-        worksheet = writer.sheets["Sheet1"]
-        for col, width in zip(["A", "B", "C"], [18, 28, 22]):
-            worksheet.column_dimensions[col].width = width
-        for col in range(4, 16):
-            column_letter = worksheet.cell(row=1, column=col).column_letter
-            worksheet.column_dimensions[column_letter].width = 12
-        header_fill = PatternFill(start_color="E5E7EB", end_color="E5E7EB", fill_type="solid")
-        for cell in worksheet[1]:
-            cell.fill = header_fill
-            cell.font = Font(bold=True)
-        worksheet.freeze_panes = "D2"
-    return output.getvalue()
-
-# --- 사이드바 (관리자 전용 데이터 업로드 및 양식 다운로드) ---
-if st.session_state.role == "admin":
-    st.sidebar.markdown("### 📁 데이터 연동 관리 (Admin)")
-    
-    original_format_items = [
-        ('★손익계산서', '대분류', '소분류', '세분류'),
-        ('Ⅰ.매출액', '1.제품 매출액', '금액(천원)', '제품매출입력'),
-        ('Ⅰ.매출액', '2.반제품 매출액', '금액(천원)', '반제품매출입력'),
-        ('Ⅰ.매출액', '3.상품 매출액', '금액(천원)', '상품매출입력'),
-        ('Ⅰ.매출액', '4.기타 매출액', '금액(천원)', '기타매출입력'),
-        ('Ⅰ.매출액', '5.판매장려금', '금액(천원)', '판매장려금입력'),
-        ('Ⅰ.매출액', '1.제품 매출액', '판매량(pcs)', 'SW수량입력'),
-        ('Ⅰ.매출액', '1.제품 매출액', '판매량(pcs)', 'BW수량입력'),
-        ('Ⅰ.매출액', '1.제품 매출액', '판매량(pcs)', 'LS수량입력'),
-        ('Ⅰ.매출액', '1.제품 매출액', '판매량(pcs)', 'FS수량입력'),
-        ('Ⅰ.매출액', '1.제품 매출액', '단가(원)', 'SW단가입력'),
-        ('Ⅰ.매출액', '1.제품 매출액', '단가(원)', 'BW단가입력'),
-        ('Ⅰ.매출액', '1.제품 매출액', '단가(원)', 'LS단가입력'),
-        ('Ⅰ.매출액', '1.제품 매출액', '단가(원)', 'FS단가입력'),
-        ('Ⅱ.매출원가', '1.제품 원가(투입)', '원부재료', '원부재료비입력'),
-        ('Ⅱ.매출원가', '1.제품 원가(투입)', '노무비', '노무비입력'),
-        ('Ⅱ.매출원가', '1.제품 원가(투입)', '외주가공비', '외주가공비입력'),
-        ('Ⅱ.매출원가', '1.제품 원가(투입)', '기타경비', '기타경비입력'),
-        ('Ⅱ.매출원가', '2.반제품 원가(투입)', '원부재료', '반제품_원부재료비입력'),
-        ('Ⅱ.매출원가', '2.반제품 원가(투입)', '노무비', '반제품_노무비입력'),
-        ('Ⅱ.매출원가', '2.반제품 원가(투입)', '외주가공비', '반제품_외주가공비입력'),
-        ('Ⅱ.매출원가', '2.반제품 원가(투입)', '기타경비', '반제품_기타경비입력'),
-        ('Ⅱ.매출원가', '3.반제품 매출원가(총액)', '금액(천원)', '반제품매출원가입력'),
-        ('Ⅱ.매출원가', '4.상품 매출원가', '금액(천원)', '상품매출원가입력'),
-        ('Ⅱ.매출원가', '5.기타 매출원가', '금액(천원)', '기타매출원가입력'),
-        ('Ⅱ.매출원가', '6.표준 매출원가 차이', '금액(천원)', '표준원가차이입력'),
-        ('Ⅱ.매출원가', '7.재고자산 평가손실', '금액(천원)', '재고평가손입력'),
-        ('Ⅲ.매출총이익', '1.매출총이익', '금액(천원)', '매출총이익입력'), 
-        ('Ⅳ.판매관리비', '1.일반관리비', '인건비', '일반관리비_인건비입력'),
-        ('Ⅳ.판매관리비', '1.일반관리비', '감가상각비', '일반관리비_감가상각비입력'),
-        ('Ⅳ.판매관리비', '1.일반관리비', '경상개발비', '일반관리비_경상개발비입력'),
-        ('Ⅳ.판매관리비', '1.일반관리비', '수수료', '일반관리비_수수료입력'),
-        ('Ⅳ.판매관리비', '1.일반관리비', '기타', '일반관리비_기타입력'),
-        ('Ⅳ.판매관리비', '2.판매비', '운반비', '판매비_운반비입력'),
-        ('Ⅳ.판매관리비', '2.판매비', '수수료', '판매비_수수료입력'),
-        ('Ⅳ.판매관리비', '2.판매비', '브랜드사용료', '판매비_브랜드사용료입력'),
-        ('Ⅳ.판매관리비', '2.판매비', '인건비', '판매비_인건비입력'),
-        ('Ⅳ.판매관리비', '2.판매비', '견본비', '판매비_견본비입력'),
-        ('Ⅳ.판매관리비', '2.판매비', '대손상각', '판매비_대손상각입력'),
-        ('Ⅳ.판매관리비', '2.판매비', '잡비', '판매비_잡비입력'),
-        ('Ⅳ.판매관리비', '2.판매비', '기타', '판매비_기타입력'),
-        ('Ⅴ.영업이익', '1.영업이익', '금액(천원)', '영업이익입력'),
-        ('Ⅴ.영업이익', '2.조정 영업이익', '금액(천원)', '조정영업이익입력'),
-        ('참고데이터', 'Item별 원가', '8인치 SW', '8인치 SW 매출원가'),
-        ('참고데이터', 'Item별 원가', '8인치 BW', '8인치 BW 매출원가'),
-        ('참고데이터', 'Item별 판관비', '8인치 SW', '8인치 SW 판관비'),
-        ('참고데이터', 'Item별 판관비', '8인치 BW', '8인치 BW 판관비'),
-    ]
-
-    template_bytes = build_excel_template(tuple(original_format_items), tuple(months))
-
-    st.sidebar.download_button(
-        label="📥 엑셀 양식 다운로드",
-        data=template_bytes,
-        file_name="손익계산서_입력양식.xlsx",
-        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-    )
-
-    st.sidebar.markdown("---")
-    plan_file = st.sidebar.file_uploader("📤 1. 계획(Plan) 업로드", type=['xlsx'])
-    actual_file = st.sidebar.file_uploader("📤 2. 실적(Actual) 업로드", type=['xlsx'])
-
-    if st.sidebar.button("계획 데이터 저장", disabled=plan_file is None, use_container_width=True):
-        try:
-            storage_name = save_uploaded_data(
-                "saved_plan.xlsx", plan_file.getvalue(), app_dir=APP_DIR, secrets=st.secrets
-            )
-            st.sidebar.success(f"✅ 계획 데이터가 {storage_name}에 저장되었습니다.")
-        except StorageError as exc:
-            st.sidebar.error(str(exc))
-
-    if st.sidebar.button("실적 데이터 저장", disabled=actual_file is None, use_container_width=True):
-        try:
-            storage_name = save_uploaded_data(
-                "saved_actual.xlsx", actual_file.getvalue(), app_dir=APP_DIR, secrets=st.secrets
-            )
-            st.sidebar.success(f"✅ 실적 데이터가 {storage_name}에 저장되었습니다.")
-        except StorageError as exc:
-            st.sidebar.error(str(exc))
-
-    confirm_reset = st.sidebar.checkbox("저장된 계획·실적 데이터 삭제에 동의")
-    if st.sidebar.button(
-        "🗑️ 서버 데이터 초기화 (더미로 복구)",
-        disabled=not confirm_reset,
-        use_container_width=True,
-    ):
-        try:
-            delete_saved_data("saved_plan.xlsx", app_dir=APP_DIR, secrets=st.secrets)
-            delete_saved_data("saved_actual.xlsx", app_dir=APP_DIR, secrets=st.secrets)
+    if st.button("로그인", type="primary"):
+        if code == admin:
+            st.session_state.role = "admin"
             st.rerun()
-        except StorageError as exc:
-            st.sidebar.error(str(exc))
+        if code == viewer:
+            st.session_state.role = "viewer"
+            st.rerun()
+        st.error("접속 코드가 올바르지 않습니다.")
+    st.stop()
 
-    st.sidebar.markdown("---")
-    if st.sidebar.button("로그아웃", use_container_width=True):
-        st.session_state.clear()
+
+def money(value: float) -> str:
+    return f"{value / 1_000_000:,.0f} 백만원"
+
+
+def center_table_text(frame: pd.DataFrame):
+    """Center headers and non-numeric text while preserving numeric alignment."""
+    text_columns = [column for column in frame.columns if not pd.api.types.is_numeric_dtype(frame[column])]
+    styler = frame.style.set_table_styles([
+        {"selector": "th", "props": [("text-align", "center")]},
+    ])
+    if text_columns:
+        styler = styler.set_properties(subset=text_columns, **{"text-align": "center"})
+    return styler
+
+
+def display_number(value: float) -> str:
+    number = float(value or 0.0)
+    return f"{number:,.0f}" if abs(number - round(number)) < 1e-9 else f"{number:,.1f}"
+
+
+def sales_effect_frame(rows: list) -> pd.DataFrame:
+    return pd.DataFrame([{
+        "제품군": row.product_group,
+        "기준 수량": display_number(row.baseline_quantity),
+        "기준 매출액(백만원)": f"{row.baseline_amount / 1_000_000:,.0f}",
+        "기준 단가(원)": f"{row.baseline_unit_price:,.0f}",
+        "기준 매출총이익률": f"{row.baseline_gross_margin_rate:.1%}",
+        "비교 수량": display_number(row.comparison_quantity),
+        "비교 매출액(백만원)": f"{row.comparison_amount / 1_000_000:,.0f}",
+        "비교 단가(원)": f"{row.comparison_unit_price:,.0f}",
+        "비교 매출총이익률": f"{row.comparison_gross_margin_rate:.1%}",
+        "수량효과(백만원)": f"{row.quantity_effect / 1_000_000:,.0f}",
+        "순수 단가효과(백만원)": f"{row.pure_price_effect / 1_000_000:,.0f}",
+        "매출환율효과(백만원)": f"{row.sales_fx_effect / 1_000_000:,.0f}",
+        "판매효과 합계(백만원)": f"{row.total_sales_effect / 1_000_000:,.0f}",
+    } for row in rows])
+
+
+def forecast_workbook_bytes(
+    path: str | Path,
+    months: list[int],
+    input_log: list[dict] | None = None,
+) -> bytes:
+    """Return a download copy with every selected month marked as forecast."""
+    workbook = GoldenWorkbook(path)
+    if workbook.audit_entry_count() == 0:
+        workbook.restore_audit_logs(input_log)
+    for month in months:
+        column = ForecastEngine.column(month)
+        current_status = str(workbook.raw_value(f"{column}3") or "").strip()
+        if current_status == "실적":
+            raise ValueError(f"{month}월은 기준 모형에서 실적으로 고정되어 있습니다.")
+        if current_status != "추정":
+            workbook.set_text(f"{column}3", "추정", "download.period_type", "추정 산출 월")
+    with tempfile.TemporaryDirectory(dir=ROOT / "data") as directory:
+        output = Path(directory) / "forecast_download.xlsx"
+        workbook.save(output)
+        return output.read_bytes()
+
+
+def reset_session_after_baseline_change(message: str) -> None:
+    role = st.session_state.get("role")
+    for key in list(st.session_state.keys()):
+        del st.session_state[key]
+    if role:
+        st.session_state.role = role
+    st.session_state.baseline_notice = message
+
+
+def show_result(result: dict) -> None:
+    start_month = int(result.get("start_month") or result.get("month") or 0)
+    end_month = int(result.get("end_month") or result.get("month") or 0)
+    if start_month:
+        period_label = f"{start_month}월" if start_month == end_month else f"{start_month}~{end_month}월"
+        st.caption(f"추정 기간: {period_label}")
+    cols = st.columns(5)
+    cards = [("매출액", "revenue"), ("매출원가", "cogs"), ("매출총이익", "gross_profit"),
+             ("판관비", "sga"), ("영업이익", "operating_profit")]
+    revenue = float(result["revenue"])
+    for col, (label, key) in zip(cols, cards):
+        value = float(result[key])
+        ratio = value / revenue * 100 if revenue else 0
+        display_value = money(value) if key == "revenue" else f"{money(value)} ({ratio:,.1f}%)"
+        col.metric(label, display_value)
+    with st.expander("검증 결과", expanded=False):
+        st.dataframe(
+            center_table_text(pd.DataFrame(result["validations"])),
+            use_container_width=True,
+            hide_index=True,
+        )
+
+
+def _forecast_page_single_month_legacy(role: str) -> None:
+    st.title("추정 산출")
+    if role == "viewer":
+        latest = STORE.load()
+        if latest:
+            show_result(latest)
+        else:
+            st.info("관리자가 확정한 추정 결과가 없습니다.")
+        return
+
+    year = st.number_input("추정 연도", min_value=2020, max_value=2100, value=2026, step=1)
+    month = st.selectbox("추정 대상월", list(range(1, 13)), index=6, format_func=lambda value: f"{value}월")
+    workbook = GoldenWorkbook(MODEL)
+    column = ForecastEngine.column(month)
+    engine = ForecastEngine(MODEL, MAPPING)
+
+    st.subheader("판매 입력")
+    sales_keys = ["SW400", "SW440", "BW400", "BW440", "LC", "FS_SW", "FS_BW", "FS_TW", "UF_MBR", "IX", "OTHER"]
+    labels = {"UF_MBR": "UF/MBR", "IX": "IX (수량 L)", "OTHER": "기타매출"}
+    sales_df = st.data_editor(pd.DataFrame([
+        {"코드": key, "구분": labels.get(key, key), "수량": 0.0, "매출액(원)": 0.0} for key in sales_keys
+    ]), disabled=["코드", "구분"], hide_index=True, use_container_width=True)
+
+    st.subheader("생산 입력")
+    production_keys = ["SW400", "SW440", "BW400", "BW440", "LC", "FS_SW", "FS_BW", "FS_TW"]
+    production_df = st.data_editor(pd.DataFrame([{"코드": key, "생산수량": 0.0} for key in production_keys]),
+                                   disabled=["코드"], hide_index=True, use_container_width=True)
+    mcm_keys = ["SW400", "SW440", "BW400", "BW440"]
+    mcm_df = st.data_editor(pd.DataFrame([{"코드": key, "MCM(유상사급) 수량": 0.0} for key in mcm_keys]),
+                            disabled=["코드"], hide_index=True, use_container_width=True)
+
+    def cost_table(rows: list[int]) -> pd.DataFrame:
+        records = []
+        for row in rows:
+            label = workbook.raw_value(f"D{row}") or workbook.raw_value(f"C{row}") or f"행 {row}"
+            plan_amount = float(workbook.value(f"{column}{row}") or 0)
+            records.append({
+                "행": row, "항목": label, "계획금액": plan_amount,
+                "추정금액": plan_amount, "사유": "",
+            })
+        return pd.DataFrame(records)
+
+    st.subheader("제조경비 조정")
+    manufacturing_df = st.data_editor(cost_table(engine.mapping["manufacturing_input_rows"]),
+        disabled=["행", "항목", "계획금액"], hide_index=True, use_container_width=True)
+    st.subheader("판관비 조정")
+    sga_df = st.data_editor(cost_table(engine.mapping["sga_input_rows"]),
+        disabled=["행", "항목", "계획금액"], hide_index=True, use_container_width=True)
+
+    st.subheader("신사업")
+    c1, c2, c3, c4 = st.columns(4)
+    uf_cogs = c1.number_input("UF/MBR 상품원가율", 0.0, 1.0, 0.85, 0.01)
+    ix_cogs = c2.number_input("IX 상품원가율", 0.0, 1.0, 0.85, 0.01)
+    uf_transport = c3.number_input("UF/MBR 운반비율", 0.0, 1.0, 0.05, 0.01)
+    ix_transport = c4.number_input("IX 운반비율", 0.0, 1.0, 0.05, 0.01)
+    c1, c2 = st.columns(2)
+    pack_liters = c1.number_input("IX 포장단위(L)", 0.01, value=25.0)
+    pack_cost = c2.number_input("IX 포장비(원/ea)", 0.0, value=380.0)
+
+    st.subheader("북미/남미 관세")
+    c1, c2 = st.columns(2)
+    plan_regional_sales = c1.number_input("북미/남미 계획 매출액(원)", 0.0, value=0.0)
+    regional_sales = c2.number_input("북미/남미 추정 매출액(원)", 0.0, value=0.0)
+    c1, c2 = st.columns(2)
+    tariff_applicable = c1.number_input("관세 적용 대상 매출 비중", 0.0, 1.0, 0.10, 0.01)
+    tariff_rate = c2.number_input("북미/남미 관세율", 0.0, 1.0, 0.13, 0.01)
+    plan_tariff = plan_regional_sales * tariff_applicable * tariff_rate
+    forecast_tariff = regional_sales * tariff_applicable * tariff_rate
+    tariff_delta = forecast_tariff - plan_tariff
+    c1, c2, c3 = st.columns(3)
+    c1.metric("계획 관세", money(plan_tariff))
+    c2.metric("추정 관세", money(forecast_tariff))
+    c3.metric("관세 증감", money(tariff_delta), delta=money(tariff_delta), delta_color="inverse")
+    st.caption("관세 증감액만 계획 판관비에 가감하며, 다운로드 엑셀의 기존 수식이나 세금과공과 셀은 변경하지 않습니다.")
+
+    st.subheader("매출원가 조정")
+    c1, c2 = st.columns(2)
+    disposal = c1.number_input("제품 폐기손실(원)", value=0.0)
+    disposal_reason = c1.text_input("제품 폐기손실 사유")
+    obsolescence = c2.number_input("제품 진부화 평가손실(원)", value=0.0)
+    obsolescence_reason = c2.text_input("제품 진부화 평가손실 사유")
+
+    st.subheader("원재료 관세 환급")
+    basis = st.radio("적용 예상 원재료 투입비 기준", ["model", "direct"], horizontal=True,
+        format_func=lambda value: "모형 산출값 + 조정" if value == "model" else "구매팀 직접 입력")
+    raw_direct = st.number_input("구매팀 예상 원재료 투입비(원)", 0.0, value=0.0, disabled=basis != "direct")
+    raw_adjustment = st.number_input("모형 산출값 조정액(원)", value=0.0, disabled=basis != "model")
+    raw_reason = st.text_input("원재료 투입비 적용 사유")
+    refund_rate = st.number_input("관세 환급률", 0.0, 1.0, 0.013, 0.001, format="%.3f")
+
+    if st.button("추정 계산 실행", type="primary"):
+        sales = {row["코드"]: SalesInput(float(row["수량"]), float(row["매출액(원)"])) for _, row in sales_df.iterrows()}
+        production = {row["코드"]: float(row["생산수량"]) for _, row in production_df.iterrows()}
+        mcm = {row["코드"]: float(row["MCM(유상사급) 수량"]) for _, row in mcm_df.iterrows()}
+        mfg = [
+            CostAdjustment(
+                int(row["행"]), float(row["추정금액"]) - float(row["계획금액"]), str(row["사유"]),
+            )
+            for _, row in manufacturing_df.iterrows()
+            if abs(float(row["추정금액"]) - float(row["계획금액"])) > 0.5
+        ]
+        sga = [
+            CostAdjustment(
+                int(row["행"]), float(row["추정금액"]) - float(row["계획금액"]), str(row["사유"]),
+            )
+            for _, row in sga_df.iterrows()
+            if abs(float(row["추정금액"]) - float(row["계획금액"])) > 0.5
+        ]
+        request = ForecastInput(month=month, sales=sales, production=production, mcm=mcm,
+            manufacturing_adjustments=mfg, sga_adjustments=sga, disposal_adjustment=disposal,
+            disposal_reason=disposal_reason, obsolescence_adjustment=obsolescence,
+            obsolescence_reason=obsolescence_reason, uf_mbr_cogs_rate=uf_cogs, ix_cogs_rate=ix_cogs,
+            uf_mbr_transport_rate=uf_transport, ix_transport_rate=ix_transport, ix_pack_liters=pack_liters,
+            ix_pack_cost=pack_cost, plan_na_sa_sales=plan_regional_sales, na_sa_sales=regional_sales,
+            tariff_applicable_rate=tariff_applicable,
+            tariff_rate=tariff_rate, raw_material_basis=basis,
+            raw_material_direct=raw_direct if basis == "direct" else None,
+            raw_material_adjustment=raw_adjustment, raw_material_reason=raw_reason, refund_rate=refund_rate)
+        output = ROOT / "data" / f"forecast_{year}_{month:02d}.xlsx"
+        result = engine.run(request, output)
+        st.session_state.forecast_result = asdict(result)
+        st.session_state.forecast_year = int(year)
+
+    if "forecast_result" in st.session_state:
+        result = st.session_state.forecast_result
+        show_result(result)
+        download_data = forecast_workbook_bytes(
+            result["workbook_path"], [int(result["month"])], result.get("input_log", []),
+        )
+        download_timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        st.download_button(
+            "추정 모형 엑셀 다운로드",
+            download_data,
+            file_name=(
+                f"Forecast_{st.session_state.forecast_year}_{result['month']:02d}_"
+                f"{download_timestamp}.xlsx"
+            ),
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            on_click="ignore",
+        )
+        st.caption("북미/남미 관세 증감은 웹 결과에만 별도 가감되며 다운로드 모형의 세금과공과 셀에는 기록하지 않습니다.")
+        if all(item["ok"] for item in result["validations"]):
+            version = st.text_input("확정 버전", value="V1")
+            if st.button("이 결과를 일반 모드에 확정 공개"):
+                STORE.confirm(ForecastResult(**result))
+                path = Path(result["workbook_path"])
+                REGISTRY.add(path.read_bytes(), name=f"{st.session_state.forecast_year}년 {result['month']}월 추정",
+                    model_type="추정", year=st.session_state.forecast_year, start_month=1, end_month=12,
+                    created_date=date.today().isoformat(), version=version, confirmed=True, file_name=path.name,
+                    tariff_adjustment_monthly={str(result["month"]): tariff_delta})
+                st.success("확정 결과를 공개하고 모형 목록에 등록했습니다.")
+        else:
+            st.error("검증 미통과 항목이 있어 결과를 확정할 수 없습니다.")
+
+
+def forecast_page(role: str) -> None:
+    st.title("추정 산출")
+    if role == "viewer":
+        latest = STORE.load()
+        if latest:
+            show_result(latest)
+        else:
+            st.info("관리자가 확정한 추정 결과가 없습니다.")
+        return
+
+    current_year = date.today().year
+    active_baseline = BASELINE.load()
+    baseline_path = BASELINE.workbook_file if active_baseline else None
+    actual_through = active_baseline.actual_through_month if active_baseline else 0
+    baseline_year = active_baseline.year if active_baseline else current_year
+    baseline_token = active_baseline.uploaded_at if active_baseline else "not-uploaded"
+
+    if st.session_state.get("baseline_notice"):
+        st.success(st.session_state.pop("baseline_notice"))
+
+    with st.expander("추정 기준 모형", expanded=active_baseline is None):
+        if active_baseline:
+            st.info(
+                f"현재 기준: {active_baseline.name} · "
+                f"{active_baseline.actual_through_month}월까지 실적 고정"
+            )
+            st.caption(
+                f"원본 파일: {active_baseline.file_name} · 적용일시: {active_baseline.uploaded_at}"
+            )
+        else:
+            if baseline_path is not None:
+                st.info(f"현재 기준: 내장 Golden Model · {actual_through}월까지 실적 고정")
+            else:
+                st.info("최신 실적이 반영된 기준 엑셀을 업로드해 주세요.")
+
+        uploaded_baseline = st.file_uploader(
+            "최신 실적 반영 기준 엑셀 업로드",
+            type=["xlsx"],
+            key="forecast_baseline_upload",
+        )
+        if st.button(
+            "업로드 파일을 추정 기준으로 적용",
+            type="primary",
+            disabled=uploaded_baseline is None,
+        ):
+            content = uploaded_baseline.getvalue()
+            try:
+                with tempfile.TemporaryDirectory(dir=ROOT / "data") as directory:
+                    probe_path = Path(directory) / "baseline.xlsx"
+                    probe_path.write_bytes(content)
+                    uploaded_actual_through, _ = inspect_baseline_workbook(probe_path)
+                meta = BASELINE.activate(
+                    content,
+                    name=Path(uploaded_baseline.name).stem,
+                    file_name=uploaded_baseline.name,
+                    year=current_year,
+                    actual_through_month=uploaded_actual_through,
+                    version=datetime.now().strftime("%Y%m%d_%H%M%S"),
+                )
+            except Exception as exc:
+                st.error(f"기준 모형을 적용할 수 없습니다: {exc}")
+            else:
+                reset_session_after_baseline_change(
+                    f"{meta.name}을(를) 추정 기준으로 적용했습니다. "
+                    f"{meta.actual_through_month}월까지 실적으로 고정됩니다."
+                )
+                st.rerun()
+
+    if baseline_path is None:
+        return
+
+    st.markdown("**추정 기간**")
+    c1, c2, separator, c3, _ = st.columns([0.7, 0.7, 0.08, 0.7, 2.82])
+    year_options = list(range(current_year - 3, current_year + 4))
+    year = c1.selectbox(
+        "추정연도",
+        year_options,
+        index=year_options.index(baseline_year) if baseline_year in year_options else 3,
+    )
+    first_forecast_month = actual_through + 1
+    if first_forecast_month > 12:
+        st.info("기준 모형의 1~12월이 모두 실적으로 확정되어 추정할 월이 없습니다.")
+        return
+    start_options = list(range(first_forecast_month, 13))
+    start_month = c2.selectbox(
+        "시작 월", start_options, index=0, format_func=lambda value: f"{value}월",
+        key="forecast_start_month",
+    )
+    separator.markdown("<div style='text-align:center;padding-top:2rem;'>~</div>", unsafe_allow_html=True)
+    end_options = list(range(start_month, 13))
+    end_month = c3.selectbox(
+        "종료 월", end_options, index=0, format_func=lambda value: f"{value}월",
+        key="forecast_end_month",
+    )
+    months = list(range(start_month, end_month + 1))
+    workbook = GoldenWorkbook(baseline_path)
+    mapping_engine = ForecastEngine(baseline_path, MAPPING)
+
+    def number_column(
+        *,
+        percent: bool = False,
+        won: bool = False,
+        minimum: float | None = None,
+    ):
+        return st.column_config.NumberColumn(
+            format="%.1f%%" if percent else "localized",
+            min_value=minimum,
+            step=1.0 if won else None,
+            width="small",
+        )
+
+    def month_column(month: int) -> str:
+        return f"{month}월"
+
+    def month_value(frame: pd.DataFrame, item: str, month: int):
+        return frame.loc[frame["항목"] == item, month_column(month)].iloc[0]
+
+    def assumption_editor(
+        frame: pd.DataFrame,
+        *,
+        key: str,
+        column_config: dict,
+        disabled: list[str] | None = None,
+    ) -> pd.DataFrame:
+        options = dict(
+            data=center_table_text(frame),
+            key=f"{key}_{year}_{start_month}_{end_month}",
+            column_config=column_config,
+            disabled=disabled or ["항목"],
+            hide_index=True,
+            use_container_width=True,
+        )
+        if len(months) == 1:
+            left, center, right = st.columns([1, 2, 1])
+            with center:
+                return st.data_editor(**options)
+        return st.data_editor(**options)
+
+    def assumption_result_row(label: str, amounts: dict[int, float]) -> None:
+        grid_columns = f"minmax(220px, 1.15fr) repeat({len(months)}, minmax(110px, 1fr))"
+        value_cells = "".join(
+            (
+                "<div style='padding:9px 12px;text-align:right;"
+                "border-left:1px solid #e5e7eb;background:#fff;'>"
+                f"{round(float(amounts[month])):,}</div>"
+            )
+            for month in months
+        )
+        row_html = (
+            f"<div style=\"display:grid;grid-template-columns:{grid_columns};"
+            "border:1px solid #d9dde5;border-radius:0 0 8px 8px;"
+            "overflow:hidden;margin-top:-1rem;margin-bottom:1rem;font-size:14px;\">"
+            f"<div style='padding:9px 12px;text-align:center;background:#fff;'>{html.escape(label)}</div>"
+            f"{value_cells}</div>"
+        )
+        if len(months) == 1:
+            left, center, right = st.columns([1, 2, 1])
+            with center:
+                st.markdown(row_html, unsafe_allow_html=True)
+            return
+        st.markdown(row_html, unsafe_allow_html=True)
+
+    reason_store_key = f"adjustment_reasons_{year}_{start_month}_{end_month}"
+    if reason_store_key not in st.session_state:
+        st.session_state[reason_store_key] = {}
+
+    def reason_editor(category: str, items: list[tuple[str, str]], key: str) -> None:
+        title = category if category.endswith("조정") else f"{category} 조정"
+        st.markdown(f"#### {title} 사유")
+        selector_area, _ = st.columns([5, 1])
+        with selector_area:
+            r1, r2, _ = st.columns([0.55, 1.05, 3.4])
+            selected_month = r1.selectbox(
+                "월 선택", months, format_func=lambda value: f"{value}월",
+                key=f"reason_month_{key}_{year}_{start_month}_{end_month}",
+            )
+            selected_item = r2.selectbox(
+                "항목", items, format_func=lambda value: value[1],
+                key=f"reason_item_{key}_{year}_{start_month}_{end_month}",
+            )
+        reason_text_key = f"reason_text_{key}_{year}_{start_month}_{end_month}"
+        reason_col, save_col = st.columns([5, 1])
+        reason_text = reason_col.text_input("사유", key=reason_text_key)
+        save_col.markdown("<div style='height:1.75rem;'></div>", unsafe_allow_html=True)
+        save_clicked = save_col.button(
+            "사유 저장", use_container_width=True,
+            key=f"save_reason_{key}_{year}_{start_month}_{end_month}",
+        )
+        if save_clicked:
+            entry_key = f"{selected_month}|{category}|{selected_item[0]}"
+            if reason_text.strip():
+                st.session_state[reason_store_key][entry_key] = {
+                    "월": selected_month, "구분": category, "항목코드": selected_item[0],
+                    "항목": selected_item[1], "사유": reason_text.strip(),
+                }
+                st.rerun()
+            else:
+                st.warning("사유를 입력해 주세요.")
+
+        entries = [
+            value for value in st.session_state[reason_store_key].values()
+            if value["구분"] == category
+        ]
+        if not entries:
+            st.caption("저장된 조정 사유가 없습니다.")
+            return
+        editable = pd.DataFrame(entries)
+        editable["삭제"] = False
+        table_col, apply_col = st.columns([5, 1])
+        with table_col:
+            edited = st.data_editor(
+                center_table_text(editable[["월", "항목코드", "항목", "사유", "삭제"]]),
+                key=f"reason_list_{key}_{year}_{start_month}_{end_month}",
+                disabled=["월", "항목코드", "항목"],
+                column_config={
+                    "항목코드": None,
+                    "월": st.column_config.NumberColumn(format="%d월", width=52),
+                    "항목": st.column_config.TextColumn(width=115),
+                    "사유": st.column_config.TextColumn(width=650),
+                    "삭제": st.column_config.CheckboxColumn(width=38),
+                },
+                hide_index=True, use_container_width=True,
+            )
+        apply_col.markdown("<div style='height:1.75rem;'></div>", unsafe_allow_html=True)
+        apply_clicked = apply_col.button(
+            "수정·삭제 반영", use_container_width=True,
+            key=f"apply_reason_changes_{key}_{year}_{start_month}_{end_month}",
+        )
+        if apply_clicked:
+            store = st.session_state[reason_store_key]
+            for entry_key in [name for name, value in store.items() if value["구분"] == category]:
+                store.pop(entry_key, None)
+            for _, row in edited.iterrows():
+                if bool(row["삭제"]) or not str(row["사유"]).strip():
+                    continue
+                entry_key = f"{int(row['월'])}|{category}|{row['항목코드']}"
+                store[entry_key] = {
+                    "월": int(row["월"]), "구분": category, "항목코드": str(row["항목코드"]),
+                    "항목": str(row["항목"]), "사유": str(row["사유"]).strip(),
+                }
+            st.rerun()
+
+    def save_generated_reason(
+        month: int,
+        category: str,
+        item_code: str,
+        item_label: str,
+        line_prefix: str,
+        line: str,
+    ) -> None:
+        """Add or replace one generated reason line without deleting other causes."""
+        entry_key = f"{month}|{category}|{item_code}"
+        existing = st.session_state[reason_store_key].get(entry_key, {})
+        lines = [
+            value for value in str(existing.get("사유", "")).splitlines()
+            if value.strip() and not value.strip().startswith(line_prefix)
+        ]
+        lines.append(line)
+        st.session_state[reason_store_key][entry_key] = {
+            "월": month,
+            "구분": category,
+            "항목코드": item_code,
+            "항목": item_label,
+            "사유": "\n".join(lines),
+        }
+
+    def generated_reason_buttons(
+        amounts: dict[int, float],
+        *,
+        item_code: str,
+        item_label: str,
+        line_prefix: str,
+        line_builder,
+        key: str,
+    ) -> None:
+        if len(months) == 1:
+            left, center, right = st.columns([1, 2, 1])
+            with center:
+                aligned_columns = st.columns([1.15, 1])
+            month_columns = aligned_columns[1:]
+        else:
+            aligned_columns = st.columns([1.15, *([1] * len(months))])
+            month_columns = aligned_columns[1:]
+        for column, month in zip(month_columns, months):
+            if column.button(
+                f"{month}월 판관비 조정 사유 반영",
+                key=f"{key}_{year}_{start_month}_{end_month}_{month}",
+                use_container_width=True,
+            ):
+                save_generated_reason(
+                    month,
+                    "판관비",
+                    item_code,
+                    item_label,
+                    line_prefix,
+                    line_builder(amounts[month]),
+                )
+                st.rerun()
+
+    def sga_item_label(row_number: int, label: str | None = None) -> str:
+        base = label or workbook.raw_value(f"D{row_number}") or workbook.raw_value(f"C{row_number}") or f"행 {row_number}"
+        prefix = "판매비" if row_number <= 1147 else "일반관리비"
+        return f"{prefix}_{base}"
+
+    st.subheader("판매 입력")
+    sales_keys = ["SW400", "SW440", "BW400", "BW440", "LC", "FS_SW", "FS_BW", "FS_TW", "UF_MBR", "IX", "OTHER"]
+    labels = {"UF_MBR": "UF/MBR", "IX": "IX (수량 L)", "OTHER": "기타매출"}
+    sales_records = []
+    for code in sales_keys:
+        row = {"코드": code, "구분": labels.get(code, code)}
+        for month in months:
+            row[f"{month}월 수량"] = 0.0
+            row[f"{month}월 매출액(원)"] = 0
+        sales_records.append(row)
+    sales_config = {"코드": st.column_config.TextColumn(width="small"), "구분": st.column_config.TextColumn(width="medium")}
+    for month in months:
+        sales_config[f"{month}월 수량"] = number_column(minimum=0.0)
+        sales_config[f"{month}월 매출액(원)"] = number_column(won=True, minimum=0.0)
+    sales_df = st.data_editor(
+        center_table_text(pd.DataFrame(sales_records)), key=f"sales_{year}_{start_month}_{end_month}",
+        disabled=["코드", "구분"], column_config=sales_config,
+        hide_index=True, use_container_width=True,
+    )
+
+    st.subheader("생산 입력")
+    production_keys = ["SW400", "SW440", "BW400", "BW440", "LC", "FS_SW", "FS_BW", "FS_TW"]
+    production_records = []
+    for code in production_keys:
+        row = {"코드": code}
+        row.update({f"{month}월 생산수량": 0.0 for month in months})
+        production_records.append(row)
+    production_config = {f"{month}월 생산수량": number_column(minimum=0.0) for month in months}
+    production_df = st.data_editor(
+        center_table_text(pd.DataFrame(production_records)), key=f"production_{year}_{start_month}_{end_month}",
+        disabled=["코드"], column_config=production_config, hide_index=True, use_container_width=True,
+    )
+
+    mcm_keys = ["SW400", "SW440", "BW400", "BW440"]
+    mcm_records = []
+    for code in mcm_keys:
+        row = {"코드": code}
+        row.update({f"{month}월 MCM(유상사급) 수량": 0.0 for month in months})
+        mcm_records.append(row)
+    mcm_config = {f"{month}월 MCM(유상사급) 수량": number_column(minimum=0.0) for month in months}
+    mcm_df = st.data_editor(
+        center_table_text(pd.DataFrame(mcm_records)), key=f"mcm_{year}_{start_month}_{end_month}",
+        disabled=["코드"], column_config=mcm_config, hide_index=True, use_container_width=True,
+    )
+
+    def cost_table(rows: list[int], key: str) -> pd.DataFrame:
+        records = []
+        for row_number in rows:
+            label = workbook.raw_value(f"D{row_number}") or workbook.raw_value(f"C{row_number}") or f"행 {row_number}"
+            if key == "sga":
+                label = sga_item_label(row_number, str(label))
+            record = {"행": row_number, "항목": label}
+            for month in months:
+                column = ForecastEngine.column(month)
+                plan_amount = round(float(workbook.value(f"{column}{row_number}") or 0))
+                record[f"{month}월 계획금액"] = plan_amount
+                record[f"{month}월 추정금액"] = plan_amount
+            records.append(record)
+        return pd.DataFrame(records)
+
+    def edit_costs(title: str, rows: list[int], key: str) -> pd.DataFrame:
+        st.subheader(title)
+        config = {}
+        disabled = ["행", "항목"]
+        forecast_columns = []
+        for month in months:
+            config[f"{month}월 계획금액"] = number_column(won=True)
+            config[f"{month}월 추정금액"] = st.column_config.NumberColumn(
+                label=f"🟨 {month}월 추정금액",
+                format="localized",
+                step=1.0,
+                width="small",
+            )
+            disabled.append(f"{month}월 계획금액")
+            forecast_columns.append(f"{month}월 추정금액")
+        styled = center_table_text(cost_table(rows, key)).set_properties(
+            subset=forecast_columns,
+            **{"background-color": "#fff7dc"},
+        )
+        return st.data_editor(
+            styled, key=f"{key}_{year}_{start_month}_{end_month}",
+            disabled=disabled, column_config=config, hide_index=True, use_container_width=True,
+        )
+
+    manufacturing_df = edit_costs("제조경비 조정", mapping_engine.mapping["manufacturing_input_rows"], "manufacturing")
+    reason_editor(
+        "제조경비",
+        [(str(int(row["행"])), str(row["항목"])) for _, row in manufacturing_df.iterrows()],
+        "manufacturing",
+    )
+    sga_df = edit_costs("판관비 조정", mapping_engine.mapping["sga_input_rows"], "sga")
+    reason_editor(
+        "판관비",
+        [(str(int(row["행"])), str(row["항목"])) for _, row in sga_df.iterrows()],
+        "sga",
+    )
+
+    st.subheader("신사업")
+    st.caption("* 신사업 상품원가는 모형에 자동 반영되지 않으므로 반영 필수")
+    new_business_cogs_rates = pd.DataFrame([
+        {"항목": "UF/MBR 상품원가율", **{month_column(month): 85.0 for month in months}},
+        {"항목": "IX 상품원가율", **{month_column(month): 85.0 for month in months}},
+    ])
+    percent_config = {month_column(month): number_column(percent=True, minimum=0.0) for month in months}
+    new_business_cogs_rates = assumption_editor(
+        new_business_cogs_rates, key="new_business_cogs_rates", column_config=percent_config,
+    )
+
+    def sales_input_value(code: str, month: int, field: str) -> float:
+        row = sales_df.loc[sales_df["코드"] == code].iloc[0]
+        return float(row[f"{month}월 {field}"])
+
+    new_business_goods_cogs_reference = {
+        month: (
+            sales_input_value("UF_MBR", month, "매출액(원)")
+            * float(month_value(new_business_cogs_rates, "UF/MBR 상품원가율", month)) / 100
+            + sales_input_value("IX", month, "매출액(원)")
+            * float(month_value(new_business_cogs_rates, "IX 상품원가율", month)) / 100
+        )
+        for month in months
+    }
+    assumption_result_row("신사업 상품원가(원)", new_business_goods_cogs_reference)
+
+    new_business_transport_rates = pd.DataFrame([
+        {"항목": "UF/MBR 운반비율", **{month_column(month): 5.0 for month in months}},
+        {"항목": "IX 운반비율", **{month_column(month): 5.0 for month in months}},
+    ])
+    new_business_transport_rates = assumption_editor(
+        new_business_transport_rates,
+        key="new_business_transport_rates",
+        column_config=percent_config,
+    )
+    new_business_transport_reference = {
+        month: (
+            sales_input_value("UF_MBR", month, "매출액(원)")
+            * float(month_value(new_business_transport_rates, "UF/MBR 운반비율", month)) / 100
+            + sales_input_value("IX", month, "매출액(원)")
+            * float(month_value(new_business_transport_rates, "IX 운반비율", month)) / 100
+        )
+        for month in months
+    }
+    assumption_result_row("신사업 운반비(원)", new_business_transport_reference)
+    generated_reason_buttons(
+        new_business_transport_reference,
+        item_code=str(mapping_engine.mapping["special_rows"]["selling_transport"]),
+        item_label=sga_item_label(mapping_engine.mapping["special_rows"]["selling_transport"]),
+        line_prefix="신사업 운반비 반영",
+        line_builder=lambda amount: f"신사업 운반비 반영 : {round(amount):,}원",
+        key="apply_new_business_transport_reason",
+    )
+
+    packaging_df = pd.DataFrame([
+        {"항목": "IX 포장단위(L)", **{month_column(month): 25.0 for month in months}},
+        {"항목": "IX 포장비(원/ea)", **{month_column(month): 380.0 for month in months}},
+    ])
+    packaging_config = {month_column(month): number_column(won=True, minimum=0.0) for month in months}
+    packaging_df = assumption_editor(packaging_df, key="packaging", column_config=packaging_config)
+    ix_packaging_reference = {
+        month: (
+            sales_input_value("IX", month, "수량")
+            / float(month_value(packaging_df, "IX 포장단위(L)", month))
+            * float(month_value(packaging_df, "IX 포장비(원/ea)", month))
+        )
+        if float(month_value(packaging_df, "IX 포장단위(L)", month))
+        else 0
+        for month in months
+    }
+    assumption_result_row("IX 포장비(원)", ix_packaging_reference)
+    generated_reason_buttons(
+        ix_packaging_reference,
+        item_code=str(mapping_engine.mapping["special_rows"]["packaging"]),
+        item_label=sga_item_label(mapping_engine.mapping["special_rows"]["packaging"]),
+        line_prefix="IX 포장비 반영",
+        line_builder=lambda amount: f"IX 포장비 반영 : {round(amount):,}원",
+        key="apply_ix_packaging_reason",
+    )
+
+    st.subheader("북미/남미 관세 — 판매비 운반비 조정")
+    tariff_controls = {}
+    tariff_columns = st.columns(len(months))
+    tariff_summary_by_item = {
+        "항목": ["계획 관세", "추정 관세", "판매비 운반비 조정액"],
+    }
+    for column, month in zip(tariff_columns, months):
+        with column:
+            st.markdown(f"**{month}월**")
+            plan_sales = st.number_input(
+                "계획 매출액(원)", min_value=0.0, value=0.0, step=1_000_000.0, format="%.0f",
+                key=f"tariff_plan_sales_{year}_{start_month}_{end_month}_{month}",
+            )
+            forecast_sales = st.number_input(
+                "추정 매출액(원)", min_value=0.0, value=0.0, step=1_000_000.0, format="%.0f",
+                key=f"tariff_forecast_sales_{year}_{start_month}_{end_month}_{month}",
+            )
+            applicable_rate = st.number_input(
+                "관세 적용 매출 비중", min_value=0.0, max_value=100.0, value=10.0, step=0.1,
+                format="%.1f", key=f"tariff_applicable_{year}_{start_month}_{end_month}_{month}",
+            ) / 100
+            tariff_rate = st.number_input(
+                "관세율", min_value=0.0, max_value=100.0, value=13.0, step=0.1,
+                format="%.1f", key=f"tariff_rate_{year}_{start_month}_{end_month}_{month}",
+            ) / 100
+        plan_tariff = plan_sales * applicable_rate * tariff_rate
+        forecast_tariff = forecast_sales * applicable_rate * tariff_rate
+        adjustment = forecast_tariff - plan_tariff
+        tariff_controls[month] = {
+            "plan_sales": plan_sales, "forecast_sales": forecast_sales,
+            "applicable_rate": applicable_rate, "tariff_rate": tariff_rate,
+        }
+        tariff_summary_by_item[month_column(month)] = [
+            round(plan_tariff), round(forecast_tariff), round(adjustment)
+        ]
+    st.dataframe(
+        center_table_text(pd.DataFrame(tariff_summary_by_item)), hide_index=True, use_container_width=True,
+        column_config={month_column(month): number_column(won=True) for month in months},
+    )
+    tariff_reference = {
+        month: (
+            float(tariff_controls[month]["forecast_sales"])
+            - float(tariff_controls[month]["plan_sales"])
+        )
+        * float(tariff_controls[month]["applicable_rate"])
+        * float(tariff_controls[month]["tariff_rate"])
+        for month in months
+    }
+    st.caption("관세 증감액은 참고 계산값이며 모형에 자동 반영되지 않습니다.")
+    generated_reason_buttons(
+        tariff_reference,
+        item_code=str(mapping_engine.mapping["special_rows"]["selling_transport"]),
+        item_label=sga_item_label(mapping_engine.mapping["special_rows"]["selling_transport"]),
+        line_prefix="계획 대비 미주지역 매출 변동으로 인한 관세 금액 반영",
+        line_builder=lambda amount: (
+            f"계획 대비 미주지역 매출 변동으로 인한 관세 금액 반영 : {round(amount):,}원"
+        ),
+        key="apply_tariff_reason",
+    )
+
+    st.subheader("매출원가 조정")
+    cogs_adjustment_records = []
+    for item in ["제품 폐기손실", "제품 진부화 평가손실"]:
+        row = {"항목": item}
+        for month in months:
+            row[f"{month}월 금액"] = 0
+        cogs_adjustment_records.append(row)
+    cogs_adjustment_config = {}
+    for month in months:
+        cogs_adjustment_config[f"{month}월 금액"] = number_column(won=True)
+    cogs_adjustment_df = assumption_editor(
+        pd.DataFrame(cogs_adjustment_records), key="cogs_adjustments",
+        column_config=cogs_adjustment_config,
+    )
+    reason_editor(
+        "매출원가 조정",
+        [
+            ("disposal", "제품 폐기손실"),
+            ("obsolescence", "제품 진부화 평가손실"),
+        ],
+        "cogs",
+    )
+
+    st.subheader("원재료 관세 환급")
+    refund_controls = {}
+    prior_month_results = {
+        int(item["month"]): item for item in st.session_state.get("forecast_month_results", [])
+    } if tuple(st.session_state.get("forecast_selection", ())) == (
+        int(year), start_month, end_month, baseline_token
+    ) else {}
+    for month in months:
+        st.markdown(f"**{month}월**")
+        r1, r2, r3 = st.columns([2.2, 2, 1.5])
+        basis_label = r1.radio(
+            "적용 기준", ["모형 산출값", "구매팀 예상 금액"], horizontal=True,
+            key=f"raw_basis_{year}_{start_month}_{end_month}_{month}",
+        )
+        purchase_amount = r2.number_input(
+            "구매팀 추정 투입비(원)", min_value=0.0, value=0.0, step=1_000_000.0,
+            format="%.0f", disabled=basis_label != "구매팀 예상 금액",
+            key=f"raw_purchase_{year}_{start_month}_{end_month}_{month}",
+        )
+        refund_rate_percent = r3.number_input(
+            "원재료 관세 환급률", min_value=0.0, max_value=100.0, value=1.3, step=0.1,
+            format="%.1f", key=f"refund_rate_{year}_{start_month}_{end_month}_{month}",
+        )
+        if basis_label == "구매팀 예상 금액":
+            displayed_refund = purchase_amount * refund_rate_percent / 100
+        else:
+            displayed_refund = float(prior_month_results.get(month, {}).get("detail", {}).get("raw_material_customs_refund", 0))
+        r3.metric("예상 관세 환급금", money(displayed_refund))
+        refund_controls[month] = {
+            "basis": basis_label, "purchase_amount": purchase_amount,
+            "refund_rate": refund_rate_percent / 100,
+        }
+        st.divider()
+
+    if st.button("추정 계산 실행", type="primary"):
+        requests: dict[int, ForecastInput] = {}
+        reason_entries = st.session_state.get(reason_store_key, {})
+
+        def reason_for(month: int, category: str, item_code: str) -> str:
+            return str(reason_entries.get(f"{month}|{category}|{item_code}", {}).get("사유", ""))
+
+        for month in months:
+            sales = {
+                row["코드"]: SalesInput(float(row[f"{month}월 수량"]), float(row[f"{month}월 매출액(원)"]))
+                for _, row in sales_df.iterrows()
+            }
+            production = {
+                row["코드"]: float(row[f"{month}월 생산수량"])
+                for _, row in production_df.iterrows()
+            }
+            mcm = {
+                row["코드"]: float(row[f"{month}월 MCM(유상사급) 수량"])
+                for _, row in mcm_df.iterrows()
+            }
+            mfg = [
+                CostAdjustment(
+                    int(row["행"]),
+                    float(row[f"{month}월 추정금액"]) - float(row[f"{month}월 계획금액"]),
+                    reason_for(month, "제조경비", str(int(row["행"]))),
+                )
+                for _, row in manufacturing_df.iterrows()
+                if abs(float(row[f"{month}월 추정금액"]) - float(row[f"{month}월 계획금액"])) > 0.5
+            ]
+            sga = [
+                CostAdjustment(
+                    int(row["행"]),
+                    float(row[f"{month}월 추정금액"]) - float(row[f"{month}월 계획금액"]),
+                    reason_for(month, "판관비", str(int(row["행"]))),
+                )
+                for _, row in sga_df.iterrows()
+                if abs(float(row[f"{month}월 추정금액"]) - float(row[f"{month}월 계획금액"])) > 0.5
+            ]
+            tariff_control = tariff_controls[month]
+            plan_sales = float(tariff_control["plan_sales"])
+            forecast_sales = float(tariff_control["forecast_sales"])
+            applicable_rate = float(tariff_control["applicable_rate"])
+            tariff_rate = float(tariff_control["tariff_rate"])
+            disposal_row = cogs_adjustment_df.loc[cogs_adjustment_df["항목"] == "제품 폐기손실"].iloc[0]
+            obsolescence_row = cogs_adjustment_df.loc[cogs_adjustment_df["항목"] == "제품 진부화 평가손실"].iloc[0]
+            raw_control = refund_controls[month]
+            raw_basis_label = str(raw_control["basis"])
+            requests[month] = ForecastInput(
+                month=month, sales=sales, production=production, mcm=mcm,
+                manufacturing_adjustments=mfg, sga_adjustments=sga,
+                disposal_adjustment=float(disposal_row[f"{month}월 금액"]),
+                disposal_reason=reason_for(month, "매출원가 조정", "disposal"),
+                obsolescence_adjustment=float(obsolescence_row[f"{month}월 금액"]),
+                obsolescence_reason=reason_for(month, "매출원가 조정", "obsolescence"),
+                uf_mbr_cogs_rate=float(
+                    month_value(new_business_cogs_rates, "UF/MBR 상품원가율", month)
+                ) / 100,
+                ix_cogs_rate=float(
+                    month_value(new_business_cogs_rates, "IX 상품원가율", month)
+                ) / 100,
+                uf_mbr_transport_rate=float(
+                    month_value(new_business_transport_rates, "UF/MBR 운반비율", month)
+                ) / 100,
+                ix_transport_rate=float(
+                    month_value(new_business_transport_rates, "IX 운반비율", month)
+                ) / 100,
+                ix_pack_liters=float(month_value(packaging_df, "IX 포장단위(L)", month)),
+                ix_pack_cost=float(month_value(packaging_df, "IX 포장비(원/ea)", month)),
+                plan_na_sa_sales=plan_sales, na_sa_sales=forecast_sales,
+                tariff_applicable_rate=applicable_rate, tariff_rate=tariff_rate,
+                raw_material_basis="direct" if raw_basis_label == "구매팀 예상 금액" else "model",
+                raw_material_direct=float(raw_control["purchase_amount"])
+                    if raw_basis_label == "구매팀 예상 금액" else None,
+                raw_material_adjustment=0,
+                raw_material_reason="",
+                refund_rate=float(raw_control["refund_rate"]),
+            )
+
+        final_output = ROOT / "data" / f"forecast_{year}_{start_month:02d}_{end_month:02d}.xlsx"
+        month_results = []
+        with tempfile.TemporaryDirectory(dir=ROOT / "data") as directory:
+            source = baseline_path
+            for index, month in enumerate(months):
+                destination = final_output if index == len(months) - 1 else Path(directory) / f"month_{month:02d}.xlsx"
+                result = ForecastEngine(source, MAPPING).run(requests[month], destination)
+                month_results.append(result)
+                source = destination
+
+        period_revenue = sum(item.revenue for item in month_results)
+        period_op = sum(item.operating_profit for item in month_results)
+        detail_keys = [
+            "plan_na_sa_sales", "forecast_na_sa_sales", "plan_na_sa_tariff",
+            "forecast_na_sa_tariff", "na_sa_tariff_adjustment", "disposal_adjustment",
+            "obsolescence_adjustment", "raw_material_customs_refund",
+        ]
+        period_result = ForecastResult(
+            month=end_month,
+            start_month=start_month,
+            end_month=end_month,
+            revenue=period_revenue,
+            cogs=sum(item.cogs for item in month_results),
+            gross_profit=sum(item.gross_profit for item in month_results),
+            sga=sum(item.sga for item in month_results),
+            operating_profit=period_op,
+            operating_margin=period_op / period_revenue if period_revenue else 0,
+            detail={key: sum(float(item.detail.get(key, 0)) for item in month_results) for key in detail_keys},
+            validations=[
+                {**validation, "name": f"{item.month}월 - {validation['name']}"}
+                for item in month_results for validation in item.validations
+            ],
+            input_log=[
+                {"month": item.month, **log} for item in month_results for log in item.input_log
+            ],
+            workbook_path=str(final_output),
+        )
+        st.session_state.forecast_result = asdict(period_result)
+        st.session_state.forecast_month_results = [asdict(item) for item in month_results]
+        st.session_state.forecast_year = int(year)
+        st.session_state.forecast_selection = (
+            int(year), start_month, end_month, baseline_token
+        )
         st.rerun()
 
-# --- 상단 헤더 및 연도 선택 ---
-st.markdown(
-    f'<div class="dashboard-brand"><img src="{BLACK_LOGO_URI}" alt="NanoH2O"><span class="dashboard-brand-title">손익계산서 조회</span></div>',
-    unsafe_allow_html=True,
-)
-
-available_years = ["2026년"]
-
-col1, col2, col3, col4 = st.columns(4)
-with col1:
-    inner_col1, inner_col2 = st.columns([1, 1])
-    with inner_col1: selected_year = st.selectbox("연도", available_years)
-
-# (1) 샘플 더미 데이터 세팅 
-np.random.seed(42)
-qty_sw_a = np.random.randint(15000, 30000, 12); qty_sw_p = qty_sw_a * np.random.uniform(0.9, 1.2, 12)
-qty_bw_a = np.random.randint(10000, 20000, 12); qty_bw_p = qty_bw_a * np.random.uniform(0.9, 1.2, 12)
-qty_ls_a = np.random.randint(5000, 10000, 12);  qty_ls_p = qty_ls_a * np.random.uniform(0.9, 1.2, 12)
-qty_fs_a = np.random.randint(2000, 5000, 12);   qty_fs_p = qty_fs_a * np.random.uniform(0.9, 1.2, 12)
-
-price_sw_a = np.full(12, 55000.0); price_sw_p = np.full(12, 55000.0)
-price_bw_a = np.full(12, 85000.0); price_bw_p = np.full(12, 85000.0)
-
-sales_prod_a = np.random.randint(3000, 5000, 12).astype(float); sales_prod_p = sales_prod_a * 1.1
-sales_semi_a = np.random.randint(1000, 2000, 12).astype(float); sales_semi_p = sales_semi_a * 1.1
-sales_md_a = np.random.randint(500, 1000, 12).astype(float);    sales_md_p = sales_md_a * 1.1
-sales_etc_a = np.random.randint(100, 300, 12).astype(float);    sales_etc_p = sales_etc_a * 1.1
-sales_inc_a = np.random.randint(-100, -50, 12).astype(float);   sales_inc_p = sales_inc_a * 1.1
-
-_tmp_sales_a = sales_prod_a + sales_semi_a + sales_md_a + sales_etc_a + sales_inc_a
-_tmp_sales_p = sales_prod_p + sales_semi_p + sales_md_p + sales_etc_p + sales_inc_p
-
-_tmp_cogs_a = _tmp_sales_a * np.random.uniform(0.6, 0.7, 12); _tmp_cogs_p = _tmp_sales_p * 0.65
-
-cogs_semi_a = _tmp_cogs_a * 0.10; cogs_semi_p = _tmp_cogs_p * 0.10
-cogs_md_a = _tmp_cogs_a * 0.05; cogs_md_p = _tmp_cogs_p * 0.05
-cogs_etc_a = _tmp_cogs_a * 0.02; cogs_etc_p = _tmp_cogs_p * 0.02
-cogs_std_a = np.zeros(12); cogs_std_p = np.zeros(12)
-cogs_inv_a = np.zeros(12); cogs_inv_p = np.zeros(12)
-
-_dummy_cogs_prod_a = _tmp_cogs_a - (cogs_semi_a + cogs_md_a + cogs_etc_a + cogs_std_a + cogs_inv_a)
-_dummy_cogs_prod_p = _tmp_cogs_p - (cogs_semi_p + cogs_md_p + cogs_etc_p + cogs_std_p + cogs_inv_p)
-
-# 제품 더미 데이터
-cogs_rm_a = _dummy_cogs_prod_a * 0.60; cogs_rm_p = _dummy_cogs_prod_p * 0.60
-cogs_lb_a = _dummy_cogs_prod_a * 0.20; cogs_lb_p = _dummy_cogs_prod_p * 0.20
-cogs_os_a = _dummy_cogs_prod_a * 0.15; cogs_os_p = _dummy_cogs_prod_p * 0.15
-cogs_oh_a = _dummy_cogs_prod_a - cogs_rm_a - cogs_lb_a - cogs_os_a
-cogs_oh_p = _dummy_cogs_prod_p - cogs_rm_p - cogs_lb_p - cogs_os_p
-
-# 반제품 더미 데이터
-cogs_semi_rm_a = cogs_semi_a * 0.60; cogs_semi_rm_p = cogs_semi_p * 0.60
-cogs_semi_lb_a = cogs_semi_a * 0.20; cogs_semi_lb_p = cogs_semi_p * 0.20
-cogs_semi_os_a = cogs_semi_a * 0.15; cogs_semi_os_p = cogs_semi_p * 0.15
-cogs_semi_oh_a = cogs_semi_a - cogs_semi_rm_a - cogs_semi_lb_a - cogs_semi_os_a
-cogs_semi_oh_p = cogs_semi_p - cogs_semi_rm_p - cogs_semi_lb_p - cogs_semi_os_p
-
-_tmp_sga_a = _tmp_sales_a * np.random.uniform(0.1, 0.15, 12); _tmp_sga_p = _tmp_sales_p * 0.12
-
-_tmp_adm_a = _tmp_sga_a * 0.5; _tmp_adm_p = _tmp_sga_p * 0.5
-adm_labor_a = _tmp_adm_a * 0.4; adm_labor_p = _tmp_adm_p * 0.4
-adm_depr_a = _tmp_adm_a * 0.15; adm_depr_p = _tmp_adm_p * 0.15
-adm_rnd_a = _tmp_adm_a * 0.2; adm_rnd_p = _tmp_adm_p * 0.2
-adm_fee_a = _tmp_adm_a * 0.15; adm_fee_p = _tmp_adm_p * 0.15
-adm_etc_a = _tmp_adm_a * 0.1; adm_etc_p = _tmp_adm_p * 0.1
-
-_tmp_sel_a = _tmp_sga_a * 0.5; _tmp_sel_p = _tmp_sga_p * 0.5
-sel_trans_a = _tmp_sel_a * 0.2; sel_trans_p = _tmp_sel_p * 0.2
-sel_fee_a = _tmp_sel_a * 0.15; sel_fee_p = _tmp_sel_p * 0.15
-sel_brand_a = _tmp_sel_a * 0.1; sel_brand_p = _tmp_sel_p * 0.1
-sel_labor_a = _tmp_sel_a * 0.25; sel_labor_p = _tmp_sel_p * 0.25
-sel_sample_a = _tmp_sel_a * 0.1; sel_sample_p = _tmp_sel_p * 0.1
-sel_bad_a = _tmp_sel_a * 0.05; sel_bad_p = _tmp_sel_p * 0.05
-sel_misc_a = _tmp_sel_a * 0.05; sel_misc_p = _tmp_sel_p * 0.05
-sel_etc_a = _tmp_sel_a * 0.1; sel_etc_p = _tmp_sel_p * 0.1
-
-gp_input_a = _tmp_sales_a - _tmp_cogs_a
-gp_input_p = _tmp_sales_p - _tmp_cogs_p
-op_input_a = gp_input_a - _tmp_sga_a
-op_input_p = gp_input_p - _tmp_sga_p
-adj_op_input_a = op_input_a + adm_depr_a
-adj_op_input_p = op_input_p + adm_depr_p
-
-cogs_sw_a = ((qty_sw_a*price_sw_a)/1000000.0) * np.random.uniform(0.55, 0.65, 12); cogs_sw_p = ((qty_sw_p*price_sw_p)/1000000.0) * 0.6
-cogs_bw_a = ((qty_bw_a*price_bw_a)/1000000.0) * np.random.uniform(0.6, 0.7, 12);  cogs_bw_p = ((qty_bw_p*price_bw_p)/1000000.0) * 0.65
-sga_sw_a = ((qty_sw_a*price_sw_a)/1000000.0) * np.random.uniform(0.1, 0.15, 12);   sga_sw_p = ((qty_sw_p*price_sw_p)/1000000.0) * 0.12
-sga_bw_a = ((qty_bw_a*price_bw_a)/1000000.0) * np.random.uniform(0.1, 0.15, 12);   sga_bw_p = ((qty_bw_p*price_bw_p)/1000000.0) * 0.12
-
-# (2) 계획 파일 파싱
-try:
-    plan_blob = load_saved_data("saved_plan.xlsx", app_dir=APP_DIR, secrets=st.secrets)
-except StorageError:
-    LOGGER.exception("Unable to load the saved plan workbook")
-    st.error("저장된 계획 파일을 불러오지 못했습니다. 관리자에게 문의해 주세요.")
-    plan_blob = None
-if plan_blob:
-    try:
-        df_p = read_workbook(plan_blob)
-        qty_sw_p = safe_extract('SW수량입력', df_p, 'qty'); qty_bw_p = safe_extract('BW수량입력', df_p, 'qty')
-        qty_ls_p = safe_extract('LS수량입력', df_p, 'qty'); qty_fs_p = safe_extract('FS수량입력', df_p, 'qty')
-        price_sw_p = safe_extract('SW단가입력', df_p, 'qty'); price_bw_p = safe_extract('BW단가입력', df_p, 'qty')
-        
-        sales_prod_p = safe_extract('제품매출입력', df_p, 'money'); sales_semi_p = safe_extract('반제품매출입력', df_p, 'money')
-        sales_md_p = safe_extract('상품매출입력', df_p, 'money'); sales_etc_p = safe_extract('기타매출입력', df_p, 'money')
-        sales_inc_p = safe_extract('판매장려금입력', df_p, 'money')
-        
-        # 제품 파싱
-        cogs_rm_p = safe_extract('원부재료비입력', df_p, 'money'); cogs_lb_p = safe_extract('노무비입력', df_p, 'money')
-        cogs_os_p = safe_extract('외주가공비입력', df_p, 'money'); cogs_oh_p = safe_extract('기타경비입력', df_p, 'money')
-        
-        # 반제품 파싱
-        cogs_semi_rm_p = safe_extract('반제품_원부재료비입력', df_p, 'money'); cogs_semi_lb_p = safe_extract('반제품_노무비입력', df_p, 'money')
-        cogs_semi_os_p = safe_extract('반제품_외주가공비입력', df_p, 'money'); cogs_semi_oh_p = safe_extract('반제품_기타경비입력', df_p, 'money')
-        
-        cogs_semi_p = safe_extract('반제품매출원가입력', df_p, 'money')
-        cogs_md_p = safe_extract('상품매출원가입력', df_p, 'money')
-        cogs_etc_p = safe_extract('기타매출원가입력', df_p, 'money')
-        cogs_std_p = safe_extract('표준원가차이입력', df_p, 'money')
-        cogs_inv_p = safe_extract('재고평가손입력', df_p, 'money')
-        
-        gp_input_p = safe_extract('매출총이익입력', df_p, 'money', gp_input_p)
-        op_input_p = safe_extract('영업이익입력', df_p, 'money', op_input_p)
-        adj_op_input_p = safe_extract('조정영업이익입력', df_p, 'money', adj_op_input_p)
-        
-        adm_labor_p = safe_extract('일반관리비_인건비입력', df_p, 'money'); adm_depr_p = safe_extract('일반관리비_감가상각비입력', df_p, 'money')
-        adm_rnd_p = safe_extract('일반관리비_경상개발비입력', df_p, 'money'); adm_fee_p = safe_extract('일반관리비_수수료입력', df_p, 'money')
-        adm_etc_p = safe_extract('일반관리비_기타입력', df_p, 'money')
-        
-        sel_trans_p = safe_extract('판매비_운반비입력', df_p, 'money'); sel_fee_p = safe_extract('판매비_수수료입력', df_p, 'money')
-        sel_brand_p = safe_extract('판매비_브랜드사용료입력', df_p, 'money'); sel_labor_p = safe_extract('판매비_인건비입력', df_p, 'money')
-        sel_sample_p = safe_extract('판매비_견본비입력', df_p, 'money'); sel_bad_p = safe_extract('판매비_대손상각입력', df_p, 'money')
-        sel_misc_p = safe_extract('판매비_잡비입력', df_p, 'money'); sel_etc_p = safe_extract('판매비_기타입력', df_p, 'money')
-        
-        cogs_sw_p = safe_extract('8인치 SW 매출원가', df_p, 'money', (qty_sw_p*price_sw_p/1000000.0)*0.6)
-        cogs_bw_p = safe_extract('8인치 BW 매출원가', df_p, 'money', (qty_bw_p*price_bw_p/1000000.0)*0.65)
-        sga_sw_p = safe_extract('8인치 SW 판관비', df_p, 'money', (qty_sw_p*price_sw_p/1000000.0)*0.12)
-        sga_bw_p = safe_extract('8인치 BW 판관비', df_p, 'money', (qty_bw_p*price_bw_p/1000000.0)*0.12)
-    except Exception:
-        LOGGER.exception("Unable to parse the plan workbook")
-        st.error("계획 엑셀 형식이 올바르지 않습니다. 입력 양식과 값을 확인해 주세요.")
-
-# (3) 실적 파일 파싱
-try:
-    actual_blob = load_saved_data("saved_actual.xlsx", app_dir=APP_DIR, secrets=st.secrets)
-except StorageError:
-    LOGGER.exception("Unable to load the saved actual workbook")
-    st.error("저장된 실적 파일을 불러오지 못했습니다. 관리자에게 문의해 주세요.")
-    actual_blob = None
-if actual_blob:
-    try:
-        df_a = read_workbook(actual_blob)
-        qty_sw_a = safe_extract('SW수량입력', df_a, 'qty'); qty_bw_a = safe_extract('BW수량입력', df_a, 'qty')
-        qty_ls_a = safe_extract('LS수량입력', df_a, 'qty'); qty_fs_a = safe_extract('FS수량입력', df_a, 'qty')
-        price_sw_a = safe_extract('SW단가입력', df_a, 'qty'); price_bw_a = safe_extract('BW단가입력', df_a, 'qty')
-        
-        sales_prod_a = safe_extract('제품매출입력', df_a, 'money'); sales_semi_a = safe_extract('반제품매출입력', df_a, 'money')
-        sales_md_a = safe_extract('상품매출입력', df_a, 'money'); sales_etc_a = safe_extract('기타매출입력', df_a, 'money')
-        sales_inc_a = safe_extract('판매장려금입력', df_a, 'money')
-        
-        # 제품 파싱
-        cogs_rm_a = safe_extract('원부재료비입력', df_a, 'money'); cogs_lb_a = safe_extract('노무비입력', df_a, 'money')
-        cogs_os_a = safe_extract('외주가공비입력', df_a, 'money'); cogs_oh_a = safe_extract('기타경비입력', df_a, 'money')
-
-        # 반제품 파싱
-        cogs_semi_rm_a = safe_extract('반제품_원부재료비입력', df_a, 'money'); cogs_semi_lb_a = safe_extract('반제품_노무비입력', df_a, 'money')
-        cogs_semi_os_a = safe_extract('반제품_외주가공비입력', df_a, 'money'); cogs_semi_oh_a = safe_extract('반제품_기타경비입력', df_a, 'money')
-        
-        cogs_semi_a = safe_extract('반제품매출원가입력', df_a, 'money')
-        cogs_md_a = safe_extract('상품매출원가입력', df_a, 'money')
-        cogs_etc_a = safe_extract('기타매출원가입력', df_a, 'money')
-        cogs_std_a = safe_extract('표준원가차이입력', df_a, 'money')
-        cogs_inv_a = safe_extract('재고평가손입력', df_a, 'money')
-        
-        gp_input_a = safe_extract('매출총이익입력', df_a, 'money', gp_input_a)
-        op_input_a = safe_extract('영업이익입력', df_a, 'money', op_input_a)
-        adj_op_input_a = safe_extract('조정영업이익입력', df_a, 'money', adj_op_input_a)
-        
-        adm_labor_a = safe_extract('일반관리비_인건비입력', df_a, 'money'); adm_depr_a = safe_extract('일반관리비_감가상각비입력', df_a, 'money')
-        adm_rnd_a = safe_extract('일반관리비_경상개발비입력', df_a, 'money'); adm_fee_a = safe_extract('일반관리비_수수료입력', df_a, 'money')
-        adm_etc_a = safe_extract('일반관리비_기타입력', df_a, 'money')
-        
-        sel_trans_a = safe_extract('판매비_운반비입력', df_a, 'money'); sel_fee_a = safe_extract('판매비_수수료입력', df_a, 'money')
-        sel_brand_a = safe_extract('판매비_브랜드사용료입력', df_a, 'money'); sel_labor_a = safe_extract('판매비_인건비입력', df_a, 'money')
-        sel_sample_a = safe_extract('판매비_견본비입력', df_a, 'money'); sel_bad_a = safe_extract('판매비_대손상각입력', df_a, 'money')
-        sel_misc_a = safe_extract('판매비_잡비입력', df_a, 'money'); sel_etc_a = safe_extract('판매비_기타입력', df_a, 'money')
-        
-        cogs_sw_a = safe_extract('8인치 SW 매출원가', df_a, 'money', (qty_sw_a*price_sw_a/1000000.0)*0.6)
-        cogs_bw_a = safe_extract('8인치 BW 매출원가', df_a, 'money', (qty_bw_a*price_bw_a/1000000.0)*0.65)
-        sga_sw_a = safe_extract('8인치 SW 판관비', df_a, 'money', (qty_sw_a*price_sw_a/1000000.0)*0.12)
-        sga_bw_a = safe_extract('8인치 BW 판관비', df_a, 'money', (qty_bw_a*price_bw_a/1000000.0)*0.12)
-    except Exception:
-        LOGGER.exception("Unable to parse the actual workbook")
-        st.error("실적 엑셀 형식이 올바르지 않습니다. 입력 양식과 값을 확인해 주세요.")
-
-# --- 4. 전사 파생 변수 최종 역산 로직 ---
-qty_total_a = qty_sw_a + qty_bw_a + qty_ls_a
-qty_total_p = qty_sw_p + qty_bw_p + qty_ls_p
-
-sales_total_a = sales_prod_a + sales_semi_a + sales_md_a + sales_etc_a + sales_inc_a
-sales_total_p = sales_prod_p + sales_semi_p + sales_md_p + sales_etc_p + sales_inc_p
-
-adm_total_a = adm_labor_a + adm_depr_a + adm_rnd_a + adm_fee_a + adm_etc_a
-adm_total_p = adm_labor_p + adm_depr_p + adm_rnd_p + adm_fee_p + adm_etc_p
-
-sel_total_a = sel_trans_a + sel_fee_a + sel_brand_a + sel_labor_a + sel_sample_a + sel_bad_a + sel_misc_a + sel_etc_a
-sel_total_p = sel_trans_p + sel_fee_p + sel_brand_p + sel_labor_p + sel_sample_p + sel_bad_p + sel_misc_p + sel_etc_p
-
-sga_total_a = adm_total_a + sel_total_a
-sga_total_p = adm_total_p + sel_total_p
-
-# [역산 1] 매출총이익과 영업이익은 입력값 고정
-gp_total_a = gp_input_a; gp_total_p = gp_input_p
-op_actual = op_input_a; op_plan = op_input_p
-
-# [역산 2] 총 매출원가 = 매출액 - 입력 매출총이익
-cogs_total_a = sales_total_a - gp_total_a
-cogs_total_p = sales_total_p - gp_total_p
-
-# [역산 3] 제품 매출원가 = 총 매출원가 - (반제품+상품+기타+표준+평가손)
-cogs_prod_a = cogs_total_a - (cogs_semi_a + cogs_md_a + cogs_etc_a + cogs_std_a + cogs_inv_a)
-cogs_prod_p = cogs_total_p - (cogs_semi_p + cogs_md_p + cogs_etc_p + cogs_std_p + cogs_inv_p)
-
-actual_months = np.flatnonzero(np.asarray(sales_total_a) != 0)
-last_actual_month = actual_months[-1] if len(actual_months) else -1
-
-def calculate_progress_metrics(actual_values, plan_values, last_month):
-    """진도율은 연간 계획, 계획 대비 달성률은 실적 입력 기간의 계획을 기준으로 계산한다."""
-    cumulative_actual = sum(actual_values[:last_month + 1]) if last_month >= 0 else 0
-    annual_plan = sum(plan_values)
-    progress_rate = (cumulative_actual / annual_plan) * 100 if annual_plan else 0
-    plan_to_date = sum(plan_values[:last_month + 1]) if last_month >= 0 else 0
-    achievement_rate = (cumulative_actual / plan_to_date) * 100 if plan_to_date else 0
-    return cumulative_actual, annual_plan, progress_rate, achievement_rate
-
-total_sales_actual_sum, total_sales_plan_sum, sales_progress_rate, sales_achievement_rate = calculate_progress_metrics(sales_total_a, sales_total_p, last_actual_month)
-total_op_actual_sum, total_op_plan_sum, op_progress_rate, op_achievement_rate = calculate_progress_metrics(op_actual, op_plan, last_actual_month)
-total_adj_op_actual_sum, total_adj_op_plan_sum, adj_op_progress_rate, adj_op_achievement_rate = calculate_progress_metrics(adj_op_input_a, adj_op_input_p, last_actual_month)
-
-with col2: st.metric(label="매출액", value=f"{total_sales_actual_sum:,.0f} 백만원", delta=f"진도율 {sales_progress_rate:.1f}% | 계획 대비 달성률 {sales_achievement_rate:.1f}%", delta_color="normal")
-with col3: st.metric(label="영업이익", value=f"{total_op_actual_sum:,.0f} 백만원", delta=f"진도율 {op_progress_rate:.1f}% | 계획 대비 달성률 {op_achievement_rate:.1f}%", delta_color="normal")
-with col4: st.metric(label="조정 영업이익", value=f"{total_adj_op_actual_sum:,.0f} 백만원", delta=f"진도율 {adj_op_progress_rate:.1f}% | 계획 대비 달성률 {adj_op_achievement_rate:.1f}%", delta_color="normal")
-
-st.markdown("---")
-
-# 5. 차트 1: 매출액 추이
-col_sales_title, col_sales_unit = st.columns([1, 1])
-with col_sales_title: st.markdown("##### 📈 월별 매출액 추이")
-with col_sales_unit: st.markdown("<div style='text-align: right; font-size: 12px; font-weight: bold; color: #4B5563; margin-top: 10px;'>(단위: 백만원)</div>", unsafe_allow_html=True)
-
-fig_sales = go.Figure()
-fig_sales.add_trace(go.Bar(x=months, y=sales_total_p, name='계획 (Plan)', marker_color='#D8DEE8', text=[f"{val:,.0f}" if val!=0 else "" for val in sales_total_p], textposition='inside', insidetextanchor='end', textfont=dict(size=11, color='#64748B'))) 
-fig_sales.add_trace(go.Bar(x=months, y=sales_total_a, name='실적 (Actual)', marker_color='#FF7A45', text=[f"{val:,.0f}" if val!=0 else "" for val in sales_total_a], textposition='outside', cliponaxis=False, textfont=dict(size=12, color='#1F2937', weight='bold'))) 
-
-max_bar_sales = max(max(sales_total_p), max(sales_total_a)) if len(sales_total_p)>0 else 100
-min_bar_sales = min(min(sales_total_p), min(sales_total_a)) if len(sales_total_p)>0 else 0
-if max_bar_sales == 0 and min_bar_sales == 0: max_bar_sales = 100
-y1_range_sales = [min_bar_sales * 1.5 if min_bar_sales < 0 else 0, max_bar_sales * 1.3]
-
-fig_sales.update_layout(
-    barmode='group', margin=dict(l=0, r=0, t=20, b=30), 
-    legend=dict(orientation="h", yanchor="bottom", y=1.05, xanchor="right", x=1), 
-    plot_bgcolor='white', height=400, 
-    yaxis=dict(showgrid=True, gridcolor='#F3F4F6', zeroline=True, zerolinecolor='#9CA3AF', zerolinewidth=1, range=y1_range_sales, showticklabels=False)
-)
-st.plotly_chart(fig_sales, use_container_width=True)
-
-st.markdown("<br>", unsafe_allow_html=True)
-
-# 6-1. 차트 2: 영업이익 추이
-col_op_title, col_op_unit = st.columns([1, 1])
-with col_op_title: st.markdown("##### 📈 월별 영업이익 추이")
-with col_op_unit: st.markdown("<div style='text-align: right; font-size: 12px; font-weight: bold; color: #4B5563; margin-top: 10px;'>(단위: 백만원, %)</div>", unsafe_allow_html=True)
-
-fig_op = go.Figure()
-op_margin_actual = np.zeros(12)
-for i in range(12):
-    if sales_total_a[i] != 0:
-        op_margin_actual[i] = (op_actual[i] / sales_total_a[i]) * 100
-
-fig_op.add_trace(go.Bar(x=months, y=op_plan, name='계획 (Plan)', marker_color='#E2E8F0', yaxis='y1', text=[f"{val:,.0f}" if val!=0 else "" for val in op_plan], textposition='inside', insidetextanchor='end', textfont=dict(size=11, color='#94A3B8'))) 
-fig_op.add_trace(go.Bar(x=months, y=op_actual, name='실적 (Actual)', marker_color=['#6366F1' if val >= 0 else '#94A3B8' for val in op_actual], yaxis='y1', text=[f"{val:,.0f}" if val!=0 else "" for val in op_actual], textposition='outside', cliponaxis=False, textfont=dict(size=12, color='#1F2937', weight='bold'))) 
-fig_op.add_trace(go.Scatter(x=months, y=op_margin_actual, name='영업이익률(%)', mode='lines+markers+text', text=[f"{val:.1f}%" if val!=0 and not pd.isna(val) and not np.isinf(val) else "" for val in op_margin_actual], textposition='top center', cliponaxis=False, textfont=dict(size=13, color='#F59E0B', weight='bold'), marker=dict(color='white', size=10, line=dict(color='#F59E0B', width=2.5)), line=dict(color='#F59E0B', width=3, shape='spline'), yaxis='y2'))
-
-max_bar = max(max(op_plan), max(op_actual)) if len(op_plan)>0 else 100
-min_bar = min(min(op_plan), min(op_actual)) if len(op_plan)>0 else 0
-if max_bar == 0 and min_bar == 0: max_bar = 100
-y1_range = [min_bar * 1.5 if min_bar < 0 else -max_bar * 0.1, max_bar * 2.5]
-
-margin_span = max(op_margin_actual) - min(op_margin_actual) if len(op_margin_actual)>0 else 10
-if margin_span == 0 or pd.isna(margin_span): margin_span = 10
-y2_range = [min(op_margin_actual) - (margin_span * 2.0) if not pd.isna(min(op_margin_actual)) else 0, max(op_margin_actual) + (margin_span * 0.2) if not pd.isna(max(op_margin_actual)) else 100]
-
-fig_op.update_layout(barmode='group', margin=dict(l=0, r=0, t=20, b=30), legend=dict(orientation="h", yanchor="bottom", y=1.05, xanchor="right", x=1), plot_bgcolor='white', height=400, yaxis=dict(showgrid=True, gridcolor='#F3F4F6', zeroline=True, zerolinecolor='#9CA3AF', zerolinewidth=1, range=y1_range, showticklabels=False), yaxis2=dict(overlaying='y', side='right', showgrid=False, range=y2_range, showticklabels=False))
-st.plotly_chart(fig_op, use_container_width=True)
-
-st.markdown("<br>", unsafe_allow_html=True)
-
-# 6-2. 차트 3: 조정 영업이익 추이 
-col_adj_op_title, col_adj_op_unit = st.columns([1, 1])
-with col_adj_op_title: st.markdown("##### 📈 월별 조정 영업이익 추이")
-with col_adj_op_unit: st.markdown("<div style='text-align: right; font-size: 12px; font-weight: bold; color: #4B5563; margin-top: 10px;'>(단위: 백만원, %)</div>", unsafe_allow_html=True)
-
-adj_op_plan = adj_op_input_p
-adj_op_actual = adj_op_input_a
-
-adj_op_margin_actual = np.zeros(12)
-for i in range(12):
-    if sales_total_a[i] != 0:
-        adj_op_margin_actual[i] = (adj_op_actual[i] / sales_total_a[i]) * 100
-
-fig_adj_op = go.Figure()
-fig_adj_op.add_trace(go.Bar(x=months, y=adj_op_plan, name='계획 (Plan)', marker_color='#E2E8F0', text=[f"{val:,.0f}" if val!=0 else "" for val in adj_op_plan], textposition='inside', insidetextanchor='end', textfont=dict(size=11, color='#94A3B8'))) 
-# 조정 영업이익 바 차트 색상: 오렌지(흑자) / 스카이블루(적자)
-fig_adj_op.add_trace(go.Bar(x=months, y=adj_op_actual, name='실적 (Actual)', marker_color=['#14B8A6' if val >= 0 else '#94A3B8' for val in adj_op_actual], yaxis='y1', text=[f"{val:,.0f}" if val!=0 else "" for val in adj_op_actual], textposition='outside', cliponaxis=False, textfont=dict(size=12, color='#1F2937', weight='bold'))) 
-fig_adj_op.add_trace(go.Scatter(x=months, y=adj_op_margin_actual, name='조정 영업이익률(%)', mode='lines+markers+text', text=[f"{val:.1f}%" if val!=0 and not pd.isna(val) and not np.isinf(val) else "" for val in adj_op_margin_actual], textposition='top center', cliponaxis=False, textfont=dict(size=13, color='#8B5CF6', weight='bold'), marker=dict(color='white', size=10, line=dict(color='#8B5CF6', width=2.5)), line=dict(color='#8B5CF6', width=3, shape='spline'), yaxis='y2'))
-
-max_bar_adj = max(max(adj_op_plan), max(adj_op_actual)) if len(adj_op_plan)>0 else 100
-min_bar_adj = min(min(adj_op_plan), min(adj_op_actual)) if len(adj_op_plan)>0 else 0
-if max_bar_adj == 0 and min_bar_adj == 0: max_bar_adj = 100
-y1_range_adj = [min_bar_adj * 1.5 if min_bar_adj < 0 else -max_bar_adj * 0.1, max_bar_adj * 2.5]
-
-margin_span_adj = max(adj_op_margin_actual) - min(adj_op_margin_actual) if len(adj_op_margin_actual)>0 else 10
-if margin_span_adj == 0 or pd.isna(margin_span_adj): margin_span_adj = 10
-y2_range_adj = [min(adj_op_margin_actual) - (margin_span_adj * 2.0) if not pd.isna(min(adj_op_margin_actual)) else 0, max(adj_op_margin_actual) + (margin_span_adj * 0.2) if not pd.isna(max(adj_op_margin_actual)) else 100]
-
-fig_adj_op.update_layout(barmode='group', margin=dict(l=0, r=0, t=20, b=30), legend=dict(orientation="h", yanchor="bottom", y=1.05, xanchor="right", x=1), plot_bgcolor='white', height=400, yaxis=dict(showgrid=True, gridcolor='#F3F4F6', zeroline=True, zerolinecolor='#9CA3AF', zerolinewidth=1, range=y1_range_adj, showticklabels=False), yaxis2=dict(overlaying='y', side='right', showgrid=False, range=y2_range_adj, showticklabels=False))
-st.plotly_chart(fig_adj_op, use_container_width=True)
-
-
-# 7. 손익계산서 테이블
-st.markdown("---")
-# 💡 디자인 최적화: 라디오 버튼 중앙 고정, 기간 설정 시 드롭박스를 아래로 배치하며 극한으로 크기 축소
-pnl_mode = st.session_state.get("pnl_toggle", "실적만 보기")
-st.markdown("##### 📊 손익계산서")
-st.radio("표시 기준 선택", ["실적만 보기", "계획/실적 비교", "기간 설정 비교"], horizontal=True, label_visibility="collapsed", key="pnl_toggle")
-
-if pnl_mode == "기간 설정 비교":
-    selected_start_m, selected_end_m = render_centered_period_selectors(months, "st_pnl", "ed_pnl")
-    start_idx = months.index(selected_start_m)
-    end_idx = months.index(selected_end_m)
-else:
-    start_idx = 0
-    end_idx = 0
-    selected_start_m = "1월"
-    selected_end_m = "1월"
-
-view_mode = st.session_state["pnl_toggle"]
-
-render_table_unit("(단위: 백만원, pcs, m, %)", view_mode == "기간 설정 비교")
-
-items = [
-    '<label for="toggle-sales"><span class="icon-sales"></span> 매출액</label>', 
-    '<span class="child-sales"> - 제품</span>', '<span class="child-sales"> - 반제품</span>', '<span class="child-sales"> - 상품</span>', '<span class="child-sales"> - 기타</span>', '<span class="child-sales"> - 판매장려금</span>',
-    '<label for="toggle-qty"><span class="icon-qty"></span> 매출수량</label>', 
-    '<span class="child-qty"> - 8인치 SW</span>', '<span class="child-qty"> - 8인치 BW</span>', '<span class="child-qty"> - LS</span>', '<span class="child-qty"> - FS</span>',
-    '<label for="toggle-cogs"><span class="icon-cogs"></span> 매출원가</label>', 
-    '<span class="child-cogs"> - 제품</span>', '<span class="child-cogs"> - 반제품</span>', '<span class="child-cogs"> - 상품</span>', '<span class="child-cogs"> - 기타</span>', '<span class="child-cogs"> - 표준</span>', '<span class="child-cogs"> - 재고자산 평가손</span>',
-    '매출원가율', '매출총이익', '매출총이익률', '판관비', '영업이익', '영업이익률', '조정 영업이익', '조정 영업이익률'
-]
-
-cogs_ratio_a = np.zeros(12); cogs_ratio_p = np.zeros(12)
-gp_ratio_a = np.zeros(12); gp_ratio_p = np.zeros(12)
-op_ratio_a = np.zeros(12); op_ratio_p = np.zeros(12)
-adj_op_ratio_a = np.zeros(12); adj_op_ratio_p = np.zeros(12)
-
-for i in range(12):
-    if sales_total_a[i] != 0:
-        cogs_ratio_a[i] = (cogs_total_a[i] / sales_total_a[i]) * 100
-        gp_ratio_a[i] = (gp_total_a[i] / sales_total_a[i]) * 100
-        op_ratio_a[i] = (op_actual[i] / sales_total_a[i]) * 100
-        adj_op_ratio_a[i] = (adj_op_actual[i] / sales_total_a[i]) * 100
-    if sales_total_p[i] != 0:
-        cogs_ratio_p[i] = (cogs_total_p[i] / sales_total_p[i]) * 100
-        gp_ratio_p[i] = (gp_total_p[i] / sales_total_p[i]) * 100
-        op_ratio_p[i] = (op_plan[i] / sales_total_p[i]) * 100
-        adj_op_ratio_p[i] = (adj_op_plan[i] / sales_total_p[i]) * 100
-
-actual_rows = [
-    sales_total_a, sales_prod_a, sales_semi_a, sales_md_a, sales_etc_a, sales_inc_a, 
-    qty_total_a, qty_sw_a, qty_bw_a, qty_ls_a, qty_fs_a, 
-    cogs_total_a, cogs_prod_a, cogs_semi_a, cogs_md_a, cogs_etc_a, cogs_std_a, cogs_inv_a, 
-    cogs_ratio_a, gp_total_a, gp_ratio_a, 
-    sga_total_a, op_actual, op_ratio_a, adj_op_actual, adj_op_ratio_a
-]
-plan_rows = [
-    sales_total_p, sales_prod_p, sales_semi_p, sales_md_p, sales_etc_p, sales_inc_p, 
-    qty_total_p, qty_sw_p, qty_bw_p, qty_ls_p, qty_fs_p, 
-    cogs_total_p, cogs_prod_p, cogs_semi_p, cogs_md_p, cogs_etc_p, cogs_std_p, cogs_inv_p, 
-    cogs_ratio_p, gp_total_p, gp_ratio_p, 
-    sga_total_p, op_plan, op_ratio_p, adj_op_plan, adj_op_ratio_p
-]
-
-actual_sums = [sum(row) for row in actual_rows]
-plan_sums = [sum(row) for row in plan_rows]
-
-idx_sales, idx_cogs, idx_gp, idx_op = 0, 11, 19, 22
-
-actual_sums[18] = (actual_sums[idx_cogs] / actual_sums[idx_sales]) * 100 if actual_sums[idx_sales] != 0 else 0
-actual_sums[20] = (actual_sums[idx_gp] / actual_sums[idx_sales]) * 100 if actual_sums[idx_sales] != 0 else 0
-actual_sums[23] = (actual_sums[idx_op] / actual_sums[idx_sales]) * 100 if actual_sums[idx_sales] != 0 else 0
-actual_sums[25] = (actual_sums[24] / actual_sums[idx_sales]) * 100 if actual_sums[idx_sales] != 0 else 0
-plan_sums[18] = (plan_sums[idx_cogs] / plan_sums[idx_sales]) * 100 if plan_sums[idx_sales] != 0 else 0
-plan_sums[20] = (plan_sums[idx_gp] / plan_sums[idx_sales]) * 100 if plan_sums[idx_sales] != 0 else 0
-plan_sums[23] = (plan_sums[idx_op] / plan_sums[idx_sales]) * 100 if plan_sums[idx_sales] != 0 else 0
-plan_sums[25] = (plan_sums[24] / plan_sums[idx_sales]) * 100 if plan_sums[idx_sales] != 0 else 0
-
-if view_mode == "기간 설정 비교":
-    if start_idx > end_idx:
-        st.markdown("<div style='padding: 20px; background-color: #FEE2E2; border-left: 5px solid #EF4444; border-radius: 4px; text-align: center; width: 600px; margin: 0 auto;'><h4 style='color: #B91C1C; margin: 0;'>⚠️ 기간 설정 오류</h4><p style='color: #7F1D1D; margin-top: 10px;'>시작월이 종료월보다 이후일 수 없습니다.</p></div>", unsafe_allow_html=True)
+    current_selection = (int(year), start_month, end_month, baseline_token)
+    if "forecast_result" not in st.session_state:
+        return
+    if tuple(st.session_state.get("forecast_selection", ())) != current_selection:
+        st.info("추정 기간이 변경되었습니다. 입력 후 추정 계산을 다시 실행해 주세요.")
+        return
+
+    result = st.session_state.forecast_result
+    show_result(result)
+    monthly_frame = pd.DataFrame([
+        {
+            "월": f"{item['month']}월", "매출액": round(item["revenue"]), "매출원가": round(item["cogs"]),
+            "매출총이익": round(item["gross_profit"]), "판관비": round(item["sga"]),
+            "영업이익": round(item["operating_profit"]),
+            "영업이익률": item["operating_margin"] * 100,
+        }
+        for item in st.session_state.forecast_month_results
+    ])
+    st.subheader("월별 추정 결과")
+    st.dataframe(
+        center_table_text(monthly_frame), hide_index=True, use_container_width=True,
+        column_config={
+            **{key: number_column(won=True) for key in ["매출액", "매출원가", "매출총이익", "판관비", "영업이익"]},
+            "영업이익률": number_column(percent=True),
+        },
+    )
+    download_data = forecast_workbook_bytes(
+        result["workbook_path"], months, result.get("input_log", []),
+    )
+    download_timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    st.download_button(
+        "추정 모형 엑셀 다운로드",
+        download_data,
+        file_name=(
+            f"Forecast_{st.session_state.forecast_year}_{start_month:02d}_{end_month:02d}_"
+            f"{download_timestamp}.xlsx"
+        ),
+        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        on_click="ignore",
+    )
+    st.caption(
+        "다운로드 모형의 Data 옆 `입력반영내역` 시트에서 기준값과 달라진 직접 입력을 확인할 수 있습니다. "
+        "`이동`을 누르면 실제 반영된 Data 셀로 이동하며, 입력에 따라 변동된 수식 셀은 목록에서 제외됩니다."
+    )
+    st.caption(
+        "판관비에는 관리자가 추정금액에서 직접 입력한 조정만 반영됩니다."
+    )
+    if all(item["ok"] for item in result["validations"]):
+        version = st.text_input("확정 버전", value="V1", key="period_forecast_version")
+        if st.button("이 결과를 일반 모드에 확정 공개", key="confirm_period_forecast"):
+            STORE.confirm(ForecastResult(**result))
+            path = Path(result["workbook_path"])
+            label = f"{start_month}월" if start_month == end_month else f"{start_month}~{end_month}월"
+            REGISTRY.add(
+                path.read_bytes(), name=f"{st.session_state.forecast_year}년 {label} 추정",
+                model_type="추정", year=st.session_state.forecast_year,
+                start_month=start_month, end_month=end_month,
+                created_date=date.today().isoformat(), version=version, confirmed=True,
+                file_name=path.name,
+            )
+            st.success("확정 결과를 공개하고 모형 목록에 등록했습니다.")
     else:
-        missing_actuals = any(sales_total_a[i] == 0 for i in range(start_idx, end_idx + 1))
-        if missing_actuals:
-            st.markdown("<div style='padding: 20px; background-color: #FEE2E2; border-left: 5px solid #EF4444; border-radius: 4px; text-align: center; width: 600px; margin: 0 auto;'><h4 style='color: #B91C1C; margin: 0;'>⚠️ 실적이 없습니다</h4><p style='color: #7F1D1D; margin-top: 10px;'>선택하신 기간 중 <b>실적 데이터가 입력되지 않은 월</b>이 포함되어 비교가 불가능합니다.</p></div>", unsafe_allow_html=True)
+        st.error("검증 미통과 항목이 있어 결과를 확정할 수 없습니다.")
+
+
+def model_table(models) -> pd.DataFrame:
+    return pd.DataFrame([{
+        "모형명": item.name, "구분": item.model_type, "기준기간": item.basis_period,
+        "작성일": item.created_date, "버전": item.version, "확정 여부": "확정" if item.confirmed else "미확정",
+        "업로드 시각": item.uploaded_at,
+    } for item in models])
+
+
+def data_management_page(role: str) -> None:
+    st.title("데이터 관리")
+    if role != "admin":
+        st.warning("관리자 전용 메뉴입니다.")
+        return
+    with st.expander("모형 업로드", expanded=True):
+        uploaded = st.file_uploader("계획·실적·추정 모형", type=["xlsx"])
+        c1, c2, c3 = st.columns(3)
+        name = c1.text_input("모형명")
+        model_type = c2.selectbox("모형 구분", ["계획", "실적", "추정"])
+        version = c3.text_input("버전", value="V1")
+        c1, c2, c3, c4 = st.columns(4)
+        year = c1.number_input("기준연도", 2020, 2100, 2026, 1)
+        start_month = c2.selectbox("시작월", range(1, 13), index=0)
+        end_month = c3.selectbox("종료월", range(1, 13), index=11)
+        created = c4.date_input("작성일", value=date.today())
+        confirmed = st.checkbox("확정 모형")
+        if st.button("모형 등록", type="primary", disabled=uploaded is None or not name.strip()):
+            content = uploaded.getvalue()
+            with tempfile.NamedTemporaryFile(suffix=".xlsx", delete=False) as temp:
+                temp.write(content)
+                temp_path = Path(temp.name)
+            try:
+                if not zipfile.is_zipfile(temp_path):
+                    raise ValueError("유효한 xlsx 파일이 아닙니다.")
+                probe = GoldenWorkbook(temp_path)
+                if probe.raw_value("B1197") is None or probe.value("K1201") is None or probe.value("K1260") is None:
+                    raise ValueError("Forecast V1 비교 매핑과 호환되는 손익 모형이 아닙니다.")
+                REGISTRY.add(content, name=name, model_type=model_type, year=int(year), start_month=int(start_month),
+                    end_month=int(end_month), created_date=created.isoformat(), version=version,
+                    confirmed=confirmed, file_name=uploaded.name)
+                st.success("모형을 등록했습니다.")
+                st.rerun()
+            finally:
+                temp_path.unlink(missing_ok=True)
+
+    models = REGISTRY.list()
+    st.subheader("업로드 모형 목록")
+    if models:
+        st.dataframe(center_table_text(model_table(models)), use_container_width=True, hide_index=True)
+        st.caption("모형 구분은 목록 정보이며 비교 조합을 제한하지 않습니다.")
+    else:
+        st.info("등록된 모형이 없습니다.")
+
+
+def comparison_page(role: str) -> None:
+    st.title("손익 분석 — 범용 모형 비교")
+    if role != "admin":
+        st.warning("관리자 전용 메뉴입니다.")
+        return
+    models = REGISTRY.list()
+    if len(models) < 2:
+        st.info("데이터 관리에서 비교할 모형을 2개 이상 등록해 주세요.")
+        return
+
+    selected = [item.id for item in models if st.session_state.get(f"select_model_{item.id}", False)]
+    if len(selected) > 2:
+        for model_id in selected[2:]:
+            st.session_state[f"select_model_{model_id}"] = False
+        selected = selected[:2]
+    st.caption("정확히 2개를 선택합니다. 두 개가 선택되면 나머지 체크박스는 잠깁니다.")
+    header = st.columns([0.5, 2.6, 1, 1.6, 1.1, 0.9, 1])
+    for col, label in zip(header, ["선택", "모형명", "구분", "기준기간", "작성일", "버전", "확정 여부"]):
+        col.markdown(f"**{label}**")
+    for item in models:
+        columns = st.columns([0.5, 2.6, 1, 1.6, 1.1, 0.9, 1])
+        checked = item.id in selected
+        columns[0].checkbox("선택", key=f"select_model_{item.id}", label_visibility="collapsed",
+                            disabled=len(selected) >= 2 and not checked)
+        values = [item.name, item.model_type, item.basis_period, item.created_date, item.version,
+                  "확정" if item.confirmed else "미확정"]
+        for col, value in zip(columns[1:], values):
+            col.write(value)
+
+    selected = [item.id for item in models if st.session_state.get(f"select_model_{item.id}", False)]
+    if set(st.session_state.get("comparison_order", [])) != set(selected):
+        st.session_state.comparison_order = selected[:2]
+    if len(selected) != 2:
+        st.info(f"현재 {len(selected)}개 선택됨 — 비교 분석은 2개 선택 후 활성화됩니다.")
+        st.button("비교 분석", disabled=True)
+        return
+
+    order = st.session_state.comparison_order
+    baseline_meta, comparison_meta = REGISTRY.get(order[0]), REGISTRY.get(order[1])
+    c1, c2, c3 = st.columns([2, 0.8, 2])
+    c1.success(f"기준 모형: {baseline_meta.name} ({baseline_meta.model_type})")
+    if c2.button("기준 ↔ 비교 전환", use_container_width=True):
+        st.session_state.comparison_order = [order[1], order[0]]
+        st.session_state.pop("comparison_result", None)
+        st.rerun()
+    c3.info(f"비교 모형: {comparison_meta.name} ({comparison_meta.model_type})")
+    st.caption("모든 증감액은 ‘비교 모형 - 기준 모형’으로 계산됩니다.")
+
+    engine = GenericComparisonEngine(MAPPING)
+    common_months = engine.common_months(baseline_meta, comparison_meta)
+    if not common_months:
+        st.error("두 모형에 공통으로 존재하는 분석기간이 없습니다.")
+        st.button("비교 분석", disabled=True)
+        return
+
+    st.markdown("**분석 기간**")
+    c1, c2, separator, c3, _ = st.columns([0.7, 0.7, 0.08, 0.7, 2.82])
+    if st.session_state.get("comparison_analysis_year") != baseline_meta.year:
+        st.session_state["comparison_analysis_year"] = baseline_meta.year
+    analysis_year = c1.selectbox(
+        "분석 연도",
+        [baseline_meta.year],
+        key="comparison_analysis_year",
+    )
+    if st.session_state.get("comparison_start_month") not in common_months:
+        st.session_state["comparison_start_month"] = common_months[0]
+    start_month = c2.selectbox(
+        "시작 월",
+        list(common_months),
+        index=0,
+        format_func=lambda value: f"{value}월",
+        key="comparison_start_month",
+    )
+    separator.markdown("<div style='text-align:center;padding-top:2rem;'>~</div>", unsafe_allow_html=True)
+    end_options = [month for month in common_months if month >= start_month]
+    if st.session_state.get("comparison_end_month") not in end_options:
+        st.session_state["comparison_end_month"] = start_month
+    end_month = c3.selectbox(
+        "종료 월",
+        end_options,
+        format_func=lambda value: f"{value}월",
+        key="comparison_end_month",
+    )
+    selected_months = tuple(range(start_month, end_month + 1))
+    selected_period = PeriodOption(
+        key=f"R{analysis_year}_{start_month:02d}_{end_month:02d}",
+        label=(f"{start_month}월" if start_month == end_month else f"{start_month}~{end_month}월"),
+        months=selected_months,
+        period_type="월" if start_month == end_month else "선택기간",
+    )
+    if st.button("비교 분석", type="primary", disabled=len(selected) != 2):
+        result = engine.compare(baseline_meta, REGISTRY.path(baseline_meta.id), comparison_meta,
+                                REGISTRY.path(comparison_meta.id), selected_period)
+        st.session_state.comparison_result = asdict(result)
+
+    if "comparison_result" not in st.session_state:
+        return
+    result = st.session_state.comparison_result
+    if result["baseline"]["id"] != baseline_meta.id or result["comparison"]["id"] != comparison_meta.id:
+        return
+    if result["period"]["key"] != selected_period.key:
+        st.info("분석기간이 변경되었습니다. 비교 분석 버튼을 다시 눌러 주세요.")
+        return
+    c1, c2, c3 = st.columns(3)
+    c1.metric("영업이익 증감", money(result["operating_profit_delta"]))
+    c2.metric("세부 변동효과 합계", money(result["effects_total"]))
+    c3.metric("잔여차이", money(result["residual"]), delta="정합" if result["reconciled"] else "확인 필요")
+
+    def amount_frame(rows: list[dict]) -> pd.DataFrame:
+        frame = pd.DataFrame(rows)
+        for column in ["baseline", "comparison", "delta", "profit_effect"]:
+            if column in frame.columns:
+                frame[column] = frame[column] / 1_000_000
+        return frame
+
+    effect_tabs = st.tabs(["판매효과", "원부재료 효과", "생산(제조경비)효과", "판관비 효과"])
+    with effect_tabs[0]:
+        if "sales_groups" not in result:
+            st.info("판매효과 데이터 구조가 변경되었습니다. 비교 분석 버튼을 다시 눌러 주세요.")
         else:
-            ytd_plan = [sum(row[start_idx:end_idx+1]) for row in plan_rows]
-            ytd_actual = [sum(row[start_idx:end_idx+1]) for row in actual_rows]
-            
-            if ytd_plan[idx_sales] != 0:
-                ytd_plan[18] = (ytd_plan[idx_cogs] / ytd_plan[idx_sales]) * 100
-                ytd_plan[20] = (ytd_plan[idx_gp] / ytd_plan[idx_sales]) * 100
-                ytd_plan[23] = (ytd_plan[idx_op] / ytd_plan[idx_sales]) * 100
-                ytd_plan[25] = (ytd_plan[24] / ytd_plan[idx_sales]) * 100
-            else:
-                ytd_plan[18] = ytd_plan[20] = ytd_plan[23] = ytd_plan[25] = 0
-                
-            if ytd_actual[idx_sales] != 0:
-                ytd_actual[18] = (ytd_actual[idx_cogs] / ytd_actual[idx_sales]) * 100
-                ytd_actual[20] = (ytd_actual[idx_gp] / ytd_actual[idx_sales]) * 100
-                ytd_actual[23] = (ytd_actual[idx_op] / ytd_actual[idx_sales]) * 100
-                ytd_actual[25] = (ytd_actual[24] / ytd_actual[idx_sales]) * 100
-            else:
-                ytd_actual[18] = ytd_actual[20] = ytd_actual[23] = ytd_actual[25] = 0
-                
-            diff_vals = [a - p for a, p in zip(ytd_actual, ytd_plan)]
-            
-            ytd_tuples = [('항목', ''), (f'{selected_start_m}~{selected_end_m} 누계', '계획'), (f'{selected_start_m}~{selected_end_m} 누계', '실적'), (f'{selected_start_m}~{selected_end_m} 누계', '차이(실적-계획)')]
-            ytd_rows_data = []
-            
-            for i, item in enumerate(items):
-                is_ratio = ('율' in str(item) or '률' in str(item))
-                if pd.isna(diff_vals[i]) or np.isinf(diff_vals[i]): diff_str = ""
-                elif is_ratio: diff_str = f"{diff_vals[i]:+.1f}%p" if diff_vals[i] != 0 else "0.0%p"
-                else: diff_str = f"{diff_vals[i]:+,.0f}" if diff_vals[i] != 0 else "0"
-                ytd_rows_data.append([item, format_cell(ytd_plan[i], is_ratio), format_cell(ytd_actual[i], is_ratio), diff_str])
-                
-            df_ytd = pd.DataFrame(ytd_rows_data, columns=pd.MultiIndex.from_tuples(ytd_tuples))
-            render_pnl_table(df_ytd, "ytd")
+            st.subheader("판매 수량·단가·환율 효과")
+            fx_key = f"{baseline_meta.id}_{comparison_meta.id}_{selected_period.key}"
+            fx_cols = st.columns([1, 1, 3])
+            baseline_fx = fx_cols[0].number_input(
+                "기준 매출환율(원/USD)", min_value=0.0001, value=1480.0, step=0.1,
+                format="%.2f", key=f"baseline_sales_fx_{fx_key}",
+            )
+            comparison_fx = fx_cols[1].number_input(
+                "비교 매출환율(원/USD)", min_value=0.0001, value=1480.0, step=0.1,
+                format="%.2f", key=f"comparison_sales_fx_{fx_key}",
+            )
+            fx_cols[2].caption(
+                "환율을 직접 입력하면 원화 단가 변동이 순수 단가효과와 매출환율효과로 다시 분해됩니다. "
+                "두 효과의 합계는 원화 단가 변동효과와 일치합니다."
+            )
+            sales_rows = calculate_sales_effect_rows(result["sales_groups"], baseline_fx, comparison_fx)
+            sales_totals = sales_effect_totals(sales_rows)
+            metric_cols = st.columns(4)
+            metric_cols[0].metric("수량효과", money(sales_totals["quantity_effect"]))
+            metric_cols[1].metric("순수 단가효과", money(sales_totals["pure_price_effect"]))
+            metric_cols[2].metric("매출환율효과", money(sales_totals["sales_fx_effect"]))
+            metric_cols[3].metric("판매효과 합계", money(sales_totals["total_sales_effect"]))
+            st.dataframe(
+                center_table_text(sales_effect_frame(sales_rows)),
+                use_container_width=True,
+                hide_index=True,
+            )
+            st.caption(
+                "수량효과는 기준 모형의 제품군별 단가와 매출총이익률을 적용합니다. "
+                "선택기간이 누계·분기인 경우 매출총이익률은 누계 매출총이익 ÷ 누계 매출액으로 계산합니다."
+            )
 
-elif view_mode == "계획/실적 비교":
-    tuples = [('항목', '')]
-    for m in months: tuples.extend([(m, '계획'), (m, '실적')])
-    tuples.extend([('합계', '계획'), ('합계', '실적')])
-    c_rows = []
-    for i, item in enumerate(items):
-        r_data = [item]
-        for m_idx in range(12): r_data.extend([plan_rows[i][m_idx], actual_rows[i][m_idx]])
-        r_data.extend([plan_sums[i], actual_sums[i]])
-        c_rows.append(r_data)
-    df_table = pd.DataFrame(c_rows, columns=pd.MultiIndex.from_tuples(tuples))
-    for col in df_table.columns:
-        if col != ('항목', ''): df_table[col] = df_table.apply(lambda row: format_cell(row[col], '율' in str(row[('항목', '')]) or '률' in str(row[('항목', '')])), axis=1)
-    render_pnl_table(df_table, "compare")
-else:
-    df_table = pd.DataFrame({'항목': items})
-    for i, month in enumerate(months): df_table[month] = [row[i] for row in actual_rows]
-    df_table['합계'] = actual_sums
-    for col in df_table.columns:
-        if col != '항목': df_table[col] = df_table.apply(lambda row: format_cell(row[col], '율' in str(row['항목']) or '률' in str(row['항목'])), axis=1)
-    render_pnl_table(df_table, "")
+    with effect_tabs[1]:
+        material_codes = {"raw_material", "customs_refund"}
+        material_rows = [row for row in result["cost_summary"] if row["code"] in material_codes]
+        st.markdown("#### 원부재료 총액 증감")
+        st.dataframe(center_table_text(amount_frame(material_rows)), use_container_width=True, hide_index=True)
+        st.markdown("#### MCM(유상사급) 상세 원인")
+        st.dataframe(center_table_text(pd.DataFrame(result["mcm"])), use_container_width=True, hide_index=True)
+        transition = result.get("mcm_transition") or {}
+        if transition:
+            c1, c2, c3 = st.columns(3)
+            c1.metric("MCM 수량 증감", f"{transition.get('mcm_quantity_delta', 0):,.0f}")
+            c2.metric("원부재료 효과(MCM 포함)", money(transition.get("raw_material_effect_including_mcm", 0)))
+            c3.metric("외주가공비 효과", money(transition.get("outsourcing_effect", 0)))
+        st.caption(
+            "MCM 금액은 회계 분류대로 원부재료에 전액 유지하며 외주가공비로 재분류하지 않습니다. "
+            "MCM 상세 영향은 원부재료 효과의 하위원인이므로 손익 브리지에 별도로 더하지 않습니다."
+        )
 
-# 8. 제품/반제품 매출원가 내역
-st.markdown("---")
-st.markdown("##### 🔍 제품/반제품(FS) 매출원가 내역")
+    with effect_tabs[2]:
+        st.markdown("#### SAP 수불부 생산입고 기준 생산량")
+        st.dataframe(center_table_text(pd.DataFrame(result["production"])), use_container_width=True, hide_index=True)
+        st.markdown("#### MCM(유상사급)")
+        st.dataframe(center_table_text(pd.DataFrame(result["mcm"])), use_container_width=True, hide_index=True)
+        manufacturing_codes = {"labor", "outsourcing", "other_processing", "processing_total", "manufacturing_expense"}
+        manufacturing_rows = [row for row in result["cost_summary"] if row["code"] in manufacturing_codes]
+        st.markdown("#### 제조경비")
+        st.dataframe(center_table_text(amount_frame(manufacturing_rows)), use_container_width=True, hide_index=True)
+        st.caption(
+            "제조경비 조업도는 SAP 수불부 생산입고를 기준으로 계산합니다. MES 자료가 연결된 경우에는 "
+            "MES-SAP 차이를 보조 검증값으로만 표시하고 제조경비 계산에는 사용하지 않습니다."
+        )
 
-cogs_prod_input_sum_a = cogs_rm_a + cogs_lb_a + cogs_os_a + cogs_oh_a
-cogs_semi_input_sum_a = cogs_semi_rm_a + cogs_semi_lb_a + cogs_semi_os_a + cogs_semi_oh_a
-comb_input_sum_a = cogs_prod_input_sum_a + cogs_semi_input_sum_a
+    with effect_tabs[3]:
+        sga_codes = {"selling_expense", "general_admin", "sga_total", "tariff"}
+        sga_rows = [row for row in result["cost_summary"] if row["code"] in sga_codes]
+        st.dataframe(center_table_text(amount_frame(sga_rows)), use_container_width=True, hide_index=True)
 
-cogs_prod_input_sum_p = cogs_rm_p + cogs_lb_p + cogs_os_p + cogs_oh_p
-cogs_semi_input_sum_p = cogs_semi_rm_p + cogs_semi_lb_p + cogs_semi_os_p + cogs_semi_oh_p
-comb_input_sum_p = cogs_prod_input_sum_p + cogs_semi_input_sum_p
-
-target_comb_cogs_a = cogs_prod_a + cogs_semi_a
-target_comb_cogs_p = cogs_prod_p + cogs_semi_p
-
-mismatched_months_a = [f"{i+1}월" for i in range(12) if abs(target_comb_cogs_a[i] - comb_input_sum_a[i]) >= 1.0]
-mismatched_months_p = [f"{i+1}월" for i in range(12) if abs(target_comb_cogs_p[i] - comb_input_sum_p[i]) >= 1.0]
-
-if mismatched_months_a or mismatched_months_p:
-    st.markdown("<div style='padding: 15px; background-color: #FEE2E2; border-left: 5px solid #EF4444; border-radius: 4px; margin-bottom: 15px;'>", unsafe_allow_html=True)
-    st.markdown("<p style='color: #B91C1C; font-weight: bold; margin: 0;'>⚠️ [합계 오류] 손익계산서 상 제품/반제품 매출원가와 하단 내역의 합계가 일치하지 않습니다.</p>", unsafe_allow_html=True)
-    if mismatched_months_p:
-        st.markdown(f"<p style='color: #7F1D1D; margin: 5px 0 0 0;'>• <b>계획(Plan) 점검 필요:</b> {', '.join(mismatched_months_p)}</p>", unsafe_allow_html=True)
-    if mismatched_months_a:
-        st.markdown(f"<p style='color: #7F1D1D; margin: 5px 0 0 0;'>• <b>실적(Actual) 점검 필요:</b> {', '.join(mismatched_months_a)}</p>", unsafe_allow_html=True)
-    st.markdown("</div>", unsafe_allow_html=True)
-
-st.markdown("<div style='text-align: right; font-size: 12px; font-weight: bold; color: #4B5563; margin-bottom: 5px;'>(단위: 백만원, %)</div>", unsafe_allow_html=True)
-
-comb_rm_a = cogs_rm_a + cogs_semi_rm_a
-comb_lb_a = cogs_lb_a + cogs_semi_lb_a
-comb_os_a = cogs_os_a + cogs_semi_os_a
-comb_oh_a = cogs_oh_a + cogs_semi_oh_a
-
-cogs_items = ['원부재료', '노무비', '외주가공비', '기타경비', '합계'] 
-cogs_rows_a = [comb_rm_a, comb_lb_a, comb_os_a, comb_oh_a, comb_input_sum_a]
-cogs_sums_a = [sum(row) for row in cogs_rows_a]
-
-sales_denom_a = sales_total_a
-sales_denom_sum_a = sum(sales_denom_a)
-
-tuples_cogs = [('항목', '')]
-for m in months: tuples_cogs.extend([(m, '실적금액'), (m, '매출비율')])
-tuples_cogs.extend([('합계', '실적금액'), ('합계', '매출비율')])
-
-combined_rows_cogs = []
-for i, item in enumerate(cogs_items):
-    row_data = [item]
-    for m_idx in range(12):
-        amt = cogs_rows_a[i][m_idx]
-        ratio = (amt / sales_denom_a[m_idx]) * 100 if sales_denom_a[m_idx] != 0 else 0
-        row_data.extend([amt, format_cell(ratio, True) if amt != 0 else ""])
-    sum_amt = cogs_sums_a[i]
-    sum_ratio = (sum_amt / sales_denom_sum_a) * 100 if sales_denom_sum_a != 0 else 0
-    row_data.extend([sum_amt, format_cell(sum_ratio, True) if sum_amt != 0 else ""])
-    combined_rows_cogs.append(row_data)
-
-df_cogs = pd.DataFrame(combined_rows_cogs, columns=pd.MultiIndex.from_tuples(tuples_cogs))
-for col in df_cogs.columns:
-    if col[1] == '실적금액': df_cogs[col] = df_cogs[col].apply(lambda x: format_cell(x, False))
-render_html_table(df_cogs, "compare")
-st.markdown("<br>", unsafe_allow_html=True)
-
-# 9. 판매관리비 명세서
-st.markdown("---")
-sga_mode = st.session_state.get("sga_toggle", "실적만 보기")
-st.markdown("##### 🔍 판매관리비 명세서")
-st.radio("판관비 표시 기준 선택", ["실적만 보기", "계획/실적 비교", "기간 설정 비교"], horizontal=True, label_visibility="collapsed", key="sga_toggle")
-
-if sga_mode == "기간 설정 비교":
-    selected_st_sga, selected_ed_sga = render_centered_period_selectors(months, "st_sga", "ed_sga")
-    start_idx_sga = months.index(selected_st_sga)
-    end_idx_sga = months.index(selected_ed_sga)
-else:
-    start_idx_sga = 0
-    end_idx_sga = 0
-    selected_st_sga = "1월"
-    selected_ed_sga = "1월"
-
-view_mode_sga = st.session_state["sga_toggle"]
-
-render_table_unit("(단위: 백만원)", view_mode_sga == "기간 설정 비교")
-
-sga_items = [
-    '【 일반관리비 소계 】', ' - 인건비', ' - 감가상각비', ' - 경상개발비', ' - 수수료', ' - 기타',
-    '【 판매비 소계 】', ' - 운반비', ' - 수수료', ' - 브랜드사용료', ' - 인건비', ' - 견본비', ' - 대손상각', ' - 잡비', ' - 기타',
-    '▶ 판관비 총계'
-]
-
-sga_actual_rows = [
-    adm_total_a, adm_labor_a, adm_depr_a, adm_rnd_a, adm_fee_a, adm_etc_a,
-    sel_total_a, sel_trans_a, sel_fee_a, sel_brand_a, sel_labor_a, sel_sample_a, sel_bad_a, sel_misc_a, sel_etc_a,
-    sga_total_a
-]
-
-sga_plan_rows = [
-    adm_total_p, adm_labor_p, adm_depr_p, adm_rnd_p, adm_fee_p, adm_etc_p,
-    sel_total_p, sel_trans_p, sel_fee_p, sel_brand_p, sel_labor_p, sel_sample_p, sel_bad_p, sel_misc_p, sel_etc_p,
-    sga_total_p
-]
-
-sga_actual_sums = [sum(row) for row in sga_actual_rows]
-sga_plan_sums = [sum(row) for row in sga_plan_rows]
-
-if view_mode_sga == "기간 설정 비교":
-    if start_idx_sga > end_idx_sga:
-        st.markdown("<div style='padding: 20px; background-color: #FEE2E2; border-left: 5px solid #EF4444; border-radius: 4px; text-align: center; width: 600px; margin: 0 auto;'><h4 style='color: #B91C1C; margin: 0;'>⚠️ 기간 설정 오류</h4><p style='color: #7F1D1D; margin-top: 10px;'>시작월이 종료월보다 이후일 수 없습니다.</p></div>", unsafe_allow_html=True)
-    else:
-        missing_actuals = any(sales_total_a[i] == 0 for i in range(start_idx_sga, end_idx_sga + 1))
-        if missing_actuals:
-            st.markdown("<div style='padding: 20px; background-color: #FEE2E2; border-left: 5px solid #EF4444; border-radius: 4px; text-align: center; width: 600px; margin: 0 auto;'><h4 style='color: #B91C1C; margin: 0;'>⚠️ 실적이 없습니다</h4><p style='color: #7F1D1D; margin-top: 10px;'>선택하신 기간 중 <b>실적 데이터가 입력되지 않은 월</b>이 포함되어 비교가 불가능합니다.</p></div>", unsafe_allow_html=True)
+    with st.expander("손익계산서 및 정합성", expanded=False):
+        st.markdown("#### 손익계산서 증감")
+        st.dataframe(center_table_text(amount_frame(result["pnl"])), use_container_width=True, hide_index=True)
+        st.markdown("#### 손익 브리지")
+        st.dataframe(center_table_text(amount_frame(result["effects"])), use_container_width=True, hide_index=True)
+        if result["reconciled"]:
+            st.success("영업이익 증감과 세부 변동효과 합계가 일치합니다.")
         else:
-            ytd_plan_sga = [sum(row[start_idx_sga:end_idx_sga+1]) for row in sga_plan_rows]
-            ytd_actual_sga = [sum(row[start_idx_sga:end_idx_sga+1]) for row in sga_actual_rows]
-            diff_vals_sga = [a - p for a, p in zip(ytd_actual_sga, ytd_plan_sga)]
-            
-            ytd_tuples_sga = [('항목', ''), (f'{selected_st_sga}~{selected_ed_sga} 누계', '계획'), (f'{selected_st_sga}~{selected_ed_sga} 누계', '실적'), (f'{selected_st_sga}~{selected_ed_sga} 누계', '차이(실적-계획)')]
-            ytd_rows_data_sga = []
-            for i, item in enumerate(sga_items):
-                diff_str = f"{diff_vals_sga[i]:+,.0f}" if diff_vals_sga[i] != 0 else "0"
-                ytd_rows_data_sga.append([item, format_cell(ytd_plan_sga[i], False), format_cell(ytd_actual_sga[i], False), diff_str])
-            
-            df_ytd_sga = pd.DataFrame(ytd_rows_data_sga, columns=pd.MultiIndex.from_tuples(ytd_tuples_sga))
-            render_html_table(df_ytd_sga, "ytd")
-            
-elif view_mode_sga == "계획/실적 비교":
-    tuples_sga = [('항목', '')]
-    for m in months: tuples_sga.extend([(m, '계획'), (m, '실적')])
-    tuples_sga.extend([('합계', '계획'), ('합계', '실적')])
-    combined_rows_sga = []
-    for i, item in enumerate(sga_items):
-        row_data = [item]
-        for m_idx in range(12): row_data.extend([sga_plan_rows[i][m_idx], sga_actual_rows[i][m_idx]])
-        row_data.extend([sga_plan_sums[i], sga_actual_sums[i]])
-        combined_rows_sga.append(row_data)
-    df_sga_comp = pd.DataFrame(combined_rows_sga, columns=pd.MultiIndex.from_tuples(tuples_sga))
-    for col in df_sga_comp.columns:
-        if col != ('항목', ''): df_sga_comp[col] = df_sga_comp[col].apply(lambda x: format_cell(x, False))
-    render_html_table(df_sga_comp, "compare")
+            st.warning("잔여차이가 허용범위를 초과했습니다. 모형의 신규 계정 또는 매핑 누락을 확인해 주세요.")
+
+    st.subheader("주요 변동원인 자동 설명")
+    st.write(result.get("narrative") or "분석 가능한 주요 변동원인이 없습니다.")
+
+
+role = authenticate()
+menu = st.segmented_control("업무 메뉴", ["손익 현황", "추정 산출", "손익 분석", "데이터 관리"],
+                            default="추정 산출", selection_mode="single")
+st.caption(f"{RELEASE['release_name']} · v{RELEASE['version']}")
+if menu == "손익 현황":
+    st.info("현재 작성된 손익 대시보드를 연결할 메뉴입니다.")
+elif menu == "추정 산출":
+    forecast_page(role)
+elif menu == "손익 분석":
+    comparison_page(role)
 else:
-    df_sga = pd.DataFrame({'항목': sga_items})
-    for i, month in enumerate(months): df_sga[month] = [row[i] for row in sga_actual_rows]
-    df_sga['합계'] = sga_actual_sums
-    for col in df_sga.columns:
-        if col != '항목': df_sga[col] = df_sga[col].apply(lambda x: format_cell(x, False))
-    render_html_table(df_sga, "")
-
-# 10. Item별 구분손익
-st.markdown("---")
-type_mode = st.session_state.get("type_toggle", "실적만 보기")
-st.markdown("##### 🔍 Item별 구분손익")
-st.radio("구분손익 표시 기준 선택", ["실적만 보기", "계획/실적 비교", "기간 설정 비교"], horizontal=True, label_visibility="collapsed", key="type_toggle")
-
-if type_mode == "기간 설정 비교":
-    selected_st_type, selected_ed_type = render_centered_period_selectors(months, "st_type", "ed_type")
-    start_idx_type = months.index(selected_st_type)
-    end_idx_type = months.index(selected_ed_type)
-else:
-    start_idx_type = 0
-    end_idx_type = 0
-    selected_st_type = "1월"
-    selected_ed_type = "1월"
-
-view_mode_type = st.session_state["type_toggle"]
-
-def build_type_pnl(qty_a, qty_p, price_a, price_p, cogs_a, cogs_p, sga_a, sga_p):
-    sales_a = (qty_a * price_a) / 1000000.0
-    sales_p = (qty_p * price_p) / 1000000.0
-    
-    gp_a, gp_p = sales_a - cogs_a, sales_p - cogs_p
-    op_a, op_p = gp_a - sga_a, gp_p - sga_p
-    
-    cr_a = np.zeros(12); cr_p = np.zeros(12)
-    gpr_a = np.zeros(12); gpr_p = np.zeros(12)
-    opr_a = np.zeros(12); opr_p = np.zeros(12)
-    for i in range(12):
-        if sales_a[i] != 0:
-            cr_a[i] = (cogs_a[i] / sales_a[i]) * 100
-            gpr_a[i] = (gp_a[i] / sales_a[i]) * 100
-            opr_a[i] = (op_a[i] / sales_a[i]) * 100
-        if sales_p[i] != 0:
-            cr_p[i] = (cogs_p[i] / sales_p[i]) * 100
-            gpr_p[i] = (gp_p[i] / sales_p[i]) * 100
-            opr_p[i] = (op_p[i] / sales_p[i]) * 100
-
-    rows_a = [sales_a, qty_a, price_a, cogs_a, cr_a, gp_a, gpr_a, sga_a, op_a, opr_a]
-    rows_p = [sales_p, qty_p, price_p, cogs_p, cr_p, gp_p, gpr_p, sga_p, op_p, opr_p]
-
-    s_sales_a, s_sales_p = sum(sales_a), sum(sales_p)
-    avg_price_a = (s_sales_a * 1000000.0) / sum(qty_a) if sum(qty_a) else 0
-    avg_price_p = (s_sales_p * 1000000.0) / sum(qty_p) if sum(qty_p) else 0
-    
-    sums_a = [s_sales_a, sum(qty_a), avg_price_a, sum(cogs_a), (sum(cogs_a)/s_sales_a*100) if s_sales_a else 0, sum(gp_a), (sum(gp_a)/s_sales_a*100) if s_sales_a else 0, sum(sga_a), sum(op_a), (sum(op_a)/s_sales_a*100) if s_sales_a else 0]
-    sums_p = [s_sales_p, sum(qty_p), avg_price_p, sum(cogs_p), (sum(cogs_p)/s_sales_p*100) if s_sales_p else 0, sum(gp_p), (sum(gp_p)/s_sales_p*100) if s_sales_p else 0, sum(sga_p), sum(op_p), (sum(op_p)/s_sales_p*100) if s_sales_p else 0]
-    return rows_a, sums_a, rows_p, sums_p
-
-type_items = ['매출액', '매출수량(pcs)', '단가(원)', '매출원가', '매출원가율', '매출총이익', '매출총이익률', '판관비', '영업이익', '영업이익률']
-
-sw_rows_a, sw_sums_a, sw_rows_p, sw_sums_p = build_type_pnl(qty_sw_a, qty_sw_p, price_sw_a, price_sw_p, cogs_sw_a, cogs_sw_p, sga_sw_a, sga_sw_p)
-bw_rows_a, bw_sums_a, bw_rows_p, bw_sums_p = build_type_pnl(qty_bw_a, qty_bw_p, price_bw_a, price_bw_p, cogs_bw_a, cogs_bw_p, sga_bw_a, sga_bw_p)
-
-def render_type_table(rows_a, sums_a, rows_p, sums_p, view_mode, st_idx=0, ed_idx=0, st_month="", ed_month=""):
-    if view_mode == "기간 설정 비교":
-        if st_idx > ed_idx:
-            st.markdown("<div style='padding: 20px; background-color: #FEE2E2; border-left: 5px solid #EF4444; border-radius: 4px; text-align: center; width: 600px; margin: 0 auto;'><h4 style='color: #B91C1C; margin: 0;'>⚠️ 기간 설정 오류</h4><p style='color: #7F1D1D; margin-top: 10px;'>시작월이 종료월보다 이후일 수 없습니다.</p></div>", unsafe_allow_html=True)
-            return
-            
-        missing_actuals = any(rows_a[0][i] == 0 for i in range(st_idx, ed_idx + 1))
-        if missing_actuals:
-            st.markdown("<div style='padding: 20px; background-color: #FEE2E2; border-left: 5px solid #EF4444; border-radius: 4px; text-align: center; width: 600px; margin: 0 auto;'><h4 style='color: #B91C1C; margin: 0;'>⚠️ 실적이 없습니다</h4><p style='color: #7F1D1D; margin-top: 10px;'>선택하신 기간 중 <b>실적 데이터가 입력되지 않은 월</b>이 포함되어 비교가 불가능합니다.</p></div>", unsafe_allow_html=True)
-            return
-            
-        ytd_plan = [sum(r[st_idx:ed_idx+1]) for r in rows_p]
-        ytd_actual = [sum(r[st_idx:ed_idx+1]) for r in rows_a]
-        
-        for ytd_arr in [ytd_plan, ytd_actual]:
-            if ytd_arr[0] != 0:
-                ytd_arr[4] = (ytd_arr[3] / ytd_arr[0]) * 100
-                ytd_arr[6] = (ytd_arr[5] / ytd_arr[0]) * 100
-                ytd_arr[9] = (ytd_arr[8] / ytd_arr[0]) * 100
-                ytd_arr[2] = (ytd_arr[0] * 1000000.0) / ytd_arr[1] if ytd_arr[1] != 0 else 0
-            else:
-                ytd_arr[4] = ytd_arr[6] = ytd_arr[9] = ytd_arr[2] = 0
-                
-        diff_vals = [a - p for a, p in zip(ytd_actual, ytd_plan)]
-        tuples = [('항목', ''), (f'{st_month}~{ed_month} 누계', '계획'), (f'{st_month}~{ed_month} 누계', '실적'), (f'{st_month}~{ed_month} 누계', '차이(실적-계획)')]
-        c_rows = []
-        for i, item in enumerate(type_items):
-            is_ratio = ('율' in str(item) or '률' in str(item))
-            diff_str = ""
-            if pd.isna(diff_vals[i]) or np.isinf(diff_vals[i]): diff_str = ""
-            elif is_ratio: diff_str = f"{diff_vals[i]:+.1f}%p" if diff_vals[i] != 0 else "0.0%p"
-            else: diff_str = f"{diff_vals[i]:+,.0f}" if diff_vals[i] != 0 else "0"
-            c_rows.append([item, format_cell(ytd_plan[i], is_ratio), format_cell(ytd_actual[i], is_ratio), diff_str])
-            
-        df = pd.DataFrame(c_rows, columns=pd.MultiIndex.from_tuples(tuples))
-        render_html_table(df, "ytd")
-        
-    elif view_mode == "계획/실적 비교":
-        tuples = [('항목', '')]
-        for m in months: tuples.extend([(m, '계획'), (m, '실적')])
-        tuples.extend([('합계', '계획'), ('합계', '실적')])
-        c_rows = []
-        for i, item in enumerate(type_items):
-            r_data = [item]
-            for m_idx in range(12): r_data.extend([rows_p[i][m_idx], rows_a[i][m_idx]])
-            r_data.extend([sums_p[i], sums_a[i]])
-            c_rows.append(r_data)
-        df = pd.DataFrame(c_rows, columns=pd.MultiIndex.from_tuples(tuples))
-        for col in df.columns:
-            if col != ('항목', ''): df[col] = df.apply(lambda row: format_cell(row[col], '율' in str(row[('항목', '')]) or '률' in str(row[('항목', '')])), axis=1)
-        render_html_table(df, "compare")
-    else:
-        df = pd.DataFrame({'항목': type_items})
-        for i, m in enumerate(months): df[m] = [r[i] for r in rows_a]
-        df['합계'] = sums_a
-        for col in df.columns:
-            if col != '항목': df[col] = df.apply(lambda row: format_cell(row[col], '율' in str(row['항목']) or '률' in str(row['항목'])), axis=1)
-        render_html_table(df, "")
-
-
-tab1, tab2 = st.tabs(["8인치 SW", "8인치 BW"])
-with tab1: 
-    st.markdown("**■ 8인치 SW 손익 명세**")
-    render_table_unit("(단위: 백만원, pcs, 원, %)", view_mode_type == "기간 설정 비교")
-    render_type_table(sw_rows_a, sw_sums_a, sw_rows_p, sw_sums_p, view_mode_type, start_idx_type, end_idx_type, selected_st_type, selected_ed_type)
-with tab2: 
-    st.markdown("**■ 8인치 BW 손익 명세**")
-    render_table_unit("(단위: 백만원, pcs, 원, %)", view_mode_type == "기간 설정 비교")
-    render_type_table(bw_rows_a, bw_sums_a, bw_rows_p, bw_sums_p, view_mode_type, start_idx_type, end_idx_type, selected_st_type, selected_ed_type)
-
-# Item별 구분손익 표 하단 여백
-st.markdown("<div style='height: 64px;'></div>", unsafe_allow_html=True)
+    data_management_page(role)
