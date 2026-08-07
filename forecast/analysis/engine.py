@@ -6,7 +6,7 @@ from pathlib import Path
 from .configuration import AnalysisConfig
 from .manufacturing_effects import ManufacturingEffects, calculate_manufacturing_effects
 from .material_effects import MaterialEffects, calculate_material_effects
-from .narratives import build_mcm_narrative, build_narrative
+from .narratives import build_narrative
 from .reconciliation import ReconciliationResult, reconcile
 from .sales_effects import SalesEffects, calculate_sales_effects
 from .schema import AnalysisScenario
@@ -63,8 +63,9 @@ class AnalysisEngine:
             {"code": "sales_price", "label": "판매단가 효과(관세 제외 운반비 원단위 포함)", "profit_effect": sales.price},
             {"code": "sales_fx", "label": "매출환율 효과", "profit_effect": sales.sales_fx},
             {"code": "tariff", "label": "관세 효과", "profit_effect": sales.tariff},
-            {"code": "material_unit_ex_jpy", "label": "원부재료 원단위 효과(엔화 제외)", "profit_effect": material.unit_excluding_jpy},
+            {"code": "nonwoven_price_ex_fx", "label": "부직포 단가효과(환율 제외)", "profit_effect": material.nonwoven_price_ex_fx},
             {"code": "nonwoven_jpy", "label": "부직포 엔화 효과", "profit_effect": material.nonwoven_jpy},
+            {"code": "materials_ex_nonwoven", "label": "부직포 제외 원재료 효과", "profit_effect": material.materials_ex_nonwoven},
             {"code": "manufacturing_realized", "label": "노무비·제조경비 손익실현 효과", "profit_effect": manufacturing.realized_total},
             {"code": "sga_variable", "label": "변동 판관비 효과", "profit_effect": sga.variable},
             {"code": "sga_fixed", "label": "고정 판관비 효과", "profit_effect": sga.fixed},
@@ -85,12 +86,6 @@ class AnalysisEngine:
             *manufacturing.issues,
         ]
         narrative = build_narrative(op_delta, effects, check.residual)
-        mcm_narrative = build_mcm_narrative(
-            material.mcm_paid_supply,
-            manufacturing.outsourcing_decrease_effect,
-        )
-        if mcm_narrative:
-            narrative = f"{narrative} {mcm_narrative}"
         return AnalysisResult(
             base=asdict(base.meta),
             comparison=asdict(comparison.meta),

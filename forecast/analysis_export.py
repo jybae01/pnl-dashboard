@@ -111,7 +111,7 @@ def _write_readme(ws, result: dict[str, Any], baseline_fx: float, comparison_fx:
     ws.cell(note_row + 2, 1, "2. 녹색 셀은 엑셀 수식으로 동일 계산을 재현한 값입니다.")
     ws.cell(note_row + 3, 1, "3. CHECK가 발생하면 원천 셀, 매핑 규칙, 환율 입력 또는 코드 계산을 확인합니다.")
     ws.cell(note_row + 4, 1, "4. 원천셀_추적 시트의 수식은 업로드 모형에 저장된 원본 수식이며, 값은 웹 엔진이 읽은 계산값입니다.")
-    ws.cell(note_row + 5, 1, "5. MCM 금액은 원부재료에 유지하며 외주가공비로 재분류하지 않습니다.")
+    ws.cell(note_row + 5, 1, "5. MCM과 수율/사용량은 독립 손익효과로 표시하지 않습니다.")
     ws.column_dimensions["A"].width = 28
     ws.column_dimensions["B"].width = 72
 
@@ -245,7 +245,7 @@ def _write_formula_catalog(ws) -> None:
         ("판매", "수량효과", "(비교수량-기준수량)×기준단가×기준GP율", "개선 + / 악화 -", "forecast/sales_comparison.py"),
         ("판매", "순수 단가효과", "비교수량×(비교외화단가-기준외화단가)×(기준FX+비교FX)÷2", "환율효과와 합계가 원화 단가효과에 일치", "forecast/sales_comparison.py"),
         ("판매", "매출환율효과", "비교수량×(비교FX-기준FX)×(기준외화단가+비교외화단가)÷2", "KRW/USD", "forecast/sales_comparison.py"),
-        ("원부재료", "MCM", "MCM 금액은 원부재료에 전액 유지", "외주가공비로 재분류 금지·브리지 중복 금지", "forecast/comparison.py"),
+        ("원부재료", "분해 원칙", "부직포 단가(환율 제외)+부직포 엔화+부직포 제외 원재료", "MCM·수율/사용량 독립효과 금지", "forecast/analysis/material_effects.py"),
         ("생산", "조업도 기준", "SAP 수불부 생산입고", "MES는 정합성 확인 보조", "분석 설정"),
         ("제조경비", "외주가공비 수량", "일반 외주가공 대상 수량", "MCM 관련 수량 제외", "분석 설정"),
         ("손익 브리지", "비용 효과", "기준 비용-비교 비용", "비용 감소는 손익 개선 +", "forecast/comparison.py"),
@@ -338,14 +338,10 @@ def build_comparison_audit_workbook(
 
     cost_rows = result.get("cost_summary", [])
     material_rows = [row for row in cost_rows if row.get("code") in {"raw_material", "customs_refund"}]
-    mcm_rows = [
-        {**row, "note": "MCM 금액은 원부재료 유지·외주가공비 재분류 금지"}
-        for row in result.get("mcm", [])
-    ]
     _write_simple_delta_sheet(
         workbook.create_sheet("원부재료_검증"), "원부재료 효과 검증",
-        "원부재료 총액과 MCM 수량의 기준·비교값을 확인합니다. MCM은 세부 원인이며 브리지에 중복 가산하지 않습니다.",
-        [("원부재료", material_rows), ("MCM 수량", mcm_rows)],
+        "원부재료 총액의 기준·비교값을 확인합니다. MCM과 수율/사용량은 독립 효과로 표시하지 않습니다.",
+        [("원부재료", material_rows)],
     )
 
     manufacturing_rows = [

@@ -16,9 +16,9 @@
     "labor_accounts": ["노무비"],
     "labor_is_fixed": true,
     "front_activity": "SAP FS 생산입고 길이",
-    "back_activity": "SAP SW+BW 생산입고 PCS",
-    "outsourcing_back_activity": "일반 외주가공 대상 SAP SW+BW 생산입고 PCS(MCM 제외)",
-    "exclude_from_back_activity": ["LC"],
+    "back_activity": "SAP SW+BW+LC 생산입고 PCS",
+    "outsourcing_back_activity": "일반 외주가공 대상 SAP SW+BW+LC 생산입고 PCS(MCM 제외)",
+    "exclude_from_back_activity": [],
     "allocation_ratio_keys": ["노무비", "외주가공비", "기타경비"],
     "inventory_realization_formula": "cogs/current_period_manufacturing_input",
     "inventory_realization_cap": null

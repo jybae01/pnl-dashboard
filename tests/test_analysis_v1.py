@@ -132,7 +132,9 @@ class MaterialEffectsTest(unittest.TestCase):
         )
         result = calculate_material_effects(base, comp)
         self.assertAlmostEqual(result.total, -80.0)
+        self.assertAlmostEqual(result.nonwoven_price_ex_fx, 0.0)
         self.assertAlmostEqual(result.nonwoven_jpy, -160.0)
+        self.assertAlmostEqual(result.materials_ex_nonwoven, 80.0)
         self.assertAlmostEqual(result.unit_excluding_jpy, 80.0)
         self.assertAlmostEqual(result.total, result.nonwoven_jpy + result.unit_excluding_jpy)
 
@@ -191,6 +193,13 @@ class ManufacturingEffectsTest(unittest.TestCase):
         self.assertAlmostEqual(result.front_fixed + result.back_fixed, -50.0)
         self.assertAlmostEqual(result.occurrence_total, 50.0)
         self.assertAlmostEqual(result.realized_total, 40.0)
+        detail = next(row for row in result.details if row["account"] == "수도광열비")
+        self.assertEqual(detail["baseline_amount"], 1000)
+        self.assertEqual(detail["comparison_amount"], 900)
+        self.assertAlmostEqual(detail["activity_effect"], 0.0)
+        self.assertAlmostEqual(detail["unit_effect"], 100.0)
+        self.assertAlmostEqual(detail["inventory_realization_rate"], 0.8)
+        self.assertAlmostEqual(detail["realized_effect"], 80.0)
 
     def test_realization_rate_above_one_is_not_capped(self):
         config = AnalysisConfig.load(CONFIG)
@@ -315,10 +324,11 @@ class McmMaterialIntegrationTest(unittest.TestCase):
         result = calculate_material_effects(base, comp)
         # Total raw material includes the complete MCM issue amounts: 200 and 900.
         self.assertAlmostEqual(result.total, (10.0 - (1700 / 140)) * 100)
-        self.assertAlmostEqual(result.mcm_paid_supply, (10.0 - 15.0) * 100)
+        self.assertEqual(result.mcm_paid_supply, 0.0)
+        self.assertEqual(result.mcm_by_product_group, {})
         self.assertAlmostEqual(
             result.total,
-            result.nonwoven_jpy + result.mcm_paid_supply + result.other_unit_mix,
+            result.nonwoven_price_ex_fx + result.nonwoven_jpy + result.materials_ex_nonwoven,
         )
         self.assertAlmostEqual(result.detail_reconciliation_difference, 0.0)
 
@@ -328,7 +338,7 @@ class McmMaterialIntegrationTest(unittest.TestCase):
         final = engine.compare(base, comp)
         self.assertNotIn("mcm", {row["code"] for row in final.effects})
         self.assertTrue(final.reconciliation.reconciled)
-        self.assertIn("MCM(유상사급)", final.narrative)
+        self.assertNotIn("MCM", final.narrative)
 
 
 class SgaAndEngineTest(unittest.TestCase):
@@ -349,6 +359,11 @@ class SgaAndEngineTest(unittest.TestCase):
         result = calculate_sga_effects(base, comp, config)
         self.assertAlmostEqual(result.variable, -10.0)
         self.assertAlmostEqual(result.fixed, 50.0)
+        transport = next(row for row in result.details if row["classification"] == "transport")
+        self.assertEqual(transport["baseline_amount"], 100)
+        self.assertEqual(transport["comparison_amount"], 150)
+        self.assertEqual(transport["profit_effect"], 0)
+        self.assertEqual(transport["bridge_position"], "판매효과")
 
     def test_direct_effect_reconciles_and_common_schema_contains_metadata(self):
         engine = AnalysisEngine(CONFIG)

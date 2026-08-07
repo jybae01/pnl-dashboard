@@ -84,3 +84,7 @@ def test_build_comparison_audit_workbook(monkeypatch, tmp_path):
     assert workbook["손익_정합성"]["G5"].value == "=E5-D5"
     assert workbook["원천셀_추적"].max_row > 4
     assert workbook["README"]["B15"].value == "PASS"
+    material_text = " ".join(
+        str(cell.value or "") for row in workbook["원부재료_검증"].iter_rows() for cell in row
+    )
+    assert "MCM SW400" not in material_text

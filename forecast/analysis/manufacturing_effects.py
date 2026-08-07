@@ -148,6 +148,7 @@ def calculate_manufacturing_effects(
         a0 = _sap_activity(base, month, raw_a0)
         a1 = _sap_activity(comparison, month, raw_a1)
         occurrence_month = 0.0
+        month_details: list[dict[str, Any]] = []
         for account in accounts:
             lrow, rrow = left.get((month, account)), right.get((month, account))
             amount0 = lrow.amount if lrow else 0.0
@@ -161,6 +162,9 @@ def calculate_manufacturing_effects(
                 "month": month,
                 "account": account,
                 "classification": "variable" if config.is_variable_manufacturing(account) else "fixed",
+                "baseline_amount": amount0,
+                "comparison_amount": amount1,
+                "delta": amount1 - amount0,
                 "front_ratio_base": fr0,
                 "front_ratio_comparison": fr1,
             }
@@ -189,6 +193,9 @@ def calculate_manufacturing_effects(
                     comparison_front_activity=a1.front,
                     base_back_activity=back_activity0,
                     comparison_back_activity=back_activity1,
+                    activity_effect=fa + ba,
+                    unit_effect=fuv + buv,
+                    fixed_effect=0.0,
                 )
                 if config.is_outsourcing(account) and amount1 < amount0:
                     result.outsourcing_decrease_effect += amount0 - amount1
@@ -200,10 +207,17 @@ def calculate_manufacturing_effects(
                 result.front_fixed += ff
                 result.back_fixed += bf
                 occurrence = ff + bf
-                detail.update(front_fixed=ff, back_fixed=bf)
+                detail.update(
+                    front_fixed=ff,
+                    back_fixed=bf,
+                    activity_effect=0.0,
+                    unit_effect=0.0,
+                    fixed_effect=occurrence,
+                )
             occurrence_month += occurrence
             detail["occurrence_effect"] = occurrence
             result.details.append(detail)
+            month_details.append(detail)
 
         explicit_rate = raw_a1.inventory_realization_rate
         if explicit_rate is not None:
@@ -218,6 +232,9 @@ def calculate_manufacturing_effects(
             if occurrence_month:
                 result.issues.append(f"{month}: 당기투입제조원가가 0이라 제조경비 손익실현 효과를 0으로 처리함")
         realized = occurrence_month * realization_rate
+        for detail in month_details:
+            detail["inventory_realization_rate"] = realization_rate
+            detail["realized_effect"] = detail["occurrence_effect"] * realization_rate
         result.occurrence_total += occurrence_month
         result.realized_total += realized
         result.realization_details.append({
