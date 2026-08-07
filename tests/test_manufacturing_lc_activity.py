@@ -22,9 +22,7 @@ def _scenario(scenario_id: str, *, products, account: str, amount: float) -> Ana
 def test_back_process_activity_uses_sw_bw_lc_total_sap_receipts():
     config = AnalysisConfig.load(CONFIG)
     base = _scenario(
-        "base",
-        account="수도광열비",
-        amount=1750,
+        "base", account="수도광열비", amount=1750,
         products=[
             ProductRecord("2026-07", "SW", "SW", sap_production_qty=100),
             ProductRecord("2026-07", "BW", "BW", sap_production_qty=50),
@@ -32,9 +30,7 @@ def test_back_process_activity_uses_sw_bw_lc_total_sap_receipts():
         ],
     )
     comparison = _scenario(
-        "comparison",
-        account="수도광열비",
-        amount=2000,
+        "comparison", account="수도광열비", amount=2000,
         products=[
             ProductRecord("2026-07", "SW", "SW", sap_production_qty=80),
             ProductRecord("2026-07", "BW", "BW", sap_production_qty=70),
@@ -44,7 +40,6 @@ def test_back_process_activity_uses_sw_bw_lc_total_sap_receipts():
 
     result = calculate_manufacturing_effects(base, comparison, config)
     detail = result.details[0]
-
     assert detail["base_back_activity"] == 175
     assert detail["comparison_back_activity"] == 200
     assert result.back_activity == -250
@@ -54,47 +49,24 @@ def test_back_process_activity_uses_sw_bw_lc_total_sap_receipts():
 def test_outsourcing_activity_includes_lc_but_still_excludes_mcm_quantity():
     config = AnalysisConfig.load(CONFIG)
     base = _scenario(
-        "base",
-        account="외주가공비",
-        amount=1200,
+        "base", account="외주가공비", amount=1200,
         products=[
-            ProductRecord(
-                "2026-07", "SW_NORMAL", "SW", sap_production_qty=100,
-                outsourcing_eligible_flag=True,
-            ),
-            ProductRecord(
-                "2026-07", "LC_NORMAL", "LC", sap_production_qty=20,
-                outsourcing_eligible_flag=True,
-            ),
-            ProductRecord(
-                "2026-07", "SW_MCM", "SW", sap_production_qty=30,
-                outsourcing_eligible_flag=True, mcm_flag=True, mcm_qty=30,
-            ),
+            ProductRecord("2026-07", "SW_NORMAL", "SW", sap_production_qty=100, outsourcing_eligible_flag=True),
+            ProductRecord("2026-07", "LC_NORMAL", "LC", sap_production_qty=20, outsourcing_eligible_flag=True),
+            ProductRecord("2026-07", "SW_MCM", "SW", sap_production_qty=30, outsourcing_eligible_flag=True, mcm_flag=True, mcm_qty=30),
         ],
     )
     comparison = _scenario(
-        "comparison",
-        account="외주가공비",
-        amount=1300,
+        "comparison", account="외주가공비", amount=1300,
         products=[
-            ProductRecord(
-                "2026-07", "SW_NORMAL", "SW", sap_production_qty=80,
-                outsourcing_eligible_flag=True,
-            ),
-            ProductRecord(
-                "2026-07", "LC_NORMAL", "LC", sap_production_qty=50,
-                outsourcing_eligible_flag=True,
-            ),
-            ProductRecord(
-                "2026-07", "SW_MCM", "SW", sap_production_qty=60,
-                outsourcing_eligible_flag=True, mcm_flag=True, mcm_qty=60,
-            ),
+            ProductRecord("2026-07", "SW_NORMAL", "SW", sap_production_qty=80, outsourcing_eligible_flag=True),
+            ProductRecord("2026-07", "LC_NORMAL", "LC", sap_production_qty=50, outsourcing_eligible_flag=True),
+            ProductRecord("2026-07", "SW_MCM", "SW", sap_production_qty=60, outsourcing_eligible_flag=True, mcm_flag=True, mcm_qty=60),
         ],
     )
 
     result = calculate_manufacturing_effects(base, comparison, config)
     detail = result.details[0]
-
     assert detail["base_back_activity"] == 120
     assert detail["comparison_back_activity"] == 130
     assert result.back_activity == -100
