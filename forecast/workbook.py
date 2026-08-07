@@ -5,6 +5,8 @@ import re
 import shutil
 import tempfile
 import zipfile
+from collections import Counter
+from datetime import date, datetime
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
@@ -36,6 +38,156 @@ REL_NS = "http://schemas.openxmlformats.org/package/2006/relationships"
 CONTENT_TYPES_NS = "http://schemas.openxmlformats.org/package/2006/content-types"
 OFFICE_REL_NS = "http://schemas.openxmlformats.org/officeDocument/2006/relationships"
 AUDIT_SHEET_NAME = "입력반영내역"
+MONTH_COLUMNS = {month: chr(ord("E") + month - 1) for month in range(1, 13)}
+PERIOD_TYPE_ALIASES = {
+    "actual": "실적",
+    "actuals": "실적",
+    "실적": "실적",
+    "estimate": "추정",
+    "estimated": "추정",
+    "forecast": "추정",
+    "추정": "추정",
+    "plan": "계획",
+    "planned": "계획",
+    "계획": "계획",
+}
+
+
+def _normalize_period_type(value: Any) -> str:
+    text = str(value or "").strip()
+    return PERIOD_TYPE_ALIASES.get(text.lower(), text)
+
+
+def extract_period_types(path: str | Path) -> dict[str, str]:
+    """Read the 1~12월 status row (Data!E3:P3) from an uploaded workbook.
+
+    Golden Models keep the month columns fixed; only the status in row 3
+    changes between 실적/추정/계획. Returning all twelve keys keeps the
+    metadata shape stable even when a workbook leaves a status blank.
+    """
+    path = Path(path)
+    statuses: dict[str, str] = {str(month): "" for month in range(1, 13)}
+
+    # openpyxl understands inline strings and date-formatted cells that are
+    # otherwise awkward to interpret from OOXML alone. It is already a
+    # runtime dependency because the analysis export uses it.
+    try:
+        from openpyxl import load_workbook
+
+        workbook = load_workbook(path, read_only=True, data_only=False)
+        worksheet = next(
+            (workbook[name] for name in workbook.sheetnames if name.lower() == "data"),
+            workbook[workbook.sheetnames[0]],
+        )
+        for month, column in MONTH_COLUMNS.items():
+            statuses[str(month)] = _normalize_period_type(worksheet[f"{column}3"].value)
+        workbook.close()
+        return statuses
+    except Exception:
+        # Fall back to the project's OOXML reader for workbooks that contain
+        # an Excel extension unsupported by openpyxl.
+        workbook = GoldenWorkbook(path)
+        for month, column in MONTH_COLUMNS.items():
+            statuses[str(month)] = _normalize_period_type(workbook.raw_value(f"{column}3"))
+        return statuses
+
+
+def summarize_period_types(period_types: dict[str, str] | None) -> str:
+    """Format contiguous monthly statuses for a compact read-only UI label."""
+    values = [_normalize_period_type((period_types or {}).get(str(month))) for month in range(1, 13)]
+    if not any(values):
+        return "미확인"
+    segments: list[str] = []
+    start = 1
+    current = values[0] or "미지정"
+    for month in range(2, 13):
+        value = values[month - 1] or "미지정"
+        if value == current:
+            continue
+        end = month - 1
+        label = f"{start}월" if start == end else f"{start}~{end}월"
+        segments.append(f"{label} {current}")
+        start, current = month, value
+    end = 12
+    label = f"{start}월" if start == end else f"{start}~{end}월"
+    segments.append(f"{label} {current}")
+    return " / ".join(segments)
+
+
+def _year_from_value(value: Any) -> int | None:
+    if isinstance(value, (datetime, date)):
+        return value.year if 1900 <= value.year <= 2100 else None
+    if isinstance(value, str):
+        match = re.search(r"(?<!\d)(19\d{2}|20\d{2})(?!\d)", value)
+        return int(match.group(1)) if match else None
+    return None
+
+
+def infer_workbook_year(path: str | Path, fallback_year: int | None = None) -> int:
+    """Infer the model year from month/date/header cells.
+
+    The upload form deliberately has no year input. We first inspect explicit
+    four-digit years, date cells, and date-formatted numeric headers, giving
+    the top rows of the Data sheet priority. If no year is discoverable, the
+    documented fallback is ``fallback_year``; when it is omitted, the current
+    calendar year is used.
+    """
+    path = Path(path)
+    fallback = int(fallback_year or date.today().year)
+    candidates: list[tuple[int, int]] = []
+    try:
+        from openpyxl import load_workbook
+
+        workbook = load_workbook(path, read_only=True, data_only=False)
+        sheets = list(workbook.worksheets)
+        sheets.sort(key=lambda sheet: 0 if sheet.title.lower() == "data" else 1)
+        for worksheet in sheets:
+            for row in worksheet.iter_rows():
+                for cell in row:
+                    value = cell.value
+                    year = _year_from_value(value)
+                    if year is None and isinstance(value, (int, float)) and not isinstance(value, bool):
+                        number_format = str(cell.number_format or "").lower()
+                        if 1900 <= value <= 2100 and ("yy" in number_format or cell.row <= 3):
+                            year = int(value)
+                    if year is None:
+                        continue
+                    score = 1
+                    if worksheet.title.lower() == "data":
+                        score += 3
+                    if cell.row <= 5:
+                        score += 3
+                    if cell.column in range(5, 17):
+                        score += 1
+                    candidates.append((year, score))
+        workbook.close()
+    except Exception:
+        # The custom reader still handles the simple inline-string/date labels
+        # used by Golden Models when openpyxl cannot load an extension.
+        try:
+            workbook = GoldenWorkbook(path)
+            for address in workbook.cells:
+                value = workbook.raw_value(address)
+                year = _year_from_value(value)
+                row_match = re.search(r"\d+", address)
+                row = int(row_match.group(0)) if row_match else 9999
+                if year is None and isinstance(value, (int, float)) and 1900 <= value <= 2100 and row <= 3:
+                    year = int(value)
+                if year is not None:
+                    candidates.append((year, 4 if row <= 5 else 1))
+        except Exception:
+            candidates = []
+
+    if candidates:
+        scores = Counter()
+        counts = Counter()
+        for year, score in candidates:
+            scores[year] += score
+            counts[year] += 1
+        return max(scores, key=lambda year: (scores[year], counts[year], -abs(year - fallback)))
+    # Fallback rule: use an explicitly supplied existing 기준연도 when one is
+    # available; otherwise use today's calendar year for a new upload.
+    return fallback
 
 
 def serialize_xml(

@@ -17,7 +17,7 @@ from forecast.baseline import inspect_baseline_workbook
 from forecast.engine import CostAdjustment, ForecastEngine, ForecastInput, ForecastResult, SalesInput
 from forecast.sales_comparison import calculate_sales_effect_rows, sales_effect_totals
 from forecast.storage import BaselineStore, ModelRegistry, ResultStore
-from forecast.workbook import GoldenWorkbook
+from forecast.workbook import GoldenWorkbook, extract_period_types, infer_workbook_year
 
 ROOT = Path(__file__).resolve().parent
 MODEL = ROOT / "models" / "golden_model.xlsx"
@@ -321,7 +321,7 @@ def _forecast_page_single_month_legacy(role: str) -> None:
                 STORE.confirm(ForecastResult(**result))
                 path = Path(result["workbook_path"])
                 REGISTRY.add(path.read_bytes(), name=f"{st.session_state.forecast_year}년 {result['month']}월 추정",
-                    model_type="추정", year=st.session_state.forecast_year, start_month=1, end_month=12,
+                    model_type="추정", year=st.session_state.forecast_year,
                     created_date=date.today().isoformat(), version=version, confirmed=True, file_name=path.name,
                     tariff_adjustment_monthly={str(result["month"]): tariff_delta})
                 st.success("확정 결과를 공개하고 모형 목록에 등록했습니다.")
@@ -1106,7 +1106,6 @@ def forecast_page(role: str) -> None:
             REGISTRY.add(
                 path.read_bytes(), name=f"{st.session_state.forecast_year}년 {label} 추정",
                 model_type="추정", year=st.session_state.forecast_year,
-                start_month=start_month, end_month=end_month,
                 created_date=date.today().isoformat(), version=version, confirmed=True,
                 file_name=path.name,
             )
@@ -1117,7 +1116,7 @@ def forecast_page(role: str) -> None:
 
 def model_table(models) -> pd.DataFrame:
     return pd.DataFrame([{
-        "모형명": item.name, "구분": item.model_type, "기준기간": item.basis_period,
+        "모형명": item.name, "구분": item.model_type, "월별구성": item.period_composition,
         "작성일": item.created_date, "버전": item.version, "확정 여부": "확정" if item.confirmed else "미확정",
         "업로드 시각": item.uploaded_at,
     } for item in models])
@@ -1134,12 +1133,13 @@ def data_management_page(role: str) -> None:
         name = c1.text_input("모형명")
         model_type = c2.selectbox("모형 구분", ["계획", "실적", "추정"])
         version = c3.text_input("버전", value="V1")
-        c1, c2, c3, c4 = st.columns(4)
-        year = c1.number_input("기준연도", 2020, 2100, 2026, 1)
-        start_month = c2.selectbox("시작월", range(1, 13), index=0)
-        end_month = c3.selectbox("종료월", range(1, 13), index=11)
-        created = c4.date_input("작성일", value=date.today())
-        confirmed = st.checkbox("확정 모형")
+        c1, c2 = st.columns(2)
+        created = c1.date_input("작성일", value=date.today())
+        confirmed = c2.checkbox("확정 모형")
+        st.caption(
+            "기준연도는 업로드 워크북의 월 헤더·날짜·연도 셀에서 자동 판별합니다. "
+            "판별할 수 없으면 현재 연도를 사용하며, 비교용 기간은 항상 1~12월로 저장합니다."
+        )
         if st.button("모형 등록", type="primary", disabled=uploaded is None or not name.strip()):
             content = uploaded.getvalue()
             with tempfile.NamedTemporaryFile(suffix=".xlsx", delete=False) as temp:
@@ -1151,9 +1151,19 @@ def data_management_page(role: str) -> None:
                 probe = GoldenWorkbook(temp_path)
                 if probe.raw_value("B1197") is None or probe.value("K1201") is None or probe.value("K1260") is None:
                     raise ValueError("Forecast V1 비교 매핑과 호환되는 손익 모형이 아닙니다.")
-                REGISTRY.add(content, name=name, model_type=model_type, year=int(year), start_month=int(start_month),
-                    end_month=int(end_month), created_date=created.isoformat(), version=version,
-                    confirmed=confirmed, file_name=uploaded.name)
+                detected_year = infer_workbook_year(temp_path, fallback_year=date.today().year)
+                period_types = extract_period_types(temp_path)
+                REGISTRY.add(
+                    content,
+                    name=name,
+                    model_type=model_type,
+                    year=detected_year,
+                    created_date=created.isoformat(),
+                    version=version,
+                    confirmed=confirmed,
+                    file_name=uploaded.name,
+                    period_types=period_types,
+                )
                 st.success("모형을 등록했습니다.")
                 st.rerun()
             finally:

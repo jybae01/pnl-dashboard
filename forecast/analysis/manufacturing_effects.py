@@ -66,8 +66,15 @@ def _sap_activity(scenario: AnalysisScenario, month: str, fallback: ActivityReco
     if not has_sap_mapping:
         return _MonthActivity(fallback.front_activity, fallback.back_activity, fallback.back_activity)
 
+    # 제조경비 조업도 기준:
+    # - 전공정: FS SAP 생산입고 길이
+    # - 후공정: SW + BW + LC SAP 생산입고 PCS 합계
     front = sum(row.sap_length for row in rows if row.product_group == "FS")
-    back_rows = [row for row in rows if (row.mcm_product_group or row.product_group) in {"SW", "BW"}]
+    back_rows = [
+        row
+        for row in rows
+        if (row.mcm_product_group or row.product_group) in {"SW", "BW", "LC"}
+    ]
     back = sum(row.sap_qty for row in back_rows)
     outsourcing_back = sum(
         row.sap_qty
