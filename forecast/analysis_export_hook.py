@@ -34,7 +34,7 @@ def _export_cache_key(result: dict[str, Any], baseline_fx: float, comparison_fx:
     return hashlib.sha256(raw).hexdigest()
 
 
-def _render_download(result: dict[str, Any]) -> None:
+def render_analysis_export(result: dict[str, Any]) -> None:
     baseline = result.get("baseline") or {}
     comparison = result.get("comparison") or {}
     period = result.get("period") or {}
@@ -102,7 +102,7 @@ def install_analysis_export_hook() -> None:
             result = st.session_state.get("comparison_result")
             narrative = (result or {}).get("narrative")
             if narrative and len(args) == 1 and args[0] == narrative:
-                _render_download(result)
+                render_analysis_export(result)
         except Exception as exc:
             st.warning(f"검증 엑셀을 생성할 수 없습니다: {exc}")
         return rendered

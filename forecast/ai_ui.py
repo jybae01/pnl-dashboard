@@ -9,7 +9,7 @@ from .ai_analysis import (
     build_question_prompt,
     build_synthesis_prompt,
 )
-from .sales_comparison import calculate_sales_effect_rows, sales_effect_totals
+from .presentation.analysis_view import build_analysis_view
 
 
 def _show_prompt(prompt_key: str, file_name: str) -> None:
@@ -30,7 +30,12 @@ def _show_prompt(prompt_key: str, file_name: str) -> None:
     )
 
 
-def render_ai_analysis(result: dict, *, show_title: bool = False) -> None:
+def render_ai_analysis(
+    result: dict,
+    *,
+    show_title: bool = False,
+    analysis_view: dict | None = None,
+) -> None:
     """Render the API-free ChatGPT workflow for the current comparison result."""
     if show_title:
         st.title("AI 분석 — ChatGPT")
@@ -63,8 +68,14 @@ def render_ai_analysis(result: dict, *, show_title: bool = False) -> None:
     fx_key = f"{baseline.get('id', '')}_{comparison.get('id', '')}_{period.get('key', '')}"
     baseline_fx = float(st.session_state.get(f"baseline_sales_fx_{fx_key}", 1480.0))
     comparison_fx = float(st.session_state.get(f"comparison_sales_fx_{fx_key}", 1480.0))
-    sales_rows = calculate_sales_effect_rows(result.get("sales_groups", []), baseline_fx, comparison_fx)
-    sales_totals = sales_effect_totals(sales_rows)
+    if analysis_view is None:
+        analysis_view = build_analysis_view(
+            result,
+            baseline_sales_fx=baseline_fx,
+            comparison_sales_fx=comparison_fx,
+        )
+    sales_rows = analysis_view.get("sales", {}).get("rows", [])
+    sales_totals = analysis_view.get("sales", {}).get("totals", {})
     fact_pack = build_fact_pack(
         result,
         sales_rows=sales_rows,
@@ -72,6 +83,7 @@ def render_ai_analysis(result: dict, *, show_title: bool = False) -> None:
         baseline_sales_fx=baseline_fx,
         comparison_sales_fx=comparison_fx,
         business_notes=notes,
+        analysis_view=analysis_view,
     )
 
     with st.expander("AI에 전달되는 FACT PACK 확인", expanded=False):
