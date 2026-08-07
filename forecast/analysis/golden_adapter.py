@@ -201,7 +201,28 @@ class GoldenAnalysisAdapter:
         )
         return total
 
-    def _material_products(self, workbook: Any, year: int, month: int) -> list[ProductRecord]:
+    @staticmethod
+    def _monthly_tariff(meta: Any, month: int) -> float:
+        """Return the direct tariff input for one Golden Model month."""
+        monthly = getattr(meta, "tariff_adjustment_monthly", {}) or {}
+        if monthly:
+            return GoldenAnalysisAdapter._number(monthly.get(str(month), 0.0))
+        regional = getattr(meta, "regional_sales_monthly", {}) or {}
+        sales = GoldenAnalysisAdapter._number(regional.get(str(month), 0.0))
+        applicable = GoldenAnalysisAdapter._number(
+            getattr(meta, "tariff_applicable_rate", 0.10)
+        )
+        rate = GoldenAnalysisAdapter._number(getattr(meta, "tariff_rate", 0.13))
+        return sales * applicable * rate
+
+    def _material_products(
+        self,
+        workbook: Any,
+        year: int,
+        month: int,
+        *,
+        sales_fx: float = 1.0,
+    ) -> list[ProductRecord]:
         column = self.MONTH_COLUMNS[month]
         material = self.adapter["material"]
         front_process = material["front_process"]
@@ -212,10 +233,18 @@ class GoldenAnalysisAdapter:
             workbook.value(f"{column}{front_process['nonwoven_amount_row']}")
         )
         jpy = self._number(workbook.value(f"{column}{material['jpy_fx_row']}"))
+        sales_groups = self.comparison.get("sales_groups", {})
         records: list[ProductRecord] = []
         for group, spec in material["groups"].items():
             unit_basis = str(spec["unit_basis"])
             sales = self._number(workbook.value(f"{column}{spec['sales_quantity_row']}"))
+            sales_spec = sales_groups.get(group, {})
+            sales_amount = self._number(
+                workbook.value(f"{column}{sales_spec['amount_row']}")
+            ) if sales_spec else 0.0
+            product_cogs = self._number(
+                workbook.value(f"{column}{sales_spec['cogs_row']}")
+            ) if sales_spec else 0.0
             production = sum(
                 self._number(workbook.value(f"{column}{row}"))
                 for row in spec.get("production_quantity_rows", ())
@@ -243,10 +272,13 @@ class GoldenAnalysisAdapter:
                 production_length=core_production if is_length else 0.0,
                 sap_production_qty=None if is_length else core_production,
                 sap_production_length=core_production if is_length else None,
+                sales_amount=sales_amount,
+                product_cogs=product_cogs,
                 raw_material_cost=raw_material_cost,
                 nonwoven_cost=nonwoven_cost if group == "FS" else 0.0,
                 nonwoven_output_length=nonwoven_output if group == "FS" else 0.0,
                 nonwoven_sales_input_length=nonwoven_input,
+                sales_fx=float(sales_fx) if sales_fx else 1.0,
                 jpy_fx_krw_per_jpy=jpy,
             ))
             if mcm_quantity:
@@ -264,9 +296,36 @@ class GoldenAnalysisAdapter:
                     mcm_product_group=group,
                     outsourcing_eligible_flag=False,
                 ))
+        # The material mapping covers SW/BW/LC/FS. Keep any remaining
+        # configured sales group (currently 신사업) in the common schema as a
+        # sales-only record so it participates in sales effects without
+        # inventing production or material costs.
+        material_groups = set(material["groups"])
+        for group, spec in sales_groups.items():
+            if group in material_groups:
+                continue
+            sales = self._number(workbook.value(f"{column}{spec['quantity_row']}"))
+            records.append(ProductRecord(
+                year_month=f"{year:04d}-{month:02d}",
+                product_code=f"{group}_SALES",
+                product_group=group,
+                unit_basis="PCS",
+                sales_qty=sales,
+                sales_amount=self._number(workbook.value(f"{column}{spec['amount_row']}")),
+                product_cogs=self._number(workbook.value(f"{column}{spec['cogs_row']}")),
+                sales_fx=float(sales_fx) if sales_fx else 1.0,
+                jpy_fx_krw_per_jpy=jpy,
+            ))
         return records
 
-    def build(self, workbook: Any, meta: Any, months: tuple[int, ...]) -> AdaptedGoldenScenario:
+    def build(
+        self,
+        workbook: Any,
+        meta: Any,
+        months: tuple[int, ...],
+        *,
+        sales_fx: float = 1.0,
+    ) -> AdaptedGoldenScenario:
         manufacturing_accounts = self.discover_manufacturing_accounts(workbook)
         sga_rows = self.discover_sga_rows(workbook)
         manufacturing_sources = {
@@ -274,6 +333,7 @@ class GoldenAnalysisAdapter:
         }
         products: list[ProductRecord] = []
         manufacturing_expenses: list[ExpenseRecord] = []
+        sga_expenses: list[ExpenseRecord] = []
         activities: list[ActivityRecord] = []
         pnl: list[PnlRecord] = []
         manufacturing = self.adapter["manufacturing"]
@@ -287,7 +347,10 @@ class GoldenAnalysisAdapter:
         for month in months:
             column = self.MONTH_COLUMNS[month]
             year_month = f"{int(meta.year):04d}-{month:02d}"
-            products.extend(self._material_products(workbook, int(meta.year), month))
+            month_products = self._material_products(
+                workbook, int(meta.year), month, sales_fx=sales_fx
+            )
+            products.extend(month_products)
             for source in manufacturing_accounts:
                 row = int(source["row"])
                 account = str(source["account"])
@@ -316,15 +379,41 @@ class GoldenAnalysisAdapter:
                     self._number(workbook.value(f"{column}{row}"))
                     for row in manufacturing["back_activity_rows"]
                 ),
+                transport_activity=sum(row.sales_basis for row in month_products),
                 manufacturing_input_cost=manufacturing_input,
+                tariff_input=self._monthly_tariff(meta, month),
+                tariff_in_transport=bool(getattr(meta, "tariff_in_workbook", False)),
             ))
+            for source in sga_rows:
+                account = str(source["account"])
+                section = str(source.get("section") or "")
+                # Selling transport drives the sales-price transport split;
+                # same-named general-admin transport remains fixed SGA. Encode
+                # the section only in the normalized account, retaining the
+                # raw source row for the existing UI detail table.
+                account_for_analysis = (
+                    f"{section}_{account}"
+                    if self.config.is_transport(account)
+                    else account
+                )
+                sga_expenses.append(ExpenseRecord(
+                    year_month=year_month,
+                    account=account_for_analysis,
+                    amount=self._number(workbook.value(f"{column}{source['row']}")),
+                    category="sga",
+                ))
+            external_tariff = (
+                0.0
+                if getattr(meta, "tariff_in_workbook", False)
+                else self._monthly_tariff(meta, month)
+            )
             pnl.append(PnlRecord(
                 year_month=year_month,
                 revenue=self._number(workbook.value(f"{column}{pnl_rows['revenue']}")),
                 cogs=self._number(workbook.value(f"{column}{pnl_rows['cogs']}")),
                 operating_profit=self._number(
                     workbook.value(f"{column}{pnl_rows['operating_profit']}")
-                ),
+                ) - external_tariff,
             ))
         scenario = AnalysisScenario(
             meta=ScenarioMeta(
@@ -334,6 +423,7 @@ class GoldenAnalysisAdapter:
             ),
             products=products,
             manufacturing_expenses=manufacturing_expenses,
+            sga_expenses=sga_expenses,
             activities=activities,
             pnl=pnl,
         )
@@ -351,7 +441,7 @@ class GoldenAnalysisAdapter:
     ) -> dict[str, Any]:
         result = calculate_material_effects(baseline.scenario, comparison.scenario)
         groups: list[dict[str, Any]] = []
-        for group in ("SW", "BW", "LC", "FS"):
+        for group in sorted(result.by_product_group_details):
             detail = result.by_product_group_details.get(group)
             if not detail:
                 continue
