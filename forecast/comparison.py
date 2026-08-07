@@ -9,6 +9,10 @@ from .storage import ModelMeta
 from .workbook import GoldenWorkbook
 from .analysis.configuration import AnalysisConfig
 from .analysis.golden_adapter import GoldenAnalysisAdapter
+from .analysis.manufacturing_effects import calculate_manufacturing_effects
+from .analysis.material_effects import calculate_material_effects
+from .analysis.sales_effects import calculate_sales_effects
+from .analysis.sga_effects import calculate_sga_effects
 from .sales_comparison import calculate_sales_effect_rows, sales_effect_totals
 
 
@@ -108,8 +112,14 @@ class GenericComparisonEngine:
         common = set(self.common_months(baseline_meta, comparison_meta))
         if not period.months or not set(period.months).issubset(common):
             raise ValueError("두 모형의 공통기간에 포함되지 않는 비교기간입니다.")
-        baseline = self._extract(GoldenWorkbook(baseline_path), baseline_meta, period.months)
-        target = self._extract(GoldenWorkbook(comparison_path), comparison_meta, period.months)
+        baseline = self._extract(
+            GoldenWorkbook(baseline_path), baseline_meta, period.months,
+            sales_fx=baseline_sales_fx,
+        )
+        target = self._extract(
+            GoldenWorkbook(comparison_path), comparison_meta, period.months,
+            sales_fx=comparison_sales_fx,
+        )
 
         pnl = self._rows(self.mapping["pnl_labels"], baseline["pnl"], target["pnl"])
         products = []
@@ -163,6 +173,114 @@ class GenericComparisonEngine:
         tolerance = max(1.0, abs(op_delta) * 1e-9)
         narrative = self._narrative(op_delta, effects, residual)
         if baseline.get("adapted") is not None and target.get("adapted") is not None:
+            base_scenario = baseline["adapted"].scenario
+            comparison_scenario = target["adapted"].scenario
+            calculated_analysis_sales = calculate_sales_effects(
+                base_scenario, comparison_scenario, self.analysis_config
+            )
+            calculated_analysis_material = calculate_material_effects(
+                base_scenario, comparison_scenario
+            )
+            calculated_analysis_manufacturing = calculate_manufacturing_effects(
+                base_scenario, comparison_scenario, self.analysis_config
+            )
+            calculated_analysis_sga = calculate_sga_effects(
+                base_scenario, comparison_scenario, self.analysis_config
+            )
+            # Keep the legacy group rows for the sales tab, but make their
+            # aggregate totals come from the same normalized records used by
+            # the bridge. This brings mix, transport and the direct tariff
+            # input into one deterministic reconciliation.
+            sales_analysis["totals"] = {
+                **sales_analysis["totals"],
+                "quantity_effect": calculated_analysis_sales.quantity,
+                "mix_effect": calculated_analysis_sales.mix,
+                "pure_price_effect": calculated_analysis_sales.price,
+                "sales_fx_effect": calculated_analysis_sales.sales_fx,
+                "transport_quantity_effect": calculated_analysis_sales.transport_quantity,
+                "transport_unit_effect": calculated_analysis_sales.transport_unit,
+                "tariff_effect": calculated_analysis_sales.tariff,
+                "total_sales_effect": (
+                    calculated_analysis_sales.quantity
+                    + calculated_analysis_sales.mix
+                    + calculated_analysis_sales.price
+                    + calculated_analysis_sales.sales_fx
+                ),
+            }
+            effects = [
+                {
+                    "code": "sales_quantity",
+                    "factor": "판매수량 효과",
+                    "baseline": None,
+                    "comparison": None,
+                    "delta": None,
+                    "profit_effect": calculated_analysis_sales.quantity,
+                },
+                {
+                    "code": "sales_mix",
+                    "factor": "제품 Mix 효과",
+                    "baseline": None,
+                    "comparison": None,
+                    "delta": None,
+                    "profit_effect": calculated_analysis_sales.mix,
+                },
+                {
+                    "code": "sales_price",
+                    "factor": "판매단가 효과(관세 제외 운반비 단가 포함)",
+                    "baseline": None,
+                    "comparison": None,
+                    "delta": None,
+                    "profit_effect": calculated_analysis_sales.price,
+                },
+                {
+                    "code": "sales_fx",
+                    "factor": "매출환율 효과",
+                    "baseline": None,
+                    "comparison": None,
+                    "delta": None,
+                    "profit_effect": calculated_analysis_sales.sales_fx,
+                },
+                {
+                    "code": "tariff",
+                    "factor": "관세 효과",
+                    "baseline": None,
+                    "comparison": None,
+                    "delta": None,
+                    "profit_effect": calculated_analysis_sales.tariff,
+                },
+                {
+                    "code": "material_total",
+                    "factor": "원부재료 총효과",
+                    "baseline": None,
+                    "comparison": None,
+                    "delta": None,
+                    "profit_effect": calculated_analysis_material.total,
+                },
+                {
+                    "code": "manufacturing_realized",
+                    "factor": "제조경비 재고실현 효과",
+                    "baseline": None,
+                    "comparison": None,
+                    "delta": None,
+                    "profit_effect": calculated_analysis_manufacturing.realized_total,
+                },
+                {
+                    "code": "sga_variable",
+                    "factor": "변동 판관비 효과",
+                    "baseline": None,
+                    "comparison": None,
+                    "delta": None,
+                    "profit_effect": calculated_analysis_sga.variable,
+                },
+                {
+                    "code": "sga_fixed",
+                    "factor": "고정 판관비 효과",
+                    "baseline": None,
+                    "comparison": None,
+                    "delta": None,
+                    "profit_effect": calculated_analysis_sga.fixed,
+                },
+            ]
             material_analysis = self.analysis_adapter.material_analysis(
                 baseline["adapted"], target["adapted"]
             )
@@ -180,6 +298,13 @@ class GenericComparisonEngine:
                 target.get("cost_summary", {}),
             )
             manufacturing_analysis = {}
+        # Recompute the bridge after the adapter branch. Legacy payloads keep
+        # their mapping-driven effects; real Golden Models use normalized V1
+        # effects assembled above.
+        effects_total = sum(float(item["profit_effect"] or 0.0) for item in effects)
+        residual = op_delta - effects_total
+        tolerance = max(1.0, abs(op_delta) * 1e-9)
+        narrative = self._narrative(op_delta, effects, residual)
         sga_accounts = self._sga_account_rows(
             baseline.get("sga_accounts", []),
             target.get("sga_accounts", []),
@@ -361,7 +486,14 @@ class GenericComparisonEngine:
         return [{"code": key, "item": label, "baseline": baseline[key], "comparison": comparison[key],
                  "delta": comparison[key] - baseline[key]} for key, label in labels.items()]
 
-    def _extract(self, workbook: GoldenWorkbook, meta: ModelMeta, months: tuple[int, ...]) -> dict[str, Any]:
+    def _extract(
+        self,
+        workbook: GoldenWorkbook,
+        meta: ModelMeta,
+        months: tuple[int, ...],
+        *,
+        sales_fx: float = 1.0,
+    ) -> dict[str, Any]:
         def total(row: int) -> float:
             return sum(float(workbook.value(f"{self.MONTH_COLUMNS[month]}{row}") or 0) for month in months)
 
@@ -397,10 +529,18 @@ class GenericComparisonEngine:
             subtracted = sum(total(row) for row in spec.get("subtract", []))
             return added - subtracted
 
-        adapted = (
-            self.analysis_adapter.build(workbook, meta, months)
-            if hasattr(workbook, "cells") else None
-        )
+        adapted = None
+        analysis_adapter_error = None
+        if hasattr(workbook, "cells"):
+            try:
+                adapted = self.analysis_adapter.build(
+                    workbook, meta, months, sales_fx=sales_fx
+                )
+            except (KeyError, ValueError) as exc:
+                # A legacy or partially uploaded workbook can still be
+                # compared by the mapping-driven path. Keep the warning in
+                # the extraction payload instead of failing the comparison.
+                analysis_adapter_error = str(exc)
 
         def account_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
             output: list[dict[str, Any]] = []
@@ -452,4 +592,5 @@ class GenericComparisonEngine:
                 "cost_summary": cost_summary, "effect_bases": effect_bases,
                 "manufacturing_accounts": [],
                 "sga_accounts": account_rows(adapted.sga_source_rows) if adapted else [],
-                "adapted": adapted}
+                "adapted": adapted,
+                "analysis_adapter_error": analysis_adapter_error}
