@@ -46,6 +46,19 @@ def _compact_effects(rows: Iterable[Any]) -> list[dict[str, Any]]:
     return output
 
 
+def _compact_model(model: Any) -> dict[str, Any]:
+    """Keep identifying metadata only; ModelMeta may contain raw-KRW tariff inputs."""
+    item = _record_dict(model)
+    return {
+        key: item.get(key)
+        for key in (
+            "id", "name", "model_type", "year", "start_month", "end_month",
+            "created_date", "version", "confirmed", "period_types",
+        )
+        if key in item
+    }
+
+
 def _compact_sales_rows(rows: Iterable[Any]) -> list[dict[str, Any]]:
     output = []
     for source in rows:
@@ -130,8 +143,8 @@ def build_fact_pack(
             "raw_krw_values_included": False,
         },
         "comparison": {
-            "baseline": result.get("baseline", {}),
-            "comparison": result.get("comparison", {}),
+            "baseline": _compact_model(result.get("baseline", {})),
+            "comparison": _compact_model(result.get("comparison", {})),
             "period": result.get("period", {}),
             "delta_definition": "comparison - baseline",
             "profit_effect_sign": "+ means operating-profit improvement; - means deterioration",
@@ -157,7 +170,7 @@ def build_fact_pack(
                 "Use only deterministic nonwoven price, JPY, and materials-excluding-nonwoven values when supplied.",
             ],
             "engine_rows": [row for row in cost_rows if row.get("code") in material_codes],
-            "detailed_analysis": result.get("material_analysis") or {},
+            "detailed_analysis_available": bool(result.get("material_analysis")),
         },
         "manufacturing": {
             "activity_policy": {
@@ -166,7 +179,7 @@ def build_fact_pack(
             },
             "production": _compact_production(result.get("production", [])),
             "engine_rows": [row for row in cost_rows if row.get("code") in manufacturing_codes],
-            "detailed_analysis": result.get("manufacturing_analysis") or {},
+            "detailed_analysis_available": bool(result.get("manufacturing_analysis")),
         },
         "sga": {
             "policy": [
@@ -175,7 +188,7 @@ def build_fact_pack(
                 "Tariff is a separate external effect when supplied by the deterministic engine.",
             ],
             "engine_rows": [row for row in cost_rows if row.get("code") in sga_codes],
-            "detailed_analysis": result.get("sga_analysis") or {},
+            "detailed_analysis_available": bool(result.get("sga_accounts")),
         },
         "all_cost_rows": cost_rows,
         "effect_bridge": effects,
@@ -219,6 +232,22 @@ def build_fact_pack(
         "materials_ex_nonwoven_million_krw": _optional_money_million(material_view.get("materials_ex_nonwoven")),
         "jpy_fx_unit": "KRW/JPY",
         "calculation_status": material_view.get("calculation_status"),
+        "product_groups": [{
+            "product_group": row.get("product_group"),
+            "unit_cost_unit": row.get("unit"),
+            "baseline_unit_cost": row.get("baseline_unit_cost"),
+            "comparison_unit_cost": row.get("comparison_unit_cost"),
+            "unit_cost_delta": row.get("unit_cost_delta"),
+            "nonwoven_price_ex_fx_million_krw": _optional_money_million(
+                row.get("nonwoven_price_ex_fx")
+            ),
+            "nonwoven_jpy_million_krw": _optional_money_million(row.get("nonwoven_jpy")),
+            "materials_ex_nonwoven_million_krw": _optional_money_million(
+                row.get("materials_ex_nonwoven")
+            ),
+            "total_effect_million_krw": _optional_money_million(row.get("total")),
+            "calculation_status": row.get("calculation_status"),
+        } for row in material_view.get("rows", [])],
         "policy": [
             "MCM is not an independent effect.",
             "Yield and usage are not independent V1 effects.",
