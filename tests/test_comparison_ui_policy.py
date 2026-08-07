@@ -12,6 +12,10 @@ def test_comparison_has_agreed_six_tabs_and_embedded_ai_renderer():
     assert "render_comparison_analysis(result)" in APP
 
 
+def test_ai_analysis_is_not_exposed_as_a_duplicate_streamlit_page():
+    assert not (ROOT / "pages" / "5_AI_Analysis.py").exists()
+
+
 def test_mcm_is_not_rendered_as_a_detail_effect():
     assert "MCM(유상사급) 상세 원인" not in APP
     assert 'st.dataframe(center_table_text(pd.DataFrame(result["mcm"]))' not in APP
