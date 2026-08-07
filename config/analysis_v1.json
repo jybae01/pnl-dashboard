@@ -1,5 +1,5 @@
 {
-  "version": "1.1.0-draft",
+  "version": "1.1.0",
   "sign_convention": "profit_improvement_positive",
   "delta_formula": "comparison_minus_base",
   "product_groups": ["SW", "BW", "LC", "FS", "신사업"],
@@ -11,7 +11,7 @@
     "신사업": "PCS"
   },
   "manufacturing": {
-    "variable_accounts": ["수도광열비", "소모품비", "외주가공비", "원재료운반비"],
+    "variable_accounts": ["수도광열비", "소모품비", "외주가공비", "원재료운반비", "원자재운반비"],
     "outsourcing_accounts": ["외주가공비"],
     "labor_accounts": ["노무비"],
     "labor_is_fixed": true,
@@ -34,7 +34,7 @@
     "fs_sales_basis": "sales_length",
     "other_sales_basis": "sales_qty",
     "mcm_accounting_classification": "raw_material",
-    "mcm_bridge_treatment": "detail_only"
+    "mcm_bridge_treatment": "included_in_material_total_not_independent"
   },
   "reconciliation": {
     "absolute_tolerance": 1.0,
@@ -42,13 +42,13 @@
   },
   "mapping_status": {
     "sales_fx": "explicit_mapping_required",
-    "jpy_fx": "explicit_mapping_required",
-    "product_cogs": "explicit_mapping_required",
-    "sap_production": "explicit_mapping_required",
+    "jpy_fx": "mapped_data_row_9",
+    "product_cogs": "mapped_group_rows",
+    "sap_production": "mapped",
     "mes_production": "optional_mapping",
-    "mcm_material_codes": "explicit_mapping_required",
-    "manufacturing_accounts": "explicit_mapping_required",
-    "sga_accounts": "explicit_mapping_required",
-    "allocation_ratios": "explicit_mapping_required"
+    "mcm_material_codes": "included_in_material_pool_not_independent",
+    "manufacturing_accounts": "dynamic_rows_289_319",
+    "sga_accounts": "dynamic",
+    "allocation_ratios": "mapped_data_rows_345_347"
   }
 }
