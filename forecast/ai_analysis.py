@@ -27,6 +27,10 @@ def _money_million(value: Any) -> float:
     return round(_number(value) / MONEY_SCALE, 3)
 
 
+def _optional_money_million(value: Any) -> float | None:
+    return None if value is None else _money_million(value)
+
+
 def _compact_effects(rows: Iterable[Any]) -> list[dict[str, Any]]:
     output = []
     for source in rows:
@@ -54,6 +58,10 @@ def _compact_sales_rows(rows: Iterable[Any]) -> list[dict[str, Any]]:
             "baseline_amount_million_krw": _money_million(item.get("baseline_amount")),
             "comparison_amount_million_krw": _money_million(item.get("comparison_amount")),
             "baseline_gross_margin_rate": _number(item.get("baseline_gross_margin_rate")),
+            "pure_price_delta_usd_per_sales_unit": (
+                None if item.get("pure_price_delta_usd") is None
+                else _number(item.get("pure_price_delta_usd"))
+            ),
             "quantity_effect_million_krw": _money_million(item.get("quantity_effect")),
             "pure_price_effect_million_krw": _money_million(item.get("pure_price_effect")),
             "sales_fx_effect_million_krw": _money_million(item.get("sales_fx_effect")),
@@ -100,6 +108,7 @@ def build_fact_pack(
     baseline_sales_fx: float | None = None,
     comparison_sales_fx: float | None = None,
     business_notes: str = "",
+    analysis_view: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Build the only data handed to ChatGPT for interpretation.
 
@@ -114,7 +123,12 @@ def build_fact_pack(
     manufacturing_codes = {"labor", "outsourcing", "other_processing", "processing_total", "manufacturing_expense"}
     sga_codes = {"selling_expense", "general_admin", "sga_total", "tariff"}
 
-    return {
+    pack = {
+        "metadata": {
+            "currency_display_unit": "KRW million",
+            "monetary_values_are_million_krw": True,
+            "raw_krw_values_included": False,
+        },
         "comparison": {
             "baseline": result.get("baseline", {}),
             "comparison": result.get("comparison", {}),
@@ -165,7 +179,10 @@ def build_fact_pack(
         },
         "all_cost_rows": cost_rows,
         "effect_bridge": effects,
-        "top_effects": _top_effects(effects),
+        "effect_ranking": [
+            {"rank": index, **row}
+            for index, row in enumerate(_top_effects(effects), 1)
+        ],
         "business_notes": [line.strip() for line in business_notes.splitlines() if line.strip()],
         "reconciliation": {
             "status": "PASS" if result.get("reconciled") else "CHECK",
@@ -173,14 +190,97 @@ def build_fact_pack(
             "residual_million_krw": _money_million(result.get("residual")),
         },
     }
+    if not analysis_view:
+        return pack
+
+    summary = analysis_view.get("summary", {})
+    sales_view = analysis_view.get("sales", {})
+    material_view = analysis_view.get("material", {})
+    manufacturing_view = analysis_view.get("manufacturing", {})
+    sga_view = analysis_view.get("sga", {})
+    pack["effect_ranking"] = [{
+        "rank": row.get("rank"),
+        "factor": row.get("factor"),
+        "effect_million_krw": _money_million(row.get("profit_effect")),
+    } for row in summary.get("effect_ranking", [])]
+    pack["sales"] = {
+        "baseline_sales_fx_krw_per_usd": sales_view.get("baseline_fx_krw_per_usd"),
+        "comparison_sales_fx_krw_per_usd": sales_view.get("comparison_fx_krw_per_usd"),
+        "quantity_effect_million_krw": _money_million(sales_view.get("totals", {}).get("quantity_effect")),
+        "pure_price_effect_million_krw": _money_million(sales_view.get("totals", {}).get("pure_price_effect")),
+        "sales_fx_effect_million_krw": _money_million(sales_view.get("totals", {}).get("sales_fx_effect")),
+        "total_sales_effect_million_krw": _money_million(sales_view.get("totals", {}).get("total_sales_effect")),
+        "products": _compact_sales_rows(sales_view.get("rows", [])),
+    }
+    pack["materials"] = {
+        "total_effect_million_krw": _optional_money_million(material_view.get("total")),
+        "nonwoven_price_ex_fx_million_krw": _optional_money_million(material_view.get("nonwoven_price_ex_fx")),
+        "nonwoven_jpy_million_krw": _optional_money_million(material_view.get("nonwoven_jpy")),
+        "materials_ex_nonwoven_million_krw": _optional_money_million(material_view.get("materials_ex_nonwoven")),
+        "jpy_fx_unit": "KRW/JPY",
+        "calculation_status": material_view.get("calculation_status"),
+        "policy": [
+            "MCM is not an independent effect.",
+            "Yield and usage are not independent V1 effects.",
+        ],
+    }
+    manufacturing_accounts = manufacturing_view.get("accounts", [])
+    pack["manufacturing"] = {
+        "activity_policy": {
+            "front_process": "FS SAP production receipt length",
+            "back_process": "SW + BW + LC SAP production receipt PCS total",
+            "mcm_outsourcing_activity": "excluded",
+        },
+        "activity_effect_million_krw": _money_million(sum(
+            _number(row.get("activity_effect")) for row in manufacturing_accounts
+        )),
+        "unit_cost_effect_million_krw": _money_million(sum(
+            _number(row.get("unit_effect")) for row in manufacturing_accounts
+        )),
+        "fixed_effect_million_krw": _money_million(sum(
+            _number(row.get("fixed_effect")) for row in manufacturing_accounts
+        )),
+        "final_effect_million_krw": _money_million(sum(
+            _number(row.get("final_profit_effect")) for row in manufacturing_accounts
+        )),
+        "realization_rates": sorted({
+            row.get("inventory_realization_rate")
+            for row in manufacturing_accounts
+            if row.get("inventory_realization_rate") is not None
+        }),
+        "major_accounts": sorted([{
+            "account": row.get("account"),
+            "classification": row.get("classification"),
+            "final_effect_million_krw": _optional_money_million(row.get("final_profit_effect")),
+            "calculation_status": row.get("calculation_status"),
+        } for row in manufacturing_accounts], key=lambda row: abs(
+            _number(row.get("final_effect_million_krw"))
+        ), reverse=True)[:10],
+    }
+    sga_accounts = sga_view.get("accounts", [])
+    pack["sga"] = {
+        "variable_effect_million_krw": _money_million(sga_view.get("variable_effect")),
+        "fixed_effect_million_krw": _money_million(sga_view.get("fixed_effect")),
+        "tariff_effect_million_krw": _money_million(sga_view.get("tariff_effect")),
+        "major_accounts": sorted([{
+            "account": row.get("account"),
+            "classification": row.get("classification"),
+            "effect_million_krw": _money_million(row.get("profit_effect")),
+            "bridge_destination": row.get("bridge_position"),
+        } for row in sga_accounts], key=lambda row: abs(
+            _number(row.get("effect_million_krw"))
+        ), reverse=True)[:10],
+    }
+    return pack
 
 
 _ANALYST_RULES = """당신은 관리손익 분석 담당자다.
+- FACT PACK의 모든 금액은 백만원(KRW million) 단위다. 원 단위로 환산하거나 풀어 쓰지 않는다.
 - 아래 FACT PACK에 제공된 숫자를 변경하거나 새로 계산하지 않는다.
 - FACT PACK에 없는 경영적 원인을 사실처럼 추정하지 않는다.
 - business_notes에 있는 원인은 해당 숫자와 연결이 합리적인 범위에서만 설명한다.
 - 손익효과 부호는 + 개선 / - 악화 기준을 그대로 따른다.
-- 중요도는 top_effects와 제공된 효과금액을 따른다.
+- 중요도는 effect_ranking과 제공된 효과금액을 따른다.
 - 정합성 상태가 CHECK이면 확정적인 경영진 결론을 작성하지 말고 검증 필요를 먼저 표시한다.
 - MCM은 현재 V1에서 별도 효과로 식별되지 않았으므로 독립 효과처럼 설명하지 않는다.
 - 원재료 수율/사용량 효과를 임의로 만들지 않는다.

@@ -1,12 +1,13 @@
 from __future__ import annotations
 
 import json
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any
 
 from .storage import ModelMeta
 from .workbook import GoldenWorkbook
+from .analysis.configuration import AnalysisConfig
 
 
 @dataclass(frozen=True)
@@ -35,6 +36,8 @@ class ComparisonResult:
     reconciled: bool
     narrative: str = ""
     mcm_transition: dict[str, Any] | None = None
+    manufacturing_accounts: list[dict[str, Any]] = field(default_factory=list)
+    sga_accounts: list[dict[str, Any]] = field(default_factory=list)
 
 
 class GenericComparisonEngine:
@@ -46,7 +49,15 @@ class GenericComparisonEngine:
     MONTH_COLUMNS = {month: chr(ord("E") + month - 1) for month in range(1, 13)}
 
     def __init__(self, mapping_path: str | Path):
-        self.mapping = json.loads(Path(mapping_path).read_text(encoding="utf-8"))["comparison"]
+        mapping_path = Path(mapping_path)
+        payload = json.loads(mapping_path.read_text(encoding="utf-8"))
+        self.mapping = payload["comparison"]
+        self.manufacturing_account_rows = tuple(payload.get("manufacturing_input_rows", ()))
+        self.sga_account_rows = tuple(payload.get("sga_input_rows", ()))
+        analysis_config_path = mapping_path.with_name("analysis_v1.json")
+        self.analysis_config = (
+            AnalysisConfig.load(analysis_config_path) if analysis_config_path.exists() else None
+        )
 
     @staticmethod
     def common_months(baseline: ModelMeta, comparison: ModelMeta) -> tuple[int, ...]:
@@ -130,6 +141,18 @@ class GenericComparisonEngine:
         residual = op_delta - effects_total
         tolerance = max(1.0, abs(op_delta) * 1e-9)
         narrative = self._narrative(op_delta, effects, residual)
+        manufacturing_accounts = self._manufacturing_account_rows(
+            baseline.get("manufacturing_accounts", []),
+            target.get("manufacturing_accounts", []),
+            target.get("pnl", {}),
+            target.get("cost_summary", {}),
+        )
+        sga_accounts = self._sga_account_rows(
+            baseline.get("sga_accounts", []),
+            target.get("sga_accounts", []),
+            baseline.get("cost_summary", {}),
+            target.get("cost_summary", {}),
+        )
         return ComparisonResult(
             baseline=asdict(baseline_meta), comparison=asdict(comparison_meta), period=asdict(period),
             pnl=pnl, products=products, sales_groups=sales_groups, production=production, mcm=mcm,
@@ -138,7 +161,134 @@ class GenericComparisonEngine:
             residual=residual, reconciled=abs(residual) <= tolerance,
             narrative=narrative,
             mcm_transition=None,
+            manufacturing_accounts=manufacturing_accounts,
+            sga_accounts=sga_accounts,
         )
+
+    @staticmethod
+    def _account_map(rows: list[dict[str, Any]]) -> dict[int, dict[str, Any]]:
+        return {int(row["row"]): row for row in rows}
+
+    def _manufacturing_account_rows(
+        self,
+        baseline_rows: list[dict[str, Any]],
+        comparison_rows: list[dict[str, Any]],
+        comparison_pnl: dict[str, float],
+        comparison_costs: dict[str, float],
+    ) -> list[dict[str, Any]]:
+        baseline = self._account_map(baseline_rows)
+        comparison = self._account_map(comparison_rows)
+        manufacturing_input = sum(float(comparison_costs.get(code) or 0.0) for code in (
+            "raw_material", "labor", "outsourcing", "other_processing"
+        ))
+        realization_rate = (
+            float(comparison_pnl.get("cogs") or 0.0) / manufacturing_input
+            if manufacturing_input else None
+        )
+        output: list[dict[str, Any]] = []
+        for row_number in sorted(set(baseline) | set(comparison)):
+            left = baseline.get(row_number, {})
+            right = comparison.get(row_number, {})
+            account = str(right.get("account") or left.get("account") or f"행 {row_number}")
+            base_amount = float(left.get("amount") or 0.0)
+            comparison_amount = float(right.get("amount") or 0.0)
+            delta = comparison_amount - base_amount
+            is_variable = bool(
+                self.analysis_config and self.analysis_config.is_variable_manufacturing(account)
+            )
+            occurrence_effect = base_amount - comparison_amount
+            output.append({
+                "row": row_number,
+                "account": account,
+                "classification": "variable" if is_variable else "fixed",
+                "baseline_amount": base_amount,
+                "comparison_amount": comparison_amount,
+                "delta": delta,
+                "activity_effect": None if is_variable else 0.0,
+                "unit_effect": None if is_variable else 0.0,
+                "fixed_effect": 0.0 if is_variable else occurrence_effect,
+                "occurrence_effect": occurrence_effect,
+                "inventory_realization_rate": realization_rate,
+                "final_profit_effect": (
+                    occurrence_effect * realization_rate if realization_rate is not None else None
+                ),
+                "calculation_status": (
+                    "발생효과·실현효과 계산 완료 / 조업도·원단위 분해는 전후공정 배부율 매핑 필요"
+                    if is_variable else
+                    "고정비 기준-비교 및 비교 모형 재고실현율 적용 완료"
+                ),
+            })
+        return output
+
+    def _sga_account_rows(
+        self,
+        baseline_rows: list[dict[str, Any]],
+        comparison_rows: list[dict[str, Any]],
+        baseline_costs: dict[str, float],
+        comparison_costs: dict[str, float],
+    ) -> list[dict[str, Any]]:
+        baseline = self._account_map(baseline_rows)
+        comparison = self._account_map(comparison_rows)
+        output: list[dict[str, Any]] = []
+        for row_number in sorted(set(baseline) | set(comparison)):
+            left = baseline.get(row_number, {})
+            right = comparison.get(row_number, {})
+            account = str(right.get("account") or left.get("account") or f"행 {row_number}")
+            base_amount = float(left.get("amount") or 0.0)
+            comparison_amount = float(right.get("amount") or 0.0)
+            delta = comparison_amount - base_amount
+            short_account = account.split("_", 1)[-1]
+            is_transport = bool(
+                self.analysis_config
+                and (self.analysis_config.is_transport(account) or self.analysis_config.is_transport(short_account))
+            )
+            is_tariff = "관세" in account
+            is_variable = bool(
+                self.analysis_config
+                and (
+                    self.analysis_config.is_variable_sga(account)
+                    or self.analysis_config.is_variable_sga(short_account)
+                )
+            )
+            if is_transport:
+                classification = "transport"
+                profit_effect = 0.0
+                bridge_position = "판매효과"
+            elif is_tariff:
+                classification = "tariff"
+                profit_effect = 0.0
+                bridge_position = "외부효과/관세"
+            else:
+                classification = "variable" if is_variable else "fixed"
+                profit_effect = base_amount - comparison_amount
+                bridge_position = "변동 판관비" if is_variable else "고정 판관비"
+            output.append({
+                "row": row_number,
+                "account": account,
+                "section": right.get("section") or left.get("section"),
+                "classification": classification,
+                "baseline_amount": base_amount,
+                "comparison_amount": comparison_amount,
+                "delta": delta,
+                "profit_effect": profit_effect,
+                "bridge_position": bridge_position,
+            })
+        # Web-entered tariff is outside the Golden Model account range, but is
+        # still a deterministic comparison input and must be visible exactly once.
+        base_tariff = float(baseline_costs.get("tariff") or 0.0)
+        comparison_tariff = float(comparison_costs.get("tariff") or 0.0)
+        output.append({
+            "row": None,
+            "account": "관세(직접입력)",
+            "section": "별도분석",
+            "classification": "tariff",
+            "baseline_amount": base_tariff,
+            "comparison_amount": comparison_tariff,
+            "delta": comparison_tariff - base_tariff,
+            "profit_effect": base_tariff - comparison_tariff,
+            "bridge_position": "관세효과",
+        })
+        return output
 
     @staticmethod
     def _narrative(
@@ -149,14 +299,20 @@ class GenericComparisonEngine:
         direction = "증가" if op_delta >= 0 else "감소"
         ordered = sorted(effects, key=lambda row: abs(float(row["profit_effect"])), reverse=True)
         factors = ", ".join(
-            f"{row['factor']} {abs(float(row['profit_effect'])):,.0f}원"
+            f"{row['factor']} {abs(float(row['profit_effect'])) / 1_000_000:,.0f}백만원"
             for row in ordered[:3] if row["profit_effect"]
         )
-        sentences = [f"비교 모형의 영업이익은 기준 모형 대비 {abs(op_delta):,.0f}원 {direction}했습니다."]
+        sentences = [
+            f"비교 모형의 영업이익은 기준 모형 대비 "
+            f"{abs(op_delta) / 1_000_000:,.0f}백만원 {direction}했습니다."
+        ]
         if factors:
             sentences.append(f"금액 기준 주요 변동요인은 {factors}입니다.")
         if abs(residual) > 1:
-            sentences.append(f"세부 효과로 귀속되지 않은 잔여차이는 {abs(residual):,.0f}원입니다.")
+            sentences.append(
+                f"세부 효과로 귀속되지 않은 잔여차이는 "
+                f"{abs(residual) / 1_000_000:,.0f}백만원입니다."
+            )
         return " ".join(sentences)
 
     @staticmethod
@@ -200,6 +356,26 @@ class GenericComparisonEngine:
             subtracted = sum(total(row) for row in spec.get("subtract", []))
             return added - subtracted
 
+        def account_rows(rows: tuple[int, ...], *, sga: bool = False) -> list[dict[str, Any]]:
+            output: list[dict[str, Any]] = []
+            label_reader = getattr(workbook, "raw_value", workbook.value)
+            for row_number in rows:
+                label = next((
+                    str(label_reader(f"{column}{row_number}")).strip()
+                    for column in ("D", "C", "B", "A")
+                    if label_reader(f"{column}{row_number}") not in (None, "", 0)
+                ), f"행 {row_number}")
+                section = None
+                if sga:
+                    section = "판매비" if row_number <= 1194 else "일반관리비"
+                output.append({
+                    "row": row_number,
+                    "account": label,
+                    "section": section,
+                    "amount": total(row_number),
+                })
+            return output
+
         cost_rows = self.mapping["cost_rows"]
         raw_material = mapped_total(cost_rows["raw_material"])
         labor = mapped_total(cost_rows["labor"])
@@ -235,4 +411,6 @@ class GenericComparisonEngine:
         })
         return {"pnl": pnl, "products": products, "sales_groups": sales_groups,
                 "production": production, "mcm": mcm,
-                "cost_summary": cost_summary, "effect_bases": effect_bases}
+                "cost_summary": cost_summary, "effect_bases": effect_bases,
+                "manufacturing_accounts": account_rows(self.manufacturing_account_rows),
+                "sga_accounts": account_rows(self.sga_account_rows, sga=True)}

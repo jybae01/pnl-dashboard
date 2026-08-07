@@ -13,10 +13,11 @@ import pandas as pd
 import streamlit as st
 
 from forecast.comparison import GenericComparisonEngine, PeriodOption
-from forecast.ai_ui import render_ai_analysis
+from forecast.analysis_export_hook import render_analysis_export
 from forecast.baseline import inspect_baseline_workbook
 from forecast.engine import CostAdjustment, ForecastEngine, ForecastInput, ForecastResult, SalesInput
-from forecast.sales_comparison import calculate_sales_effect_rows, sales_effect_totals
+from forecast.presentation.analysis_tabs import render_comparison_analysis
+from forecast.presentation.formatting import format_million
 from forecast.storage import BaselineStore, ModelRegistry, ResultStore
 from forecast.workbook import GoldenWorkbook, extract_period_types, infer_workbook_year
 
@@ -84,7 +85,7 @@ def authenticate() -> str:
 
 
 def money(value: float) -> str:
-    return f"{value / 1_000_000:,.0f} 백만원"
+    return format_million(value)
 
 
 def center_table_text(frame: pd.DataFrame):
@@ -96,31 +97,6 @@ def center_table_text(frame: pd.DataFrame):
     if text_columns:
         styler = styler.set_properties(subset=text_columns, **{"text-align": "center"})
     return styler
-
-
-def display_number(value: float) -> str:
-    number = float(value or 0.0)
-    return f"{number:,.0f}" if abs(number - round(number)) < 1e-9 else f"{number:,.1f}"
-
-
-def sales_effect_frame(rows: list) -> pd.DataFrame:
-    return pd.DataFrame([{
-        "제품군": row.product_group,
-        "기준 수량": display_number(row.baseline_quantity),
-        "기준 매출액(백만원)": f"{row.baseline_amount / 1_000_000:,.0f}",
-        "기준 단가(원)": f"{row.baseline_unit_price:,.0f}",
-        "기준 매출총이익률": f"{row.baseline_gross_margin_rate:.1%}",
-        "비교 수량": display_number(row.comparison_quantity),
-        "수량증감": display_number(row.quantity_delta),
-        "비교 매출액(백만원)": f"{row.comparison_amount / 1_000_000:,.0f}",
-        "비교 단가(원)": f"{row.comparison_unit_price:,.0f}",
-        "비교 매출총이익률": f"{row.comparison_gross_margin_rate:.1%}",
-        "수량효과(백만원)": f"{row.quantity_effect / 1_000_000:,.0f}",
-        "$단가차이": f"{row.pure_price_delta_usd:,.2f}",
-        "순수 단가효과(백만원)": f"{row.pure_price_effect / 1_000_000:,.0f}",
-        "매출환율효과(백만원)": f"{row.sales_fx_effect / 1_000_000:,.0f}",
-        "판매효과 합계(백만원)": f"{row.total_sales_effect / 1_000_000:,.0f}",
-    } for row in rows])
 
 
 def forecast_workbook_bytes(
@@ -1284,114 +1260,11 @@ def comparison_page(role: str) -> None:
     if result["period"]["key"] != selected_period.key:
         st.info("분석기간이 변경되었습니다. 비교 분석 버튼을 다시 눌러 주세요.")
         return
-    c1, c2, c3 = st.columns(3)
-    c1.metric("영업이익 증감", money(result["operating_profit_delta"]))
-    c2.metric("세부 변동효과 합계", money(result["effects_total"]))
-    c3.metric("잔여차이", money(result["residual"]), delta="정합" if result["reconciled"] else "확인 필요")
-
-    def amount_frame(rows: list[dict]) -> pd.DataFrame:
-        frame = pd.DataFrame(rows)
-        for column in ["baseline", "comparison", "delta", "profit_effect"]:
-            if column in frame.columns:
-                frame[column] = frame[column] / 1_000_000
-        return frame
-
-    effect_tabs = st.tabs(["종합", "판매효과", "원부재료", "제조경비", "판관비", "AI 분석"])
-    with effect_tabs[0]:
-        st.markdown("#### 주요 손익효과 및 정합성")
-        st.dataframe(center_table_text(amount_frame(result["effects"])), use_container_width=True, hide_index=True)
-        if result["reconciled"]:
-            st.success("영업이익 증감과 세부 변동효과 합계가 일치합니다.")
-        else:
-            st.warning("잔여차이가 허용범위를 초과했습니다. 신규 계정 또는 매핑 누락을 확인해 주세요.")
-        st.markdown("#### 주요 변동원인 자동 설명")
-        st.write(result.get("narrative") or "분석 가능한 주요 변동원인이 없습니다.")
-        with st.expander("손익계산서 증감", expanded=False):
-            st.dataframe(center_table_text(amount_frame(result["pnl"])), use_container_width=True, hide_index=True)
-
-    with effect_tabs[1]:
-        if "sales_groups" not in result:
-            st.info("판매효과 데이터 구조가 변경되었습니다. 비교 분석 버튼을 다시 눌러 주세요.")
-        else:
-            st.subheader("판매 수량·단가·환율 효과")
-            fx_key = f"{baseline_meta.id}_{comparison_meta.id}_{selected_period.key}"
-            fx_cols = st.columns([1, 1, 3])
-            baseline_fx = fx_cols[0].number_input(
-                "기준 매출환율(원/USD)", min_value=0.0001, value=1480.0, step=0.1,
-                format="%.2f", key=f"baseline_sales_fx_{fx_key}",
-            )
-            comparison_fx = fx_cols[1].number_input(
-                "비교 매출환율(원/USD)", min_value=0.0001, value=1480.0, step=0.1,
-                format="%.2f", key=f"comparison_sales_fx_{fx_key}",
-            )
-            fx_cols[2].caption(
-                "환율을 직접 입력하면 원화 단가 변동이 순수 단가효과와 매출환율효과로 다시 분해됩니다. "
-                "두 효과의 합계는 원화 단가 변동효과와 일치합니다."
-            )
-            sales_rows = calculate_sales_effect_rows(result["sales_groups"], baseline_fx, comparison_fx)
-            sales_totals = sales_effect_totals(sales_rows)
-            metric_cols = st.columns(4)
-            metric_cols[0].metric("수량효과", money(sales_totals["quantity_effect"]))
-            metric_cols[1].metric("순수 단가효과", money(sales_totals["pure_price_effect"]))
-            metric_cols[2].metric("매출환율효과", money(sales_totals["sales_fx_effect"]))
-            metric_cols[3].metric("판매효과 합계", money(sales_totals["total_sales_effect"]))
-            st.dataframe(
-                center_table_text(sales_effect_frame(sales_rows)),
-                use_container_width=True,
-                hide_index=True,
-            )
-            st.caption(
-                "수량효과는 기준 모형의 제품군별 단가와 매출총이익률을 적용합니다. "
-                "선택기간이 누계·분기인 경우 매출총이익률은 누계 매출총이익 ÷ 누계 매출액으로 계산합니다."
-            )
-
-    with effect_tabs[2]:
-        material_codes = {"raw_material", "customs_refund"}
-        material_rows = [row for row in result["cost_summary"] if row["code"] in material_codes]
-        st.markdown("#### 원부재료 총액 증감")
-        st.dataframe(center_table_text(amount_frame(material_rows)), use_container_width=True, hide_index=True)
-        st.caption(
-            "MCM과 수율/사용량은 독립 손익효과로 식별하지 않습니다. "
-            "원부재료 금액에는 회계 분류대로 포함하되 별도 효과나 원인으로 표시하지 않습니다."
-        )
-
-    with effect_tabs[3]:
-        production_rows = result["production"]
-        def production_group(prefix: str) -> dict:
-            selected_rows = [row for row in production_rows if str(row.get("code", "")).startswith(prefix)]
-            return {
-                "제품군": prefix,
-                "기준 생산입고": sum(float(row.get("baseline", 0)) for row in selected_rows),
-                "비교 생산입고": sum(float(row.get("comparison", 0)) for row in selected_rows),
-                "증감": sum(float(row.get("delta", 0)) for row in selected_rows),
-            }
-        activity_rows = [production_group(group) for group in ("SW", "BW", "LC")]
-        activity_rows.append({
-            "제품군": "후공정 합계",
-            "기준 생산입고": sum(row["기준 생산입고"] for row in activity_rows),
-            "비교 생산입고": sum(row["비교 생산입고"] for row in activity_rows),
-            "증감": sum(row["증감"] for row in activity_rows),
-        })
-        st.markdown("#### 후공정 SAP 생산입고 조업도 (SW + BW + LC)")
-        st.dataframe(center_table_text(pd.DataFrame(activity_rows)), use_container_width=True, hide_index=True)
-        with st.expander("SAP 생산입고 원본 세부항목", expanded=False):
-            st.dataframe(center_table_text(pd.DataFrame(production_rows)), use_container_width=True, hide_index=True)
-        manufacturing_codes = {"labor", "outsourcing", "other_processing", "processing_total", "manufacturing_expense"}
-        manufacturing_rows = [row for row in result["cost_summary"] if row["code"] in manufacturing_codes]
-        st.markdown("#### 제조경비")
-        st.dataframe(center_table_text(amount_frame(manufacturing_rows)), use_container_width=True, hide_index=True)
-        st.caption(
-            "제조경비 조업도는 SAP 수불부 생산입고를 기준으로 계산합니다. MES 자료가 연결된 경우에는 "
-            "MES-SAP 차이를 보조 검증값으로만 표시하고 제조경비 계산에는 사용하지 않습니다."
-        )
-
-    with effect_tabs[4]:
-        sga_codes = {"selling_expense", "general_admin", "sga_total", "tariff"}
-        sga_rows = [row for row in result["cost_summary"] if row["code"] in sga_codes]
-        st.dataframe(center_table_text(amount_frame(sga_rows)), use_container_width=True, hide_index=True)
-
-    with effect_tabs[5]:
-        render_ai_analysis(result)
+    render_comparison_analysis(result)
+    try:
+        render_analysis_export(result)
+    except Exception as exc:
+        st.warning(f"검증 엑셀을 생성할 수 없습니다: {exc}")
 
 
 role = authenticate()
