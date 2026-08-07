@@ -302,13 +302,14 @@ class GoldenAnalysisAdapter:
         # inventing production or material costs.
         material_groups = set(material["groups"])
         for group, spec in sales_groups.items():
-            if group in material_groups:
+            product_group = str(spec.get("label") or group)
+            if group in material_groups or product_group in material_groups:
                 continue
             sales = self._number(workbook.value(f"{column}{spec['quantity_row']}"))
             records.append(ProductRecord(
                 year_month=f"{year:04d}-{month:02d}",
-                product_code=f"{group}_SALES",
-                product_group=group,
+                product_code=f"{product_group}_SALES",
+                product_group=product_group,
                 unit_basis="PCS",
                 sales_qty=sales,
                 sales_amount=self._number(workbook.value(f"{column}{spec['amount_row']}")),
