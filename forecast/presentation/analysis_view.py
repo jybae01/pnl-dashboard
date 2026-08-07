@@ -238,6 +238,7 @@ def _summary_view(
     tariff_effect = effects.get("tariff", sga.get("tariff_effect", 0.0))
     categories = [
         ("판매수량", sales["totals"]["quantity_effect"]),
+        ("제품 Mix", _number(sales["totals"].get("mix_effect"))),
         ("판매단가", sales["totals"]["pure_price_effect"]),
         ("매출환율", sales["totals"]["sales_fx_effect"]),
         ("원부재료", material_effect),
