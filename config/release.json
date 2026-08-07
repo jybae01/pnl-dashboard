@@ -1,14 +1,14 @@
 {
   "application": "손익 추정 시스템",
-  "release_name": "Forecast V1 Beta",
-  "version": "1.0.0-beta.4",
-  "released_at": "2026-08-04",
-  "status": "beta",
+  "release_name": "손익분석 V1",
+  "version": "1.1.0",
+  "released_at": "2026-08-07",
+  "status": "production",
   "baseline_release": "Dashboard v0.1.0",
   "components": {
     "손익 현황": "기존 Dashboard v0.1.0 연결 예정",
     "추정 산출": "구현",
-    "손익 분석": "SAP·MCM 분석 엔진 및 선택기간 화면 베타",
+    "손익 분석": "최종 V1 6개 탭·Golden Model 계정 상세·AI Fact Pack",
     "데이터 관리": "구현"
   }
 }
