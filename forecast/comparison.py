@@ -234,13 +234,18 @@ class GenericComparisonEngine:
             left = baseline.get(row_number, {})
             right = comparison.get(row_number, {})
             account = str(right.get("account") or left.get("account") or f"행 {row_number}")
+            section = right.get("section") or left.get("section")
             base_amount = float(left.get("amount") or 0.0)
             comparison_amount = float(right.get("amount") or 0.0)
             delta = comparison_amount - base_amount
             short_account = account.split("_", 1)[-1]
             is_transport = bool(
                 self.analysis_config
-                and (self.analysis_config.is_transport(account) or self.analysis_config.is_transport(short_account))
+                and section == "판매비"
+                and (
+                    self.analysis_config.is_transport(account)
+                    or self.analysis_config.is_transport(short_account)
+                )
             )
             is_tariff = "관세" in account
             is_variable = bool(
@@ -265,7 +270,7 @@ class GenericComparisonEngine:
             output.append({
                 "row": row_number,
                 "account": account,
-                "section": right.get("section") or left.get("section"),
+                "section": section,
                 "classification": classification,
                 "baseline_amount": base_amount,
                 "comparison_amount": comparison_amount,
