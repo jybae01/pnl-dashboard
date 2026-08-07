@@ -248,6 +248,117 @@
       "target": 1
     }
   ],
+  "analysis_adapter": {
+    "account_discovery": {
+      "manufacturing_start_marker": "★제조경비 명세서_입력",
+      "manufacturing_stop_marker": "*제조원가 변동비/고정비 비율",
+      "manufacturing_excluded_labels": ["인건비", "제조경비", "제조 가공비 합계"],
+      "sga_start_marker": "★판매관리비 관리 명세서",
+      "sga_stop_marker": "★손익계산서"
+    },
+    "material": {
+      "jpy_fx_row": 9,
+      "front_process": {
+        "nonwoven_quantity_row": 205,
+        "nonwoven_amount_row": 206,
+        "nonwoven_unit_row": 207,
+        "other_quantity_row": 208,
+        "other_amount_row": 209,
+        "other_unit_row": 210,
+        "total_amount_row": 211
+      },
+      "back_process": {
+        "source_start_row": 684,
+        "source_end_row": 699,
+        "component_amount_rows": [685, 694, 697],
+        "total_amount_row": 699
+      },
+      "groups": {
+        "SW": {
+          "unit_basis": "PCS",
+          "sales_quantity_row": 1593,
+          "production_quantity_rows": [556, 557],
+          "mcm_rows": [568, 569],
+          "nonwoven_input_terms": [
+            {"sales_quantity_row": 32, "input_length_row": 35},
+            {"sales_quantity_row": 38, "input_length_row": 41}
+          ],
+          "front_material_terms": [
+            {"production_row": 897, "input_length_row": 580, "source_pool_amount_rows": [211], "source_allocation_ratio_row": 273, "source_production_row": 119, "adjustment_row": 956},
+            {"production_row": 904, "input_length_row": 583, "source_pool_amount_rows": [211], "source_allocation_ratio_row": 273, "source_production_row": 119, "adjustment_row": 957}
+          ],
+          "back_material_terms": [
+            {"allocation_ratio_row": 788, "pool_amount_rows": [699]},
+            {"allocation_ratio_row": 789, "pool_amount_rows": [699]}
+          ],
+          "mcm_material_rows": [900, 907],
+          "direct_material_rows": []
+        },
+        "BW": {
+          "unit_basis": "PCS",
+          "sales_quantity_row": 1632,
+          "production_quantity_rows": [558, 559],
+          "mcm_rows": [570, 571],
+          "nonwoven_input_terms": [
+            {"sales_quantity_row": 44, "input_length_row": 47},
+            {"sales_quantity_row": 50, "input_length_row": 53}
+          ],
+          "front_material_terms": [
+            {"production_row": 911, "input_length_row": 586, "source_pool_amount_rows": [211], "source_allocation_ratio_row": 274, "source_production_row": 122, "adjustment_row": 958},
+            {"production_row": 918, "input_length_row": 589, "source_pool_amount_rows": [211], "source_allocation_ratio_row": 274, "source_production_row": 122, "adjustment_row": 959}
+          ],
+          "back_material_terms": [
+            {"allocation_ratio_row": 790, "pool_amount_rows": [699]},
+            {"allocation_ratio_row": 791, "pool_amount_rows": [699]}
+          ],
+          "mcm_material_rows": [914, 921],
+          "direct_material_rows": []
+        },
+        "LC": {
+          "unit_basis": "PCS",
+          "sales_quantity_row": 56,
+          "production_quantity_rows": [560],
+          "mcm_rows": [],
+          "nonwoven_input_terms": [
+            {"sales_quantity_row": 56, "input_length_row": 59}
+          ],
+          "front_material_terms": [
+            {"production_row": 925, "input_length_row": 592, "source_pool_amount_rows": [211], "source_allocation_ratio_row": 274, "source_production_row": 122, "adjustment_row": 960}
+          ],
+          "back_material_terms": [
+            {"allocation_ratio_row": 792, "pool_amount_rows": [699]}
+          ],
+          "mcm_material_rows": [],
+          "direct_material_rows": []
+        },
+        "FS": {
+          "unit_basis": "LENGTH",
+          "sales_quantity_row": 1720,
+          "production_quantity_rows": [119, 122, 125],
+          "mcm_rows": [],
+          "nonwoven_input_terms": [
+            {"sales_quantity_row": 62, "input_length_row": 65},
+            {"sales_quantity_row": 68, "input_length_row": 71},
+            {"sales_quantity_row": 74, "input_length_row": 77}
+          ],
+          "front_material_terms": [],
+          "back_material_terms": [],
+          "mcm_material_rows": [],
+          "direct_material_rows": [211]
+        }
+      }
+    },
+    "manufacturing": {
+      "front_activity_rows": [119, 122, 125],
+      "back_activity_rows": [556, 557, 558, 559, 560],
+      "mcm_rows": [568, 569, 570, 571],
+      "front_ratio_rows": {
+        "labor": 345,
+        "outsourcing": 346,
+        "other_variable": 347
+      }
+    }
+  },
   "comparison": {
     "pnl_rows": {
       "revenue": 1248,
