@@ -24,7 +24,10 @@ class GoldenModelTests(unittest.TestCase):
 
     def test_formula_evaluator_matches_cached_key_outputs(self):
         wb = GoldenWorkbook(self.model)
-        for addr in ["K1201","K1222","K1253","K1177","K1260","K1261","K938","K211","K690"]:
+        for addr in [
+            "K1168", "K1194", "K1248", "K1268", "K1298", "K1302",
+            "K1303", "K1306", "K936", "K211", "K699", "K1594", "K1595",
+        ]:
             cached = float(wb.raw_value(addr) or 0)
             calculated = float(wb.value(addr) or 0)
             self.assertAlmostEqual(cached, calculated, delta=max(1.0, abs(cached)*1e-9), msg=addr)
@@ -56,8 +59,8 @@ class GoldenModelTests(unittest.TestCase):
                     for item in audit_sheet.findall(".//m:hyperlink", namespace)
                 }
                 self.assertIn("'Data'!K32", locations)
-                self.assertIn("'Data'!K1241", locations)
-                self.assertNotIn("'Data'!K1201", locations)
+                self.assertIn("'Data'!K1289", locations)
+                self.assertNotIn("'Data'!K1168", locations)
             second_output = Path(directory) / "forecast_2.xlsx"
             ForecastEngine(output, self.mapping).run(
                 ForecastInput(month=8, sales=sales, production=production), second_output,
@@ -142,7 +145,7 @@ class GoldenModelTests(unittest.TestCase):
             target = Path(directory) / "target.xlsx"
             forecast = ForecastEngine(self.model,self.mapping).run(ForecastInput(month=7,sales=sales,production=production),target)
             result = engine.compare(meta1, self.model, meta2, target, period)
-            baseline_op = GoldenWorkbook(self.model).value("K1260")
+            baseline_op = GoldenWorkbook(self.model).value("K1306")
             self.assertAlmostEqual(result.operating_profit_delta, forecast.operating_profit - baseline_op, delta=1.0)
             self.assertTrue(result.reconciled)
             self.assertAlmostEqual(result.residual, 0.0, delta=1.0)
@@ -173,8 +176,8 @@ class GoldenModelTests(unittest.TestCase):
         )
         workbook = GoldenWorkbook(self.model)
         sw = result.sales_groups[0]
-        self.assertAlmostEqual(sw["baseline_amount"], workbook.value("K1544"), delta=1.0)
-        expected_margin = (workbook.value("K1544") - workbook.value("K1545")) / workbook.value("K1544")
+        self.assertAlmostEqual(sw["baseline_amount"], workbook.value("K1594"), delta=1.0)
+        expected_margin = (workbook.value("K1594") - workbook.value("K1595")) / workbook.value("K1594")
         self.assertAlmostEqual(sw["baseline_gross_margin_rate"], expected_margin, delta=1e-12)
 
     def test_sales_fx_input_reallocates_price_effect_without_changing_total(self):
@@ -269,12 +272,12 @@ class GoldenModelTests(unittest.TestCase):
             self.assertAlmostEqual(
                 result.detail["new_business_goods_cogs_reference"], 2_550_000.0, delta=0.01,
             )
-            self.assertAlmostEqual(float(workbook.value("K1241")), 0.0, delta=1.0)
+            self.assertAlmostEqual(float(workbook.value("K1289")), 0.0, delta=1.0)
             self.assertAlmostEqual(
-                float(workbook.value("K1248")), float(baseline.value("K1248")) + 100_000, delta=1.0,
+                float(workbook.value("K1273")), float(baseline.value("K1273")) + 100_000, delta=1.0,
             )
             self.assertAlmostEqual(
-                float(workbook.value("K1250")), float(baseline.value("K1250") or 0) + 200_000, delta=1.0,
+                float(workbook.value("K1295")), float(baseline.value("K1295") or 0) + 200_000, delta=1.0,
             )
             self.assertAlmostEqual(
                 result.sga, result.detail["model_sga_including_tariff_adjustment"], delta=1.0,
@@ -286,15 +289,15 @@ class GoldenModelTests(unittest.TestCase):
                 delta=1.0,
             )
             self.assertAlmostEqual(
-                float(workbook.value("K1121")), float(baseline.value("K1121")), delta=1.0,
+                float(workbook.value("K1168")), float(baseline.value("K1168")), delta=1.0,
             )
             self.assertAlmostEqual(
-                float(workbook.value("K1147")), float(baseline.value("K1147")), delta=1.0,
+                float(workbook.value("K1194")), float(baseline.value("K1194")), delta=1.0,
             )
             expected_refund = (
-                float(workbook.value("K211") or 0) + float(workbook.value("K690") or 0)
+                float(workbook.value("K211") or 0) + float(workbook.value("K699") or 0)
             ) * 0.013
-            self.assertAlmostEqual(float(workbook.value("K1246")), -expected_refund, delta=1.0)
+            self.assertAlmostEqual(float(workbook.value("K1294")), -expected_refund, delta=1.0)
             with zipfile.ZipFile(output) as archive:
                 namespace = {"m": "http://schemas.openxmlformats.org/spreadsheetml/2006/main"}
                 audit_bytes = archive.read("xl/worksheets/sheet2.xml")
@@ -303,12 +306,12 @@ class GoldenModelTests(unittest.TestCase):
                     item.attrib.get("location")
                     for item in audit_sheet.findall(".//m:hyperlink", namespace)
                 }
-                self.assertIn("'Data'!K1241", locations)
-                self.assertIn("'Data'!K1246", locations)
-                self.assertIn("'Data'!K1248", locations)
-                self.assertIn("'Data'!K1250", locations)
-                self.assertNotIn("'Data'!K1121", locations)
-                self.assertNotIn("'Data'!K1147", locations)
+                self.assertIn("'Data'!K1289", locations)
+                self.assertIn("'Data'!K1294", locations)
+                self.assertIn("'Data'!K1273", locations)
+                self.assertIn("'Data'!K1295", locations)
+                self.assertNotIn("'Data'!K1168", locations)
+                self.assertNotIn("'Data'!K1194", locations)
                 audit_text = audit_bytes.decode("utf-8")
                 self.assertIn("원재료 관세 환급금", audit_text)
                 self.assertIn("제품 폐기손실", audit_text)
@@ -327,7 +330,7 @@ class GoldenModelTests(unittest.TestCase):
             tariff_applicable_rate=0.10, tariff_rate=0.13,
             sga_adjustments=[
                 CostAdjustment(
-                    row=1121,
+                    row=1168,
                     amount=6_500,
                     reason="계획 대비 미주지역 매출 변동으로 인한 관세 금액 반영 : 6,500원",
                 )
@@ -345,14 +348,14 @@ class GoldenModelTests(unittest.TestCase):
             target = Path(directory) / "target.xlsx"
             forecast = ForecastEngine(self.model, self.mapping).run(request, target)
             result = engine.compare(baseline, self.model, comparison, target, period)
-            baseline_op = float(GoldenWorkbook(self.model).value("K1260") or 0)
+            baseline_op = float(GoldenWorkbook(self.model).value("K1306") or 0)
             self.assertAlmostEqual(result.operating_profit_delta, forecast.operating_profit - baseline_op, delta=1.0)
             tariff = next(item for item in result.cost_summary if item["code"] == "tariff")
             self.assertAlmostEqual(tariff["comparison"], 0.0, delta=0.01)
             target_workbook = GoldenWorkbook(target)
             self.assertAlmostEqual(
-                float(target_workbook.value("K1121")),
-                float(GoldenWorkbook(self.model).value("K1121")) + 6_500,
+                float(target_workbook.value("K1168")),
+                float(GoldenWorkbook(self.model).value("K1168")) + 6_500,
                 delta=1.0,
             )
             with zipfile.ZipFile(target) as archive:
@@ -386,14 +389,14 @@ class GoldenModelTests(unittest.TestCase):
             expected_front = purchase_team_total * result.detail["front_raw_material_ratio"]
             expected_back = purchase_team_total - expected_front
             self.assertAlmostEqual(float(workbook.value("K211")), expected_front, delta=1.0)
-            self.assertAlmostEqual(float(workbook.value("K690")), expected_back, delta=1.0)
+            self.assertAlmostEqual(float(workbook.value("K699")), expected_back, delta=1.0)
             self.assertAlmostEqual(
-                float(workbook.value("K211")) + float(workbook.value("K690")),
+                float(workbook.value("K211")) + float(workbook.value("K699")),
                 purchase_team_total,
                 delta=1.0,
             )
             self.assertAlmostEqual(
-                float(workbook.value("K1246")),
+                float(workbook.value("K1294")),
                 -(purchase_team_total * 0.013),
                 delta=1.0,
             )
@@ -415,8 +418,8 @@ class GoldenModelTests(unittest.TestCase):
                 }
                 audit_text = audit_bytes.decode("utf-8")
                 self.assertIn("'Data'!K211", locations)
-                self.assertIn("'Data'!K690", locations)
-                self.assertIn("'Data'!K1246", locations)
+                self.assertIn("'Data'!K699", locations)
+                self.assertIn("'Data'!K1294", locations)
                 self.assertIn("구매팀 예상 투입비_전공정", audit_text)
                 self.assertIn("구매팀 예상 투입비_후공정", audit_text)
                 self.assertIn("추정 전공정 원재료비 비율", audit_text)

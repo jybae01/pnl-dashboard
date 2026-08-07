@@ -84,6 +84,29 @@ class ComparisonMappingTests(unittest.TestCase):
             },
         )
 
+    def test_analysis_adapter_uses_confirmed_material_and_allocation_rows(self):
+        adapter = GenericComparisonEngine(MAPPING).full_mapping["analysis_adapter"]
+        material = adapter["material"]
+        self.assertEqual(material["jpy_fx_row"], 9)
+        self.assertEqual(
+            material["front_process"],
+            {
+                "nonwoven_quantity_row": 205,
+                "nonwoven_amount_row": 206,
+                "nonwoven_unit_row": 207,
+                "other_quantity_row": 208,
+                "other_amount_row": 209,
+                "other_unit_row": 210,
+                "total_amount_row": 211,
+            },
+        )
+        self.assertEqual(material["back_process"]["source_start_row"], 684)
+        self.assertEqual(material["back_process"]["source_end_row"], 699)
+        self.assertEqual(
+            adapter["manufacturing"]["front_ratio_rows"],
+            {"labor": 345, "outsourcing": 346, "other_variable": 347},
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

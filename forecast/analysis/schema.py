@@ -29,6 +29,7 @@ class ProductRecord:
     mes_production_length: float | None = None
     raw_material_cost: float = 0.0
     nonwoven_cost: float = 0.0
+    nonwoven_output_length: float | None = None
     nonwoven_sales_input_length: float = 0.0
     sales_fx: float = 1.0
     jpy_fx: float = 0.0

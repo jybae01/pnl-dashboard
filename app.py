@@ -1247,9 +1247,31 @@ def comparison_page(role: str) -> None:
         months=selected_months,
         period_type="월" if start_month == end_month else "선택기간",
     )
+    fx_key = f"{baseline_meta.id}_{comparison_meta.id}_{selected_period.key}"
+    st.markdown("**판매효과 분해용 매출환율**")
+    fx1, fx2, fx_note = st.columns([1, 1, 3])
+    baseline_sales_fx = fx1.number_input(
+        "기준 매출환율(KRW/USD)",
+        min_value=0.0001,
+        value=1480.0,
+        step=0.1,
+        format="%.2f",
+        key=f"baseline_sales_fx_{fx_key}",
+    )
+    comparison_sales_fx = fx2.number_input(
+        "비교 매출환율(KRW/USD)",
+        min_value=0.0001,
+        value=1480.0,
+        step=0.1,
+        format="%.2f",
+        key=f"comparison_sales_fx_{fx_key}",
+    )
+    fx_note.caption("입력 환율은 비교 분석 실행 시 deterministic 판매효과 Result에 저장됩니다.")
     if st.button("비교 분석", type="primary", disabled=len(selected) != 2):
         result = engine.compare(baseline_meta, REGISTRY.path(baseline_meta.id), comparison_meta,
-                                REGISTRY.path(comparison_meta.id), selected_period)
+                                REGISTRY.path(comparison_meta.id), selected_period,
+                                baseline_sales_fx=float(baseline_sales_fx),
+                                comparison_sales_fx=float(comparison_sales_fx))
         st.session_state.comparison_result = asdict(result)
 
     if "comparison_result" not in st.session_state:
@@ -1259,6 +1281,13 @@ def comparison_page(role: str) -> None:
         return
     if result["period"]["key"] != selected_period.key:
         st.info("분석기간이 변경되었습니다. 비교 분석 버튼을 다시 눌러 주세요.")
+        return
+    stored_sales = result.get("sales_analysis") or {}
+    if stored_sales and (
+        float(stored_sales.get("baseline_fx_krw_per_usd", 0.0)) != float(baseline_sales_fx)
+        or float(stored_sales.get("comparison_fx_krw_per_usd", 0.0)) != float(comparison_sales_fx)
+    ):
+        st.info("매출환율이 변경되었습니다. 비교 분석 버튼을 다시 눌러 주세요.")
         return
     render_comparison_analysis(result)
     try:

@@ -449,6 +449,14 @@ class GoldenWorkbook:
                 return str(value).strip()
         return f"{row}행"
 
+    def _sga_section(self, row: int) -> str:
+        """Resolve the nearest Golden Model SG&A section without row hardcoding."""
+        for candidate in range(row, max(0, row - 200), -1):
+            value = str(self.raw_value(f"B{candidate}") or "").strip()
+            if value in {"판매비", "일반관리비"}:
+                return value
+        return "판관비"
+
     def _audit_item(self, item: ChangeLog) -> str:
         source = item.source
         parts = source.split(".")
@@ -484,7 +492,7 @@ class GoldenWorkbook:
             return "상품 매출원가"
         if source == "sga_adjustment":
             row = int(re.search(r"\d+", item.cell).group(0))
-            prefix = "판매비" if row <= 1147 else "일반관리비"
+            prefix = self._sga_section(row)
             return f"{prefix}_{self._row_label(row)}"
         row = int(re.search(r"\d+", item.cell).group(0))
         return self._row_label(row)

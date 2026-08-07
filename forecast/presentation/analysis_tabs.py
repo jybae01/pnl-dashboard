@@ -58,20 +58,12 @@ def _render_summary(view: dict[str, Any]) -> None:
     st.write(summary["narrative"])
 
 
-def _render_sales(view: dict[str, Any], fx_key: str) -> None:
+def _render_sales(view: dict[str, Any]) -> None:
     sales = view["sales"]
     st.markdown("#### 판매 수량·단가·환율 효과")
     fx_cols = st.columns([1, 1, 3])
-    fx_cols[0].number_input(
-        "기준 매출환율(KRW/USD)", min_value=0.0001,
-        value=float(sales["baseline_fx_krw_per_usd"]), step=0.1, format="%.2f",
-        key=f"baseline_sales_fx_{fx_key}",
-    )
-    fx_cols[1].number_input(
-        "비교 매출환율(KRW/USD)", min_value=0.0001,
-        value=float(sales["comparison_fx_krw_per_usd"]), step=0.1, format="%.2f",
-        key=f"comparison_sales_fx_{fx_key}",
-    )
+    fx_cols[0].metric("기준 매출환율(KRW/USD)", f"{sales['baseline_fx_krw_per_usd']:,.2f}")
+    fx_cols[1].metric("비교 매출환율(KRW/USD)", f"{sales['comparison_fx_krw_per_usd']:,.2f}")
     fx_cols[2].caption(
         "원화 단가 변동을 순수 단가효과와 매출환율효과로 분해합니다. "
         "수량효과는 기준 제품군 GP/unit을 적용합니다."
@@ -137,11 +129,12 @@ def _render_material(view: dict[str, Any]) -> None:
             "계산상태": row["calculation_status"],
         })
     st.dataframe(_frame(rows), width="stretch", hide_index=True)
-    if material["total"] is None:
+    if material["total"] is None or material["calculation_status"] != "완료":
         st.warning(material["calculation_status"])
     st.caption(
-        "MCM·수율·사용량은 V1 독립 손익효과가 아닙니다. JPY는 KRW/JPY를 그대로 사용하며 "
-        "100JPY 환산이나 ÷100을 적용하지 않습니다."
+        "원천은 JPY 9행, 전공정 부직포 생산출고 205~207행, 부직포 제외 전공정 원재료 "
+        "208~210행, 후공정 원재료 생산출고 684~699행입니다. MCM·수율·사용량은 V1 독립 "
+        "손익효과가 아니며 JPY는 KRW/JPY를 그대로 사용해 100JPY 환산이나 ÷100을 적용하지 않습니다."
     )
 
 
@@ -185,11 +178,19 @@ def _render_manufacturing(view: dict[str, Any]) -> None:
         st.dataframe(_frame([{
             "계정과목": row.get("account"),
             "Golden Model Data 행": row.get("row"),
+            "전공정 배부율 원천 행": row.get("allocation_ratio_row"),
+            "기준 전공정 배부율": ", ".join(
+                f"{float(value):.1%}" for value in row.get("baseline_front_ratios", [])
+            ),
             "계산상태": row.get("calculation_status"),
         } for row in manufacturing["accounts"]]), width="stretch", hide_index=True)
     if manufacturing["has_uncomputed_accounts"]:
         st.warning("일부 제조경비는 Golden Model 전후공정 배부율 또는 재고실현율 분모 매핑이 없어 미산출입니다.")
-    st.caption("Golden Model 계정을 개별 행으로 표시하며 상세 탭에서 ‘기타 제조경비’로 합치지 않습니다. 재고실현율은 비교 모형 기준이며 100%를 초과해도 상한을 두지 않습니다.")
+    st.caption(
+        "Golden Model 289~319행 계정을 개별 표시하고, 기준 모형 345~347행 전공정 가공비 "
+        "투입비율을 기준·비교 양쪽에 동일 적용합니다. 상세 탭에서 ‘기타 제조경비’로 합치지 "
+        "않으며 재고실현율은 비교 모형 기준으로 100% 상한을 두지 않습니다."
+    )
 
 
 def _render_sga(view: dict[str, Any]) -> None:
@@ -226,23 +227,13 @@ def _render_sga(view: dict[str, Any]) -> None:
 
 def render_comparison_analysis(result: dict[str, Any]) -> dict[str, Any]:
     """Render all six V1 tabs from one deterministic presentation result."""
-    baseline = result.get("baseline", {})
-    comparison = result.get("comparison", {})
-    period = result.get("period", {})
-    fx_key = f"{baseline.get('id', '')}_{comparison.get('id', '')}_{period.get('key', '')}"
-    baseline_fx = float(st.session_state.get(f"baseline_sales_fx_{fx_key}", 1480.0))
-    comparison_fx = float(st.session_state.get(f"comparison_sales_fx_{fx_key}", 1480.0))
-    view = build_analysis_view(
-        result,
-        baseline_sales_fx=baseline_fx,
-        comparison_sales_fx=comparison_fx,
-    )
+    view = build_analysis_view(result)
     _render_common_header(view)
     tabs = st.tabs(["종합", "판매효과", "원부재료", "제조경비", "판관비", "AI 분석"])
     with tabs[0]:
         _render_summary(view)
     with tabs[1]:
-        _render_sales(view, fx_key)
+        _render_sales(view)
     with tabs[2]:
         _render_material(view)
     with tabs[3]:
