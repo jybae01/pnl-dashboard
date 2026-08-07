@@ -28,9 +28,21 @@ def _pnl_map(result: dict[str, Any]) -> dict[str, dict[str, Any]]:
 
 
 def _sales_view(result: dict[str, Any], baseline_fx: float, comparison_fx: float) -> dict[str, Any]:
-    source_rows = result.get("sales_groups", [])
-    calculated = calculate_sales_effect_rows(source_rows, baseline_fx, comparison_fx)
-    by_group = {row.product_group: row for row in calculated}
+    analysis = result.get("sales_analysis") or {}
+    if analysis.get("rows"):
+        calculated = list(analysis["rows"])
+        totals = dict(analysis.get("totals") or {})
+        baseline_fx = _number(analysis.get("baseline_fx_krw_per_usd"))
+        comparison_fx = _number(analysis.get("comparison_fx_krw_per_usd"))
+    else:
+        # Backward compatibility for comparison results stored before
+        # sales_analysis became part of the deterministic Result schema.
+        legacy_rows = calculate_sales_effect_rows(
+            result.get("sales_groups", []), baseline_fx, comparison_fx
+        )
+        calculated = [row.to_dict() for row in legacy_rows]
+        totals = sales_effect_totals(legacy_rows)
+    by_group = {str(row.get("product_group")): row for row in calculated}
     rows: list[dict[str, Any]] = []
     for group in PRODUCT_ORDER:
         row = by_group.get(group)
@@ -40,25 +52,25 @@ def _sales_view(result: dict[str, Any], baseline_fx: float, comparison_fx: float
         rows.append({
             "product_group": group,
             "quantity_unit": unit,
-            "baseline_quantity": row.baseline_quantity,
-            "comparison_quantity": row.comparison_quantity,
-            "quantity_delta": row.quantity_delta,
-            "baseline_amount": row.baseline_amount,
-            "comparison_amount": row.comparison_amount,
-            "revenue_delta": row.comparison_amount - row.baseline_amount,
-            "baseline_gross_margin_rate": row.baseline_gross_margin_rate,
-            "quantity_effect": row.quantity_effect,
-            "pure_price_delta_usd": row.pure_price_delta_usd,
-            "pure_price_effect": row.pure_price_effect,
-            "internal_effect": row.quantity_effect + row.pure_price_effect,
-            "sales_fx_effect": row.sales_fx_effect,
-            "total_sales_effect": row.total_sales_effect,
+            "baseline_quantity": row["baseline_quantity"],
+            "comparison_quantity": row["comparison_quantity"],
+            "quantity_delta": row["quantity_delta"],
+            "baseline_amount": row["baseline_amount"],
+            "comparison_amount": row["comparison_amount"],
+            "revenue_delta": row["comparison_amount"] - row["baseline_amount"],
+            "baseline_gross_margin_rate": row["baseline_gross_margin_rate"],
+            "quantity_effect": row["quantity_effect"],
+            "pure_price_delta_usd": row["pure_price_delta_usd"],
+            "pure_price_effect": row["pure_price_effect"],
+            "internal_effect": row["quantity_effect"] + row["pure_price_effect"],
+            "sales_fx_effect": row["sales_fx_effect"],
+            "total_sales_effect": row["total_sales_effect"],
         })
 
-    totals = sales_effect_totals(calculated)
-    baseline_amount = sum(row.baseline_amount for row in calculated)
+    baseline_amount = sum(_number(row.get("baseline_amount")) for row in calculated)
     baseline_gp = sum(
-        row.baseline_amount * row.baseline_gross_margin_rate for row in calculated
+        _number(row.get("baseline_amount")) * _number(row.get("baseline_gross_margin_rate"))
+        for row in calculated
     )
     rows.append({
         "product_group": "Total",
@@ -67,8 +79,11 @@ def _sales_view(result: dict[str, Any], baseline_fx: float, comparison_fx: float
         "comparison_quantity": None,
         "quantity_delta": None,
         "baseline_amount": baseline_amount,
-        "comparison_amount": sum(row.comparison_amount for row in calculated),
-        "revenue_delta": sum(row.comparison_amount - row.baseline_amount for row in calculated),
+        "comparison_amount": sum(_number(row.get("comparison_amount")) for row in calculated),
+        "revenue_delta": sum(
+            _number(row.get("comparison_amount")) - _number(row.get("baseline_amount"))
+            for row in calculated
+        ),
         "baseline_gross_margin_rate": baseline_gp / baseline_amount if baseline_amount else 0.0,
         "quantity_effect": totals["quantity_effect"],
         "pure_price_delta_usd": None,
@@ -136,7 +151,9 @@ def _material_view(result: dict[str, Any]) -> dict[str, Any]:
     by_group = {str(row.get("product_group")): row for row in source_rows}
     rows: list[dict[str, Any]] = []
     for group in PRODUCT_ORDER:
-        source = by_group.get(group, {})
+        source = by_group.get(group)
+        if source is None:
+            continue
         rows.append({
             "product_group": group,
             "unit": "원/m" if group == "FS" else "원/PCS",
