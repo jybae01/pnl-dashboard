@@ -41,11 +41,20 @@ def render_analysis_export(result: dict[str, Any]) -> None:
     if not baseline.get("id") or not comparison.get("id") or not period.get("key"):
         return
 
-    fx_key = f"{baseline['id']}_{comparison['id']}_{period['key']}"
-    baseline_fx = float(st.session_state.get(f"baseline_sales_fx_{fx_key}", 1480.0))
-    comparison_fx = float(st.session_state.get(f"comparison_sales_fx_{fx_key}", 1480.0))
-    sales_rows = calculate_sales_effect_rows(result.get("sales_groups", []), baseline_fx, comparison_fx)
-    totals = sales_effect_totals(sales_rows)
+    sales_analysis = result.get("sales_analysis") or {}
+    if sales_analysis.get("rows"):
+        baseline_fx = float(sales_analysis["baseline_fx_krw_per_usd"])
+        comparison_fx = float(sales_analysis["comparison_fx_krw_per_usd"])
+        sales_rows = list(sales_analysis["rows"])
+        totals = dict(sales_analysis["totals"])
+    else:
+        fx_key = f"{baseline['id']}_{comparison['id']}_{period['key']}"
+        baseline_fx = float(st.session_state.get(f"baseline_sales_fx_{fx_key}", 1480.0))
+        comparison_fx = float(st.session_state.get(f"comparison_sales_fx_{fx_key}", 1480.0))
+        sales_rows = calculate_sales_effect_rows(
+            result.get("sales_groups", []), baseline_fx, comparison_fx
+        )
+        totals = sales_effect_totals(sales_rows)
 
     root = Path(__file__).resolve().parents[1]
     registry = ModelRegistry(root / "data" / "registry")
