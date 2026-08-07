@@ -35,6 +35,25 @@ def test_build_comparison_audit_workbook(monkeypatch, tmp_path):
             "cost_labels": {"raw_material": "원재료비"},
             "effect_rows": {"revenue": 70},
             "effect_labels": {"revenue": "매출액"},
+        },
+        "analysis_adapter": {
+            "material": {
+                "jpy_fx_row": 9,
+                "front_process": {
+                    "nonwoven_quantity_row": 205,
+                    "nonwoven_amount_row": 206,
+                    "nonwoven_unit_row": 207,
+                    "other_quantity_row": 208,
+                    "other_amount_row": 209,
+                    "other_unit_row": 210,
+                    "total_amount_row": 211
+                },
+                "back_process": {"source_start_row": 684, "source_end_row": 699}
+            },
+            "account_discovery": {"manufacturing_start_marker": "제조경비"},
+            "manufacturing": {
+                "front_ratio_rows": {"labor": 345, "outsourcing": 346, "other_variable": 347}
+            }
         }
     }), encoding="utf-8")
 
@@ -54,6 +73,28 @@ def test_build_comparison_audit_workbook(monkeypatch, tmp_path):
         ],
         "mcm": [{"code": "SW400", "item": "MCM SW400", "baseline": 10, "comparison": 20, "delta": 10}],
         "production": [{"code": "SW400", "item": "SW400 생산량", "baseline": 100, "comparison": 110, "delta": 10}],
+        "material_analysis": {
+            "product_groups": [{
+                "product_group": "SW", "baseline_unit_cost": 10, "comparison_unit_cost": 12,
+                "unit_cost_delta": 2, "nonwoven_price_ex_fx": -50,
+                "nonwoven_jpy": -30, "materials_ex_nonwoven": -120,
+                "total": -200, "calculation_status": "완료",
+            }],
+        },
+        "manufacturing_accounts": [{
+            "row": 297, "account": "수도광열비", "classification": "variable",
+            "allocation_ratio_row": 347, "baseline_front_ratios": [0.54],
+            "baseline_amount": 100, "comparison_amount": 90, "delta": -10,
+            "activity_effect": 4, "unit_effect": 6, "fixed_effect": 0,
+            "occurrence_effect": 10, "inventory_realization_rate": 1.1,
+            "final_profit_effect": 11, "calculation_status": "완료",
+        }],
+        "sga_accounts": [{
+            "row": 1168, "section": "판매비", "account": "운반비",
+            "classification": "transport", "baseline_amount": 10,
+            "comparison_amount": 20, "delta": 10, "profit_effect": 0,
+            "bridge_position": "판매효과",
+        }],
     }
     sales_input = [{
         "product_group": "SW",
@@ -83,8 +124,19 @@ def test_build_comparison_audit_workbook(monkeypatch, tmp_path):
     assert workbook["판매효과_검증"]["D5"].value.startswith("=")
     assert workbook["손익_정합성"]["G5"].value == "=E5-D5"
     assert workbook["원천셀_추적"].max_row > 4
+    trace_cells = {
+        cell.value
+        for row in workbook["원천셀_추적"].iter_rows()
+        for cell in row
+        if isinstance(cell.value, str) and cell.value.startswith("E")
+    }
+    assert {"E9", "E205", "E211", "E684", "E699", "E289", "E319", "E345", "E347"} <= trace_cells
     assert workbook["README"]["B15"].value == "PASS"
     material_text = " ".join(
         str(cell.value or "") for row in workbook["원부재료_검증"].iter_rows() for cell in row
     )
     assert "MCM SW400" not in material_text
+    assert workbook["원부재료_검증"]["I5"].value == "=SUM(E5:G5)"
+    assert workbook["생산제조경비_검증"]["O5"].value == "=SUM(I5:K5)"
+    assert workbook["생산제조경비_검증"]["D5"].value == 347
+    assert workbook["판관비_검증"]["I5"].value == "판매효과"
