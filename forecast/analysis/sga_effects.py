@@ -28,10 +28,31 @@ def calculate_sga_effects(
         left = {row.account: row.amount for row in base.sga_expenses if row.year_month == month}
         right = {row.account: row.amount for row in comparison.sga_expenses if row.year_month == month}
         for account in sorted(set(left) | set(right)):
+            baseline_amount = float(left.get(account, 0.0))
+            comparison_amount = float(right.get(account, 0.0))
             if config.is_transport(account):
+                result.details.append({
+                    "month": month,
+                    "account": account,
+                    "classification": "transport",
+                    "baseline_amount": baseline_amount,
+                    "comparison_amount": comparison_amount,
+                    "delta": comparison_amount - baseline_amount,
+                    "profit_effect": 0.0,
+                    "bridge_position": "판매효과",
+                })
                 continue
-            effect = float(left.get(account, 0.0)) - float(right.get(account, 0.0))
+            effect = baseline_amount - comparison_amount
             bucket = "variable" if config.is_variable_sga(account) else "fixed"
             setattr(result, bucket, getattr(result, bucket) + effect)
-            result.details.append({"month": month, "account": account, "classification": bucket, "profit_effect": effect})
+            result.details.append({
+                "month": month,
+                "account": account,
+                "classification": bucket,
+                "baseline_amount": baseline_amount,
+                "comparison_amount": comparison_amount,
+                "delta": comparison_amount - baseline_amount,
+                "profit_effect": effect,
+                "bridge_position": "판관비",
+            })
     return result
