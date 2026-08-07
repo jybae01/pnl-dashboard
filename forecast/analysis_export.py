@@ -236,6 +236,86 @@ def _write_simple_delta_sheet(ws, title: str, subtitle: str, sections: list[tupl
     _style_data_sheet(ws, header_row, money_columns=(4, 5, 6, 7))
 
 
+def _write_material_detail(ws, result: dict[str, Any]) -> None:
+    header_row = _write_title(
+        ws,
+        "원부재료 효과 검증",
+        "엔진 Result의 제품군별 3요소를 그대로 기록합니다. 원천은 JPY 9행, 전공정 205~210행, 후공정 684~699행입니다.",
+    )
+    headers = [
+        "제품군", "기준 원단위", "비교 원단위", "원단위 증감",
+        "부직포 단가효과(환율 제외)", "부직포 엔화효과",
+        "부직포 제외 원재료 효과", "원부재료 효과 합계", "3요소 엑셀합계", "검증", "계산상태",
+    ]
+    _write_headers(ws, header_row, headers)
+    for item in (result.get("material_analysis") or {}).get("product_groups", []):
+        row_no = ws.max_row + 1
+        ws.append([
+            item.get("product_group"), item.get("baseline_unit_cost"),
+            item.get("comparison_unit_cost"), item.get("unit_cost_delta"),
+            item.get("nonwoven_price_ex_fx"), item.get("nonwoven_jpy"),
+            item.get("materials_ex_nonwoven"), item.get("total"), None, None,
+            item.get("calculation_status"),
+        ])
+        ws.cell(row_no, 9, f"=SUM(E{row_no}:G{row_no})").fill = _FORMULA_FILL
+        ws.cell(row_no, 10, _formula_check(f"I{row_no}", f"H{row_no}")).fill = _CHECK_FILL
+    _style_data_sheet(ws, header_row, money_columns=(5, 6, 7, 8, 9))
+
+
+def _write_manufacturing_detail(ws, result: dict[str, Any]) -> None:
+    header_row = _write_title(
+        ws,
+        "생산·제조경비 효과 검증",
+        "Golden Model 289~319행 계정 총액에 기준 모형 345~347행 전공정 가공비 투입비율을 적용한 엔진 Result입니다.",
+    )
+    headers = [
+        "원천 행", "계정과목", "구분", "배부율 원천 행", "기준 전공정 배부율",
+        "기준 금액", "비교 금액", "증감", "조업도 효과", "원단위 효과",
+        "고정비 효과", "실현 전 효과", "재고실현율", "최종 손익효과", "발생효과 엑셀합계", "검증", "계산상태",
+    ]
+    _write_headers(ws, header_row, headers)
+    for item in result.get("manufacturing_accounts", []):
+        row_no = ws.max_row + 1
+        ratios = item.get("baseline_front_ratios") or []
+        ratio_display = ratios[0] if len(ratios) == 1 else ", ".join(str(value) for value in ratios)
+        ws.append([
+            item.get("row"), item.get("account"), item.get("classification"),
+            item.get("allocation_ratio_row"), ratio_display,
+            item.get("baseline_amount"), item.get("comparison_amount"), item.get("delta"),
+            item.get("activity_effect"), item.get("unit_effect"), item.get("fixed_effect"),
+            item.get("occurrence_effect"), item.get("inventory_realization_rate"),
+            item.get("final_profit_effect"), None, None, item.get("calculation_status"),
+        ])
+        ws.cell(row_no, 15, f"=SUM(I{row_no}:K{row_no})").fill = _FORMULA_FILL
+        ws.cell(row_no, 16, _formula_check(f"O{row_no}", f"L{row_no}")).fill = _CHECK_FILL
+    _style_data_sheet(
+        ws, header_row,
+        money_columns=(6, 7, 8, 9, 10, 11, 12, 14, 15),
+        percent_columns=(5, 13),
+    )
+
+
+def _write_sga_detail(ws, result: dict[str, Any]) -> None:
+    header_row = _write_title(
+        ws,
+        "판관비 효과 검증",
+        "Golden Model 계정을 개별 행으로 기록하며 고객배송 운반비와 관세의 Bridge 반영 위치를 구분합니다.",
+    )
+    headers = [
+        "원천 행", "구역", "계정과목", "구분", "기준 금액", "비교 금액",
+        "증감", "손익효과", "손익 Bridge 반영",
+    ]
+    _write_headers(ws, header_row, headers)
+    for item in result.get("sga_accounts", []):
+        ws.append([
+            item.get("row"), item.get("section"), item.get("account"),
+            item.get("classification"), item.get("baseline_amount"),
+            item.get("comparison_amount"), item.get("delta"),
+            item.get("profit_effect"), item.get("bridge_position"),
+        ])
+    _style_data_sheet(ws, header_row, money_columns=(5, 6, 7, 8))
+
+
 def _write_formula_catalog(ws) -> None:
     header_row = _write_title(ws, "수식 정의", "분석 엔진과 검증 엑셀에서 사용하는 주요 산식 및 처리 원칙입니다.")
     headers = ["영역", "항목", "산식", "부호·처리 기준", "코드 위치"]
@@ -278,6 +358,37 @@ def _mapping_specs(mapping: dict[str, Any]) -> list[tuple[str, str, str, Any]]:
     return output
 
 
+def _analysis_source_specs(payload: dict[str, Any]) -> list[tuple[str, str, str, Any]]:
+    adapter = payload.get("analysis_adapter", {})
+    material = adapter.get("material", {})
+    front = material.get("front_process", {})
+    back = material.get("back_process", {})
+    output: list[tuple[str, str, str, Any]] = []
+    if material.get("jpy_fx_row"):
+        output.append(("원부재료", "jpy_fx", "엔화환율(KRW/JPY)", material["jpy_fx_row"]))
+    for key, label in (
+        ("nonwoven_quantity_row", "전공정 부직포 생산출고 수량"),
+        ("nonwoven_amount_row", "전공정 부직포 생산출고 금액"),
+        ("nonwoven_unit_row", "전공정 부직포 생산출고 단가"),
+        ("other_quantity_row", "부직포 제외 전공정 원재료 생산출고 수량"),
+        ("other_amount_row", "부직포 제외 전공정 원재료 생산출고 금액"),
+        ("other_unit_row", "부직포 제외 전공정 원재료 생산출고 단가"),
+        ("total_amount_row", "전공정 원재료 생산출고 합계"),
+    ):
+        if front.get(key):
+            output.append(("원부재료", key, label, front[key]))
+    if back.get("source_start_row") and back.get("source_end_row"):
+        for row in range(int(back["source_start_row"]), int(back["source_end_row"]) + 1):
+            output.append(("원부재료", f"back_process_{row}", f"후공정 원재료 생산출고 {row}행", row))
+    account_discovery = adapter.get("account_discovery", {})
+    if account_discovery.get("manufacturing_start_marker"):
+        for row in range(289, 320):
+            output.append(("제조경비", f"manufacturing_{row}", f"제조경비 명세 {row}행", row))
+    for key, row in adapter.get("manufacturing", {}).get("front_ratio_rows", {}).items():
+        output.append(("제조경비", f"front_ratio_{key}", f"전공정 가공비 투입비율({key})", row))
+    return output
+
+
 def _expand_spec(spec: Any) -> list[tuple[int, int, str]]:
     if isinstance(spec, int):
         return [(spec, 1, "direct")]
@@ -300,10 +411,12 @@ def _write_source_trace(
     header_row = _write_title(ws, "원천셀 추적", "모형별·월별로 실제 읽은 셀, 저장 수식, 계산값과 집계 부호를 표시합니다.")
     headers = ["모형", "영역", "지표코드", "지표명", "월", "시트", "셀", "집계부호", "집계규칙", "원본수식", "엔진 사용값"]
     _write_headers(ws, header_row, headers)
-    mapping = json.loads(Path(mapping_path).read_text(encoding="utf-8"))["comparison"]
+    payload = json.loads(Path(mapping_path).read_text(encoding="utf-8"))
+    mapping = payload["comparison"]
+    specs = [*_mapping_specs(mapping), *_analysis_source_specs(payload)]
     models = [("기준", GoldenWorkbook(baseline_path)), ("비교", GoldenWorkbook(comparison_path))]
     for side, workbook in models:
-        for domain, code, label, spec in _mapping_specs(mapping):
+        for domain, code, label, spec in specs:
             for row_number, sign, rule in _expand_spec(spec):
                 for month in months:
                     cell_ref = f"{MONTH_COLUMNS[int(month)]}{row_number}"
@@ -336,37 +449,9 @@ def build_comparison_audit_workbook(
     _write_pnl_and_reconciliation(workbook.create_sheet("손익_정합성"), result)
     _write_sales(workbook.create_sheet("판매효과_검증"), sales_rows, sales_totals, baseline_fx, comparison_fx)
 
-    cost_rows = result.get("cost_summary", [])
-    material_rows = [row for row in cost_rows if row.get("code") in {"raw_material", "customs_refund"}]
-    _write_simple_delta_sheet(
-        workbook.create_sheet("원부재료_검증"), "원부재료 효과 검증",
-        "원부재료 총액의 기준·비교값을 확인합니다. MCM과 수율/사용량은 독립 효과로 표시하지 않습니다.",
-        [("원부재료", material_rows)],
-    )
-
-    manufacturing_rows = [
-        row for row in cost_rows
-        if row.get("code") in {"labor", "outsourcing", "other_processing", "processing_total", "manufacturing_expense"}
-    ]
-    production_rows = [
-        {**row, "note": "SAP 수불부 생산입고 기준"}
-        for row in result.get("production", [])
-    ]
-    _write_simple_delta_sheet(
-        workbook.create_sheet("생산제조경비_검증"), "생산·제조경비 효과 검증",
-        "생산량은 SAP 수불부 생산입고를 기준으로 하며 MES는 보조 검증값으로만 사용합니다.",
-        [("생산", production_rows), ("제조경비", manufacturing_rows)],
-    )
-
-    sga_rows = [
-        row for row in cost_rows
-        if row.get("code") in {"selling_expense", "general_admin", "sga_total", "tariff"}
-    ]
-    _write_simple_delta_sheet(
-        workbook.create_sheet("판관비_검증"), "판관비 효과 검증",
-        "판매비·일반관리비·관세의 기준·비교값과 증감을 확인합니다.",
-        [("판관비", sga_rows)],
-    )
+    _write_material_detail(workbook.create_sheet("원부재료_검증"), result)
+    _write_manufacturing_detail(workbook.create_sheet("생산제조경비_검증"), result)
+    _write_sga_detail(workbook.create_sheet("판관비_검증"), result)
     _write_formula_catalog(workbook.create_sheet("수식_정의"))
     months = tuple(int(month) for month in result.get("period", {}).get("months", ()))
     _write_source_trace(
