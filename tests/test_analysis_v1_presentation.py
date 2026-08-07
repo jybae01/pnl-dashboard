@@ -170,6 +170,8 @@ def test_summary_keeps_residual_separate_and_reconciles():
 
 def test_ai_fact_pack_uses_view_millions_and_has_no_independent_mcm():
     result = sample_result()
+    result["baseline"]["tariff_adjustment_monthly"] = {"1": 85_000_000}
+    result["comparison"]["regional_sales_monthly"] = {"1": 123_000_000}
     view = build_analysis_view(result)
     pack = build_fact_pack(result, analysis_view=view, business_notes="정기보수")
     assert pack["metadata"]["currency_display_unit"] == "KRW million"
@@ -178,6 +180,9 @@ def test_ai_fact_pack_uses_view_millions_and_has_no_independent_mcm():
     ranked_values = [abs(row["effect_million_krw"]) for row in pack["effect_ranking"]]
     assert ranked_values == sorted(ranked_values, reverse=True)
     assert "85000000" not in str(pack).replace("-", "")
+    assert "123000000" not in str(pack)
+    assert "tariff_adjustment_monthly" not in pack["comparison"]["baseline"]
+    assert "regional_sales_monthly" not in pack["comparison"]["comparison"]
     assert "mcm_transition" not in str(pack).lower()
     assert "yield_effect" not in str(pack).lower()
 
@@ -285,9 +290,17 @@ def test_generic_comparison_direction_reverses_all_deltas(monkeypatch):
     base_meta = ModelMeta("base", "Base", "계획", 2026, 1, 12, "2026-01-01", "V1", True, "base.xlsx", "now")
     comp_meta = ModelMeta("comp", "Comp", "실적", 2026, 1, 12, "2026-01-01", "V1", True, "comp.xlsx", "now")
     period = PeriodOption("M01", "1월", (1,), "월")
-    forward = engine.compare(base_meta, "base", comp_meta, "comparison", period)
-    reverse = engine.compare(comp_meta, "comparison", base_meta, "base", period)
+    forward = engine.compare(
+        base_meta, "base", comp_meta, "comparison", period,
+        baseline_sales_fx=1400, comparison_sales_fx=1500,
+    )
+    reverse = engine.compare(
+        comp_meta, "comparison", base_meta, "base", period,
+        baseline_sales_fx=1500, comparison_sales_fx=1400,
+    )
     assert forward.operating_profit_delta == -reverse.operating_profit_delta == 5.0
     assert forward.effects_total == -reverse.effects_total == 5.0
     assert forward.effects[0]["delta"] == -reverse.effects[0]["delta"]
     assert forward.effects[0]["profit_effect"] == -reverse.effects[0]["profit_effect"]
+    assert forward.sales_analysis["baseline_fx_krw_per_usd"] == 1400
+    assert forward.sales_analysis["comparison_fx_krw_per_usd"] == 1500
