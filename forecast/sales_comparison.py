@@ -15,6 +15,8 @@ class SalesEffectRow:
     comparison_amount: float
     comparison_unit_price: float
     comparison_gross_margin_rate: float
+    quantity_delta: float
+    pure_price_delta_usd: float
     quantity_effect: float
     pure_price_effect: float
     sales_fx_effect: float
@@ -69,6 +71,8 @@ def calculate_sales_effect_rows(
             comparison_amount=a1,
             comparison_unit_price=p1,
             comparison_gross_margin_rate=gm1,
+            quantity_delta=q1 - q0,
+            pure_price_delta_usd=foreign_price1 - foreign_price0,
             quantity_effect=quantity_effect,
             pure_price_effect=pure_price_effect,
             sales_fx_effect=sales_fx_effect,
