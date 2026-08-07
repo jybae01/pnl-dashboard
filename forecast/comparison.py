@@ -8,6 +8,8 @@ from typing import Any
 from .storage import ModelMeta
 from .workbook import GoldenWorkbook
 from .analysis.configuration import AnalysisConfig
+from .analysis.golden_adapter import GoldenAnalysisAdapter
+from .sales_comparison import calculate_sales_effect_rows, sales_effect_totals
 
 
 @dataclass(frozen=True)
@@ -38,6 +40,9 @@ class ComparisonResult:
     mcm_transition: dict[str, Any] | None = None
     manufacturing_accounts: list[dict[str, Any]] = field(default_factory=list)
     sga_accounts: list[dict[str, Any]] = field(default_factory=list)
+    material_analysis: dict[str, Any] = field(default_factory=dict)
+    manufacturing_analysis: dict[str, Any] = field(default_factory=dict)
+    sales_analysis: dict[str, Any] = field(default_factory=dict)
 
 
 class GenericComparisonEngine:
@@ -51,6 +56,7 @@ class GenericComparisonEngine:
     def __init__(self, mapping_path: str | Path):
         mapping_path = Path(mapping_path)
         payload = json.loads(mapping_path.read_text(encoding="utf-8"))
+        self.full_mapping = payload
         self.mapping = payload["comparison"]
         self.manufacturing_account_rows = tuple(payload.get("manufacturing_input_rows", ()))
         self.sga_account_rows = tuple(payload.get("sga_input_rows", ()))
@@ -58,6 +64,9 @@ class GenericComparisonEngine:
         self.analysis_config = (
             AnalysisConfig.load(analysis_config_path) if analysis_config_path.exists() else None
         )
+        if self.analysis_config is None:
+            raise ValueError("analysis_v1.json is required for Golden Model comparison")
+        self.analysis_adapter = GoldenAnalysisAdapter(payload, self.analysis_config)
 
     @staticmethod
     def common_months(baseline: ModelMeta, comparison: ModelMeta) -> tuple[int, ...]:
@@ -92,6 +101,9 @@ class GenericComparisonEngine:
         comparison_meta: ModelMeta,
         comparison_path: str | Path,
         period: PeriodOption,
+        *,
+        baseline_sales_fx: float = 1480.0,
+        comparison_sales_fx: float = 1480.0,
     ) -> ComparisonResult:
         common = set(self.common_months(baseline_meta, comparison_meta))
         if not period.months or not set(period.months).issubset(common):
@@ -126,6 +138,15 @@ class GenericComparisonEngine:
                 "comparison_cogs": right["cogs"],
                 "comparison_gross_margin_rate": right["gross_margin_rate"],
             })
+        calculated_sales = calculate_sales_effect_rows(
+            sales_groups, baseline_sales_fx, comparison_sales_fx
+        )
+        sales_analysis = {
+            "baseline_fx_krw_per_usd": float(baseline_sales_fx),
+            "comparison_fx_krw_per_usd": float(comparison_sales_fx),
+            "rows": [row.to_dict() for row in calculated_sales],
+            "totals": sales_effect_totals(calculated_sales),
+        }
         production = self._rows(self.mapping["production_labels"], baseline["production"], target["production"])
         mcm = self._rows(self.mapping["mcm_labels"], baseline["mcm"], target["mcm"])
         cost_summary = self._rows(self.mapping["cost_labels"], baseline["cost_summary"], target["cost_summary"])
@@ -141,12 +162,24 @@ class GenericComparisonEngine:
         residual = op_delta - effects_total
         tolerance = max(1.0, abs(op_delta) * 1e-9)
         narrative = self._narrative(op_delta, effects, residual)
-        manufacturing_accounts = self._manufacturing_account_rows(
-            baseline.get("manufacturing_accounts", []),
-            target.get("manufacturing_accounts", []),
-            target.get("pnl", {}),
-            target.get("cost_summary", {}),
-        )
+        if baseline.get("adapted") is not None and target.get("adapted") is not None:
+            material_analysis = self.analysis_adapter.material_analysis(
+                baseline["adapted"], target["adapted"]
+            )
+            manufacturing_accounts, manufacturing_analysis = (
+                self.analysis_adapter.manufacturing_accounts(
+                    baseline["adapted"], target["adapted"]
+                )
+            )
+        else:
+            material_analysis = {}
+            manufacturing_accounts = self._manufacturing_account_rows(
+                baseline.get("manufacturing_accounts", []),
+                target.get("manufacturing_accounts", []),
+                target.get("pnl", {}),
+                target.get("cost_summary", {}),
+            )
+            manufacturing_analysis = {}
         sga_accounts = self._sga_account_rows(
             baseline.get("sga_accounts", []),
             target.get("sga_accounts", []),
@@ -163,6 +196,9 @@ class GenericComparisonEngine:
             mcm_transition=None,
             manufacturing_accounts=manufacturing_accounts,
             sga_accounts=sga_accounts,
+            material_analysis=material_analysis,
+            manufacturing_analysis=manufacturing_analysis,
+            sales_analysis=sales_analysis,
         )
 
     @staticmethod
@@ -361,22 +397,19 @@ class GenericComparisonEngine:
             subtracted = sum(total(row) for row in spec.get("subtract", []))
             return added - subtracted
 
-        def account_rows(rows: tuple[int, ...], *, sga: bool = False) -> list[dict[str, Any]]:
+        adapted = (
+            self.analysis_adapter.build(workbook, meta, months)
+            if hasattr(workbook, "cells") else None
+        )
+
+        def account_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
             output: list[dict[str, Any]] = []
-            label_reader = getattr(workbook, "raw_value", workbook.value)
-            for row_number in rows:
-                label = next((
-                    str(label_reader(f"{column}{row_number}")).strip()
-                    for column in ("D", "C", "B", "A")
-                    if label_reader(f"{column}{row_number}") not in (None, "", 0)
-                ), f"행 {row_number}")
-                section = None
-                if sga:
-                    section = "판매비" if row_number <= 1194 else "일반관리비"
+            for row in rows:
+                row_number = int(row["row"])
                 output.append({
                     "row": row_number,
-                    "account": label,
-                    "section": section,
+                    "account": row["account"],
+                    "section": row["section"],
                     "amount": total(row_number),
                 })
             return output
@@ -417,5 +450,6 @@ class GenericComparisonEngine:
         return {"pnl": pnl, "products": products, "sales_groups": sales_groups,
                 "production": production, "mcm": mcm,
                 "cost_summary": cost_summary, "effect_bases": effect_bases,
-                "manufacturing_accounts": account_rows(self.manufacturing_account_rows),
-                "sga_accounts": account_rows(self.sga_account_rows, sga=True)}
+                "manufacturing_accounts": [],
+                "sga_accounts": account_rows(adapted.sga_source_rows) if adapted else [],
+                "adapted": adapted}
