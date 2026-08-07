@@ -194,12 +194,25 @@ def test_generic_account_result_is_dynamic_and_tariff_is_once():
     assert manufacturing[0]["classification"] == "variable"
     assert manufacturing[0]["inventory_realization_rate"] == 1.0
     sga = engine._sga_account_rows(
-        [{"row": 1, "account": "운반비", "amount": 10}],
-        [{"row": 1, "account": "운반비", "amount": 20}, {"row": 2, "account": "신규계정", "amount": 5}],
+        [{"row": 1, "account": "운반비", "section": "판매비", "amount": 10}],
+        [{"row": 1, "account": "운반비", "section": "판매비", "amount": 20}, {"row": 2, "account": "신규계정", "section": "일반관리비", "amount": 5}],
         {"tariff": 0}, {"tariff": 3},
     )
     assert [row["account"] for row in sga].count("관세(직접입력)") == 1
     assert next(row for row in sga if row["account"] == "운반비")["profit_effect"] == 0
+
+
+def test_general_admin_transport_name_is_not_misclassified_as_customer_delivery():
+    engine = GenericComparisonEngine("config/model_mapping.json")
+    rows = engine._sga_account_rows(
+        [{"row": 1200, "account": "운반비", "section": "일반관리비", "amount": 10}],
+        [{"row": 1200, "account": "운반비", "section": "일반관리비", "amount": 15}],
+        {"tariff": 0}, {"tariff": 0},
+    )
+    general_transport = next(row for row in rows if row["row"] == 1200)
+    assert general_transport["classification"] == "fixed"
+    assert general_transport["profit_effect"] == -5
+    assert general_transport["bridge_position"] == "고정 판관비"
 
 
 def test_streamlit_v1_tabs_and_account_tables_render_without_runtime_errors():
