@@ -154,8 +154,11 @@ def calculate_manufacturing_effects(
             amount0 = lrow.amount if lrow else 0.0
             amount1 = rrow.amount if rrow else 0.0
             fr0 = _front_ratio(lrow, raw_a0, account, config)
-            fr1 = _front_ratio(rrow, raw_a1, account, config) if rrow else fr0
-            br0, br1 = 1.0 - fr0, 1.0 - fr1
+            # V1 policy: the baseline allocation ratio is applied consistently
+            # to both scenarios. A comparison-side ratio change must not create
+            # an artificial process-mix effect.
+            fr1 = fr0
+            br0, br1 = 1.0 - fr0, 1.0 - fr0
             front0, front1 = amount0 * fr0, amount1 * fr1
             back0, back1 = amount0 * br0, amount1 * br1
             detail: dict[str, Any] = {
@@ -171,14 +174,33 @@ def calculate_manufacturing_effects(
             if config.is_variable_manufacturing(account):
                 back_activity0 = a0.outsourcing_back if config.is_outsourcing(account) else a0.back
                 back_activity1 = a1.outsourcing_back if config.is_outsourcing(account) else a1.back
-                fu0 = front0 / a0.front if a0.front else 0.0
-                fu1 = front1 / a1.front if a1.front else 0.0
-                bu0 = back0 / back_activity0 if back_activity0 else 0.0
-                bu1 = back1 / back_activity1 if back_activity1 else 0.0
-                fa = -(a1.front - a0.front) * fu0
-                fuv = -a1.front * (fu1 - fu0)
-                ba = -(back_activity1 - back_activity0) * bu0
-                buv = -back_activity1 * (bu1 - bu0)
+                calculation_status = "완료"
+
+                def decompose(
+                    amount0: float,
+                    amount1: float,
+                    quantity0: float,
+                    quantity1: float,
+                ) -> tuple[float, float, bool]:
+                    if quantity0 and quantity1:
+                        unit0 = amount0 / quantity0
+                        unit1 = amount1 / quantity1
+                        return (
+                            (quantity0 - quantity1) * unit0,
+                            quantity1 * (unit0 - unit1),
+                            False,
+                        )
+                    # Preserve C0-C1 exactly without NaN/Infinity when either
+                    # activity denominator is zero. The split is intentionally
+                    # assigned to unit effect and flagged for audit.
+                    return 0.0, amount0 - amount1, bool(amount0 or amount1)
+
+                fa, fuv, front_fallback = decompose(front0, front1, a0.front, a1.front)
+                ba, buv, back_fallback = decompose(
+                    back0, back1, back_activity0, back_activity1
+                )
+                if front_fallback or back_fallback:
+                    calculation_status = "분모 0 안전대체: 발생효과를 원단위효과로 분류"
                 result.front_activity += fa
                 result.front_unit += fuv
                 result.back_activity += ba
@@ -196,11 +218,14 @@ def calculate_manufacturing_effects(
                     activity_effect=fa + ba,
                     unit_effect=fuv + buv,
                     fixed_effect=0.0,
+                    calculation_status=calculation_status,
                 )
                 if config.is_outsourcing(account) and amount1 < amount0:
                     result.outsourcing_decrease_effect += amount0 - amount1
-                if (front0 and not a0.front) or (back0 and not back_activity0):
-                    result.issues.append(f"{month} {account}: 기준 SAP 생산입고 조업도 분모가 0임")
+                if front_fallback or back_fallback:
+                    result.issues.append(
+                        f"{month} {account}: SAP 생산입고 조업도 분모 0 안전대체 적용"
+                    )
             else:
                 ff = front0 - front1
                 bf = back0 - back1
@@ -213,6 +238,7 @@ def calculate_manufacturing_effects(
                     activity_effect=0.0,
                     unit_effect=0.0,
                     fixed_effect=occurrence,
+                    calculation_status="완료",
                 )
             occurrence_month += occurrence
             detail["occurrence_effect"] = occurrence
