@@ -1,0 +1,16 @@
+{
+  "schema_version": "1",
+  "config_key": "model_mapping",
+  "active_version": "analysis-v1.0.0",
+  "versions": [
+    {
+      "version": "analysis-v1.0.0",
+      "status": "published",
+      "file": "model_mapping.json",
+      "content_hash": "b66e13b28db975403f3cc04a550514df6422df135b432a604e5cee1650fb2281",
+      "is_default": true,
+      "validated_at": "2026-08-09T00:00:00+09:00",
+      "published_at": "2026-08-09T00:00:00+09:00"
+    }
+  ]
+}

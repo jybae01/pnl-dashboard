@@ -2,6 +2,7 @@ __pycache__/
 *.py[cod]
 .pytest_cache/
 .runtime_packages/
+.venv/
 .verify_artifact/
 .streamlit/secrets.toml
 

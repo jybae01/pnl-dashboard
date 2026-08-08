@@ -18,14 +18,21 @@ from forecast.baseline import inspect_baseline_workbook
 from forecast.engine import CostAdjustment, ForecastEngine, ForecastInput, ForecastResult, SalesInput
 from forecast.presentation.analysis_tabs import render_comparison_analysis
 from forecast.presentation.formatting import format_million
+from forecast.persistence.local import LocalModelRepositoryAdapter, LocalResultRepositoryAdapter
+from forecast.provenance import load_registered_provenance
 from forecast.storage import BaselineStore, ModelRegistry, ResultStore
 from forecast.workbook import GoldenWorkbook, extract_period_types, infer_workbook_year
 
 ROOT = Path(__file__).resolve().parent
 MODEL = ROOT / "models" / "golden_model.xlsx"
 MAPPING = ROOT / "config" / "model_mapping.json"
-STORE = ResultStore(ROOT / "data")
-REGISTRY = ModelRegistry(ROOT / "data" / "registry")
+LOCAL_RESULT_PROVENANCE = load_registered_provenance(
+    MAPPING,
+    ROOT / "config" / "mapping_registry.json",
+    ROOT / "config" / "release.json",
+)
+STORE = LocalResultRepositoryAdapter(ResultStore(ROOT / "data"), LOCAL_RESULT_PROVENANCE)
+REGISTRY = LocalModelRepositoryAdapter(ModelRegistry(ROOT / "data" / "registry"), LOCAL_RESULT_PROVENANCE)
 BASELINE = BaselineStore(ROOT / "data" / "baseline")
 RELEASE_FILE = ROOT / "config" / "release.json"
 
