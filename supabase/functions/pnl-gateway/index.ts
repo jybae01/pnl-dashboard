@@ -3,13 +3,12 @@ import { createClient, User } from "@supabase/supabase-js";
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL") ?? "";
 const ANON_KEY = Deno.env.get("SUPABASE_ANON_KEY") ?? "";
 const SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
-const WORKER_GATEWAY_TOKEN = Deno.env.get("WORKER_GATEWAY_TOKEN") ?? "";
 const ENGINE_VERSION = Deno.env.get("ENGINE_VERSION") ?? "phase1-unconfigured";
 const RESULT_SCHEMA_VERSION = Deno.env.get("RESULT_SCHEMA_VERSION") ?? "1";
 const STORAGE_BUCKET = "pnl-models";
 const MAPPING_CONFIG_KEY = "model_mapping";
 const UUID_PATTERN = "[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}";
-const JOB_ROUTE = new RegExp(`/jobs/(${UUID_PATTERN})(?:/(uploaded|heartbeat|complete|fail))?$`);
+const JOB_ROUTE = new RegExp(`/jobs/(${UUID_PATTERN})(?:/(uploaded))?$`);
 
 const service = createClient(SUPABASE_URL, SERVICE_ROLE_KEY, {
   auth: { persistSession: false, autoRefreshToken: false },
@@ -23,7 +22,7 @@ function corsHeaders(request: Request): Record<string, string> {
   const origin = request.headers.get("origin") ?? "";
   return {
     "access-control-allow-origin": allowed.includes(origin) ? origin : allowed[0] ?? "null",
-    "access-control-allow-headers": "authorization, content-type, x-worker-token, x-request-id",
+    "access-control-allow-headers": "authorization, content-type, x-request-id",
     "access-control-allow-methods": "GET, POST, OPTIONS",
     "vary": "Origin",
   };
@@ -51,26 +50,6 @@ function isAdmin(user: User): boolean {
   const role = user.app_metadata?.role;
   const roles = user.app_metadata?.roles;
   return role === "admin" || (Array.isArray(roles) && roles.includes("admin"));
-}
-
-async function safeEqual(left: string, right: string): Promise<boolean> {
-  if (!left || !right) return false;
-  const encoder = new TextEncoder();
-  const [leftHash, rightHash] = await Promise.all([
-    crypto.subtle.digest("SHA-256", encoder.encode(left)),
-    crypto.subtle.digest("SHA-256", encoder.encode(right)),
-  ]);
-  const a = new Uint8Array(leftHash);
-  const b = new Uint8Array(rightHash);
-  let difference = a.length ^ b.length;
-  for (let index = 0; index < Math.min(a.length, b.length); index += 1) {
-    difference |= a[index] ^ b[index];
-  }
-  return difference === 0;
-}
-
-async function authorizeWorker(request: Request): Promise<boolean> {
-  return safeEqual(request.headers.get("x-worker-token") ?? "", WORKER_GATEWAY_TOKEN);
 }
 
 async function readJson(request: Request): Promise<Record<string, unknown>> {
@@ -113,6 +92,45 @@ async function initializeUpload(request: Request, user: User): Promise<Response>
   if (!Number.isInteger(modelYear) || modelYear < 2000 || modelYear > 2200) {
     return json(request, 400, { error: "invalid_model_year" });
   }
+  const baselineModelId = typeof body.baselineModelId === "string"
+    ? body.baselineModelId.trim().toLowerCase()
+    : "";
+  if (baselineModelId && !(new RegExp(`^${UUID_PATTERN}$`, "i")).test(baselineModelId)) {
+    return json(request, 400, { error: "invalid_baseline_model_id" });
+  }
+  const rawMonths = body.months === undefined ? [] : body.months;
+  if (!Array.isArray(rawMonths)) return json(request, 400, { error: "invalid_months" });
+  const months = rawMonths.map(Number).sort((left, right) => left - right);
+  if (
+    months.some((month) => !Number.isInteger(month) || month < 1 || month > 12) ||
+    new Set(months).size !== months.length ||
+    months.some((month, index) => index > 0 && month !== months[index - 1] + 1)
+  ) {
+    return json(request, 400, { error: "invalid_months" });
+  }
+  const baselineSalesFx = Number(body.baselineSalesFx ?? 1480);
+  const comparisonSalesFx = Number(body.comparisonSalesFx ?? 1480);
+  if (!(baselineSalesFx > 0) || !(comparisonSalesFx > 0)) {
+    return json(request, 400, { error: "invalid_sales_fx" });
+  }
+  const publish = Boolean(body.publish);
+  const makeDefault = Boolean(body.makeDefault);
+  if (makeDefault && !publish) {
+    return json(request, 400, { error: "default_requires_publication" });
+  }
+
+  if (baselineModelId) {
+    const { data: baseline, error: baselineError } = await service
+      .from("models")
+      .select("id,model_year,is_published")
+      .eq("id", baselineModelId)
+      .maybeSingle();
+    if (baselineError) throw baselineError;
+    if (!baseline?.is_published) return json(request, 409, { error: "published_baseline_not_found" });
+    if (baseline.model_year !== modelYear) {
+      return json(request, 409, { error: "baseline_year_mismatch" });
+    }
+  }
 
   const mapping = await publishedMapping();
   const modelId = crypto.randomUUID();
@@ -144,6 +162,14 @@ async function initializeUpload(request: Request, user: User): Promise<Response>
     p_result_schema_version: RESULT_SCHEMA_VERSION,
     p_created_by: user.id,
     p_max_attempts: 3,
+    p_analysis_request: {
+      ...(baselineModelId ? { baseline_model_id: baselineModelId } : {}),
+      months,
+      baseline_sales_fx: baselineSalesFx,
+      comparison_sales_fx: comparisonSalesFx,
+      publish,
+      make_default: makeDefault,
+    },
   });
   if (initializeError) throw initializeError;
 
@@ -160,6 +186,14 @@ async function initializeUpload(request: Request, user: User): Promise<Response>
       mappingVersion: mapping.version,
       mappingHash: mapping.content_hash,
       resultSchemaVersion: RESULT_SCHEMA_VERSION,
+    },
+    analysisRequest: {
+      baselineModelId: baselineModelId || null,
+      months,
+      baselineSalesFx,
+      comparisonSalesFx,
+      publish,
+      makeDefault,
     },
   });
 }
@@ -199,74 +233,12 @@ async function markUploadCompleted(request: Request, user: User, jobId: string):
     p_created_by: job.created_by,
   });
   if (error) throw error;
-  return json(request, 200, { status: Array.isArray(data) ? data[0]?.status : data?.status, uploadCompleted: true });
-}
-
-async function claimJob(request: Request): Promise<Response> {
-  const body = await readJson(request);
-  const workerId = requiredText(body, "workerId");
-  const leaseSeconds = Number(body.leaseSeconds ?? 300);
-  const { data, error } = await service.rpc("claim_calculation_job", {
-    p_worker_id: workerId,
-    p_lease_seconds: leaseSeconds,
+  const updated = Array.isArray(data) ? data[0] : data;
+  return json(request, 200, {
+    status: updated?.status,
+    uploadCompleted: true,
+    queueMessageId: updated?.queue_message_id,
   });
-  if (error) throw error;
-  return json(request, 200, { job: Array.isArray(data) ? data[0] ?? null : data ?? null });
-}
-
-async function workerTransition(request: Request, jobId: string, action: string): Promise<Response> {
-  const body = await readJson(request);
-  const claimToken = requiredText(body, "claimToken");
-  if (action === "heartbeat") {
-    const { data, error } = await service.rpc("heartbeat_calculation_job", {
-      p_job_id: jobId,
-      p_claim_token: claimToken,
-      p_lease_seconds: Number(body.leaseSeconds ?? 300),
-    });
-    if (error) throw error;
-    return json(request, data ? 200 : 409, { accepted: Boolean(data) });
-  }
-  if (action === "fail") {
-    const { data, error } = await service.rpc("fail_calculation_job", {
-      p_job_id: jobId,
-      p_claim_token: claimToken,
-      p_error_code: requiredText(body, "errorCode"),
-      p_error_message: requiredText(body, "errorMessage"),
-      p_error_detail: body.errorDetail ?? {},
-      p_retryable: Boolean(body.retryable),
-    });
-    if (error) throw error;
-    return json(request, 200, { status: data });
-  }
-
-  const { data: job, error: jobError } = await service
-    .from("calculation_jobs")
-    .select("model_id,engine_version,mapping_version,mapping_hash,result_schema_version")
-    .eq("id", jobId)
-    .eq("claim_token", claimToken)
-    .maybeSingle();
-  if (jobError) throw jobError;
-  if (!job) return json(request, 409, { error: "claim_not_active" });
-  const expectedResultPath = `models/${job.model_id}/jobs/${jobId}/result.xlsx`;
-  const workbookPath = typeof body.workbookPath === "string" ? body.workbookPath : null;
-  if (workbookPath && workbookPath !== expectedResultPath) {
-    return json(request, 400, { error: "invalid_result_path" });
-  }
-  const { data, error } = await service.rpc("complete_calculation_job", {
-    p_job_id: jobId,
-    p_claim_token: claimToken,
-    p_result: body.result ?? {},
-    p_engine_version: job.engine_version,
-    p_mapping_version: job.mapping_version,
-    p_mapping_hash: job.mapping_hash,
-    p_result_schema_version: job.result_schema_version,
-    p_workbook_bucket: workbookPath ? STORAGE_BUCKET : null,
-    p_workbook_path: workbookPath,
-    p_is_published: Boolean(body.publish),
-    p_is_default: Boolean(body.makeDefault),
-  });
-  if (error) throw error;
-  return json(request, 200, { status: "completed", resultId: data });
 }
 
 Deno.serve(async (request) => {
@@ -279,10 +251,6 @@ Deno.serve(async (request) => {
       if (!isAdmin(user)) return json(request, 403, { error: "admin_required" });
       return await initializeUpload(request, user);
     }
-    if (request.method === "POST" && path.endsWith("/jobs/claim")) {
-      if (!(await authorizeWorker(request))) return json(request, 401, { error: "worker_unauthorized" });
-      return await claimJob(request);
-    }
     const match = path.match(JOB_ROUTE);
     if (match && request.method === "GET" && !match[2]) {
       const user = await authenticatedUser(request);
@@ -293,10 +261,6 @@ Deno.serve(async (request) => {
       const user = await authenticatedUser(request);
       if (!user) return json(request, 401, { error: "unauthorized" });
       return await markUploadCompleted(request, user, match[1]);
-    }
-    if (match && request.method === "POST" && match[2]) {
-      if (!(await authorizeWorker(request))) return json(request, 401, { error: "worker_unauthorized" });
-      return await workerTransition(request, match[1], match[2]);
     }
     return json(request, 404, { error: "not_found" });
   } catch (error) {

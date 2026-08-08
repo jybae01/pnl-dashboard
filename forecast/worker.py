@@ -11,12 +11,7 @@ from .persistence.contracts import (
 
 
 class WorkerJobControl:
-    """Control-plane methods for a future independent Python worker.
-
-    This class deliberately has no polling loop and imports neither Streamlit
-    nor the calculation engine.  Phase 2 will supply the executor that parses
-    the workbook, calls the deterministic engine and invokes these transitions.
-    """
+    """Queue control plane used only by the independent Python worker."""
 
     def __init__(self, queue: CalculationJobQueue, worker_id: str):
         if not worker_id.strip():
@@ -49,3 +44,9 @@ class WorkerJobControl:
             error_detail=error_detail,
             retryable=retryable,
         )
+
+    def archive(self, claim: ClaimedJob) -> bool:
+        return self.queue.archive(claim)
+
+    def delete_message(self, claim: ClaimedJob) -> bool:
+        return self.queue.delete_message(claim)

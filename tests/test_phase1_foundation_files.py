@@ -52,7 +52,10 @@ class Phase1FoundationFileTests(unittest.TestCase):
     def test_edge_is_signed_upload_gateway_without_excel_calculation(self):
         self.assertIn("createSignedUploadUrl", self.edge)
         self.assertIn("initialize_calculation_upload", self.edge)
-        self.assertIn("claim_calculation_job", self.edge)
+        # Phase 2 hardens the runtime boundary: workers consume pgmq through
+        # service-role-only database RPCs, never through the Edge gateway.
+        self.assertNotIn("claim_calculation_job", self.edge)
+        self.assertNotIn("complete_calculation_job", self.edge)
         for forbidden in ("openpyxl", "pandas", "ForecastEngine", "Decimal"):
             self.assertNotIn(forbidden, self.edge)
 

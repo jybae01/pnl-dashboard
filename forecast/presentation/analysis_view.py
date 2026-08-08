@@ -29,7 +29,7 @@ def _pnl_map(result: dict[str, Any]) -> dict[str, dict[str, Any]]:
 
 def _sales_view(result: dict[str, Any], baseline_fx: float, comparison_fx: float) -> dict[str, Any]:
     analysis = result.get("sales_analysis") or {}
-    if analysis.get("rows"):
+    if analysis and "rows" in analysis and "totals" in analysis:
         calculated = list(analysis["rows"])
         totals = dict(analysis.get("totals") or {})
         baseline_fx = _number(analysis.get("baseline_fx_krw_per_usd"))
@@ -236,12 +236,25 @@ def _summary_view(
             "product_raw_material", "semi_raw_material", "customs_refund"
         ))
     tariff_effect = effects.get("tariff", sga.get("tariff_effect", 0.0))
+    derived_currency_split = (
+        "fx_total" in result and "raw_material_excl_fx" in result
+    )
+    currency_and_material = (
+        [
+            ("환율효과 합계", _number(result.get("fx_total"))),
+            ("환율 제외 원부재료", _number(result.get("raw_material_excl_fx"))),
+        ]
+        if derived_currency_split
+        else [
+            ("매출환율", sales["totals"]["sales_fx_effect"]),
+            ("원부재료", material_effect),
+        ]
+    )
     categories = [
         ("판매수량", sales["totals"]["quantity_effect"]),
         ("제품 Mix", _number(sales["totals"].get("mix_effect"))),
         ("판매단가", sales["totals"]["pure_price_effect"]),
-        ("매출환율", sales["totals"]["sales_fx_effect"]),
-        ("원부재료", material_effect),
+        *currency_and_material,
         ("변동 제조경비", manufacturing["variable_effect"]),
         ("고정 제조경비", manufacturing["fixed_effect"]),
         ("변동 판관비", sga["variable_effect"]),
@@ -277,6 +290,8 @@ def _summary_view(
         "residual": _number(result.get("residual")),
         "reconciled": bool(result.get("reconciled")),
         "status": "PASS" if result.get("reconciled") else "CHECK",
+        "fx_total": result.get("fx_total"),
+        "raw_material_excl_fx": result.get("raw_material_excl_fx"),
         "bridge": rows,
         "effect_ranking": [
             {"rank": rank, "factor": row["factor"], "profit_effect": row["profit_effect"]}

@@ -68,6 +68,20 @@ def _render_sales(view: dict[str, Any]) -> None:
         "원화 단가 변동을 순수 단가효과와 매출환율효과로 분해합니다. "
         "수량효과는 기준 제품군 GP/unit을 적용합니다."
     )
+    totals = sales.get("totals", {})
+    effect_cards = st.columns(4)
+    effect_cards[0].metric(
+        "판매수량 효과", format_million(totals.get("quantity_effect"), signed=True)
+    )
+    effect_cards[1].metric(
+        "제품 Mix 효과", format_million(totals.get("mix_effect"), signed=True)
+    )
+    effect_cards[2].metric(
+        "순수 판매단가 효과", format_million(totals.get("pure_price_effect"), signed=True)
+    )
+    effect_cards[3].metric(
+        "매출환율 효과", format_million(totals.get("sales_fx_effect"), signed=True)
+    )
     st.caption("단위: 금액 백만원 / 수량 SW·BW·LC PCS, FS m / 단가차이 USD/판매단위")
     rows = []
     for row in sales["rows"]:
@@ -243,3 +257,20 @@ def render_comparison_analysis(result: dict[str, Any]) -> dict[str, Any]:
     with tabs[5]:
         render_ai_analysis(result, analysis_view=view)
     return view
+
+
+def render_persisted_analysis_view(view: dict[str, Any]) -> None:
+    """Render a worker-produced view without rebuilding any calculation."""
+
+    _render_common_header(view)
+    tabs = st.tabs(["종합", "판매효과", "원부재료", "제조경비", "판관비"])
+    with tabs[0]:
+        _render_summary(view)
+    with tabs[1]:
+        _render_sales(view)
+    with tabs[2]:
+        _render_material(view)
+    with tabs[3]:
+        _render_manufacturing(view)
+    with tabs[4]:
+        _render_sga(view)

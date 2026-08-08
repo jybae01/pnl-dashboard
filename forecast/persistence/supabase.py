@@ -82,6 +82,13 @@ def _row_to_job(row: Mapping[str, Any]) -> CalculationJob:
         error_code=row.get("error_code"),
         error_message=row.get("error_message"),
         error_detail=dict(row.get("error_detail") or {}),
+        analysis_request=dict(row.get("analysis_request") or {}),
+        queue_name=str(row.get("queue_name") or "calculation_jobs"),
+        queue_message_id=(
+            int(row["queue_message_id"]) if row.get("queue_message_id") is not None else None
+        ),
+        queue_enqueued_at=row.get("queue_enqueued_at"),
+        queue_archived_at=row.get("queue_archived_at"),
         created_by=str(row["created_by"]) if row.get("created_by") else None,
         created_at=str(row.get("created_at") or ""),
         updated_at=str(row.get("updated_at") or ""),
@@ -111,6 +118,28 @@ class SupabaseModelRepositoryAdapter:
         )
         if row is None:
             raise KeyError(model_id)
+        return _row_to_model(row)
+
+    def get_default(
+        self,
+        *,
+        year: int | None = None,
+        exclude_model_id: str | None = None,
+    ) -> ModelMeta:
+        query = (
+            self.client.table("models")
+            .select("*")
+            .eq("is_published", True)
+            .order("is_default", desc=True)
+            .order("uploaded_at", desc=True)
+        )
+        if year is not None:
+            query = query.eq("model_year", int(year))
+        if exclude_model_id is not None:
+            query = query.neq("id", exclude_model_id)
+        row = _first(query.limit(1).execute())
+        if row is None:
+            raise KeyError("published default model")
         return _row_to_model(row)
 
     def path(self, model_id: str) -> Path:
@@ -210,6 +239,7 @@ class SupabaseCalculationJobRepository:
         provenance: ResultProvenance,
         created_by: str | None = None,
         max_attempts: int = 3,
+        analysis_request: dict[str, Any] | None = None,
     ) -> CalculationJob:
         row = {
             "model_id": model_id,
@@ -223,10 +253,23 @@ class SupabaseCalculationJobRepository:
             **provenance.as_dict(),
             "created_by": created_by,
             "max_attempts": max_attempts,
+            "analysis_request": analysis_request or {},
         }
         saved = _first(self.client.table("calculation_jobs").insert(row).execute())
         if saved is None:
             raise RuntimeError("Supabase did not return the inserted calculation job")
+        try:
+            queued = _data(self.client.rpc(
+                "enqueue_calculation_job", {"p_job_id": saved["id"]}
+            ).execute())
+            if isinstance(queued, list):
+                queued = queued[0] if queued else None
+            if queued is not None:
+                saved = {**saved, "queue_message_id": int(queued)}
+        except KeyError:
+            # Backward compatibility for Phase 1 test doubles. A real
+            # Supabase API error is deliberately not swallowed.
+            pass
         return _row_to_job(saved)
 
     def claim_next(self, worker_id: str, *, lease_seconds: int = 300) -> ClaimedJob | None:
@@ -297,12 +340,34 @@ class SupabaseCalculationJobRepository:
             value = value[0] if value else None
         return JobStatus(str(value))
 
+    def archive(self, claim: ClaimedJob) -> bool:
+        return self._settle_message(claim, archive=True)
+
+    def delete_message(self, claim: ClaimedJob) -> bool:
+        return self._settle_message(claim, archive=False)
+
+    def _settle_message(self, claim: ClaimedJob, *, archive: bool) -> bool:
+        value = _data(self.client.rpc(
+            "settle_calculation_queue_message",
+            {
+                "p_job_id": claim.job.id,
+                "p_claim_token": claim.claim_token,
+                "p_archive": archive,
+            },
+        ).execute())
+        if isinstance(value, list):
+            value = value[0] if value else False
+        return bool(value)
+
 
 class SupabaseResultRepository:
     def __init__(self, client: Any):
         self.client = client
 
     def load(self) -> dict[str, Any] | None:
+        return self.load_completed()
+
+    def load_completed(self) -> dict[str, Any] | None:
         row = _first(
             self.client.table("calculation_results")
             .select("*")

@@ -24,7 +24,9 @@ def _utc_now() -> datetime:
 
 
 def _iso(value: datetime) -> str:
-    return value.isoformat(timespec="seconds")
+    # Lease tests and local workers may use short visibility windows. Keep
+    # microseconds so serialization never shortens a lease by almost a second.
+    return value.isoformat(timespec="microseconds")
 
 
 class LocalModelRepositoryAdapter:
@@ -39,6 +41,22 @@ class LocalModelRepositoryAdapter:
 
     def get(self, model_id: str) -> ModelMeta:
         return self.registry.get(model_id)
+
+    def get_default(
+        self,
+        *,
+        year: int | None = None,
+        exclude_model_id: str | None = None,
+    ) -> ModelMeta:
+        candidates = [
+            item for item in self.list()
+            if item.id != exclude_model_id and (year is None or item.year == year)
+        ]
+        selected = next((item for item in candidates if item.is_default and item.is_published), None)
+        selected = selected or next((item for item in candidates if item.is_published), None)
+        if selected is None:
+            raise KeyError("published default model")
+        return selected
 
     def path(self, model_id: str) -> Path:
         return self.registry.path(model_id)
@@ -77,6 +95,28 @@ class LocalResultRepositoryAdapter:
 
     def load(self) -> dict[str, Any] | None:
         return self.store.load()
+
+    def load_completed(self) -> dict[str, Any] | None:
+        directory = self.store.directory / "jobs" / "calculation_results"
+        if not directory.exists():
+            return None
+        payloads: list[dict[str, Any]] = []
+        for path in directory.glob("*.json"):
+            try:
+                row = json.loads(path.read_text(encoding="utf-8"))
+            except (OSError, ValueError, TypeError):
+                continue
+            if row.get("is_published"):
+                payloads.append(row)
+        if not payloads:
+            return None
+        row = max(
+            payloads,
+            key=lambda item: (bool(item.get("is_default")), str(item.get("created_at") or "")),
+        )
+        payload = dict(row.get("result") or {})
+        payload.update({key: value for key, value in row.items() if key != "result"})
+        return payload
 
 
 class LocalCalculationJobRepository:
@@ -119,28 +159,33 @@ class LocalCalculationJobRepository:
         provenance: ResultProvenance,
         created_by: str | None = None,
         max_attempts: int = 3,
+        analysis_request: dict[str, Any] | None = None,
     ) -> CalculationJob:
         if max_attempts < 1:
             raise ValueError("max_attempts must be at least one")
         now = _iso(_utc_now())
-        job = CalculationJob(
-            id=str(uuid.uuid4()),
-            model_id=model_id,
-            status=JobStatus.PENDING,
-            storage_bucket=storage_bucket,
-            storage_path=storage_path,
-            engine_version=provenance.engine_version,
-            mapping_version=provenance.mapping_version,
-            mapping_hash=provenance.mapping_hash,
-            result_schema_version=provenance.result_schema_version,
-            upload_completed_at=now,
-            max_attempts=max_attempts,
-            created_by=created_by,
-            created_at=now,
-            updated_at=now,
-        )
         with self._lock:
-            self._save([*self._load(), job])
+            jobs = self._load()
+            job = CalculationJob(
+                id=str(uuid.uuid4()),
+                model_id=model_id,
+                status=JobStatus.PENDING,
+                storage_bucket=storage_bucket,
+                storage_path=storage_path,
+                engine_version=provenance.engine_version,
+                mapping_version=provenance.mapping_version,
+                mapping_hash=provenance.mapping_hash,
+                result_schema_version=provenance.result_schema_version,
+                upload_completed_at=now,
+                max_attempts=max_attempts,
+                analysis_request=dict(analysis_request or {}),
+                queue_message_id=max((item.queue_message_id or 0 for item in jobs), default=0) + 1,
+                queue_enqueued_at=now,
+                created_by=created_by,
+                created_at=now,
+                updated_at=now,
+            )
+            self._save([*jobs, job])
         return job
 
     def get(self, job_id: str) -> CalculationJob:
@@ -237,6 +282,7 @@ class LocalCalculationJobRepository:
                 "status": JobStatus.COMPLETED,
                 "heartbeat_at": _iso(now),
                 "lease_expires_at": None,
+                "queue_archived_at": _iso(now),
                 "updated_at": _iso(now),
             })
             self._save(jobs)
@@ -270,10 +316,36 @@ class LocalCalculationJobRepository:
                 "error_code": error_code,
                 "error_message": error_message,
                 "error_detail": error_detail or {},
+                "queue_archived_at": _iso(now) if next_status is JobStatus.FAILED else None,
                 "updated_at": _iso(now),
             })
             self._save(jobs)
             return next_status
+
+    def archive(self, claim: ClaimedJob) -> bool:
+        return self._settle_message(claim, delete=False)
+
+    def delete_message(self, claim: ClaimedJob) -> bool:
+        return self._settle_message(claim, delete=True)
+
+    def _settle_message(self, claim: ClaimedJob, *, delete: bool) -> bool:
+        now = _utc_now()
+        with self._lock:
+            jobs = self._load()
+            for index, job in enumerate(jobs):
+                if job.id != claim.job.id or job.claim_token != claim.claim_token:
+                    continue
+                if job.queue_message_id is None or job.queue_archived_at is not None:
+                    return False
+                jobs[index] = CalculationJob(**{
+                    **asdict(job),
+                    "queue_message_id": None if delete else job.queue_message_id,
+                    "queue_archived_at": _iso(now),
+                    "updated_at": _iso(now),
+                })
+                self._save(jobs)
+                return True
+        return False
 
     @staticmethod
     def _active_claim(jobs: list[CalculationJob], claim: ClaimedJob) -> tuple[int, CalculationJob]:

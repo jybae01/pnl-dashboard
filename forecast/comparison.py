@@ -40,6 +40,8 @@ class ComparisonResult:
     effects_total: float
     residual: float
     reconciled: bool
+    fx_total: float
+    raw_material_excl_fx: float
     narrative: str = ""
     mcm_transition: dict[str, Any] | None = None
     manufacturing_accounts: list[dict[str, Any]] = field(default_factory=list)
@@ -298,6 +300,12 @@ class GenericComparisonEngine:
                 target.get("cost_summary", {}),
             )
             manufacturing_analysis = {}
+        fx_total = float(sales_analysis.get("totals", {}).get("sales_fx_effect") or 0.0) + float(
+            material_analysis.get("nonwoven_jpy") or 0.0
+        )
+        raw_material_excl_fx = float(
+            material_analysis.get("nonwoven_price_ex_fx") or 0.0
+        ) + float(material_analysis.get("materials_ex_nonwoven") or 0.0)
         # Recompute the bridge after the adapter branch. Legacy payloads keep
         # their mapping-driven effects; real Golden Models use normalized V1
         # effects assembled above.
@@ -317,6 +325,8 @@ class GenericComparisonEngine:
             cost_summary=cost_summary,
             effects=effects, operating_profit_delta=op_delta, effects_total=effects_total,
             residual=residual, reconciled=abs(residual) <= tolerance,
+            fx_total=fx_total,
+            raw_material_excl_fx=raw_material_excl_fx,
             narrative=narrative,
             mcm_transition=None,
             manufacturing_accounts=manufacturing_accounts,

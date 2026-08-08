@@ -19,6 +19,8 @@ from forecast.engine import CostAdjustment, ForecastEngine, ForecastInput, Forec
 from forecast.presentation.analysis_tabs import render_comparison_analysis
 from forecast.presentation.formatting import format_million
 from forecast.persistence.local import LocalModelRepositoryAdapter, LocalResultRepositoryAdapter
+from forecast.persistence.factory import create_repository_bundle
+from forecast.presentation.viewer_dashboard import render_viewer_dashboard
 from forecast.provenance import load_registered_provenance
 from forecast.storage import BaselineStore, ModelRegistry, ResultStore
 from forecast.workbook import GoldenWorkbook, extract_period_types, infer_workbook_year
@@ -34,6 +36,8 @@ LOCAL_RESULT_PROVENANCE = load_registered_provenance(
 STORE = LocalResultRepositoryAdapter(ResultStore(ROOT / "data"), LOCAL_RESULT_PROVENANCE)
 REGISTRY = LocalModelRepositoryAdapter(ModelRegistry(ROOT / "data" / "registry"), LOCAL_RESULT_PROVENANCE)
 BASELINE = BaselineStore(ROOT / "data" / "baseline")
+REPOSITORIES = create_repository_bundle(ROOT / "data")
+VIEW_RESULTS = REPOSITORIES.results
 RELEASE_FILE = ROOT / "config" / "release.json"
 
 
@@ -1308,7 +1312,7 @@ menu = st.segmented_control("업무 메뉴", ["손익 현황", "추정 산출", 
                             default="추정 산출", selection_mode="single")
 st.caption(f"{RELEASE['release_name']} · v{RELEASE['version']}")
 if menu == "손익 현황":
-    st.info("현재 작성된 손익 대시보드를 연결할 메뉴입니다.")
+    render_viewer_dashboard(VIEW_RESULTS)
 elif menu == "추정 산출":
     forecast_page(role)
 elif menu == "손익 분석":
