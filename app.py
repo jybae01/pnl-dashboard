@@ -290,7 +290,7 @@ def render_table_unit(unit_text, is_period_compare=False):
     )
 
 def render_centered_period_selectors(months, start_key, end_key):
-    """Render draft controls and return the last period confirmed by 조회."""
+    """기간 선택값(draft)과 마지막 조회 확정값(applied)을 분리한다."""
     initialize_period_state(st.session_state, months, start_key, end_key)
     # 중앙 열 안에서 문구와 선택 상자를 한 그룹으로 배치해 표 중심과 맞춘다.
     # 기간 설정 그룹 전체가 중앙의 기간 비교 표와 수평 중심을 맞추도록 배치한다.
@@ -387,7 +387,478 @@ if st.session_state.role == "admin":
         ('Ⅳ.판매관리비', '2.판매비', '수수료', '판매비_수수료입력'),
         ('Ⅳ.판매관리비', '2.판매비', '브랜드사용료', '판매비_브랜드사용료입력'),
         ('Ⅳ.판매관리비', '2.판매비', '인건비', '판매비_인건비입력'),
-        ('Ⅳ.판매관리비', '2.판매비', '견본비', '판…8015 tokens truncated…_total_a[i] == 0 for i in range(start_idx, end_idx + 1))
+        ('Ⅳ.판매관리비', '2.판매비', '견본비', '판매비_견본비입력'),
+        ('Ⅳ.판매관리비', '2.판매비', '대손상각', '판매비_대손상각입력'),
+        ('Ⅳ.판매관리비', '2.판매비', '잡비', '판매비_잡비입력'),
+        ('Ⅳ.판매관리비', '2.판매비', '기타', '판매비_기타입력'),
+        ('Ⅴ.영업이익', '1.영업이익', '금액(천원)', '영업이익입력'),
+        ('Ⅴ.영업이익', '2.조정 영업이익', '금액(천원)', '조정영업이익입력'),
+        ('참고데이터', 'Item별 원가', '8인치 SW', '8인치 SW 매출원가'),
+        ('참고데이터', 'Item별 원가', '8인치 BW', '8인치 BW 매출원가'),
+        ('참고데이터', 'Item별 판관비', '8인치 SW', '8인치 SW 판관비'),
+        ('참고데이터', 'Item별 판관비', '8인치 BW', '8인치 BW 판관비'),
+    ]
+
+    template_bytes = build_excel_template(tuple(original_format_items), tuple(months))
+
+    st.sidebar.download_button(
+        label="📥 엑셀 양식 다운로드",
+        data=template_bytes,
+        file_name="손익계산서_입력양식.xlsx",
+        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    )
+
+    st.sidebar.markdown("---")
+    plan_file = st.sidebar.file_uploader("📤 1. 계획(Plan) 업로드", type=['xlsx'])
+    actual_file = st.sidebar.file_uploader("📤 2. 실적(Actual) 업로드", type=['xlsx'])
+
+    if st.sidebar.button("계획 데이터 저장", disabled=plan_file is None, use_container_width=True):
+        try:
+            storage_name = save_uploaded_data(
+                "saved_plan.xlsx", plan_file.getvalue(), app_dir=APP_DIR, secrets=st.secrets
+            )
+            st.sidebar.success(f"✅ 계획 데이터가 {storage_name}에 저장되었습니다.")
+        except StorageError as exc:
+            st.sidebar.error(str(exc))
+
+    if st.sidebar.button("실적 데이터 저장", disabled=actual_file is None, use_container_width=True):
+        try:
+            storage_name = save_uploaded_data(
+                "saved_actual.xlsx", actual_file.getvalue(), app_dir=APP_DIR, secrets=st.secrets
+            )
+            st.sidebar.success(f"✅ 실적 데이터가 {storage_name}에 저장되었습니다.")
+        except StorageError as exc:
+            st.sidebar.error(str(exc))
+
+    confirm_reset = st.sidebar.checkbox("저장된 계획·실적 데이터 삭제에 동의")
+    if st.sidebar.button(
+        "🗑️ 서버 데이터 초기화 (더미로 복구)",
+        disabled=not confirm_reset,
+        use_container_width=True,
+    ):
+        try:
+            delete_saved_data("saved_plan.xlsx", app_dir=APP_DIR, secrets=st.secrets)
+            delete_saved_data("saved_actual.xlsx", app_dir=APP_DIR, secrets=st.secrets)
+            st.rerun()
+        except StorageError as exc:
+            st.sidebar.error(str(exc))
+
+    st.sidebar.markdown("---")
+    if st.sidebar.button("로그아웃", use_container_width=True):
+        st.session_state.clear()
+        st.rerun()
+
+# --- 상단 헤더 및 연도 선택 ---
+st.markdown(
+    f'<div class="dashboard-brand"><img src="{BLACK_LOGO_URI}" alt="NanoH2O"><span class="dashboard-brand-title">손익계산서 조회</span></div>',
+    unsafe_allow_html=True,
+)
+
+available_years = ["2026년"]
+
+col1, col2, col3, col4 = st.columns(4)
+with col1:
+    inner_col1, inner_col2 = st.columns([1, 1])
+    with inner_col1: selected_year = st.selectbox("연도", available_years)
+
+# (1) 샘플 더미 데이터 세팅 
+np.random.seed(42)
+qty_sw_a = np.random.randint(15000, 30000, 12); qty_sw_p = qty_sw_a * np.random.uniform(0.9, 1.2, 12)
+qty_bw_a = np.random.randint(10000, 20000, 12); qty_bw_p = qty_bw_a * np.random.uniform(0.9, 1.2, 12)
+qty_ls_a = np.random.randint(5000, 10000, 12);  qty_ls_p = qty_ls_a * np.random.uniform(0.9, 1.2, 12)
+qty_fs_a = np.random.randint(2000, 5000, 12);   qty_fs_p = qty_fs_a * np.random.uniform(0.9, 1.2, 12)
+
+price_sw_a = np.full(12, 55000.0); price_sw_p = np.full(12, 55000.0)
+price_bw_a = np.full(12, 85000.0); price_bw_p = np.full(12, 85000.0)
+
+sales_prod_a = np.random.randint(3000, 5000, 12).astype(float); sales_prod_p = sales_prod_a * 1.1
+sales_semi_a = np.random.randint(1000, 2000, 12).astype(float); sales_semi_p = sales_semi_a * 1.1
+sales_md_a = np.random.randint(500, 1000, 12).astype(float);    sales_md_p = sales_md_a * 1.1
+sales_etc_a = np.random.randint(100, 300, 12).astype(float);    sales_etc_p = sales_etc_a * 1.1
+sales_inc_a = np.random.randint(-100, -50, 12).astype(float);   sales_inc_p = sales_inc_a * 1.1
+
+_tmp_sales_a = sales_prod_a + sales_semi_a + sales_md_a + sales_etc_a + sales_inc_a
+_tmp_sales_p = sales_prod_p + sales_semi_p + sales_md_p + sales_etc_p + sales_inc_p
+
+_tmp_cogs_a = _tmp_sales_a * np.random.uniform(0.6, 0.7, 12); _tmp_cogs_p = _tmp_sales_p * 0.65
+
+cogs_semi_a = _tmp_cogs_a * 0.10; cogs_semi_p = _tmp_cogs_p * 0.10
+cogs_md_a = _tmp_cogs_a * 0.05; cogs_md_p = _tmp_cogs_p * 0.05
+cogs_etc_a = _tmp_cogs_a * 0.02; cogs_etc_p = _tmp_cogs_p * 0.02
+cogs_std_a = np.zeros(12); cogs_std_p = np.zeros(12)
+cogs_inv_a = np.zeros(12); cogs_inv_p = np.zeros(12)
+
+_dummy_cogs_prod_a = _tmp_cogs_a - (cogs_semi_a + cogs_md_a + cogs_etc_a + cogs_std_a + cogs_inv_a)
+_dummy_cogs_prod_p = _tmp_cogs_p - (cogs_semi_p + cogs_md_p + cogs_etc_p + cogs_std_p + cogs_inv_p)
+
+# 제품 더미 데이터
+cogs_rm_a = _dummy_cogs_prod_a * 0.60; cogs_rm_p = _dummy_cogs_prod_p * 0.60
+cogs_lb_a = _dummy_cogs_prod_a * 0.20; cogs_lb_p = _dummy_cogs_prod_p * 0.20
+cogs_os_a = _dummy_cogs_prod_a * 0.15; cogs_os_p = _dummy_cogs_prod_p * 0.15
+cogs_oh_a = _dummy_cogs_prod_a - cogs_rm_a - cogs_lb_a - cogs_os_a
+cogs_oh_p = _dummy_cogs_prod_p - cogs_rm_p - cogs_lb_p - cogs_os_p
+
+# 반제품 더미 데이터
+cogs_semi_rm_a = cogs_semi_a * 0.60; cogs_semi_rm_p = cogs_semi_p * 0.60
+cogs_semi_lb_a = cogs_semi_a * 0.20; cogs_semi_lb_p = cogs_semi_p * 0.20
+cogs_semi_os_a = cogs_semi_a * 0.15; cogs_semi_os_p = cogs_semi_p * 0.15
+cogs_semi_oh_a = cogs_semi_a - cogs_semi_rm_a - cogs_semi_lb_a - cogs_semi_os_a
+cogs_semi_oh_p = cogs_semi_p - cogs_semi_rm_p - cogs_semi_lb_p - cogs_semi_os_p
+
+_tmp_sga_a = _tmp_sales_a * np.random.uniform(0.1, 0.15, 12); _tmp_sga_p = _tmp_sales_p * 0.12
+
+_tmp_adm_a = _tmp_sga_a * 0.5; _tmp_adm_p = _tmp_sga_p * 0.5
+adm_labor_a = _tmp_adm_a * 0.4; adm_labor_p = _tmp_adm_p * 0.4
+adm_depr_a = _tmp_adm_a * 0.15; adm_depr_p = _tmp_adm_p * 0.15
+adm_rnd_a = _tmp_adm_a * 0.2; adm_rnd_p = _tmp_adm_p * 0.2
+adm_fee_a = _tmp_adm_a * 0.15; adm_fee_p = _tmp_adm_p * 0.15
+adm_etc_a = _tmp_adm_a * 0.1; adm_etc_p = _tmp_adm_p * 0.1
+
+_tmp_sel_a = _tmp_sga_a * 0.5; _tmp_sel_p = _tmp_sga_p * 0.5
+sel_trans_a = _tmp_sel_a * 0.2; sel_trans_p = _tmp_sel_p * 0.2
+sel_fee_a = _tmp_sel_a * 0.15; sel_fee_p = _tmp_sel_p * 0.15
+sel_brand_a = _tmp_sel_a * 0.1; sel_brand_p = _tmp_sel_p * 0.1
+sel_labor_a = _tmp_sel_a * 0.25; sel_labor_p = _tmp_sel_p * 0.25
+sel_sample_a = _tmp_sel_a * 0.1; sel_sample_p = _tmp_sel_p * 0.1
+sel_bad_a = _tmp_sel_a * 0.05; sel_bad_p = _tmp_sel_p * 0.05
+sel_misc_a = _tmp_sel_a * 0.05; sel_misc_p = _tmp_sel_p * 0.05
+sel_etc_a = _tmp_sel_a * 0.1; sel_etc_p = _tmp_sel_p * 0.1
+
+gp_input_a = _tmp_sales_a - _tmp_cogs_a
+gp_input_p = _tmp_sales_p - _tmp_cogs_p
+op_input_a = gp_input_a - _tmp_sga_a
+op_input_p = gp_input_p - _tmp_sga_p
+adj_op_input_a = op_input_a + adm_depr_a
+adj_op_input_p = op_input_p + adm_depr_p
+
+cogs_sw_a = ((qty_sw_a*price_sw_a)/1000000.0) * np.random.uniform(0.55, 0.65, 12); cogs_sw_p = ((qty_sw_p*price_sw_p)/1000000.0) * 0.6
+cogs_bw_a = ((qty_bw_a*price_bw_a)/1000000.0) * np.random.uniform(0.6, 0.7, 12);  cogs_bw_p = ((qty_bw_p*price_bw_p)/1000000.0) * 0.65
+sga_sw_a = ((qty_sw_a*price_sw_a)/1000000.0) * np.random.uniform(0.1, 0.15, 12);   sga_sw_p = ((qty_sw_p*price_sw_p)/1000000.0) * 0.12
+sga_bw_a = ((qty_bw_a*price_bw_a)/1000000.0) * np.random.uniform(0.1, 0.15, 12);   sga_bw_p = ((qty_bw_p*price_bw_p)/1000000.0) * 0.12
+
+# (2) 계획 파일 파싱
+try:
+    plan_blob = load_saved_data("saved_plan.xlsx", app_dir=APP_DIR, secrets=st.secrets)
+except StorageError:
+    LOGGER.exception("Unable to load the saved plan workbook")
+    st.error("저장된 계획 파일을 불러오지 못했습니다. 관리자에게 문의해 주세요.")
+    plan_blob = None
+if plan_blob:
+    try:
+        df_p = read_workbook(plan_blob)
+        qty_sw_p = safe_extract('SW수량입력', df_p, 'qty'); qty_bw_p = safe_extract('BW수량입력', df_p, 'qty')
+        qty_ls_p = safe_extract('LS수량입력', df_p, 'qty'); qty_fs_p = safe_extract('FS수량입력', df_p, 'qty')
+        price_sw_p = safe_extract('SW단가입력', df_p, 'qty'); price_bw_p = safe_extract('BW단가입력', df_p, 'qty')
+        
+        sales_prod_p = safe_extract('제품매출입력', df_p, 'money'); sales_semi_p = safe_extract('반제품매출입력', df_p, 'money')
+        sales_md_p = safe_extract('상품매출입력', df_p, 'money'); sales_etc_p = safe_extract('기타매출입력', df_p, 'money')
+        sales_inc_p = safe_extract('판매장려금입력', df_p, 'money')
+        
+        # 제품 파싱
+        cogs_rm_p = safe_extract('원부재료비입력', df_p, 'money'); cogs_lb_p = safe_extract('노무비입력', df_p, 'money')
+        cogs_os_p = safe_extract('외주가공비입력', df_p, 'money'); cogs_oh_p = safe_extract('기타경비입력', df_p, 'money')
+        
+        # 반제품 파싱
+        cogs_semi_rm_p = safe_extract('반제품_원부재료비입력', df_p, 'money'); cogs_semi_lb_p = safe_extract('반제품_노무비입력', df_p, 'money')
+        cogs_semi_os_p = safe_extract('반제품_외주가공비입력', df_p, 'money'); cogs_semi_oh_p = safe_extract('반제품_기타경비입력', df_p, 'money')
+        
+        cogs_semi_p = safe_extract('반제품매출원가입력', df_p, 'money')
+        cogs_md_p = safe_extract('상품매출원가입력', df_p, 'money')
+        cogs_etc_p = safe_extract('기타매출원가입력', df_p, 'money')
+        cogs_std_p = safe_extract('표준원가차이입력', df_p, 'money')
+        cogs_inv_p = safe_extract('재고평가손입력', df_p, 'money')
+        
+        gp_input_p = safe_extract('매출총이익입력', df_p, 'money', gp_input_p)
+        op_input_p = safe_extract('영업이익입력', df_p, 'money', op_input_p)
+        adj_op_input_p = safe_extract('조정영업이익입력', df_p, 'money', adj_op_input_p)
+        
+        adm_labor_p = safe_extract('일반관리비_인건비입력', df_p, 'money'); adm_depr_p = safe_extract('일반관리비_감가상각비입력', df_p, 'money')
+        adm_rnd_p = safe_extract('일반관리비_경상개발비입력', df_p, 'money'); adm_fee_p = safe_extract('일반관리비_수수료입력', df_p, 'money')
+        adm_etc_p = safe_extract('일반관리비_기타입력', df_p, 'money')
+        
+        sel_trans_p = safe_extract('판매비_운반비입력', df_p, 'money'); sel_fee_p = safe_extract('판매비_수수료입력', df_p, 'money')
+        sel_brand_p = safe_extract('판매비_브랜드사용료입력', df_p, 'money'); sel_labor_p = safe_extract('판매비_인건비입력', df_p, 'money')
+        sel_sample_p = safe_extract('판매비_견본비입력', df_p, 'money'); sel_bad_p = safe_extract('판매비_대손상각입력', df_p, 'money')
+        sel_misc_p = safe_extract('판매비_잡비입력', df_p, 'money'); sel_etc_p = safe_extract('판매비_기타입력', df_p, 'money')
+        
+        cogs_sw_p = safe_extract('8인치 SW 매출원가', df_p, 'money', (qty_sw_p*price_sw_p/1000000.0)*0.6)
+        cogs_bw_p = safe_extract('8인치 BW 매출원가', df_p, 'money', (qty_bw_p*price_bw_p/1000000.0)*0.65)
+        sga_sw_p = safe_extract('8인치 SW 판관비', df_p, 'money', (qty_sw_p*price_sw_p/1000000.0)*0.12)
+        sga_bw_p = safe_extract('8인치 BW 판관비', df_p, 'money', (qty_bw_p*price_bw_p/1000000.0)*0.12)
+    except Exception:
+        LOGGER.exception("Unable to parse the plan workbook")
+        st.error("계획 엑셀 형식이 올바르지 않습니다. 입력 양식과 값을 확인해 주세요.")
+
+# (3) 실적 파일 파싱
+try:
+    actual_blob = load_saved_data("saved_actual.xlsx", app_dir=APP_DIR, secrets=st.secrets)
+except StorageError:
+    LOGGER.exception("Unable to load the saved actual workbook")
+    st.error("저장된 실적 파일을 불러오지 못했습니다. 관리자에게 문의해 주세요.")
+    actual_blob = None
+if actual_blob:
+    try:
+        df_a = read_workbook(actual_blob)
+        qty_sw_a = safe_extract('SW수량입력', df_a, 'qty'); qty_bw_a = safe_extract('BW수량입력', df_a, 'qty')
+        qty_ls_a = safe_extract('LS수량입력', df_a, 'qty'); qty_fs_a = safe_extract('FS수량입력', df_a, 'qty')
+        price_sw_a = safe_extract('SW단가입력', df_a, 'qty'); price_bw_a = safe_extract('BW단가입력', df_a, 'qty')
+        
+        sales_prod_a = safe_extract('제품매출입력', df_a, 'money'); sales_semi_a = safe_extract('반제품매출입력', df_a, 'money')
+        sales_md_a = safe_extract('상품매출입력', df_a, 'money'); sales_etc_a = safe_extract('기타매출입력', df_a, 'money')
+        sales_inc_a = safe_extract('판매장려금입력', df_a, 'money')
+        
+        # 제품 파싱
+        cogs_rm_a = safe_extract('원부재료비입력', df_a, 'money'); cogs_lb_a = safe_extract('노무비입력', df_a, 'money')
+        cogs_os_a = safe_extract('외주가공비입력', df_a, 'money'); cogs_oh_a = safe_extract('기타경비입력', df_a, 'money')
+
+        # 반제품 파싱
+        cogs_semi_rm_a = safe_extract('반제품_원부재료비입력', df_a, 'money'); cogs_semi_lb_a = safe_extract('반제품_노무비입력', df_a, 'money')
+        cogs_semi_os_a = safe_extract('반제품_외주가공비입력', df_a, 'money'); cogs_semi_oh_a = safe_extract('반제품_기타경비입력', df_a, 'money')
+        
+        cogs_semi_a = safe_extract('반제품매출원가입력', df_a, 'money')
+        cogs_md_a = safe_extract('상품매출원가입력', df_a, 'money')
+        cogs_etc_a = safe_extract('기타매출원가입력', df_a, 'money')
+        cogs_std_a = safe_extract('표준원가차이입력', df_a, 'money')
+        cogs_inv_a = safe_extract('재고평가손입력', df_a, 'money')
+        
+        gp_input_a = safe_extract('매출총이익입력', df_a, 'money', gp_input_a)
+        op_input_a = safe_extract('영업이익입력', df_a, 'money', op_input_a)
+        adj_op_input_a = safe_extract('조정영업이익입력', df_a, 'money', adj_op_input_a)
+        
+        adm_labor_a = safe_extract('일반관리비_인건비입력', df_a, 'money'); adm_depr_a = safe_extract('일반관리비_감가상각비입력', df_a, 'money')
+        adm_rnd_a = safe_extract('일반관리비_경상개발비입력', df_a, 'money'); adm_fee_a = safe_extract('일반관리비_수수료입력', df_a, 'money')
+        adm_etc_a = safe_extract('일반관리비_기타입력', df_a, 'money')
+        
+        sel_trans_a = safe_extract('판매비_운반비입력', df_a, 'money'); sel_fee_a = safe_extract('판매비_수수료입력', df_a, 'money')
+        sel_brand_a = safe_extract('판매비_브랜드사용료입력', df_a, 'money'); sel_labor_a = safe_extract('판매비_인건비입력', df_a, 'money')
+        sel_sample_a = safe_extract('판매비_견본비입력', df_a, 'money'); sel_bad_a = safe_extract('판매비_대손상각입력', df_a, 'money')
+        sel_misc_a = safe_extract('판매비_잡비입력', df_a, 'money'); sel_etc_a = safe_extract('판매비_기타입력', df_a, 'money')
+        
+        cogs_sw_a = safe_extract('8인치 SW 매출원가', df_a, 'money', (qty_sw_a*price_sw_a/1000000.0)*0.6)
+        cogs_bw_a = safe_extract('8인치 BW 매출원가', df_a, 'money', (qty_bw_a*price_bw_a/1000000.0)*0.65)
+        sga_sw_a = safe_extract('8인치 SW 판관비', df_a, 'money', (qty_sw_a*price_sw_a/1000000.0)*0.12)
+        sga_bw_a = safe_extract('8인치 BW 판관비', df_a, 'money', (qty_bw_a*price_bw_a/1000000.0)*0.12)
+    except Exception:
+        LOGGER.exception("Unable to parse the actual workbook")
+        st.error("실적 엑셀 형식이 올바르지 않습니다. 입력 양식과 값을 확인해 주세요.")
+
+# --- 4. 전사 파생 변수 최종 역산 로직 ---
+qty_total_a = qty_sw_a + qty_bw_a + qty_ls_a
+qty_total_p = qty_sw_p + qty_bw_p + qty_ls_p
+
+sales_total_a = sales_prod_a + sales_semi_a + sales_md_a + sales_etc_a + sales_inc_a
+sales_total_p = sales_prod_p + sales_semi_p + sales_md_p + sales_etc_p + sales_inc_p
+
+adm_total_a = adm_labor_a + adm_depr_a + adm_rnd_a + adm_fee_a + adm_etc_a
+adm_total_p = adm_labor_p + adm_depr_p + adm_rnd_p + adm_fee_p + adm_etc_p
+
+sel_total_a = sel_trans_a + sel_fee_a + sel_brand_a + sel_labor_a + sel_sample_a + sel_bad_a + sel_misc_a + sel_etc_a
+sel_total_p = sel_trans_p + sel_fee_p + sel_brand_p + sel_labor_p + sel_sample_p + sel_bad_p + sel_misc_p + sel_etc_p
+
+sga_total_a = adm_total_a + sel_total_a
+sga_total_p = adm_total_p + sel_total_p
+
+# [역산 1] 매출총이익과 영업이익은 입력값 고정
+gp_total_a = gp_input_a; gp_total_p = gp_input_p
+op_actual = op_input_a; op_plan = op_input_p
+
+# [역산 2] 총 매출원가 = 매출액 - 입력 매출총이익
+cogs_total_a = sales_total_a - gp_total_a
+cogs_total_p = sales_total_p - gp_total_p
+
+# [역산 3] 제품 매출원가 = 총 매출원가 - (반제품+상품+기타+표준+평가손)
+cogs_prod_a = cogs_total_a - (cogs_semi_a + cogs_md_a + cogs_etc_a + cogs_std_a + cogs_inv_a)
+cogs_prod_p = cogs_total_p - (cogs_semi_p + cogs_md_p + cogs_etc_p + cogs_std_p + cogs_inv_p)
+
+actual_months = np.flatnonzero(np.asarray(sales_total_a) != 0)
+last_actual_month = actual_months[-1] if len(actual_months) else -1
+
+def calculate_progress_metrics(actual_values, plan_values, last_month):
+    """진도율은 연간 계획, 계획 대비 달성률은 실적 입력 기간의 계획을 기준으로 계산한다."""
+    cumulative_actual = sum(actual_values[:last_month + 1]) if last_month >= 0 else 0
+    annual_plan = sum(plan_values)
+    progress_rate = (cumulative_actual / annual_plan) * 100 if annual_plan else 0
+    plan_to_date = sum(plan_values[:last_month + 1]) if last_month >= 0 else 0
+    achievement_rate = (cumulative_actual / plan_to_date) * 100 if plan_to_date else 0
+    return cumulative_actual, annual_plan, progress_rate, achievement_rate
+
+total_sales_actual_sum, total_sales_plan_sum, sales_progress_rate, sales_achievement_rate = calculate_progress_metrics(sales_total_a, sales_total_p, last_actual_month)
+total_op_actual_sum, total_op_plan_sum, op_progress_rate, op_achievement_rate = calculate_progress_metrics(op_actual, op_plan, last_actual_month)
+total_adj_op_actual_sum, total_adj_op_plan_sum, adj_op_progress_rate, adj_op_achievement_rate = calculate_progress_metrics(adj_op_input_a, adj_op_input_p, last_actual_month)
+
+with col2: st.metric(label="매출액", value=f"{total_sales_actual_sum:,.0f} 백만원", delta=f"진도율 {sales_progress_rate:.1f}% | 계획 대비 달성률 {sales_achievement_rate:.1f}%", delta_color="normal")
+with col3: st.metric(label="영업이익", value=f"{total_op_actual_sum:,.0f} 백만원", delta=f"진도율 {op_progress_rate:.1f}% | 계획 대비 달성률 {op_achievement_rate:.1f}%", delta_color="normal")
+with col4: st.metric(label="조정 영업이익", value=f"{total_adj_op_actual_sum:,.0f} 백만원", delta=f"진도율 {adj_op_progress_rate:.1f}% | 계획 대비 달성률 {adj_op_achievement_rate:.1f}%", delta_color="normal")
+
+st.markdown("---")
+
+# 5. 차트 1: 매출액 추이
+col_sales_title, col_sales_unit = st.columns([1, 1])
+with col_sales_title: st.markdown("##### 📈 월별 매출액 추이")
+with col_sales_unit: st.markdown("<div style='text-align: right; font-size: 12px; font-weight: bold; color: #4B5563; margin-top: 10px;'>(단위: 백만원)</div>", unsafe_allow_html=True)
+
+fig_sales = go.Figure()
+fig_sales.add_trace(go.Bar(x=months, y=sales_total_p, name='계획 (Plan)', marker_color='#D8DEE8', text=[f"{val:,.0f}" if val!=0 else "" for val in sales_total_p], textposition='inside', insidetextanchor='end', textfont=dict(size=11, color='#64748B'))) 
+fig_sales.add_trace(go.Bar(x=months, y=sales_total_a, name='실적 (Actual)', marker_color='#FF7A45', text=[f"{val:,.0f}" if val!=0 else "" for val in sales_total_a], textposition='outside', cliponaxis=False, textfont=dict(size=12, color='#1F2937', weight='bold'))) 
+
+max_bar_sales = max(max(sales_total_p), max(sales_total_a)) if len(sales_total_p)>0 else 100
+min_bar_sales = min(min(sales_total_p), min(sales_total_a)) if len(sales_total_p)>0 else 0
+if max_bar_sales == 0 and min_bar_sales == 0: max_bar_sales = 100
+y1_range_sales = [min_bar_sales * 1.5 if min_bar_sales < 0 else 0, max_bar_sales * 1.3]
+
+fig_sales.update_layout(
+    barmode='group', margin=dict(l=0, r=0, t=20, b=30), 
+    legend=dict(orientation="h", yanchor="bottom", y=1.05, xanchor="right", x=1), 
+    plot_bgcolor='white', height=400, 
+    yaxis=dict(showgrid=True, gridcolor='#F3F4F6', zeroline=True, zerolinecolor='#9CA3AF', zerolinewidth=1, range=y1_range_sales, showticklabels=False)
+)
+st.plotly_chart(fig_sales, use_container_width=True)
+
+st.markdown("<br>", unsafe_allow_html=True)
+
+# 6-1. 차트 2: 영업이익 추이
+col_op_title, col_op_unit = st.columns([1, 1])
+with col_op_title: st.markdown("##### 📈 월별 영업이익 추이")
+with col_op_unit: st.markdown("<div style='text-align: right; font-size: 12px; font-weight: bold; color: #4B5563; margin-top: 10px;'>(단위: 백만원, %)</div>", unsafe_allow_html=True)
+
+fig_op = go.Figure()
+op_margin_actual = np.zeros(12)
+for i in range(12):
+    if sales_total_a[i] != 0:
+        op_margin_actual[i] = (op_actual[i] / sales_total_a[i]) * 100
+
+fig_op.add_trace(go.Bar(x=months, y=op_plan, name='계획 (Plan)', marker_color='#E2E8F0', yaxis='y1', text=[f"{val:,.0f}" if val!=0 else "" for val in op_plan], textposition='inside', insidetextanchor='end', textfont=dict(size=11, color='#94A3B8'))) 
+fig_op.add_trace(go.Bar(x=months, y=op_actual, name='실적 (Actual)', marker_color=['#6366F1' if val >= 0 else '#94A3B8' for val in op_actual], yaxis='y1', text=[f"{val:,.0f}" if val!=0 else "" for val in op_actual], textposition='outside', cliponaxis=False, textfont=dict(size=12, color='#1F2937', weight='bold'))) 
+fig_op.add_trace(go.Scatter(x=months, y=op_margin_actual, name='영업이익률(%)', mode='lines+markers+text', text=[f"{val:.1f}%" if val!=0 and not pd.isna(val) and not np.isinf(val) else "" for val in op_margin_actual], textposition='top center', cliponaxis=False, textfont=dict(size=13, color='#F59E0B', weight='bold'), marker=dict(color='white', size=10, line=dict(color='#F59E0B', width=2.5)), line=dict(color='#F59E0B', width=3, shape='spline'), yaxis='y2'))
+
+max_bar = max(max(op_plan), max(op_actual)) if len(op_plan)>0 else 100
+min_bar = min(min(op_plan), min(op_actual)) if len(op_plan)>0 else 0
+if max_bar == 0 and min_bar == 0: max_bar = 100
+y1_range = [min_bar * 1.5 if min_bar < 0 else -max_bar * 0.1, max_bar * 2.5]
+
+margin_span = max(op_margin_actual) - min(op_margin_actual) if len(op_margin_actual)>0 else 10
+if margin_span == 0 or pd.isna(margin_span): margin_span = 10
+y2_range = [min(op_margin_actual) - (margin_span * 2.0) if not pd.isna(min(op_margin_actual)) else 0, max(op_margin_actual) + (margin_span * 0.2) if not pd.isna(max(op_margin_actual)) else 100]
+
+fig_op.update_layout(barmode='group', margin=dict(l=0, r=0, t=20, b=30), legend=dict(orientation="h", yanchor="bottom", y=1.05, xanchor="right", x=1), plot_bgcolor='white', height=400, yaxis=dict(showgrid=True, gridcolor='#F3F4F6', zeroline=True, zerolinecolor='#9CA3AF', zerolinewidth=1, range=y1_range, showticklabels=False), yaxis2=dict(overlaying='y', side='right', showgrid=False, range=y2_range, showticklabels=False))
+st.plotly_chart(fig_op, use_container_width=True)
+
+st.markdown("<br>", unsafe_allow_html=True)
+
+# 6-2. 차트 3: 조정 영업이익 추이 
+col_adj_op_title, col_adj_op_unit = st.columns([1, 1])
+with col_adj_op_title: st.markdown("##### 📈 월별 조정 영업이익 추이")
+with col_adj_op_unit: st.markdown("<div style='text-align: right; font-size: 12px; font-weight: bold; color: #4B5563; margin-top: 10px;'>(단위: 백만원, %)</div>", unsafe_allow_html=True)
+
+adj_op_plan = adj_op_input_p
+adj_op_actual = adj_op_input_a
+
+adj_op_margin_actual = np.zeros(12)
+for i in range(12):
+    if sales_total_a[i] != 0:
+        adj_op_margin_actual[i] = (adj_op_actual[i] / sales_total_a[i]) * 100
+
+fig_adj_op = go.Figure()
+fig_adj_op.add_trace(go.Bar(x=months, y=adj_op_plan, name='계획 (Plan)', marker_color='#E2E8F0', text=[f"{val:,.0f}" if val!=0 else "" for val in adj_op_plan], textposition='inside', insidetextanchor='end', textfont=dict(size=11, color='#94A3B8'))) 
+# 조정 영업이익 바 차트 색상: 오렌지(흑자) / 스카이블루(적자)
+fig_adj_op.add_trace(go.Bar(x=months, y=adj_op_actual, name='실적 (Actual)', marker_color=['#14B8A6' if val >= 0 else '#94A3B8' for val in adj_op_actual], yaxis='y1', text=[f"{val:,.0f}" if val!=0 else "" for val in adj_op_actual], textposition='outside', cliponaxis=False, textfont=dict(size=12, color='#1F2937', weight='bold'))) 
+fig_adj_op.add_trace(go.Scatter(x=months, y=adj_op_margin_actual, name='조정 영업이익률(%)', mode='lines+markers+text', text=[f"{val:.1f}%" if val!=0 and not pd.isna(val) and not np.isinf(val) else "" for val in adj_op_margin_actual], textposition='top center', cliponaxis=False, textfont=dict(size=13, color='#8B5CF6', weight='bold'), marker=dict(color='white', size=10, line=dict(color='#8B5CF6', width=2.5)), line=dict(color='#8B5CF6', width=3, shape='spline'), yaxis='y2'))
+
+max_bar_adj = max(max(adj_op_plan), max(adj_op_actual)) if len(adj_op_plan)>0 else 100
+min_bar_adj = min(min(adj_op_plan), min(adj_op_actual)) if len(adj_op_plan)>0 else 0
+if max_bar_adj == 0 and min_bar_adj == 0: max_bar_adj = 100
+y1_range_adj = [min_bar_adj * 1.5 if min_bar_adj < 0 else -max_bar_adj * 0.1, max_bar_adj * 2.5]
+
+margin_span_adj = max(adj_op_margin_actual) - min(adj_op_margin_actual) if len(adj_op_margin_actual)>0 else 10
+if margin_span_adj == 0 or pd.isna(margin_span_adj): margin_span_adj = 10
+y2_range_adj = [min(adj_op_margin_actual) - (margin_span_adj * 2.0) if not pd.isna(min(adj_op_margin_actual)) else 0, max(adj_op_margin_actual) + (margin_span_adj * 0.2) if not pd.isna(max(adj_op_margin_actual)) else 100]
+
+fig_adj_op.update_layout(barmode='group', margin=dict(l=0, r=0, t=20, b=30), legend=dict(orientation="h", yanchor="bottom", y=1.05, xanchor="right", x=1), plot_bgcolor='white', height=400, yaxis=dict(showgrid=True, gridcolor='#F3F4F6', zeroline=True, zerolinecolor='#9CA3AF', zerolinewidth=1, range=y1_range_adj, showticklabels=False), yaxis2=dict(overlaying='y', side='right', showgrid=False, range=y2_range_adj, showticklabels=False))
+st.plotly_chart(fig_adj_op, use_container_width=True)
+
+
+# 7. 손익계산서 테이블
+st.markdown("---")
+# 💡 디자인 최적화: 라디오 버튼 중앙 고정, 기간 설정 시 드롭박스를 아래로 배치하며 극한으로 크기 축소
+pnl_mode = st.session_state.get("pnl_toggle", "실적만 보기")
+st.markdown("##### 📊 손익계산서")
+st.radio("표시 기준 선택", ["실적만 보기", "계획/실적 비교", "기간 설정 비교"], horizontal=True, label_visibility="collapsed", key="pnl_toggle")
+
+if pnl_mode == "기간 설정 비교":
+    selected_start_m, selected_end_m = render_centered_period_selectors(months, "st_pnl", "ed_pnl")
+    start_idx = months.index(selected_start_m)
+    end_idx = months.index(selected_end_m)
+else:
+    start_idx = 0
+    end_idx = 0
+    selected_start_m = "1월"
+    selected_end_m = "1월"
+
+view_mode = st.session_state["pnl_toggle"]
+
+render_table_unit("(단위: 백만원, pcs, m, %)", view_mode == "기간 설정 비교")
+
+items = [
+    '<label for="toggle-sales"><span class="icon-sales"></span> 매출액</label>', 
+    '<span class="child-sales"> - 제품</span>', '<span class="child-sales"> - 반제품</span>', '<span class="child-sales"> - 상품</span>', '<span class="child-sales"> - 기타</span>', '<span class="child-sales"> - 판매장려금</span>',
+    '<label for="toggle-qty"><span class="icon-qty"></span> 매출수량</label>', 
+    '<span class="child-qty"> - 8인치 SW</span>', '<span class="child-qty"> - 8인치 BW</span>', '<span class="child-qty"> - LS</span>', '<span class="child-qty"> - FS</span>',
+    '<label for="toggle-cogs"><span class="icon-cogs"></span> 매출원가</label>', 
+    '<span class="child-cogs"> - 제품</span>', '<span class="child-cogs"> - 반제품</span>', '<span class="child-cogs"> - 상품</span>', '<span class="child-cogs"> - 기타</span>', '<span class="child-cogs"> - 표준</span>', '<span class="child-cogs"> - 재고자산 평가손</span>',
+    '매출원가율', '매출총이익', '매출총이익률', '판관비', '영업이익', '영업이익률', '조정 영업이익', '조정 영업이익률'
+]
+
+cogs_ratio_a = np.zeros(12); cogs_ratio_p = np.zeros(12)
+gp_ratio_a = np.zeros(12); gp_ratio_p = np.zeros(12)
+op_ratio_a = np.zeros(12); op_ratio_p = np.zeros(12)
+adj_op_ratio_a = np.zeros(12); adj_op_ratio_p = np.zeros(12)
+
+for i in range(12):
+    if sales_total_a[i] != 0:
+        cogs_ratio_a[i] = (cogs_total_a[i] / sales_total_a[i]) * 100
+        gp_ratio_a[i] = (gp_total_a[i] / sales_total_a[i]) * 100
+        op_ratio_a[i] = (op_actual[i] / sales_total_a[i]) * 100
+        adj_op_ratio_a[i] = (adj_op_actual[i] / sales_total_a[i]) * 100
+    if sales_total_p[i] != 0:
+        cogs_ratio_p[i] = (cogs_total_p[i] / sales_total_p[i]) * 100
+        gp_ratio_p[i] = (gp_total_p[i] / sales_total_p[i]) * 100
+        op_ratio_p[i] = (op_plan[i] / sales_total_p[i]) * 100
+        adj_op_ratio_p[i] = (adj_op_plan[i] / sales_total_p[i]) * 100
+
+actual_rows = [
+    sales_total_a, sales_prod_a, sales_semi_a, sales_md_a, sales_etc_a, sales_inc_a, 
+    qty_total_a, qty_sw_a, qty_bw_a, qty_ls_a, qty_fs_a, 
+    cogs_total_a, cogs_prod_a, cogs_semi_a, cogs_md_a, cogs_etc_a, cogs_std_a, cogs_inv_a, 
+    cogs_ratio_a, gp_total_a, gp_ratio_a, 
+    sga_total_a, op_actual, op_ratio_a, adj_op_actual, adj_op_ratio_a
+]
+plan_rows = [
+    sales_total_p, sales_prod_p, sales_semi_p, sales_md_p, sales_etc_p, sales_inc_p, 
+    qty_total_p, qty_sw_p, qty_bw_p, qty_ls_p, qty_fs_p, 
+    cogs_total_p, cogs_prod_p, cogs_semi_p, cogs_md_p, cogs_etc_p, cogs_std_p, cogs_inv_p, 
+    cogs_ratio_p, gp_total_p, gp_ratio_p, 
+    sga_total_p, op_plan, op_ratio_p, adj_op_plan, adj_op_ratio_p
+]
+
+actual_sums = [sum(row) for row in actual_rows]
+plan_sums = [sum(row) for row in plan_rows]
+
+idx_sales, idx_cogs, idx_gp, idx_op = 0, 11, 19, 22
+
+actual_sums[18] = (actual_sums[idx_cogs] / actual_sums[idx_sales]) * 100 if actual_sums[idx_sales] != 0 else 0
+actual_sums[20] = (actual_sums[idx_gp] / actual_sums[idx_sales]) * 100 if actual_sums[idx_sales] != 0 else 0
+actual_sums[23] = (actual_sums[idx_op] / actual_sums[idx_sales]) * 100 if actual_sums[idx_sales] != 0 else 0
+actual_sums[25] = (actual_sums[24] / actual_sums[idx_sales]) * 100 if actual_sums[idx_sales] != 0 else 0
+plan_sums[18] = (plan_sums[idx_cogs] / plan_sums[idx_sales]) * 100 if plan_sums[idx_sales] != 0 else 0
+plan_sums[20] = (plan_sums[idx_gp] / plan_sums[idx_sales]) * 100 if plan_sums[idx_sales] != 0 else 0
+plan_sums[23] = (plan_sums[idx_op] / plan_sums[idx_sales]) * 100 if plan_sums[idx_sales] != 0 else 0
+plan_sums[25] = (plan_sums[24] / plan_sums[idx_sales]) * 100 if plan_sums[idx_sales] != 0 else 0
+
+if view_mode == "기간 설정 비교":
+    if start_idx > end_idx:
+        st.markdown("<div style='padding: 20px; background-color: #FEE2E2; border-left: 5px solid #EF4444; border-radius: 4px; text-align: center; width: 600px; margin: 0 auto;'><h4 style='color: #B91C1C; margin: 0;'>⚠️ 기간 설정 오류</h4><p style='color: #7F1D1D; margin-top: 10px;'>시작월이 종료월보다 이후일 수 없습니다.</p></div>", unsafe_allow_html=True)
+    else:
+        missing_actuals = any(sales_total_a[i] == 0 for i in range(start_idx, end_idx + 1))
         if missing_actuals:
             st.markdown("<div style='padding: 20px; background-color: #FEE2E2; border-left: 5px solid #EF4444; border-radius: 4px; text-align: center; width: 600px; margin: 0 auto;'><h4 style='color: #B91C1C; margin: 0;'>⚠️ 실적이 없습니다</h4><p style='color: #7F1D1D; margin-top: 10px;'>선택하신 기간 중 <b>실적 데이터가 입력되지 않은 월</b>이 포함되어 비교가 불가능합니다.</p></div>", unsafe_allow_html=True)
         else:
@@ -720,4 +1191,3 @@ with tab2:
 
 # Item별 구분손익 표 하단 여백
 st.markdown("<div style='height: 64px;'></div>", unsafe_allow_html=True)
-
