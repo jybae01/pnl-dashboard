@@ -7,6 +7,7 @@ from forecast.persistence import CalculationResultWrite, JobStatus
 from forecast.persistence.supabase import (
     SupabaseCalculationJobRepository,
     SupabaseModelRepositoryAdapter,
+    SupabaseResultRepository,
 )
 from forecast.provenance import ResultProvenance
 
@@ -51,6 +52,39 @@ class InsertCall:
         self.client.inserted.append(self.row)
         saved = {**self.row, "id": "job-enqueued", "created_at": "now", "updated_at": "now"}
         return Response([saved])
+
+
+class ResultReadCall:
+    def __init__(self, client):
+        self.client = client
+
+    def select(self, columns):
+        self.client.read_filters.append(("select", columns))
+        return self
+
+    def eq(self, column, value):
+        self.client.read_filters.append(("eq", column, value))
+        return self
+
+    def order(self, column, *, desc=False):
+        self.client.read_filters.append(("order", column, desc))
+        return self
+
+    def limit(self, value):
+        self.client.read_filters.append(("limit", value))
+        return self
+
+    def execute(self):
+        return Response([])
+
+
+class ResultReadSupabase:
+    def __init__(self):
+        self.read_filters = []
+
+    def table(self, name):
+        assert name == "calculation_results"
+        return ResultReadCall(self)
 
 
 def job_row(**overrides):
@@ -143,6 +177,15 @@ class Phase1SupabaseAdapterTests(unittest.TestCase):
         self.assertTrue(model.confirmed)
         self.assertTrue(model.is_default)
         self.assertEqual(self.client.calls[0][0], "set_model_publication")
+
+    def test_viewer_result_read_requires_published_completed_job(self):
+        client = ResultReadSupabase()
+
+        self.assertIsNone(SupabaseResultRepository(client).load_completed())
+
+        self.assertIn(("select", "*,calculation_jobs!inner(status)"), client.read_filters)
+        self.assertIn(("eq", "is_published", True), client.read_filters)
+        self.assertIn(("eq", "calculation_jobs.status", "completed"), client.read_filters)
 
 
 if __name__ == "__main__":

@@ -16,7 +16,7 @@ def parser() -> argparse.ArgumentParser:
     command = argparse.ArgumentParser(
         description="Independent P&L calculation queue worker (no Streamlit session runtime)."
     )
-    command.add_argument("--backend", choices=("local", "supabase"), default="supabase")
+    command.add_argument("--backend", choices=("local", "supabase"), default="local")
     command.add_argument("--data-directory", type=Path, default=Path("data"))
     command.add_argument("--mapping", type=Path, default=Path("config/model_mapping.json"))
     command.add_argument(

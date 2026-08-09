@@ -188,6 +188,16 @@ begin
     if not public.is_valid_pnl_storage_path(p_storage_path, 'source') then
         raise exception 'invalid source workbook path';
     end if;
+    if not exists (
+        select 1
+          from public.app_config
+         where config_key = 'model_mapping'
+           and version = p_mapping_version
+           and content_hash = p_mapping_hash
+           and status = 'published'
+    ) then
+        raise exception 'mapping provenance is not published';
+    end if;
     if jsonb_typeof(coalesce(p_analysis_request, '{}'::jsonb)) <> 'object' then
         raise exception 'analysis request must be a JSON object';
     end if;
@@ -537,15 +547,21 @@ using (created_by = (select auth.uid()));
 drop policy if exists calculation_results_read_policy on public.calculation_results;
 create policy calculation_results_read_policy on public.calculation_results for select to authenticated
 using (
-    is_published or exists (
+    is_published and exists (
         select 1 from public.calculation_jobs job
          where job.id = calculation_results.job_id
-           and job.created_by = (select auth.uid())
+           and job.status = 'completed'
     )
 );
 
 grant select on table public.models, public.calculation_jobs,
     public.calculation_results, public.app_config to authenticated;
+
+-- Result creation is exclusively owned by complete_calculation_job. Make this
+-- revocation explicit so an environment that previously applied a broader
+-- Phase 1 grant cannot retain direct INSERT or mutation privileges.
+revoke insert, update, delete, truncate on table public.calculation_results
+    from service_role;
 
 revoke all on function public.enqueue_calculation_job(uuid)
     from public, anon, authenticated;

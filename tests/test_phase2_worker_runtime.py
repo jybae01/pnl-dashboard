@@ -9,10 +9,15 @@ from forecast.persistence.local import LocalCalculationJobRepository
 from forecast.provenance import ResultProvenance
 from forecast.presentation.viewer_dashboard import InvalidCompletedResult, persisted_analysis_view
 from forecast.worker import WorkerJobControl
+from forecast.worker_cli import parser as worker_cli_parser
 from forecast.worker_runtime import AnalysisRequest, WorkerRunner
 
 
 PROVENANCE = ResultProvenance("engine-2", "mapping-2", "a" * 64, "2")
+
+
+def test_worker_cli_defaults_to_local_backend():
+    assert worker_cli_parser().parse_args([]).backend == "local"
 
 
 class SuccessfulExecutor:
@@ -86,4 +91,3 @@ def test_worker_renews_short_lease_while_executor_runs(tmp_path):
 def test_viewer_rejects_raw_or_unmaterialized_result():
     with pytest.raises(InvalidCompletedResult):
         persisted_analysis_view({"payload_type": "comparison_analysis"})
-

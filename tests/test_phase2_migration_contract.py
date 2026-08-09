@@ -25,10 +25,16 @@ def test_queue_rpcs_are_service_role_only_and_request_is_immutable():
     assert "to service_role" in SQL
 
 
+def test_phase1_provenance_and_viewer_boundaries_survive_phase2_redefinition():
+    assert "mapping provenance is not published" in SQL
+    assert "job.status = 'completed'" in SQL
+    assert "is_published and exists" in SQL
+    assert "revoke insert, update, delete, truncate on table public.calculation_results" in SQL
+
+
 def test_edge_is_upload_and_status_gateway_not_worker_executor():
     assert "createSignedUploadUrl" in EDGE
     assert "p_analysis_request" in EDGE
     assert "claim_calculation_job" not in EDGE
     assert "openpyxl" not in EDGE
     assert "pandas" not in EDGE
-
