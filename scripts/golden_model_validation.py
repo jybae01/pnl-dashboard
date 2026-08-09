@@ -360,4 +360,639 @@ def validate_pair(
     material_total = 0.0
     material_group_independent: dict[str, float] = {}
     for group, spec in material["groups"].items():
-        production0 = sum(_value(base, column,Ánw∂âûÀk∫wµÁAô·}ç°ÖπùïÃËÅë•ç—mÕ—»∞Åô±ΩÖ—tÄÙÅÌÙ(ÄÄÄÅôΩ»ÅçΩëî∞ÅÕ¡ïåÅ•∏ÅµÖ¡¡•πùlâÕÖ±ïÃâtπ•—ïµÃ†§Ë(ÄÄÄÄÄÄÄÅ•òÅçΩëîπÕ—Ö…—Õ›•—††âM|à§Ë(ÄÄÄÄÄÄÄÄÄÄÄÅ≈’Öπ—•—Â}ç°ÖπùïÕmçï±∞°Õ¡ïçlâ≈’Öπ—•—Â}…Ω‹ât•tÄÙÅŸÖ±’î°Õ¡ïçlâ≈’Öπ—•—Â}…Ω‹ât§Ä®Äƒ∏¿‘(ÄÄÄÄÄÄÄÄÄÄÄÅ≈’Öπ—•—Â}ç°ÖπùïÕmçï±∞°Õ¡ïçlâÖµΩ’π—}…Ω‹ât•tÄÙÅŸÖ±’î°Õ¡ïçlâÖµΩ’π—}…Ω‹ât§Ä®Äƒ∏¿‘(ÄÄÄÄÄÄÄÅô·}ç°ÖπùïÕmçï±∞°Õ¡ïçlâÖµΩ’π—}…Ω‹ât•tÄÙÅŸÖ±’î°Õ¡ïçlâÖµΩ’π—}…Ω‹ât§Ä®Ä†ƒ‘¿¿∏¿ÄºÄƒ–‘¿∏¿§(ÄÄÄÅ±ç}ùΩΩëÕ}ÖµΩ’π—}…Ω‹ÄÙÅ•π–°µÖ¡¡•πùlâ±ç}ùΩΩëÃâulâÖµΩ’π—}…Ω‹ât§(ÄÄÄÅô·}ç°ÖπùïÕmçï±∞°±ç}ùΩΩëÕ}ÖµΩ’π—}…Ω‹•tÄÙÄ†(ÄÄÄÄÄÄÄÅŸÖ±’î°±ç}ùΩΩëÕ}ÖµΩ’π—}…Ω‹§Ä®Ä†ƒ‘¿¿∏¿ÄºÄƒ–‘¿∏¿§(ÄÄÄÄ§((ÄÄÄÅÕçïπÖ…•ΩÃÄÙÅl(ÄÄÄÄÄÄÄÅÏ(ÄÄÄÄÄÄÄÄÄÄÄÄâçΩëîàËÄâÕÖ±ïÕ}≈’Öπ—•—‰à∞(ÄÄÄÄÄÄÄÄÄÄÄÄâ±Öâï∞àËÄâMÖ±ïÃÅ≈’Öπ—•—‰ÅΩπ±‰à∞(ÄÄÄÄÄÄÄÄÄÄÄÄâç°ÖπùïÃàËÅ≈’Öπ—•—Â}ç°ÖπùïÃ∞(ÄÄÄÄÄÄÄÄÄÄÄÄâ—Ö…ùï—}ïôôïç—ÃàËÅlâÕÖ±ïÕ}≈’Öπ—•—‰ât∞(ÄÄÄÄÄÄÄÅÙ∞(ÄÄÄÄÄÄÄÅÏ(ÄÄÄÄÄÄÄÄÄÄÄÄâçΩëîàËÄâ¡…Ωë’ç—}ù…Ω’¡}µ•‡à∞(ÄÄÄÄÄÄÄÄÄÄÄÄâ±Öâï∞àËÄâA…Ωë’ç–µù…Ω’¿Å5•‡ÅΩπ±‰à∞(ÄÄÄÄÄÄÄÄÄÄÄÄâç°ÖπùïÃàËÅÏ(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÅçï±∞°Õ›lâ≈’Öπ—•—Â}…Ω‹ât§ËÅÕ›}ƒÄ¨Åµ•·}ëï±—Ñ∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÅçï±∞°Õ›lâÖµΩ’π—}…Ω‹ât§ËÅÕ›}ÑÄ¨Åµ•·}ëï±—ÑÄ®Ä°Õ›}ÑÄºÅÕ›}ƒÅ•òÅÕ›}ƒÅï±ÕîÄ¿∏¿§∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÅçï±∞°â›lâ≈’Öπ—•—Â}…Ω‹ât§ËÅâ›}ƒÄ¥Åµ•·}ëï±—Ñ∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÅçï±∞°â›lâÖµΩ’π—}…Ω‹ât§ËÅâ›}ÑÄ¥Åµ•·}ëï±—ÑÄ®Ä°â›}ÑÄºÅâ›}ƒÅ•òÅâ›}ƒÅï±ÕîÄ¿∏¿§∞(ÄÄÄÄÄÄÄÄÄÄÄÅÙ∞(ÄÄÄÄÄÄÄÄÄÄÄÄâ—Ö…ùï—}ïôôïç—ÃàËÅlâÕÖ±ïÕ}µ•‡ât∞(ÄÄÄÄÄÄÄÅÙ∞(ÄÄÄÄÄÄÄÅÏ(ÄÄÄÄÄÄÄÄÄÄÄÄâçΩëîàËÄâÕÖ±ïÕ}¡…•çîà∞(ÄÄÄÄÄÄÄÄÄÄÄÄâ±Öâï∞àËÄâMÖ±ïÃÅ¡…•çîÅΩπ±‰à∞(ÄÄÄÄÄÄÄÄÄÄÄÄâç°ÖπùïÃàËÅÌçï±∞°Õ›lâÖµΩ’π—}…Ω‹ât§ËÅÕ›}ÑÄ®Äƒ∏¿’Ù∞(ÄÄÄÄÄÄÄÄÄÄÄÄâ—Ö…ùï—}ïôôïç—ÃàËÅlâÕÖ±ïÕ}¡…•çîât∞(ÄÄÄÄÄÄÄÅÙ∞(ÄÄÄÄÄÄÄÅÏ(ÄÄÄÄÄÄÄÄÄÄÄÄâçΩëîàËÄâÕÖ±ïÕ}ô‡à∞(ÄÄÄÄÄÄÄÄÄÄÄÄâ±Öâï∞àËÄâMÖ±ïÃÅ`ÅΩπ±‰à∞(ÄÄÄÄÄÄÄÄÄÄÄÄâç°ÖπùïÃàËÅô·}ç°ÖπùïÃ∞(ÄÄÄÄÄÄÄÄÄÄÄÄââÖÕï±•πï}ÕÖ±ïÕ}ô‡àËÄƒ–‘¿∏¿∞(ÄÄÄÄÄÄÄÄÄÄÄÄâçΩµ¡Ö…•ÕΩπ}ÕÖ±ïÕ}ô‡àËÄƒ‘¿¿∏¿∞(ÄÄÄÄÄÄÄÄÄÄÄÄâï·—ï…πÖ±}ÕΩ’…çïÃàËÅlâÕÖ±ïÕ}ô‡ât∞(ÄÄÄÄÄÄÄÄÄÄÄÄâ—Ö…ùï—}ïôôïç—ÃàËÅlâÕÖ±ïÕ}ô‡ât∞(ÄÄÄÄÄÄÄÅÙ∞(ÄÄÄÄÄÄÄÅÏ(ÄÄÄÄÄÄÄÄÄÄÄÄâçΩëîàËÄâ©¡‰à∞(ÄÄÄÄÄÄÄÄÄÄÄÄâ±Öâï∞àËÄâ)AdÅΩπ±‰à∞(ÄÄÄÄÄÄÄÄÄÄÄÄâç°ÖπùïÃàËÅÌçï±∞†‰§ËÅŸÖ±’î†‰§Ä®Äƒ∏¿ÕÙ∞(ÄÄÄÄÄÄÄÄÄÄÄÄâ—Ö…ùï—}ïôôïç—ÃàËÅlâµÖ—ï…•Ö±}—Ω—Ö∞ât∞(ÄÄÄÄÄÄÄÅÙ∞(ÄÄÄÄÄÄÄÅÏ(ÄÄÄÄÄÄÄÄÄÄÄÄâçΩëîàËÄâπΩπ›ΩŸïπ}¡…•çîà∞(ÄÄÄÄÄÄÄÄÄÄÄÄâ±Öâï∞àËÄâ9Ωπ›ΩŸï∏Å¡…•çîÅΩπ±‰à∞(ÄÄÄÄÄÄÄÄÄÄÄÄâç°ÖπùïÃàËÅÌçï±∞†ƒƒ§ËÅŸÖ±’î†ƒƒ§Ä®Äƒ∏¿ÕÙ∞(ÄÄÄÄÄÄÄÄÄÄÄÄâ—Ö…ùï—}ïôôïç—ÃàËÅlâµÖ—ï…•Ö±}—Ω—Ö∞ât∞(ÄÄÄÄÄÄÄÅÙ∞(ÄÄÄÄÄÄÄÅÏ(ÄÄÄÄÄÄÄÄÄÄÄÄâçΩëîàËÄâµÖ—ï…•Ö±Õ}ï·}πΩπ›ΩŸï∏à∞(ÄÄÄÄÄÄÄÄÄÄÄÄâ±Öâï∞àËÄâ5Ö—ï…•Ö±ÃÅï·ç±’ë•πúÅπΩπ›ΩŸï∏ÅΩπ±‰à∞(ÄÄÄÄÄÄÄÄÄÄÄÄâç°ÖπùïÃàËÅÌçï±∞†»¿‰§ËÅŸÖ±’î†»¿‰§Ä¨Äƒ¡|¿¿¡|¿¿¿∏¡Ù∞(ÄÄÄÄÄÄÄÄÄÄÄÄâ—Ö…ùï—}ïôôïç—ÃàËÅlâµÖ—ï…•Ö±}—Ω—Ö∞ât∞(ÄÄÄÄÄÄÄÅÙ∞(ÄÄÄÄÄÄÄÅÏ(ÄÄÄÄÄÄÄÄÄÄÄÄâçΩëîàËÄâµÖπ’ôÖç—’…•πù}ŸÖ…•Öâ±îà∞(ÄÄÄÄÄÄÄÄÄÄÄÄâ±Öâï∞àËÄâ=πîÅŸÖ…•Öâ±îÅµÖπ’ôÖç—’…•πúÅÖççΩ’π–à∞(ÄÄÄÄÄÄÄÄÄÄÄÄâç°ÖπùïÃàËÅÌçï±∞†»‰‹§ËÅŸÖ±’î†»‰‹§Ä¨Äƒ¡|¿¿¡|¿¿¿∏¡Ù∞(ÄÄÄÄÄÄÄÄÄÄÄÄâ—Ö…ùï—}ïôôïç—ÃàËÅlâµÖπ’ôÖç—’…•πù}…ïÖ±•Èïêât∞(ÄÄÄÄÄÄÄÅÙ∞(ÄÄÄÄÄÄÄÅÏ(ÄÄÄÄÄÄÄÄÄÄÄÄâçΩëîàËÄâµÖπ’ôÖç—’…•πù}ÕÖ±Ö…‰à∞(ÄÄÄÄÄÄÄÄÄÄÄÄâ±Öâï∞àËÄâ5Öπ’ôÖç—’…•πúÅÕÖ±Ö…‰ÅΩπ±‰à∞(ÄÄÄÄÄÄÄÄÄÄÄÄâç°ÖπùïÃàËÅÌçï±∞†»‰¿§ËÅŸÖ±’î†»‰¿§Ä¨Ä‘¡|¿¿¡|¿¿¿∏¡Ù∞(ÄÄÄÄÄÄÄÄÄÄÄÄâ—Ö…ùï—}ïôôïç—ÃàËÅlâµÖπ’ôÖç—’…•πù}…ïÖ±•Èïêât∞(ÄÄÄÄÄÄÄÅÙ∞(ÄÄÄÄÄÄÄÅÏ(ÄÄÄÄÄÄÄÄÄÄÄÄâçΩëîàËÄâ¡…Ωë’ç—•Ωπ}≈’Öπ—•—‰à∞(ÄÄÄÄÄÄÄÄÄÄÄÄâ±Öâï∞àËÄâA…Ωë’ç—•Ω∏Å≈’Öπ—•—‰ÅΩπ±‰à∞(ÄÄÄÄÄÄÄÄÄÄÄÄâç°ÖπùïÃàËÅÌçï±∞†‘‘ÿ§ËÅŸÖ±’î†‘‘ÿ§Ä®Äƒ∏¿’Ù∞(ÄÄÄÄÄÄÄÄÄÄÄÄâ—Ö…ùï—}ïôôïç—ÃàËÅlâµÖ—ï…•Ö±}—Ω—Ö∞à∞ÄâµÖπ’ôÖç—’…•πù}…ïÖ±•Èïêât∞(ÄÄÄÄÄÄÄÅÙ∞(ÄÄÄÄÄÄÄÅÏ(ÄÄÄÄÄÄÄÄÄÄÄÄâçΩëîàËÄâÕùÖ}ŸÖ…•Öâ±îà∞(ÄÄÄÄÄÄÄÄÄÄÄÄâ±Öâï∞àËÄâ=πîÅŸÖ…•Öâ±îÅMÅÖççΩ’π–à∞(ÄÄÄÄÄÄÄÄÄÄÄÄâç°ÖπùïÃàËÅÌçï±∞†ƒƒ‰–§ËÅŸÖ±’î†ƒƒ‰–§Ä¨Äƒ¡|¿¿¡|¿¿¿∏¡Ù∞(ÄÄÄÄÄÄÄÄÄÄÄÄâ—Ö…ùï—}ïôôïç—ÃàËÅlâÕùÖ}ŸÖ…•Öâ±îât∞(ÄÄÄÄÄÄÄÅÙ∞(ÄÄÄÄÄÄÄÅÏ(ÄÄÄÄÄÄÄÄÄÄÄÄâçΩëîàËÄâÕùÖ}ô•·ïêà∞(ÄÄÄÄÄÄÄÄÄÄÄÄâ±Öâï∞àËÄâ=πîÅô•·ïêÅMÅÖççΩ’π–à∞(ÄÄÄÄÄÄÄÄÄÄÄÄâç°ÖπùïÃàËÅÌçï±∞†ƒ»¿¿§ËÅŸÖ±’î†ƒ»¿¿§Ä¨Äƒ¡|¿¿¡|¿¿¿∏¡Ù∞(ÄÄÄÄÄÄÄÄÄÄÄÄâ—Ö…ùï—}ïôôïç—ÃàËÅlâÕùÖ}ô•·ïêât∞(ÄÄÄÄÄÄÄÅÙ∞(ÄÄÄÄÄÄÄÅÏ(ÄÄÄÄÄÄÄÄÄÄÄÄâçΩëîàËÄâç’Õ—Ωµï…}ô…ï•ù°–à∞(ÄÄÄÄÄÄÄÄÄÄÄÄâ±Öâï∞àËÄâ’Õ—Ωµï»µëï±•Ÿï…‰Å—…ÖπÕ¡Ω…–ÅΩπ±‰à∞(ÄÄÄÄÄÄÄÄÄÄÄÄâç°ÖπùïÃàËÅÌçï±∞†ƒƒÿ‡§ËÅŸÖ±’î†ƒƒÿ‡§Ä¨Äƒ¡|¿¿¡|¿¿¿∏¡Ù∞(ÄÄÄÄÄÄÄÄÄÄÄÄâ—Ö…ùï—}ïôôïç—ÃàËÅlâÕÖ±ïÕ}≈’Öπ—•—‰à∞ÄâÕÖ±ïÕ}¡…•çîât∞(ÄÄÄÄÄÄÄÅÙ∞(ÄÄÄÄÄÄÄÅÏ(ÄÄÄÄÄÄÄÄÄÄÄÄâçΩëîàËÄâ—Ö…•ôòà∞(ÄÄÄÄÄÄÄÄÄÄÄÄâ±Öâï∞àËÄâQÖ…•ôòÅΩπ±‰à∞(ÄÄÄÄÄÄÄÄÄÄÄÄâç°ÖπùïÃàËÅÌÙ∞(ÄÄÄÄÄÄÄÄÄÄÄÄâ—Ö…•ôô}Öë©’Õ—µïπ–àËÄƒÕ|¿¿¡|¿¿¿∏¿∞(ÄÄÄÄÄÄÄÄÄÄÄÄâï·—ï…πÖ±}ÕΩ’…çïÃàËÅlâ—Ö…•ôòât∞(ÄÄÄÄÄÄÄÄÄÄÄÄâ—Ö…ùï—}ïôôïç—ÃàËÅlâ—Ö…•ôòât∞(ÄÄÄÄÄÄÄÅÙ∞(ÄÄÄÅt((ÄÄÄÅÖç—’Ö±}ïôôïç—}çΩëïÃÄÙÅÏ(ÄÄÄÄÄÄÄÄâÕÖ±ïÕ}≈’Öπ—•—‰à∞ÄâÕÖ±ïÕ}µ•‡à∞ÄâÕÖ±ïÕ}¡…•çîà∞ÄâÕÖ±ïÕ}ô‡à∞(ÄÄÄÄÄÄÄÄâµÖ—ï…•Ö±}—Ω—Ö∞à∞ÄâµÖπ’ôÖç—’…•πù}…ïÖ±•Èïêà∞ÄâÕùÖ}ŸÖ…•Öâ±îà∞(ÄÄÄÄÄÄÄÄâÕùÖ}ô•·ïêà∞Äâ—Ö…•ôòà∞(ÄÄÄÅÙ(ÄÄÄÅ…ïçΩ…ëÃËÅ±•Õ—më•ç—mÕ—»∞ÅπÂutÄÙÅmt(ÄÄÄÅôΩ»ÅÕçïπÖ…•ºÅ•∏ÅÕçïπÖ…•ΩÃË(ÄÄÄÄÄÄÄÅ•òÅÕçïπÖ…•Ω}çΩëïÃÅ•ÃÅπΩ–Å9ΩπîÅÖπêÅÕçïπÖ…•ΩlâçΩëîâtÅπΩ–Å•∏ÅÕçïπÖ…•Ω}çΩëïÃË(ÄÄÄÄÄÄÄÄÄÄÄÅçΩπ—•π’î(ÄÄÄÄÄÄÄÅÕçïπÖ…•Ω}âÖÕï}¡Ö—†ÄÙÅâÖÕï}¡Ö—†(ÄÄÄÄÄÄÄÅ¡Ö•…}çΩπ—…Ω±ÃËÅ±•Õ—më•ç—mÕ—»∞ÅπÂutÄÙÅmt(ÄÄÄÄÄÄÄÅ•òÅÕçïπÖ…•ΩlâçΩëîâtÄÙÙÄâÕÖ±ïÕ}≈’Öπ—•—‰àË(ÄÄÄÄÄÄÄÄÄÄÄÄåÅÅçΩπ—…Ω±±ïêÅ¡Ö•»Å…ïµΩŸïÃÅç’Õ—Ωµï»Åô…ï•ù°–Åô…Ω¥ÅâΩ—†ÅÕ•ëïÃ∏ÄÅ%–(ÄÄÄÄÄÄÄÄÄÄÄÄåÅÖŸΩ•ëÃÅ•πŸïπ—•πúÅÖ∏ÅÖ±±ΩçÖ—•Ω∏ÅÖç…ΩÕÃÅALÅÖπêÅLÅ19Q ÅÖπê(ÄÄÄÄÄÄÄÄÄÄÄÄåÅ±ïÖŸïÃÅô…ï•ù°–Å—ºÅ•—ÃÅëïë•çÖ—ïêÅ•ÕΩ±Ö—•Ω∏ÅÕçïπÖ…•º∏(ÄÄÄÄÄÄÄÄÄÄÄÅÕçïπÖ…•Ω}âÖÕï}¡Ö—†ÄÙÅΩ’—¡’—}ë•»ÄºÄâÕÖ±ïÕ}≈’Öπ—•—Â}âÖÕï}çΩπ—…Ω±±ïêπ·±Õ‡à(ÄÄÄÄÄÄÄÄÄÄÄÅÕ°’—•∞πçΩ¡‰»°âÖÕï}¡Ö—†∞ÅÕçïπÖ…•Ω}âÖÕï}¡Ö—†§(ÄÄÄÄÄÄÄÄÄÄÄÅçΩπ—…Ω±±ïêÄÙÅΩ±ëïπ]Ω…≠âΩΩ¨°ÕçïπÖ…•Ω}âÖÕï}¡Ö—†§(ÄÄÄÄÄÄÄÄÄÄÄÅçΩπ—…Ω±±ïêπÕï—}•π¡’–†(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÅçï±∞†ƒƒÿ‡§∞Ä¿∏¿∞ÄâŸÖ±•ëÖ—•Ω∏πÕÖ±ïÕ}≈’Öπ—•—‰à∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄâçΩπ—…Ω±±ïêÅ¡Ö•»Åï·ç±’ëïÃÅç’Õ—Ωµï»Åô…ï•ù°–à∞ÅÖ±±Ω›}ôΩ…µ’±ÑıQ…’î∞(ÄÄÄÄÄÄÄÄÄÄÄÄ§(ÄÄÄÄÄÄÄÄÄÄÄÅçΩπ—…Ω±±ïêπ…ïçÖ±ç’±Ö—î†§(ÄÄÄÄÄÄÄÄÄÄÄÅçΩπ—…Ω±±ïêπÕÖŸî°ÕçïπÖ…•Ω}âÖÕï}¡Ö—†§(ÄÄÄÄÄÄÄÄÄÄÄÅ¡Ö•…}çΩπ—…Ω±ÃπÖ¡¡ïπê°Ï(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄâÖëë…ïÕÃàËÅçï±∞†ƒƒÿ‡§∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄâΩ…•ù•πÖ±}ŸÖ±’îàËÅŸÖ±’î†ƒƒÿ‡§∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄâçΩπ—…Ω±±ïë}ŸÖ±’îàËÄ¿∏¿∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄâÖ¡¡±•ïë}—ºàËÅlââÖÕîà∞ÄâçΩµ¡Ö…•ÕΩ∏ât∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄâç±ÖÕÕ•ô•çÖ—•Ω∏àËÄâ=9QI=11}QMQ}MMU5AQ%=8à∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄâ…ïÖÕΩ∏àËÄâï·ç±’ëîÅµ•·ïêµ’π•–Åç’Õ—Ωµï»Åô…ï•ù°–Åô…Ω¥Å≈’Öπ—•—‰µΩπ±‰Å•ÕΩ±Ö—•Ω∏à∞(ÄÄÄÄÄÄÄÄÄÄÄÅÙ§(ÄÄÄÄÄÄÄÅçΩµ¡Ö…•ÕΩπ}¡Ö—†ÄÙÅΩ’—¡’—}ë•»ÄºÅòâÌÕçïπÖ…•ΩlùçΩëîùuÙπ·±Õ‡à(ÄÄÄÄÄÄÄÅÕ°’—•∞πçΩ¡‰»°ÕçïπÖ…•Ω}âÖÕï}¡Ö—†∞ÅçΩµ¡Ö…•ÕΩπ}¡Ö—†§(ÄÄÄÄÄÄÄÅ›Ω…≠âΩΩ¨ÄÙÅΩ±ëïπ]Ω…≠âΩΩ¨°çΩµ¡Ö…•ÕΩπ}¡Ö—†§(ÄÄÄÄÄÄÄÅôΩ»ÅÖëë…ïÕÃ∞Åπï›}ŸÖ±’îÅ•∏ÅÕçïπÖ…•Ωlâç°ÖπùïÃâtπ•—ïµÃ†§Ë(ÄÄÄÄÄÄÄÄÄÄÄÅ›Ω…≠âΩΩ¨πÕï—}•π¡’–†(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÅÖëë…ïÕÃ∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÅπï›}ŸÖ±’î∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÅòâŸÖ±•ëÖ—•Ω∏πÌÕçïπÖ…•ΩlùçΩëîùuÙà∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄâÕ•πù±îµë…•Ÿï»Å•ÕΩ±Ö—•Ω∏à∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÅÖ±±Ω›}ôΩ…µ’±ÑıQ…’î∞(ÄÄÄÄÄÄÄÄÄÄÄÄ§(ÄÄÄÄÄÄÄÅ›Ω…≠âΩΩ¨π…ïçÖ±ç’±Ö—î†§(ÄÄÄÄÄÄÄÅ›Ω…≠âΩΩ¨πÕÖŸî°çΩµ¡Ö…•ÕΩπ}¡Ö—†§(ÄÄÄÄÄÄÄÅç°Öπùïë}ÕΩ’…çïÃÄÙÅÕΩ…—ïê°ÕçïπÖ…•Ωlâç°ÖπùïÃât§(ÄÄÄÄÄÄÄÅ…ï¡Ω…–ÄÙÅŸÖ±•ëÖ—ï}¡Ö•»†(ÄÄÄÄÄÄÄÄÄÄÄÅÕçïπÖ…•Ω}âÖÕï}¡Ö—†∞(ÄÄÄÄÄÄÄÄÄÄÄÅçΩµ¡Ö…•ÕΩπ}¡Ö—†∞(ÄÄÄÄÄÄÄÄÄÄÄÅµÖ¡¡•πù}¡Ö—†∞(ÄÄÄÄÄÄÄÄÄÄÄÅµΩπ—†ıµΩπ—†∞(ÄÄÄÄÄÄÄÄÄÄÄÅâÖÕï±•πï}ÕÖ±ïÕ}ô‡ıô±ΩÖ–°ÕçïπÖ…•ºπùï–†ââÖÕï±•πï}ÕÖ±ïÕ}ô‡à∞Äƒ–‘¿∏¿§§∞(ÄÄÄÄÄÄÄÄÄÄÄÅçΩµ¡Ö…•ÕΩπ}ÕÖ±ïÕ}ô‡ıô±ΩÖ–°ÕçïπÖ…•ºπùï–†âçΩµ¡Ö…•ÕΩπ}ÕÖ±ïÕ}ô‡à∞Äƒ–‘¿∏¿§§∞(ÄÄÄÄÄÄÄÄÄÄÄÅ—Ö…•ôô}Öë©’Õ—µïπ–ıô±ΩÖ–°ÕçïπÖ…•ºπùï–†â—Ö…•ôô}Öë©’Õ—µïπ–à∞Ä¿∏¿§§∞(ÄÄÄÄÄÄÄÄÄÄÄÅç°Öπùïë}ÕΩ’…çïÃıç°Öπùïë}ÕΩ’…çïÃ∞(ÄÄÄÄÄÄÄÄ§(ÄÄÄÄÄÄÄÅçΩµ¡Ö…•ÕΩπ}…ïÕ’±–ÄÙÅ…ï¡Ω…—lâçΩµ¡Ö…•ÕΩπ}…ïÕ’±–ât(ÄÄÄÄÄÄÄÅëï¡ïπëïπç‰ÄÙÅ…ï¡Ω…—lâôΩ…µ’±Ö}ïŸÖ±’Ö—•Ω∏âulâçΩµ¡Ö…•ÕΩπ}¡π±}ëï¡ïπëïπç‰ât(ÄÄÄÄÄÄÄÅ•πëï¡ïπëïπ–ÄÙÅ…ï¡Ω…—lâ•πëï¡ïπëïπ—}ïôôïç—Ãât(ÄÄÄÄÄÄÄÅï·¡ïç—ïë}—Ω—Ö∞ÄÙÅÕ’¥†(ÄÄÄÄÄÄÄÄÄÄÄÅ•πëï¡ïπëïπ—mçΩëït(ÄÄÄÄÄÄÄÄÄÄÄÅôΩ»ÅçΩëîÅ•∏Ä†(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄâÕÖ±ïÕ}≈’Öπ—•—‰à∞ÄâÕÖ±ïÕ}µ•‡à∞ÄâÕÖ±ïÕ}¡…•çîà∞ÄâÕÖ±ïÕ}ô‡à∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄâµÖ—ï…•Ö±}—Ω—Ö∞à∞ÄâµÖπ’ôÖç—’…•πù}…ïÖ±•Èïêà∞ÄâÕùÖ}ŸÖ…•Öâ±îà∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄâÕùÖ}ô•·ïêà∞Äâ—Ö…•ôòà∞(ÄÄÄÄÄÄÄÄÄÄÄÄ§(ÄÄÄÄÄÄÄÄ§(ÄÄÄÄÄÄÄÅÖç—’Ö±}âÂ}çΩëîÄÙÅÏ(ÄÄÄÄÄÄÄÄÄÄÄÅ…Ω›lâçΩëîâtËÅô±ΩÖ–°…Ω‹πùï–†â¡…Ωô•—}ïôôïç–à§ÅΩ»Ä¿∏¿§(ÄÄÄÄÄÄÄÄÄÄÄÅôΩ»Å…Ω‹Å•∏ÅçΩµ¡Ö…•ÕΩπ}…ïÕ’±—lâïôôïç—Ãât(ÄÄÄÄÄÄÄÄÄÄÄÅ•òÅ…Ω›lâçΩëîâtÅ•∏ÅÖç—’Ö±}ïôôïç—}çΩëïÃ(ÄÄÄÄÄÄÄÅÙ(ÄÄÄÄÄÄÄÅπΩπÈï…Ω}ïôôïç—ÃÄÙÅÏ(ÄÄÄÄÄÄÄÄÄÄÄÅçΩëîËÅÖµΩ’π–ÅôΩ»ÅçΩëî∞ÅÖµΩ’π–Å•∏ÅÖç—’Ö±}âÂ}çΩëîπ•—ïµÃ†§(ÄÄÄÄÄÄÄÄÄÄÄÅ•òÅÖâÃ°ÖµΩ’π–§Ä¯Äƒ∏¿(ÄÄÄÄÄÄÄÅÙ(ÄÄÄÄÄÄÄÅ—Ö…ùï—}ïôôïç—ÃÄÙÅÕï–°ÕçïπÖ…•Ωlâ—Ö…ùï—}ïôôïç—Ãât§(ÄÄÄÄÄÄÄÅ’πï·¡ïç—ïë}ïôôïç—ÃÄÙÅÏ(ÄÄÄÄÄÄÄÄÄÄÄÅçΩëîËÅÖµΩ’π–ÅôΩ»ÅçΩëî∞ÅÖµΩ’π–Å•∏ÅπΩπÈï…Ω}ïôôïç—Ãπ•—ïµÃ†§(ÄÄÄÄÄÄÄÄÄÄÄÅ•òÅçΩëîÅπΩ–Å•∏Å—Ö…ùï—}ïôôïç—Ã(ÄÄÄÄÄÄÄÅÙ(ÄÄÄÄÄÄÄÅ…ïÕ•ë’Ö∞ÄÙÅô±ΩÖ–°çΩµ¡Ö…•ÕΩπ}…ïÕ’±—lâ…ïÕ•ë’Ö∞ât§(ÄÄÄÄÄÄÄÅ•òÅπΩ–Åç°Öπùïë}ÕΩ’…çïÃÅÖπêÅÕçïπÖ…•ºπùï–†âï·—ï…πÖ±}ÕΩ’…çïÃà§Ë(ÄÄÄÄÄÄÄÄÄÄÄÅç±ÖÕÕ•ô•çÖ—•Ω∏ÄÙÄâAMM}aQI91}I%YHà(ÄÄÄÄÄÄÄÄÄÄÄÅçÖ’ÕîÄÙÅ9Ωπî(ÄÄÄÄÄÄÄÅï±•òÅëï¡ïπëïπçÂlâçÖç°ïë}ôÖ±±âÖç≠}çΩ’π–âtË(ÄÄÄÄÄÄÄÄÄÄÄÅç±ÖÕÕ•ô•çÖ—•Ω∏ÄÙÄâ=I5U1}%9=5A1Q}11	,à(ÄÄÄÄÄÄÄÄÄÄÄÅçÖ’ÕîÄÙÄâ=I5U1}Y1UQ=I}@à(ÄÄÄÄÄÄÄÅï±•òÅëï¡ïπëïπçÂlâ’π±•π≠ïë}ÕΩ’…çïÃâtË(ÄÄÄÄÄÄÄÄÄÄÄÅç±ÖÕÕ•ô•çÖ—•Ω∏ÄÙÄâ=I5U1}U91%9-à(ÄÄÄÄÄÄÄÄÄÄÄÅçÖ’ÕîÄÙÄ†(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄâ%9Q9Q%=91}M=A}@à(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÅ•òÅÕçïπÖ…•ΩlâçΩëîâtÅ•∏ÅÏâπΩπ›ΩŸïπ}¡…•çîâÙ(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÅï±ÕîÄâ5AA%9}@à(ÄÄÄÄÄÄÄÄÄÄÄÄ§(ÄÄÄÄÄÄÄÅï±•òÅ’πï·¡ïç—ïë}ïôôïç—ÃË(ÄÄÄÄÄÄÄÄÄÄÄÅç±ÖÕÕ•ô•çÖ—•Ω∏ÄÙÄâM9I%=}9=Q}%M=1Qà(ÄÄÄÄÄÄÄÄÄÄÄÅçÖ’ÕîÄÙÄâY1%Q%=9}IQ%Pà(ÄÄÄÄÄÄÄÅï±•òÅÖâÃ°…ïÕ•ë’Ö∞§Ä¯Äƒ∏¿Ë(ÄÄÄÄÄÄÄÄÄÄÄÅç±ÖÕÕ•ô•çÖ—•Ω∏ÄÙÄâA=1%e}5AA%9}9%Qà(ÄÄÄÄÄÄÄÄÄÄÄÅçÖ’ÕîÄÙÄ†(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄâ%9Y9Q=Ie}Q%5%9à(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÅ•òÅÕçïπÖ…•ΩlâçΩëîâtπÕ—Ö…—Õ›•—††âµÖπ’ôÖç—’…•πù|à§(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÅΩ»ÅÕçïπÖ…•ΩlâçΩëîâtÅ•∏ÅÏ(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄâ©¡‰à∞ÄâπΩπ›ΩŸïπ}¡…•çîà∞ÄâµÖ—ï…•Ö±Õ}ï·}πΩπ›ΩŸï∏à(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÅÙ(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÅï±ÕîÄâ%9Q9Q%=91}M=A}@à(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÅ•òÅÕçïπÖ…•ΩlâçΩëîâtÄÙÙÄâ¡…Ωë’ç—}ù…Ω’¡}µ•‡à(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÅï±ÕîÄâ%9Y9Q=Ie}Q%5%9à(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÅ•òÅÕçïπÖ…•ΩlâçΩëîâtÄÙÙÄâ¡…Ωë’ç—•Ωπ}≈’Öπ—•—‰à(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÅï±ÕîÄâU9aA1%9à(ÄÄÄÄÄÄÄÄÄÄÄÄ§(ÄÄÄÄÄÄÄÅï±ÕîË(ÄÄÄÄÄÄÄÄÄÄÄÅç±ÖÕÕ•ô•çÖ—•Ω∏ÄÙÄâAMM}=I5U1}=5A1Qà(ÄÄÄÄÄÄÄÄÄÄÄÅçÖ’ÕîÄÙÅ9Ωπî(ÄÄÄÄÄÄÄÅ…ïçΩ…ëÃπÖ¡¡ïπê°Ï(ÄÄÄÄÄÄÄÄÄÄÄÄâçΩëîàËÅÕçïπÖ…•ΩlâçΩëîât∞(ÄÄÄÄÄÄÄÄÄÄÄÄâ±Öâï∞àËÅÕçïπÖ…•Ωlâ±Öâï∞ât∞(ÄÄÄÄÄÄÄÄÄÄÄÄâç°Öπùïë}ÕΩ’…çïÃàËÅç°Öπùïë}ÕΩ’…çïÃ∞(ÄÄÄÄÄÄÄÄÄÄÄÄâï·—ï…πÖ±}ÕΩ’…çïÃàËÅÕçïπÖ…•ºπùï–†âï·—ï…πÖ±}ÕΩ’…çïÃà∞Åmt§∞(ÄÄÄÄÄÄÄÄÄÄÄÄâ¡Ö•…}çΩπ—…Ω±ÃàËÅ¡Ö•…}çΩπ—…Ω±Ã∞(ÄÄÄÄÄÄÄÄÄÄÄÄâôΩ…µ’±Ö}Õ—Ö—’ÃàËÄ†(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄâaQI91}I%YHà(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÅ•òÅπΩ–Åç°Öπùïë}ÕΩ’…çïÃÅÖπêÅÕçïπÖ…•ºπùï–†âï·—ï…πÖ±}ÕΩ’…çïÃà§(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÅï±ÕîÄâ=I5U1}=5A1Qà(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÅ•òÅëï¡ïπëïπçÂlâôΩ…µ’±Ö}çΩµ¡±ï—îât(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÅï±ÕîÄâ=I5U1}%9=5A1Qà(ÄÄÄÄÄÄÄÄÄÄÄÄ§∞(ÄÄÄÄÄÄÄÄÄÄÄÄâôÖ±±âÖç≠}çï±±ÃàËÅëï¡ïπëïπçÂlâôÖ±±âÖç≠}çï±±Ãât∞(ÄÄÄÄÄÄÄÄÄÄÄÄâ’π±•π≠ïë}ÕΩ’…çïÃàËÅëï¡ïπëïπçÂlâ’π±•π≠ïë}ÕΩ’…çïÃât∞(ÄÄÄÄÄÄÄÄÄÄÄÄâëï¡ïπëïπçÂ}¡Ö—°ÃàËÅëï¡ïπëïπçÂlâÕΩ’…çï}¡Ö—°Ãât∞(ÄÄÄÄÄÄÄÄÄÄÄÄâΩ¡ï…Ö—•πù}¡…Ωô•—}ëï±—ÑàËÅçΩµ¡Ö…•ÕΩπ}…ïÕ’±—lâΩ¡ï…Ö—•πù}¡…Ωô•—}ëï±—Ñât∞(ÄÄÄÄÄÄÄÄÄÄÄÄâï·¡ïç—ïë}ëï—ï…µ•π•Õ—•ç}ïôôïç–àËÅï·¡ïç—ïë}—Ω—Ö∞∞(ÄÄÄÄÄÄÄÄÄÄÄÄâÖç—’Ö±}ëï—ï…µ•π•Õ—•ç}ïôôïç–àËÅçΩµ¡Ö…•ÕΩπ}…ïÕ’±—lâïôôïç—Õ}—Ω—Ö∞ât∞(ÄÄÄÄÄÄÄÄÄÄÄÄâ—Ö…ùï—}ïôôïç—ÃàËÅÕçïπÖ…•Ωlâ—Ö…ùï—}ïôôïç—Ãât∞(ÄÄÄÄÄÄÄÄÄÄÄÄâπΩπÈï…Ω}ïôôïç—ÃàËÅπΩπÈï…Ω}ïôôïç—Ã∞(ÄÄÄÄÄÄÄÄÄÄÄÄâ’πï·¡ïç—ïë}ïôôïç—ÃàËÅ’πï·¡ïç—ïë}ïôôïç—Ã∞(ÄÄÄÄÄÄÄÄÄÄÄÄâ…ïÕ•ë’Ö∞àËÅ…ïÕ•ë’Ö∞∞(ÄÄÄÄÄÄÄÄÄÄÄÄâ•ëïπ—•—Â}ëï±—ÑàËÄ†(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÅçΩµ¡Ö…•ÕΩπ}…ïÕ’±—lâïôôïç—Õ}—Ω—Ö∞âtÄ¨Å…ïÕ•ë’Ö∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¥ÅçΩµ¡Ö…•ÕΩπ}…ïÕ’±—lâΩ¡ï…Ö—•πù}¡…Ωô•—}ëï±—Ñât(ÄÄÄÄÄÄÄÄÄÄÄÄ§∞(ÄÄÄÄÄÄÄÄÄÄÄÄâç±ÖÕÕ•ô•çÖ—•Ω∏àËÅç±ÖÕÕ•ô•çÖ—•Ω∏∞(ÄÄÄÄÄÄÄÄÄÄÄÄâ…ïÕ•ë’Ö±}çÖ’ÕîàËÅçÖ’Õî∞(ÄÄÄÄÄÄÄÅÙ§(ÄÄÄÅ…ï—’…∏ÅÏâµΩπ—†àËÅµΩπ—†∞ÄâÕçïπÖ…•ΩÃàËÅ…ïçΩ…ëÕÙ(()ëïòÅŸÖ±•ëÖ—ï}ï·çï±}çÖ±ç’±Ö—ïë}¡Ö•»†(ÄÄÄÅâÖÕï}¡Ö—†ËÅAÖ—†ÅÅ9Ωπî∞(ÄÄÄÅçΩµ¡Ö…•ÕΩπ}¡Ö—†ËÅAÖ—†ÅÅ9Ωπî∞(ÄÄÄÅµÖ¡¡•πù}¡Ö—†ËÅAÖ—†∞(ÄÄÄÄ®∞(ÄÄÄÅµΩπ—†ËÅ•π–ÄÙÄ‹∞(§Ä¥¯Åë•ç—mÕ—»∞ÅπÂtË(ÄÄÄÄààâIïÖêµΩπ±‰ÅÖççï¡—ÖπçîÅùÖ—îÅôΩ»Å—›ºÅ›Ω…≠âΩΩ≠ÃÅçÖ±ç’±Ö—ïêÅÖπêÅÕÖŸïêÅâ‰Å·çï∞∏ààà(ÄÄÄÅ•òÄ†(ÄÄÄÄÄÄÄÅâÖÕï}¡Ö—†Å•ÃÅ9Ωπî(ÄÄÄÄÄÄÄÅΩ»ÅçΩµ¡Ö…•ÕΩπ}¡Ö—†Å•ÃÅ9Ωπî(ÄÄÄÄÄÄÄÅΩ»ÅπΩ–ÅâÖÕï}¡Ö—†π•Õ}ô•±î†§(ÄÄÄÄÄÄÄÅΩ»ÅπΩ–ÅçΩµ¡Ö…•ÕΩπ}¡Ö—†π•Õ}ô•±î†§(ÄÄÄÄ§Ë(ÄÄÄÄÄÄÄÅ…ï—’…∏ÅÏ(ÄÄÄÄÄÄÄÄÄÄÄÄâµΩëîàËÄâï·çï±}çÖ±ç’±Ö—ïë}¡Ö•»à∞(ÄÄÄÄÄÄÄÄÄÄÄÄâÕ—Ö—’ÃàËÄâ	1=-}9=}a1}1U1Q}A%Hà∞(ÄÄÄÄÄÄÄÄÄÄÄÄââÖÕîàËÅÕ—»°âÖÕï}¡Ö—†§Å•òÅâÖÕï}¡Ö—†Åï±ÕîÅ9Ωπî∞(ÄÄÄÄÄÄÄÄÄÄÄÄâçΩµ¡Ö…•ÕΩ∏àËÅÕ—»°çΩµ¡Ö…•ÕΩπ}¡Ö—†§Å•òÅçΩµ¡Ö…•ÕΩπ}¡Ö—†Åï±ÕîÅ9Ωπî∞(ÄÄÄÄÄÄÄÅÙ((ÄÄÄÅ…ï¡Ω…–ÄÙÅŸÖ±•ëÖ—ï}¡Ö•»°âÖÕï}¡Ö—†∞ÅçΩµ¡Ö…•ÕΩπ}¡Ö—†∞ÅµÖ¡¡•πù}¡Ö—†∞ÅµΩπ—†ıµΩπ—†§(ÄÄÄÅôΩ…µ’±ÑÄÙÅ…ï¡Ω…—lâôΩ…µ’±Ö}ïŸÖ±’Ö—•Ω∏ât(ÄÄÄÅç±ΩÕ’…ïÃÄÙÅÏ(ÄÄÄÄÄÄÄÄââÖÕîàËÅôΩ…µ’±ÖlââÖÕï}¡π±}ô’±±}ëï¡ïπëïπç‰ât∞(ÄÄÄÄÄÄÄÄâçΩµ¡Ö…•ÕΩ∏àËÅôΩ…µ’±ÖlâçΩµ¡Ö…•ÕΩπ}¡π±}ô’±±}ëï¡ïπëïπç‰ât∞(ÄÄÄÅÙ(ÄÄÄÅµÖ¡¡•πúÄÙÅ©ÕΩ∏π±ΩÖëÃ°µÖ¡¡•πù}¡Ö—†π…ïÖë}—ï·–°ïπçΩë•πúÙâ’—ò¥‡à§§(ÄÄÄÅçΩ±’µ∏ÄÙÅ5=9Q!}=1U59MmµΩπ—°t(ÄÄÄÅçΩ…ï}Ω’—¡’—ÃÄÙÅÏ(ÄÄÄÄÄÄÄÅπÖµîËÅòâÌçΩ±’µπıÌ…Ω›Ùà(ÄÄÄÄÄÄÄÅôΩ»ÅπÖµî∞Å…Ω‹Å•∏ÅµÖ¡¡•πùlâçΩµ¡Ö…•ÕΩ∏âulâ¡π±}…Ω›Ãâtπ•—ïµÃ†§(ÄÄÄÅÙ(ÄÄÄÅô…ïÕ°πïÕÃÄÙÅÏ(ÄÄÄÄÄÄÄÅÕ•ëîËÅÏ(ÄÄÄÄÄÄÄÄÄÄÄÄâçÖç°ïë}ôÖ±±âÖç≠}çΩ’π–àËÅç±ΩÕ’…ïlâçÖç°ïë}ôÖ±±âÖç≠}çΩ’π–ât∞(ÄÄÄÄÄÄÄÄÄÄÄÄâçÖç°ïë}π’µï…•ç}µ•ÕµÖ—ç°}çΩ’π–àËÅç±ΩÕ’…ïlâçÖç°ïë}π’µï…•ç}µ•ÕµÖ—ç°}çΩ’π–ât∞(ÄÄÄÄÄÄÄÄÄÄÄÄâôÖ±±âÖç≠}çï±±ÃàËÅç±ΩÕ’…ïlâôÖ±±âÖç≠}çï±±Ãât∞(ÄÄÄÄÄÄÄÄÄÄÄÄâçÖç°ïë}µ•ÕµÖ—ç°}çï±±ÃàËÅç±ΩÕ’…ïlâçÖç°ïë}µ•ÕµÖ—ç°}çï±±Ãât∞(ÄÄÄÄÄÄÄÄÄÄÄÄâçΩ…ï}Ω’—¡’—ÃàËÅçΩ…ï}Ω’—¡’—Ã∞(ÄÄÄÄÄÄÄÄÄÄÄÄâçΩ…ï}Ω’—¡’—}•ÕÕ’ï}çï±±ÃàËÅÕΩ…—ïê†(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÅÕï–°çΩ…ï}Ω’—¡’—ÃπŸÖ±’ïÃ†§§(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄòÄ°Õï–°ç±ΩÕ’…ïlâôÖ±±âÖç≠}çï±±Ãât§ÅÅÕï–°ç±ΩÕ’…ïlâçÖç°ïë}µ•ÕµÖ—ç°}çï±±Ãât§§(ÄÄÄÄÄÄÄÄÄÄÄÄ§∞(ÄÄÄÄÄÄÄÄÄÄÄÄâÕ—Ö—’ÃàËÄ†(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄâAMLà(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÅ•òÅç±ΩÕ’…ïlâçÖç°ïë}ôÖ±±âÖç≠}çΩ’π–âtÄÙÙÄ¿(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÅÖπêÅç±ΩÕ’…ïlâçÖç°ïë}π’µï…•ç}µ•ÕµÖ—ç°}çΩ’π–âtÄÙÙÄ¿(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÅï±ÕîÄâ!,à(ÄÄÄÄÄÄÄÄÄÄÄÄ§∞(ÄÄÄÄÄÄÄÅÙ(ÄÄÄÄÄÄÄÅôΩ»ÅÕ•ëî∞Åç±ΩÕ’…îÅ•∏Åç±ΩÕ’…ïÃπ•—ïµÃ†§(ÄÄÄÅÙ(ÄÄÄÅÕΩ’…çï}ç°ïç≠ÃÄÙÅm…Ω‹ÅôΩ»Å…Ω‹Å•∏Å…ï¡Ω…—lâç°ïç≠ÃâtÅ•òÅ…Ω›lâÕ—Ö—’ÃâtÄÙÙÄâ!,ât(ÄÄÄÅ±ïŸï±|ƒÄÙÄâAMLàÅ•òÅπΩ–ÅÕΩ’…çï}ç°ïç≠ÃÅï±ÕîÄâ!,à(ÄÄÄÅ±ïŸï±|»ÄÙÄâAMLàÅ•òÅÖ±∞°…Ω›lâÕ—Ö—’ÃâtÄÙÙÄâAMLàÅôΩ»Å…Ω‹Å•∏Åô…ïÕ°πïÕÃπŸÖ±’ïÃ†§§Åï±ÕîÄâ!,à(ÄÄÄÅ…ïÕ’±–ÄÙÅ…ï¡Ω…—lâçΩµ¡Ö…•ÕΩπ}…ïÕ’±–ât(ÄÄÄÅ±ïŸï±|ÃÄÙÄâAMLàÅ•òÅ…ïÕ’±—lâ…ïçΩπç•±ïêâtÅï±ÕîÄâ!,à(ÄÄÄÅ…ï¡Ω…—lâï·çï±}¡Ö•…}Öççï¡—ÖπçîâtÄÙÅÏ(ÄÄÄÄÄÄÄÄâµΩëîàËÄâï·çï±}çÖ±ç’±Ö—ïë}¡Ö•»à∞(ÄÄÄÄÄÄÄÄâ…ïÖë}Ωπ±‰àËÅQ…’î∞(ÄÄÄÄÄÄÄÄâçÖç°ïë}ô…ïÕ°πïÕÃàËÅô…ïÕ°πïÕÃ∞(ÄÄÄÄÄÄÄÄâ±ïŸï±|≈}çÖ±ç’±Ö—•Ωπ}•ëïπ—•—‰àËÅ±ïŸï±|ƒ∞(ÄÄÄÄÄÄÄÄâ±ïŸï±|…}›Ω…≠âΩΩ≠}¡…Ω¡ÖùÖ—•Ω∏àËÅ±ïŸï±|»∞(ÄÄÄÄÄÄÄÄâ±ïŸï±|Õ}Ω¡}â…•ëùï}çΩµ¡±ï—ïπïÕÃàËÅ±ïŸï±|Ã∞(ÄÄÄÄÄÄÄÄâΩ¡ï…Ö—•πù}¡…Ωô•—}ëï±—ÑàËÅ…ïÕ’±—lâΩ¡ï…Ö—•πù}¡…Ωô•—}ëï±—Ñât∞(ÄÄÄÄÄÄÄÄâïôôïç—Õ}—Ω—Ö∞àËÅ…ïÕ’±—lâïôôïç—Õ}—Ω—Ö∞ât∞(ÄÄÄÄÄÄÄÄâ…ïÕ•ë’Ö∞àËÅ…ïÕ’±—lâ…ïÕ•ë’Ö∞ât∞(ÄÄÄÄÄÄÄÄâ…ïÕ•ë’Ö±}…Ö—•ºàËÅ…ï¡Ω…—lâ…ïÕ•ë’Ö±}ÖπÖ±ÂÕ•Ãâulâ…Ö—•Ω}—Ω}Ω¡ï…Ö—•πù}¡…Ωô•—}ëï±—Ñât∞(ÄÄÄÄÄÄÄÄâÕΩ’…çï}±ïŸï±}ç°ïç≠ÃàËÅÕΩ’…çï}ç°ïç≠Ã∞(ÄÄÄÄÄÄÄÄâÕ—Ö—’ÃàËÄâAMLàÅ•òÄ°±ïŸï±|ƒ∞Å±ïŸï±|»∞Å±ïŸï±|Ã§ÄÙÙÄ†âAMLà∞ÄâAMLà∞ÄâAMLà§Åï±ÕîÄâ!,à∞(ÄÄÄÅÙ(ÄÄÄÅ…ï—’…∏Å…ï¡Ω…–(()ëïòÅµÖ•∏†§Ä¥¯Å•π–Ë(ÄÄÄÅ¡Ö…Õï»ÄÙÅÖ…ù¡Ö…Õîπ…ù’µïπ—AÖ…Õï»†§(ÄÄÄÅ¡Ö…Õï»πÖëë}Ö…ù’µïπ–†à¥µâÖÕîà∞Å—Â¡îıAÖ—†§(ÄÄÄÅ¡Ö…Õï»πÖëë}Ö…ù’µïπ–†à¥µçΩµ¡Ö…•ÕΩ∏à∞Å—Â¡îıAÖ—†§(ÄÄÄÅ¡Ö…Õï»πÖëë}Ö…ù’µïπ–†à¥µµÖ¡¡•πúà∞Å—Â¡îıAÖ—†∞ÅëïôÖ’±–ıAÖ—††âçΩπô•úΩµΩëï±}µÖ¡¡•πúπ©ÕΩ∏à§§(ÄÄÄÅ¡Ö…Õï»πÖëë}Ö…ù’µïπ–†à¥µùïπï…Ö—îµçΩµ¡Ö…•ÕΩ∏à∞ÅÖç—•Ω∏ÙâÕ—Ω…ï}—…’îà§(ÄÄÄÅ¡Ö…Õï»πÖëë}Ö…ù’µïπ–†à¥µï·çï∞µçÖ±ç’±Ö—ïêµ¡Ö•»à∞ÅÖç—•Ω∏ÙâÕ—Ω…ï}—…’îà§(ÄÄÄÅ¡Ö…Õï»πÖëë}Ö…ù’µïπ–†à¥µΩ’—¡’–à∞Å—Â¡îıAÖ—†§(ÄÄÄÅÖ…ùÃÄÙÅ¡Ö…Õï»π¡Ö…Õï}Ö…ùÃ†§(ÄÄÄÅ•òÅÖ…ùÃπï·çï±}çÖ±ç’±Ö—ïë}¡Ö•»Ë(ÄÄÄÄÄÄÄÅ…ï¡Ω…–ÄÙÅŸÖ±•ëÖ—ï}ï·çï±}çÖ±ç’±Ö—ïë}¡Ö•»°Ö…ùÃπâÖÕî∞ÅÖ…ùÃπçΩµ¡Ö…•ÕΩ∏∞ÅÖ…ùÃπµÖ¡¡•πú§(ÄÄÄÅï±ÕîË(ÄÄÄÄÄÄÄÅ•òÅÖ…ùÃπâÖÕîÅ•ÃÅ9ΩπîÅΩ»ÅÖ…ùÃπçΩµ¡Ö…•ÕΩ∏Å•ÃÅ9ΩπîË(ÄÄÄÄÄÄÄÄÄÄÄÅ¡Ö…Õï»πï……Ω»†à¥µâÖÕîÅÖπêÄ¥µçΩµ¡Ö…•ÕΩ∏ÅÖ…îÅ…ï≈’•…ïêÅΩ’—Õ•ëîÅ¡Ö•»µâ±Ωç≠ï»Åç°ïç≠Ãà§(ÄÄÄÄÄÄÄÅ•òÅÖ…ùÃπùïπï…Ö—ï}çΩµ¡Ö…•ÕΩ∏Ë(ÄÄÄÄÄÄÄÄÄÄÄÅÖ…ùÃπçΩµ¡Ö…•ÕΩ∏π¡Ö…ïπ–πµ≠ë•»°¡Ö…ïπ—ÃıQ…’î∞Åï·•Õ—}Ω¨ıQ…’î§(ÄÄÄÄÄÄÄÄÄÄÄÅâ’•±ë}çΩµ¡Ö…•ÕΩ∏°Ö…ùÃπâÖÕî∞ÅÖ…ùÃπçΩµ¡Ö…•ÕΩ∏∞ÅÖ…ùÃπµÖ¡¡•πú§(ÄÄÄÄÄÄÄÅ…ï¡Ω…–ÄÙÅŸÖ±•ëÖ—ï}¡Ö•»°Ö…ùÃπâÖÕî∞ÅÖ…ùÃπçΩµ¡Ö…•ÕΩ∏∞ÅÖ…ùÃπµÖ¡¡•πú§(ÄÄÄÅ…ïπëï…ïêÄÙÅ©ÕΩ∏πë’µ¡Ã°…ï¡Ω…–∞ÅïπÕ’…ï}ÖÕç•§ıÖ±Õî∞Å•πëïπ–Ù»∞ÅëïôÖ’±–ıÕ—»§(ÄÄÄÅ•òÅÖ…ùÃπΩ’—¡’–Ë(ÄÄÄÄÄÄÄÅÖ…ùÃπΩ’—¡’–π¡Ö…ïπ–πµ≠ë•»°¡Ö…ïπ—ÃıQ…’î∞Åï·•Õ—}Ω¨ıQ…’î§(ÄÄÄÄÄÄÄÅÖ…ùÃπΩ’—¡’–π›…•—ï}—ï·–°…ïπëï…ïê∞ÅïπçΩë•πúÙâ’—ò¥‡à§(ÄÄÄÅï±ÕîË(ÄÄÄÄÄÄÄÅ¡…•π–°…ïπëï…ïê§(ÄÄÄÅ…ï—’…∏Ä¿(()•òÅ}}πÖµï}|ÄÙÙÄâ}}µÖ•π}|àË(ÄÄÄÅ…Ö•ÕîÅMÂÕ—ïµ·•–°µÖ•∏†§§(
+        production0 = sum(_value(base, column, row) for row in spec.get("production_quantity_rows", ()))
+        production1 = sum(_value(comparison, column, row) for row in spec.get("production_quantity_rows", ()))
+        mcm0 = sum(_value(base, column, row) for row in spec.get("mcm_rows", ()))
+        mcm1 = sum(_value(comparison, column, row) for row in spec.get("mcm_rows", ()))
+        # The normalized scenario keeps MCM as a distinct non-outsourcing
+        # production record, but material unit cost is based on total output.
+        output0, output1 = production0, production1
+        cost0, cost1 = _material_cost(base, column, spec), _material_cost(comparison, column, spec)
+        sales1 = _value(comparison, column, spec["sales_quantity_row"])
+        effect = (cost0 / output0 - cost1 / output1) * sales1 if output0 and output1 else 0.0
+        material_total += effect
+        material_group_independent[group] = effect
+        engine_group = next(row for row in result.material_analysis["product_groups"] if row["product_group"] == group)
+        check("ÏõêÎ∂ÄÏû¨Î£å", f"{group} total", "mapped material source rows", effect, engine_group["total"])
+    front = material["front_process"]
+    nonwoven_cost0 = _value(base, column, front["nonwoven_amount_row"])
+    nonwoven_cost1 = _value(comparison, column, front["nonwoven_amount_row"])
+    nonwoven_output0 = _value(base, column, front["nonwoven_quantity_row"])
+    nonwoven_output1 = _value(comparison, column, front["nonwoven_quantity_row"])
+    input1 = sum(
+        _value(comparison, column, term["sales_quantity_row"])
+        * _value(comparison, column, term["input_length_row"])
+        for spec in material["groups"].values()
+        for term in spec.get("nonwoven_input_terms", ())
+    )
+    jpy0, jpy1 = _value(base, column, material["jpy_fx_row"]), _value(comparison, column, material["jpy_fx_row"])
+    nonwoven_total = (nonwoven_cost0 / nonwoven_output0 - nonwoven_cost1 / nonwoven_output1) * input1
+    base_jpy_unit = (nonwoven_cost0 / nonwoven_output0) / jpy0
+    material_fx = input1 * base_jpy_unit * (jpy0 - jpy1)
+    nonwoven_price = nonwoven_total - material_fx
+    materials_ex_nonwoven = material_total - nonwoven_price - material_fx
+    for item, independent, engine_value in (
+        ("nonwoven_price_ex_fx", nonwoven_price, result.material_analysis["nonwoven_price_ex_fx"]),
+        ("nonwoven_jpy", material_fx, result.material_analysis["nonwoven_jpy"]),
+        ("materials_ex_nonwoven", materials_ex_nonwoven, result.material_analysis["materials_ex_nonwoven"]),
+        ("material_total", material_total, result.material_analysis["total"]),
+        ("material identity", nonwoven_price + material_fx + materials_ex_nonwoven, result.material_analysis["total"]),
+    ):
+        check("ÏõêÎ∂ÄÏû¨Î£å", item, "Data!row 9, 205:211, 684:699 and mapped group rows", independent, engine_value)
+    check("ÏõêÎ∂ÄÏû¨Î£å", "JPY KRW/JPY direct", f"Data!{column}9", material_fx, result.material_analysis["nonwoven_jpy"])
+
+    manufacturing = mapping["analysis_adapter"]["manufacturing"]
+    front0 = sum(_value(base, column, row) for row in manufacturing["front_activity_rows"])
+    front1 = sum(_value(comparison, column, row) for row in manufacturing["front_activity_rows"])
+    back0 = sum(_value(base, column, row) for row in manufacturing["back_activity_rows"])
+    back1 = sum(_value(comparison, column, row) for row in manufacturing["back_activity_rows"])
+    mcm0 = sum(_value(base, column, row) for row in mapping["mcm"].values())
+    mcm1 = sum(_value(comparison, column, row) for row in mapping["mcm"].values())
+    outsourcing_back0, outsourcing_back1 = back0 - mcm0, back1 - mcm1
+    normalized_comparison = GoldenAnalysisAdapter(mapping, config).build(
+        comparison,
+        comparison_meta,
+        (month,),
+        sales_fx=comparison_sales_fx,
+    ).scenario
+    engine_outsourcing_back1 = sum(
+        row.sap_qty
+        for row in normalized_comparison.products
+        if (row.mcm_product_group or row.product_group) in {"SW", "BW", "LC"}
+        and row.outsourcing_eligible_flag
+        and not row.mcm_flag
+    )
+    manufacturing_input = sum(
+        _mapped(comparison, column, mapping["comparison"]["cost_rows"][code])
+        for code in ("raw_material", "labor", "outsourcing", "other_processing")
+    )
+    comparison_cogs = _value(comparison, column, mapping["comparison"]["pnl_rows"]["cogs"])
+    realization_rate = comparison_cogs / manufacturing_input if manufacturing_input else 0.0
+    check(
+        "Ï†úÏ°∞Í≤ΩÎπÑ", "inventory realization rate", "COGS / current manufacturing input",
+        realization_rate, result.manufacturing_analysis["inventory_realization_rate"],
+    )
+    account_total = 0.0
+    for row in result.manufacturing_accounts:
+        row_number = int(row["row"])
+        amount0, amount1 = _value(base, column, row_number), _value(comparison, column, row_number)
+        check("Ï†úÏ°∞Í≤ΩÎπÑ", f"row {row_number} base amount", f"Data!{column}{row_number}", amount0, row["baseline_amount"])
+        check("Ï†úÏ°∞Í≤ΩÎπÑ", f"row {row_number} comparison amount", f"Data!{column}{row_number}", amount1, row["comparison_amount"])
+        ratio_row = int(row["allocation_ratio_row"])
+        ratio = _value(base, column, ratio_row)
+        is_variable = row["classification"] == "variable"
+        if is_variable:
+            is_outsourcing = config.is_outsourcing(str(row["account"]))
+            b0, b1 = (outsourcing_back0, outsourcing_back1) if is_outsourcing else (back0, back1)
+
+            def decompose(a0: float, a1: float, q0: float, q1: float) -> tuple[float, float]:
+                if q0 and q1:
+                    unit0, unit1 = a0 / q0, a1 / q1
+                    return (q0 - q1) * unit0, q1 * (unit0 - unit1)
+                return 0.0, a0 - a1
+
+            fa, fu = decompose(amount0 * ratio, amount1 * ratio, front0, front1)
+            ba, bu = decompose(amount0 * (1 - ratio), amount1 * (1 - ratio), b0, b1)
+            activity, unit, fixed = fa + ba, fu + bu, 0.0
+        else:
+            activity, unit, fixed = 0.0, 0.0, amount0 - amount1
+        occurrence = activity + unit + fixed
+        account_total += occurrence
+        check("Ï†úÏ°∞Í≤ΩÎπÑ", f"row {row_number} activity", f"base ratio Data!{column}{ratio_row}", activity, row["activity_effect"])
+        check("Ï†úÏ°∞Í≤ΩÎπÑ", f"row {row_number} unit", f"base ratio Data!{column}{ratio_row}", unit, row["unit_effect"])
+        check("Ï†úÏ°∞Í≤ΩÎπÑ", f"row {row_number} fixed", f"base ratio Data!{column}{ratio_row}", fixed, row["fixed_effect"])
+        check("Ï†úÏ°∞Í≤ΩÎπÑ", f"row {row_number} occurrence identity", "activity + unit + fixed", occurrence, row["occurrence_effect"])
+        check("Ï†úÏ°∞Í≤ΩÎπÑ", f"row {row_number} realized", "occurrence * uncapped realization rate", occurrence * realization_rate, row["final_profit_effect"])
+    check("Ï†úÏ°∞Í≤ΩÎπÑ", "occurrence total", "all manufacturing accounts", account_total, result.manufacturing_analysis["occurrence_effect"])
+    check("Ï†úÏ°∞Í≤ΩÎπÑ", "final total", "occurrence total * realization rate", account_total * realization_rate, result.manufacturing_analysis["final_effect"])
+    check(
+        "MCM",
+        "outsourcing denominator excludes MCM",
+        "SW+BW+LC production minus rows 568:571",
+        outsourcing_back1,
+        engine_outsourcing_back1,
+    )
+
+    sga_variable = sga_fixed = 0.0
+    for row in result.sga_accounts:
+        if row["row"] is None:
+            continue
+        source_row = int(row["row"])
+        amount0, amount1 = _value(base, column, source_row), _value(comparison, column, source_row)
+        check("ÌåêÍ¥ÄÎπÑ", f"row {source_row} base", f"Data!{column}{source_row}", amount0, row["baseline_amount"])
+        check("ÌåêÍ¥ÄÎπÑ", f"row {source_row} comparison", f"Data!{column}{source_row}", amount1, row["comparison_amount"])
+        expected = 0.0 if row["classification"] in {"transport", "tariff"} else amount0 - amount1
+        check("ÌåêÍ¥ÄÎπÑ", f"row {source_row} effect", "base-comparison; transport excluded", expected, row["profit_effect"])
+        if row["classification"] == "variable":
+            sga_variable += expected
+        elif row["classification"] == "fixed":
+            sga_fixed += expected
+    effect_map = {row["code"]: float(row["profit_effect"] or 0.0) for row in result.effects}
+    check("ÌåêÍ¥ÄÎπÑ", "variable total", "all variable SGA accounts", sga_variable, effect_map["sga_variable"])
+    check("ÌåêÍ¥ÄÎπÑ", "fixed total", "all fixed SGA accounts", sga_fixed, effect_map["sga_fixed"])
+    check("ÌåêÍ¥ÄÎπÑ", "tariff exactly once", "external direct input", -tariff_adjustment, effect_map["tariff"])
+
+    fx_total = sales_fx_effect + material_fx
+    raw_material_ex_fx = material_total - material_fx
+    check("FX Ïû¨Î∂ÑÎ•ò", "fx_total", "sales FX + nonwoven JPY", fx_total, result.fx_total)
+    check("FX Ïû¨Î∂ÑÎ•ò", "raw_material_excl_fx", "material total - nonwoven JPY", raw_material_ex_fx, result.raw_material_excl_fx)
+    check("FX Ïû¨Î∂ÑÎ•ò", "effects_total unchanged", "sum deterministic effects", sum(effect_map.values()), result.effects_total)
+
+    check("Bridge", "effects total", "sum deterministic effects", sum(effect_map.values()), result.effects_total)
+    check("Bridge", "residual identity", "effects_total + residual", result.effects_total + result.residual, result.operating_profit_delta)
+    pnl_delta = {row["code"]: float(row["delta"]) for row in result.pnl}
+    commercial_source = pnl_delta["revenue"] - pnl_delta["selling_expense"] - pnl_delta["general_admin"]
+    commercial_engine = sum(effect_map.get(code, 0.0) for code in (
+        "sales_quantity", "sales_mix", "sales_price", "sales_fx", "tariff", "sga_variable", "sga_fixed"
+    ))
+    cost_source = -pnl_delta["cogs"]
+    cost_engine = effect_map["material_total"] + effect_map["manufacturing_realized"]
+    residual_analysis = {
+        "amount": result.residual,
+        "ratio_to_operating_profit_delta": (
+            abs(result.residual) / abs(result.operating_profit_delta)
+            if result.operating_profit_delta else None
+        ),
+        "commercial_source_effect": commercial_source,
+        "commercial_engine_effect": commercial_engine,
+        "commercial_gap": commercial_source - commercial_engine,
+        "cogs_source_effect": cost_source,
+        "material_and_manufacturing_engine_effect": cost_engine,
+        "cogs_gap": cost_source - cost_engine,
+        "gap_reconciliation": (commercial_source - commercial_engine) + (cost_source - cost_engine),
+    }
+    return {
+        "workbooks": {
+            "base": {"path": str(base_path), "sha256": _sha256(base_path)},
+            "comparison": {"path": str(comparison_path), "sha256": _sha256(comparison_path)},
+        },
+        "preflight": {
+            "base": base_preflight.as_dict(),
+            "comparison": comparison_preflight.as_dict(),
+        },
+        "formula_evaluation": {
+            "base": base_formula_diagnostics,
+            "comparison": comparison_formula_diagnostics,
+            "changed_input_sources": input_sources,
+            "base_pnl_full_dependency": base_pnl_full_dependencies,
+            "comparison_pnl_full_dependency": comparison_pnl_full_dependencies,
+            "base_pnl_dependency": base_pnl_dependencies,
+            "comparison_pnl_dependency": comparison_pnl_dependencies,
+            "synthetic_bridge_status": (
+                "FORMULA_COMPLETE"
+                if base_pnl_full_dependencies["formula_complete"]
+                and comparison_pnl_full_dependencies["formula_complete"]
+                and base_pnl_dependencies["formula_complete"]
+                and comparison_pnl_dependencies["formula_complete"]
+                else "FORMULA_INCOMPLETE"
+            ),
+            "final_reconciliation_status": (
+                "VALID"
+                if base_pnl_full_dependencies["formula_complete"]
+                and comparison_pnl_full_dependencies["formula_complete"]
+                and base_pnl_dependencies["formula_complete"]
+                and comparison_pnl_dependencies["formula_complete"]
+                else "SYNTHETIC BRIDGE INVALID FOR FINAL RECONCILIATION"
+            ),
+        },
+        "comparison_result": {
+            "operating_profit_delta": result.operating_profit_delta,
+            "effects_total": result.effects_total,
+            "residual": result.residual,
+            "reconciled": result.reconciled,
+            "fx_total": result.fx_total,
+            "raw_material_excl_fx": result.raw_material_excl_fx,
+            "effects": result.effects,
+            "manufacturing_realization_rate": result.manufacturing_analysis.get("inventory_realization_rate"),
+        },
+        "policy_assertions": {
+            "jpy_unit": result.material_analysis.get("jpy_fx_unit"),
+            "jpy_divide_by_100_absent": abs(result.material_analysis["nonwoven_jpy"] - material_fx) <= max(1.0, abs(material_fx) * 1e-9),
+            "yield_effect_absent": not any("yield" in code or "usage" in code for code in effect_map),
+            "mcm_independent_effect_absent": not any("mcm" in code for code in effect_map),
+            "mcm_outsourcing_denominator_excludes_mcm": True,
+            "realization_rate_uncapped": realization_rate,
+            "fx_reclassification_not_added": abs(sum(effect_map.values()) - result.effects_total) <= 1.0,
+        },
+        "mixed_unit_audit": {
+            "status": "ENGINE_BUG",
+            "location": "forecast.analysis.golden_adapter: ActivityRecord.transport_activity",
+            "finding": (
+                "The current transport denominator sums PCS-based SW/BW/LC "
+                "sales_basis with FS LENGTH. No allocation-policy change is "
+                "made by this validation hardening."
+            ),
+        },
+        "independent_effects": {
+            "sales_quantity": quantity_effect,
+            "sales_mix": mix_effect,
+            "sales_price": price_effect,
+            "sales_fx": sales_fx_effect,
+            "material_nonwoven_price": nonwoven_price,
+            "material_jpy": material_fx,
+            "material_ex_nonwoven": materials_ex_nonwoven,
+            "material_total": material_total,
+            "manufacturing_occurrence": account_total,
+            "manufacturing_realized": account_total * realization_rate,
+            "sga_variable": sga_variable,
+            "sga_fixed": sga_fixed,
+            "tariff": -tariff_adjustment,
+        },
+        "residual_analysis": residual_analysis,
+        "checks": checks,
+        "summary": {
+            category: {
+                "PASS": sum(1 for row in checks if row["category"] == category and row["status"] == "PASS"),
+                "CHECK": sum(1 for row in checks if row["category"] == category and row["status"] == "CHECK"),
+            }
+            for category in sorted({row["category"] for row in checks})
+        },
+    }
+
+
+def validate_single_driver_scenarios(
+    base_path: Path,
+    output_dir: Path,
+    mapping_path: Path,
+    *,
+    month: int = 7,
+    scenario_codes: set[str] | None = None,
+) -> dict[str, Any]:
+    """Create fresh-copy, one-driver scenarios and report propagation separately."""
+    mapping = json.loads(mapping_path.read_text(encoding="utf-8"))
+    column = MONTH_COLUMNS[month]
+    base = GoldenWorkbook(base_path)
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    def cell(row: int) -> str:
+        return f"{column}{row}"
+
+    def value(row: int) -> float:
+        return _value(base, column, row)
+
+    sw = mapping["sales"]["SW400"]
+    bw = mapping["sales"]["BW400"]
+    sw_q, sw_a = value(sw["quantity_row"]), value(sw["amount_row"])
+    bw_q, bw_a = value(bw["quantity_row"]), value(bw["amount_row"])
+    mix_delta = min(sw_q, bw_q) * 0.05
+    quantity_changes: dict[str, float] = {}
+    fx_changes: dict[str, float] = {}
+    for code, spec in mapping["sales"].items():
+        if code.startswith("FS_"):
+            quantity_changes[cell(spec["quantity_row"])] = value(spec["quantity_row"]) * 1.05
+            quantity_changes[cell(spec["amount_row"])] = value(spec["amount_row"]) * 1.05
+        fx_changes[cell(spec["amount_row"])] = value(spec["amount_row"]) * (1500.0 / 1450.0)
+    lc_goods_amount_row = int(mapping["lc_goods"]["amount_row"])
+    fx_changes[cell(lc_goods_amount_row)] = (
+        value(lc_goods_amount_row) * (1500.0 / 1450.0)
+    )
+
+    scenarios = [
+        {
+            "code": "sales_quantity",
+            "label": "Sales quantity only",
+            "changes": quantity_changes,
+            "target_effects": ["sales_quantity"],
+        },
+        {
+            "code": "product_group_mix",
+            "label": "Product-group Mix only",
+            "changes": {
+                cell(sw["quantity_row"]): sw_q + mix_delta,
+                cell(sw["amount_row"]): sw_a + mix_delta * (sw_a / sw_q if sw_q else 0.0),
+                cell(bw["quantity_row"]): bw_q - mix_delta,
+                cell(bw["amount_row"]): bw_a - mix_delta * (bw_a / bw_q if bw_q else 0.0),
+            },
+            "target_effects": ["sales_mix"],
+        },
+        {
+            "code": "sales_price",
+            "label": "Sales price only",
+            "changes": {cell(sw["amount_row"]): sw_a * 1.05},
+            "target_effects": ["sales_price"],
+        },
+        {
+            "code": "sales_fx",
+            "label": "Sales FX only",
+            "changes": fx_changes,
+            "baseline_sales_fx": 1450.0,
+            "comparison_sales_fx": 1500.0,
+            "external_sources": ["sales_fx"],
+            "target_effects": ["sales_fx"],
+        },
+        {
+            "code": "jpy",
+            "label": "JPY only",
+            "changes": {cell(9): value(9) * 1.03},
+            "target_effects": ["material_total"],
+        },
+        {
+            "code": "nonwoven_price",
+            "label": "Nonwoven price only",
+            "changes": {cell(11): value(11) * 1.03},
+            "target_effects": ["material_total"],
+        },
+        {
+            "code": "materials_ex_nonwoven",
+            "label": "Materials excluding nonwoven only",
+            "changes": {cell(209): value(209) + 10_000_000.0},
+            "target_effects": ["material_total"],
+        },
+        {
+            "code": "manufacturing_variable",
+            "label": "One variable manufacturing account",
+            "changes": {cell(297): value(297) + 10_000_000.0},
+            "target_effects": ["manufacturing_realized"],
+        },
+        {
+            "code": "manufacturing_salary",
+            "label": "Manufacturing salary only",
+            "changes": {cell(290): value(290) + 50_000_000.0},
+            "target_effects": ["manufacturing_realized"],
+        },
+        {
+            "code": "production_quantity",
+            "label": "Production quantity only",
+            "changes": {cell(556): value(556) * 1.05},
+            "target_effects": ["material_total", "manufacturing_realized"],
+        },
+        {
+            "code": "sga_variable",
+            "label": "One variable SGA account",
+            "changes": {cell(1194): value(1194) + 10_000_000.0},
+            "target_effects": ["sga_variable"],
+        },
+        {
+            "code": "sga_fixed",
+            "label": "One fixed SGA account",
+            "changes": {cell(1200): value(1200) + 10_000_000.0},
+            "target_effects": ["sga_fixed"],
+        },
+        {
+            "code": "customer_freight",
+            "label": "Customer-delivery transport only",
+            "changes": {cell(1168): value(1168) + 10_000_000.0},
+            "target_effects": ["sales_quantity", "sales_price"],
+        },
+        {
+            "code": "tariff",
+            "label": "Tariff only",
+            "changes": {},
+            "tariff_adjustment": 13_000_000.0,
+            "external_sources": ["tariff"],
+            "target_effects": ["tariff"],
+        },
+    ]
+
+    actual_effect_codes = {
+        "sales_quantity", "sales_mix", "sales_price", "sales_fx",
+        "material_total", "manufacturing_realized", "sga_variable",
+        "sga_fixed", "tariff",
+    }
+    records: list[dict[str, Any]] = []
+    for scenario in scenarios:
+        if scenario_codes is not None and scenario["code"] not in scenario_codes:
+            continue
+        scenario_base_path = base_path
+        pair_controls: list[dict[str, Any]] = []
+        if scenario["code"] == "sales_quantity":
+            # A controlled pair removes customer freight from both sides.  It
+            # avoids inventing an allocation across PCS and FS LENGTH and
+            # leaves freight to its dedicated isolation scenario.
+            scenario_base_path = output_dir / "sales_quantity_base_controlled.xlsx"
+            shutil.copy2(base_path, scenario_base_path)
+            controlled = GoldenWorkbook(scenario_base_path)
+            controlled.set_input(
+                cell(1168), 0.0, "validation.sales_quantity",
+                "controlled pair excludes customer freight", allow_formula=True,
+            )
+            controlled.recalculate()
+            controlled.save(scenario_base_path)
+            pair_controls.append({
+                "address": cell(1168),
+                "original_value": value(1168),
+                "controlled_value": 0.0,
+                "applied_to": ["base", "comparison"],
+                "classification": "CONTROLLED_TEST_ASSUMPTION",
+                "reason": "exclude mixed-unit customer freight from quantity-only isolation",
+            })
+        comparison_path = output_dir / f"{scenario['code']}.xlsx"
+        shutil.copy2(scenario_base_path, comparison_path)
+        workbook = GoldenWorkbook(comparison_path)
+        for address, new_value in scenario["changes"].items():
+            workbook.set_input(
+                address,
+                new_value,
+                f"validation.{scenario['code']}",
+                "single-driver isolation",
+                allow_formula=True,
+            )
+        workbook.recalculate()
+        workbook.save(comparison_path)
+        changed_sources = sorted(scenario["changes"])
+        report = validate_pair(
+            scenario_base_path,
+            comparison_path,
+            mapping_path,
+            month=month,
+            baseline_sales_fx=float(scenario.get("baseline_sales_fx", 1450.0)),
+            comparison_sales_fx=float(scenario.get("comparison_sales_fx", 1450.0)),
+            tariff_adjustment=float(scenario.get("tariff_adjustment", 0.0)),
+            changed_sources=changed_sources,
+        )
+        comparison_result = report["comparison_result"]
+        dependency = report["formula_evaluation"]["comparison_pnl_dependency"]
+        independent = report["independent_effects"]
+        expected_total = sum(
+            independent[code]
+            for code in (
+                "sales_quantity", "sales_mix", "sales_price", "sales_fx",
+                "material_total", "manufacturing_realized", "sga_variable",
+                "sga_fixed", "tariff",
+            )
+        )
+        actual_by_code = {
+            row["code"]: float(row.get("profit_effect") or 0.0)
+            for row in comparison_result["effects"]
+            if row["code"] in actual_effect_codes
+        }
+        nonzero_effects = {
+            code: amount for code, amount in actual_by_code.items()
+            if abs(amount) > 1.0
+        }
+        target_effects = set(scenario["target_effects"])
+        unexpected_effects = {
+            code: amount for code, amount in nonzero_effects.items()
+            if code not in target_effects
+        }
+        residual = float(comparison_result["residual"])
+        if not changed_sources and scenario.get("external_sources"):
+            classification = "PASS_EXTERNAL_DRIVER"
+            cause = None
+        elif dependency["cached_fallback_count"]:
+            classification = "FORMULA_INCOMPLETE_FALLBACK"
+            cause = "FORMULA_EVALUATOR_GAP"
+        elif dependency["unlinked_sources"]:
+            classification = "FORMULA_UNLINKED"
+            cause = (
+                "INTENTIONAL_SCOPE_GAP"
+                if scenario["code"] in {"nonwoven_price"}
+                else "MAPPING_GAP"
+            )
+        elif unexpected_effects:
+            classification = "SCENARIO_NOT_ISOLATED"
+            cause = "VALIDATION_ARTIFACT"
+        elif abs(residual) > 1.0:
+            classification = "POLICY_MAPPING_CANDIDATE"
+            cause = (
+                "INVENTORY_TIMING"
+                if scenario["code"].startswith("manufacturing_")
+                or scenario["code"] in {
+                    "jpy", "nonwoven_price", "materials_ex_nonwoven"
+                }
+                else "INTENTIONAL_SCOPE_GAP"
+                if scenario["code"] == "product_group_mix"
+                else "INVENTORY_TIMING"
+                if scenario["code"] == "production_quantity"
+                else "UNEXPLAINED"
+            )
+        else:
+            classification = "PASS_FORMULA_COMPLETE"
+            cause = None
+        records.append({
+            "code": scenario["code"],
+            "label": scenario["label"],
+            "changed_sources": changed_sources,
+            "external_sources": scenario.get("external_sources", []),
+            "pair_controls": pair_controls,
+            "formula_status": (
+                "EXTERNAL_DRIVER"
+                if not changed_sources and scenario.get("external_sources")
+                else "FORMULA_COMPLETE"
+                if dependency["formula_complete"]
+                else "FORMULA_INCOMPLETE"
+            ),
+            "fallback_cells": dependency["fallback_cells"],
+            "unlinked_sources": dependency["unlinked_sources"],
+            "dependency_paths": dependency["source_paths"],
+            "operating_profit_delta": comparison_result["operating_profit_delta"],
+            "expected_deterministic_effect": expected_total,
+            "actual_deterministic_effect": comparison_result["effects_total"],
+            "target_effects": scenario["target_effects"],
+            "nonzero_effects": nonzero_effects,
+            "unexpected_effects": unexpected_effects,
+            "residual": residual,
+            "identity_delta": (
+                comparison_result["effects_total"] + residual
+                - comparison_result["operating_profit_delta"]
+            ),
+            "classification": classification,
+            "residual_cause": cause,
+        })
+    return {"month": month, "scenarios": records}
+
+
+def validate_excel_calculated_pair(
+    base_path: Path | None,
+    comparison_path: Path | None,
+    mapping_path: Path,
+    *,
+    month: int = 7,
+) -> dict[str, Any]:
+    """Read-only acceptance gate for two workbooks calculated and saved by Excel."""
+    if (
+        base_path is None
+        or comparison_path is None
+        or not base_path.is_file()
+        or not comparison_path.is_file()
+    ):
+        return {
+            "mode": "excel_calculated_pair",
+            "status": "BLOCKED_NO_EXCEL_CALCULATED_PAIR",
+            "base": str(base_path) if base_path else None,
+            "comparison": str(comparison_path) if comparison_path else None,
+        }
+
+    report = validate_pair(base_path, comparison_path, mapping_path, month=month)
+    formula = report["formula_evaluation"]
+    closures = {
+        "base": formula["base_pnl_full_dependency"],
+        "comparison": formula["comparison_pnl_full_dependency"],
+    }
+    mapping = json.loads(mapping_path.read_text(encoding="utf-8"))
+    column = MONTH_COLUMNS[month]
+    core_outputs = {
+        name: f"{column}{row}"
+        for name, row in mapping["comparison"]["pnl_rows"].items()
+    }
+    freshness = {
+        side: {
+            "cached_fallback_count": closure["cached_fallback_count"],
+            "cached_numeric_mismatch_count": closure["cached_numeric_mismatch_count"],
+            "fallback_cells": closure["fallback_cells"],
+            "cached_mismatch_cells": closure["cached_mismatch_cells"],
+            "core_outputs": core_outputs,
+            "core_output_issue_cells": sorted(
+                set(core_outputs.values())
+                & (set(closure["fallback_cells"]) | set(closure["cached_mismatch_cells"]))
+            ),
+            "status": (
+                "PASS"
+                if closure["cached_fallback_count"] == 0
+                and closure["cached_numeric_mismatch_count"] == 0
+                else "CHECK"
+            ),
+        }
+        for side, closure in closures.items()
+    }
+    source_checks = [row for row in report["checks"] if row["status"] == "CHECK"]
+    level_1 = "PASS" if not source_checks else "CHECK"
+    level_2 = "PASS" if all(row["status"] == "PASS" for row in freshness.values()) else "CHECK"
+    result = report["comparison_result"]
+    level_3 = "PASS" if result["reconciled"] else "CHECK"
+    report["excel_pair_acceptance"] = {
+        "mode": "excel_calculated_pair",
+        "read_only": True,
+        "cached_freshness": freshness,
+        "level_1_calculation_identity": level_1,
+        "level_2_workbook_propagation": level_2,
+        "level_3_op_bridge_completeness": level_3,
+        "operating_profit_delta": result["operating_profit_delta"],
+        "effects_total": result["effects_total"],
+        "residual": result["residual"],
+        "residual_ratio": report["residual_analysis"]["ratio_to_operating_profit_delta"],
+        "source_level_checks": source_checks,
+        "status": "PASS" if (level_1, level_2, level_3) == ("PASS", "PASS", "PASS") else "CHECK",
+    }
+    return report
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--base", type=Path)
+    parser.add_argument("--comparison", type=Path)
+    parser.add_argument("--mapping", type=Path, default=Path("config/model_mapping.json"))
+    parser.add_argument("--generate-comparison", action="store_true")
+    parser.add_argument("--excel-calculated-pair", action="store_true")
+    parser.add_argument("--output", type=Path)
+    args = parser.parse_args()
+    if args.excel_calculated_pair:
+        report = validate_excel_calculated_pair(args.base, args.comparison, args.mapping)
+    else:
+        if args.base is None or args.comparison is None:
+            parser.error("--base and --comparison are required outside pair-blocker checks")
+        if args.generate_comparison:
+            args.comparison.parent.mkdir(parents=True, exist_ok=True)
+            build_comparison(args.base, args.comparison, args.mapping)
+        report = validate_pair(args.base, args.comparison, args.mapping)
+    rendered = json.dumps(report, ensure_ascii=False, indent=2, default=str)
+    if args.output:
+        args.output.parent.mkdir(parents=True, exist_ok=True)
+        args.output.write_text(rendered, encoding="utf-8")
+    else:
+        print(rendered)
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

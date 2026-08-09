@@ -359,10 +359,621 @@ class GoldenWorkbook:
 
     @staticmethod
     def _range_cells(start: str, end: str) -> list[str]:
-        match1 = re.fullmatch(r"([A-Z]+)(\d+)ã]¹¶‰žËkºwµçp¹åutð9½¹”¤€´ø9½¹”è(€€€€€€€€ˆˆ‰I•ÍÑ½É”‘¥É•Ðµ¥¹ÁÕÐ±½ÌÝ¡•¸‘½Ý¹±½…‘¥¹œ„É•ÍÕ±Ðµ…‘”‰ä…¸½±‘•ÈÍ•ÍÍ¥½¸¸ˆˆˆ(€€€€€€€™½ÈÉ•½É¥¸É•½É‘Ì½Èmtè(€€€€€€€€€€€É•ÅÕ¥É•€ôì‰•±°ˆ°€‰½±‘}Ù…±Õ”ˆ°€‰¹•Ý}Ù…±Õ”ˆ°€‰Í½ÕÉ”‰ô(€€€€€€€€€€€¥˜¹½ÐÉ•ÅÕ¥É•¹¥ÍÍÕ‰Í•Ð¡É•½É¤è(€€€€€€€€€€€€€€€½¹Ñ¥¹Õ”(€€€€€€€€€€€Í•±˜¹±½œ¹…ÁÁ•¹ (€€€€€€€€€€€€€€€¡…¹•1½œ (€€€€€€€€€€€€€€€€€€€•±°õÍÑÈ¡É•½É‘l‰•±°‰t¤°(€€€€€€€€€€€€€€€€€€€½±‘}Ù…±Õ”õÉ•½É¹•Ð ‰½±‘}Ù…±Õ”ˆ¤°(€€€€€€€€€€€€€€€€€€€¹•Ý}Ù…±Õ”õÉ•½É¹•Ð ‰¹•Ý}Ù…±Õ”ˆ¤°(€€€€€€€€€€€€€€€€€€€Í½ÕÉ”õÍÑÈ¡É•½É‘l‰Í½ÕÉ”‰t¤°(€€€€€€€€€€€€€€€€€€€É•…Í½¸õÍÑÈ¡É•½É¹•Ð ‰É•…Í½¸ˆ°€ˆˆ¤¤°(€€€€€€€€€€€€€€€€€€€™½ÉµÕ±…}½Ù•ÉÝÉ¥ÑÑ•¸õ‰½½°¡É•½É¹•Ð ‰™½ÉµÕ±…}½Ù•ÉÝÉ¥ÑÑ•¸ˆ°…±Í”¤¤°(€€€€€€€€€€€€€€€€¤(€€€€€€€€€€€€¤((€€€ÍÑ…Ñ¥µ•Ñ¡½(€€€‘•˜}…Õ‘¥Ñ}…Ñ•½Éä¡Í½ÕÉ”èÍÑÈ¤€´øÍÑÈè(€€€€€€€¥˜Í½ÕÉ”¹ÍÑ…ÉÑÍÝ¥Ñ  ‰Í…±•Ì¸ˆ¤è(€€€€€€€€€€€É•ÑÕÉ¸€‹¶2C®žˆ(€€€€€€€¥˜Í½ÕÉ”¹ÍÑ…ÉÑÍÝ¥Ñ  ‰ÁÉ½‘ÕÑ¥½¸¸ˆ¤è(€€€€€€€€€€€É•ÑÕÉ¸€‹²w²
-Àˆ(€€€€€€€¥˜Í½ÕÉ”¹ÍÑ…ÉÑÍÝ¥Ñ  ‰µ´¸ˆ¤è(€€€€€€€€€€€É•ÑÕÉ¸€‰54£²rƒ²²
-³ªâ$¤ˆ(€€€€€€€¥˜Í½ÕÉ”¹ÍÑ…ÉÑÍÝ¥Ñ  ‰É…Ý}µ…Ñ•É¥…°¹ÁÕÉ¡…Í•}•ÍÑ¥µ…Ñ”¸ˆ¤è(€€€€€€€€€€€É•ÑÕÉ¸€‹²nC²z³®Ž0ƒ¶"³²z®æˆ(€€€€€€€¥˜Í½ÕÉ”€ôô€‰µ…¹Õ™…ÑÕÉ¥¹}…‘©ÕÍÑµ•¹Ðˆè(€€€€€€€€€€€É•ÑÕÉ¸€‹²‚s²†ÃªÊ÷®æˆ(€€€€€€€¥˜Í½ÕÉ”€ôô€‰Í…}…‘©ÕÍÑµ•¹Ðˆè(€€€€€€€€€€€É•ÑÕÉ¸€‹¶2CªÒ®æˆ(€€€€€€€É•ÑÕÉ¸€‹®ž“²Ús²nCªÂ ˆ((€€€‘•˜}É½Ý}±…‰•°¡Í•±˜°É½Üè¥¹Ð¤€´øÍÑÈè(€€€€€€€™½È½±Õµ¸¥¸€ ‰ˆ°€‰ˆ°€‰ˆ°€‰ˆ¤è(€€€€€€€€€€€Ù…±Õ”€ôÍ•±˜¹É…Ý}Ù…±Õ”¡˜‰í½±Õµ¹õíÉ½Ýôˆ¤(€€€€€€€€€€€¥˜Ù…±Õ”¹½Ð¥¸€¡9½¹”°€ˆˆ¤è(€€€€€€€€€€€€€€€É•ÑÕÉ¸ÍÑÈ¡Ù…±Õ”¤¹ÍÑÉ¥À ¤(€€€€€€€É•ÑÕÉ¸˜‰íÉ½Ý÷¶Z$ˆ((€€€‘•˜}Í…}Í•Ñ¥½¸¡Í•±˜°É½Üè¥¹Ð¤€´øÍÑÈè(€€€€€€€€ˆˆ‰I•Í½±Ù”Ñ¡”¹•…É•ÍÐ½±‘•¸5½‘•°M™Í•Ñ¥½¸Ý¥Ñ¡½ÕÐÉ½Ü¡…É‘½‘¥¹œ¸ˆˆˆ(€€€€€€€™½È…¹‘¥‘…Ñ”¥¸É…¹”¡É½Ü°µ…à À°É½Ü€´€ÈÀÀ¤°€´Ä¤è(€€€€€€€€€€€Ù…±Õ”€ôÍÑÈ¡Í•±˜¹É…Ý}Ù…±Õ”¡˜‰	í…¹‘¥‘…Ñ•ôˆ¤½È€ˆˆ¤¹ÍÑÉ¥À ¤(€€€€€€€€€€€¥˜Ù…±Õ”¥¸ì‹¶2C®ž“®æˆ°€‹²vó®ÂcªÒ®š³®æ‰ôè(€€€€€€€€€€€€€€€É•ÑÕÉ¸Ù…±Õ”(€€€€€€€É•ÑÕÉ¸€‹¶2CªÒ®æˆ((€€€‘•˜}…Õ‘¥Ñ}¥Ñ•´¡Í•±˜°¥Ñ•´è¡…¹•1½œ¤€´øÍÑÈè(€€€€€€€Í½ÕÉ”€ô¥Ñ•´¹Í½ÕÉ”(€€€€€€€Á…ÉÑÌ€ôÍ½ÕÉ”¹ÍÁ±¥Ð ˆ¸ˆ¤(€€€€€€€¥˜Í½ÕÉ”¹ÍÑ…ÉÑÍÝ¥Ñ  ‰Í…±•Ì¸ˆ¤…¹±•¸¡Á…ÉÑÌ¤€øô€Ìè(€€€€€€€€€€€ÍÕ™™¥à€ôì(€€€€€€€€€€€€€€€€‰ÅÕ…¹Ñ¥Ñäˆè€‹²"c®~$ˆ°(€€€€€€€€€€€€€€€€‰…µ½Õ¹Ðˆè€‹®ž“²Ús²V„ˆ°(€€€€€€€€€€€€€€€€‰µ…¹Õ™…ÑÕÉ•‘}ÅÕ…¹Ñ¥Ñäˆè€‹²‚s²†Àƒ²"c®~$ˆ°(€€€€€€€€€€€€€€€€‰µ…¹Õ™…ÑÕÉ•‘}…µ½Õ¹Ðˆè€‹²‚s²†Àƒ®ž“²Ús²V„ˆ°(€€€€€€€€€€€€€€€€‰½½‘Í}ÅÕ…¹Ñ¥Ñäˆè€‹²¶J ƒ²"c®~$ˆ°(€€€€€€€€€€€€€€€€‰½½‘Í}…µ½Õ¹Ðˆè€‹²¶J ƒ®ž“²Ús²V„ˆ°(€€€€€€€€€€€ô¹•Ð¡Á…ÉÑÍl´Åt°Á…ÉÑÍl´Åt¤(€€€€€€€€€€€ÁÉ½‘ÕÐ€ôì(€€€€€€€€€€€€€€€€‰¹•Ý}‰ÕÍ¥¹•ÍÌˆè€‹².ƒ²
-³²^ˆ°(€€€€€€€€€€€€€€€€‰½Ñ¡•Èˆè€‹ªâÃ¶®ž“²Úpˆ°(€€€€€€€€€€€ô¹•Ð¡Á…ÉÑÍlÅt°Á…ÉÑÍlÅt¤(€€€€€€€€€€€É•ÑÕÉ¸˜‰íÁÉ½‘ÕÑôíÍÕ™™¥áôˆ(€€€€€€€¥˜Í½ÕÉ”¹ÍÑ…ÉÑÍÝ¥Ñ  ‰ÁÉ½‘ÕÑ¥½¸¸ˆ¤…¹±•¸¡Á…ÉÑÌ¤€øô€Èè(€€€€€€€€€€€É•ÑÕÉ¸˜‰íÁ…ÉÑÍlÅuôƒ²w²
-Ã²"c®~$ˆ(€€€€€€€¥˜Í½ÕÉ”¹ÍÑ…ÉÑÍÝ¥Ñ  ‰µ´¸ˆ¤…¹±•¸¡Á…ÉÑÌ¤€øô€Èè(€€€€€€€€€€€É•ÑÕÉ¸˜‰íÁ…ÉÑÍlÅuôƒ²"c®~$ˆ(€€€€€€€¥˜Í½ÕÉ”€ôô€‰É…Ý}µ…Ñ•É¥…°¹ÁÕÉ¡…Í•}•ÍÑ¥µ…Ñ”¹™É½¹Ñ}ÁÉ½•ÍÌˆè(€€€€€€€€€€€É•ÑÕÉ¸€‹ªÖ³®ž“¶2 ƒ²b#²ƒ¶"³²z®æ²‚ªÎ×²‚Tˆ(€€€€€€€¥˜Í½ÕÉ”€ôô€‰É…Ý}µ…Ñ•É¥…°¹ÁÕÉ¡…Í•}•ÍÑ¥µ…Ñ”¹‰…­}ÁÉ½•ÍÌˆè(€€€€€€€€€€€É•ÑÕÉ¸€‹ªÖ³®ž“¶2 ƒ²b#²ƒ¶"³²z®æ¶nªÎ×²‚Tˆ(€€€€€€€¥˜Í½ÕÉ”€ôô€‰½Ì¹‘¥ÍÁ½Í…°ˆè(€€€€€€€€€€€É•ÑÕÉ¸€‹²‚s¶J ƒ¶>CªâÃ²C².ˆ(€€€€€€€¥˜Í½ÕÉ”€ôô€‰½Ì¹½‰Í½±•Í•¹”ˆè(€€€€€€€€€€€É•ÑÕÉ¸€‹²‚s¶J ƒ²ž®Ú¶fPƒ¶>'ªÂ²C².ˆ(€€€€€€€¥˜Í½ÕÉ”€ôô€‰½Ì¹ÕÍÑ½µÍ}É•™Õ¹ˆè(€€€€€€€€€€€É•ÑÕÉ¸€‹²nC²z³®Ž0ƒªÒ²àƒ¶fcªâ'ªâ ˆ(€€€€€€€¥˜Í½ÕÉ”€ôô€‰½Ì¹½½‘Ìˆè(€€€€€€€€€€€É•ÑÕÉ¸€‹²¶J ƒ®ž“²Ús²nCªÂ ˆ(€€€€€€€¥˜Í½ÕÉ”€ôô€‰Í…}…‘©ÕÍÑµ•¹Ðˆè(€€€€€€€€€€€É½Ü€ô¥¹Ð¡É”¹Í•…É ¡È‰q¬ˆ°¥Ñ•´¹•±°¤¹É½ÕÀ À¤¤(€€€€€€€€€€€ÁÉ•™¥à€ôÍ•±˜¹}Í…}Í•Ñ¥½¸¡É½Ü¤(€€€€€€€€€€€É•ÑÕÉ¸˜‰íÁÉ•™¥áõ}íÍ•±˜¹}É½Ý}±…‰•°¡É½Ü¥ôˆ(€€€€€€€É½Ü€ô¥¹Ð¡É”¹Í•…É ¡È‰q¬ˆ°¥Ñ•´¹•±°¤¹É½ÕÀ À¤¤(€€€€€€€É•ÑÕÉ¸Í•±˜¹}É½Ý}±…‰•°¡É½Ü¤((€€€ÍÑ…Ñ¥µ•Ñ¡½(€€€‘•˜}…Õ‘¥Ñ}µ½¹Ñ ¡•±°èÍÑÈ¤€´ø¥¹Ðð9½¹”è(€€€€€€€µ…Ñ €ôÉ”¹™Õ±±µ…Ñ ¡Èˆ¡mµit¬¥q¬ˆ°•±°¤(€€€€€€€¥˜¹½Ðµ…Ñ è(€€€€€€€€€€€É•ÑÕÉ¸9½¹”(€€€€€€€µ½¹Ñ €ô½±}¹Õµ‰•È¡µ…Ñ ¹É½ÕÀ Ä¤¤€´½±}¹Õµ‰•È ‰ˆ¤€¬€Ä(€€€€€€€É•ÑÕÉ¸µ½¹Ñ ¥˜€Ä€ðôµ½¹Ñ €ðô€ÄÈ•±Í”9½¹”((€€€ÍÑ…Ñ¥µ•Ñ¡½(€€€‘•˜}…ÁÁ•¹‘}¥¹±¥¹•}•±°¡É½ÜèP¹±•µ•¹Ð°…‘‘É•ÍÌèÍÑÈ°Ù…±Õ”è¹ä¤€´ø9½¹”è(€€€€€€€¥˜¥Í¥¹ÍÑ…¹”¡Ù…±Õ”°€¡¥¹Ð°™±½…Ð¤¤…¹¹½Ð¥Í¥¹ÍÑ…¹”¡Ù…±Õ”°‰½½°¤è(€€€€€€€€€€€•±°€ôP¹MÕ‰±•µ•¹Ð¡É½Ü°D ‰Œˆ¤°ì‰Èˆè…‘‘É•ÍÍô¤(€€€€€€€€€€€P¹MÕ‰±•µ•¹Ð¡•±°°D ‰Øˆ¤¤¹Ñ•áÐ€ôÉ•ÁÈ¡™±½…Ð¡Ù…±Õ”¤¤(€€€€€€€€€€€É•ÑÕÉ¸(€€€€€€€•±°€ôP¹MÕ‰±•µ•¹Ð¡É½Ü°D ‰Œˆ¤°ì‰Èˆè…‘‘É•ÍÌ°€‰Ðˆè€‰¥¹±¥¹•MÑÈ‰ô¤(€€€€€€€¥¹±¥¹”€ôP¹MÕ‰±•µ•¹Ð¡•±°°D ‰¥Ìˆ¤¤(€€€€€€€Ñ•áÐ€ôP¹MÕ‰±•µ•¹Ð¡¥¹±¥¹”°D ‰Ðˆ¤¤(€€€€€€€Ñ•áÐ¹Ñ•áÐ€ô€ˆˆ¥˜Ù…±Õ”¥Ì9½¹”•±Í”ÍÑÈ¡Ù…±Õ”¤((€€€ÍÑ…Ñ¥µ•Ñ¡½(€€€‘•˜}Ý½É­Í¡••Ñ}Ñ…É•Ð¡•¹ÑÉ¥•Ìè‘¥ÑmÍÑÈ°‰åÑ•Ít°Í¡••Ñ}¹…µ”èÍÑÈ¤€´øÑÕÁ±•mÍÑÈ°P¹±•µ•¹Ð°P¹±•µ•¹Ñtð9½¹”è(€€€€€€€Ý½É­‰½½¬€ôP¹™É½µÍÑÉ¥¹œ¡•¹ÑÉ¥•Íl‰á°½Ý½É­‰½½¬¹áµ°‰t¤(€€€€€€€Í¡••ÑÌ€ôÝ½É­‰½½¬¹™¥¹¡D ‰Í¡••ÑÌˆ¤¤(€€€€€€€¥˜Í¡••ÑÌ¥Ì9½¹”è(€€€€€€€€€€€É•ÑÕÉ¸9½¹”(€€€€€€€Í¡••Ð€ô¹•áÐ ¡¹½‘”™½È¹½‘”¥¸Í¡••ÑÌ¹™¥¹‘…±°¡D ‰Í¡••Ðˆ¤¤¥˜¹½‘”¹…ÑÑÉ¥ˆ¹•Ð ‰¹…µ”ˆ¤€ôôÍ¡••Ñ}¹…µ”¤°9½¹”¤(€€€€€€€¥˜Í¡••Ð¥Ì9½¹”è(€€€€€€€€€€€É•ÑÕÉ¸9½¹”(€€€€€€€É•±…Ñ¥½¹Í¡¥Á}¥€ôÍ¡••Ð¹…ÑÑÉ¥ˆ¹•Ð¡˜‰ííí=%}I1}9Mõõõ¥ˆ¤(€€€€€€€É•±…Ñ¥½¹Í¡¥ÁÌ€ôP¹™É½µÍÑÉ¥¹œ¡•¹ÑÉ¥•Íl‰á°½}É•±Ì½Ý½É­‰½½¬¹áµ°¹É•±Ì‰t¤(€€€€€€€É•±…Ñ¥½¹Í¡¥À€ô¹•áÐ (€€€€€€€€€€€€ (€€€€€€€€€€€€€€€¹½‘”™½È¹½‘”¥¸É•±…Ñ¥½¹Í¡¥ÁÌ¹™¥¹‘…±°¡˜‰íííI1}9MõõõI•±…Ñ¥½¹Í¡¥Àˆ¤(€€€€€€€€€€€€€€€¥˜¹½‘”¹…ÑÑÉ¥ˆ¹•Ð ‰%ˆ¤€ôôÉ•±…Ñ¥½¹Í¡¥Á}¥(€€€€€€€€€€€€¤°(€€€€€€€€€€€9½¹”°(€€€€€€€€¤(€€€€€€€¥˜É•±…Ñ¥½¹Í¡¥À¥Ì9½¹”è(€€€€€€€€€€€É•ÑÕÉ¸9½¹”(€€€€€€€Ñ…É•Ð€ôÉ•±…Ñ¥½¹Í¡¥À¹…ÑÑÉ¥‰l‰Q…É•Ð‰t¹É•Á±…” ‰qpˆ°€ˆ¼ˆ¤(€€€€€€€¥˜Ñ…É•Ð¹ÍÑ…ÉÑÍÝ¥Ñ  ˆ¼ˆ¤è(€€€€€€€€€€€Á…Ñ €ôÑ…É•Ð¹±ÍÑÉ¥À ˆ¼ˆ¤(€€€€€€€•±Í”è(€€€€€€€€€€€Á…Ñ €ô˜‰á°½íÑ…É•Ñôˆ(€€€€€€€É•ÑÕÉ¸Á…Ñ °Ý½É­‰½½¬°É•±…Ñ¥½¹Í¡¥ÁÌ((€€€ÍÑ…Ñ¥µ•Ñ¡½(€€€‘•˜}¹•Ý}…Õ‘¥Ñ}Í¡••Ð¡•¹ÑÉ¥•Ìè‘¥ÑmÍÑÈ°‰åÑ•Ít¤€´øÑÕÁ±•mÍÑÈ°P¹±•µ•¹Ñtè(€€€€€€€Ý½É­‰½½­}¹…µ”€ô€‰á°½Ý½É­‰½½¬¹áµ°ˆ(€€€€€€€É•±Í}¹…µ”€ô€‰á°½}É•±Ì½Ý½É­‰½½¬¹áµ°¹É•±Ìˆ(€€€€€€€Ý½É­‰½½¬€ôP¹™É½µÍÑÉ¥¹œ¡•¹ÑÉ¥•ÍmÝ½É­‰½½­}¹…µ•t¤(€€€€€€€É•±…Ñ¥½¹Í¡¥ÁÌ€ôP¹™É½µÍÑÉ¥¹œ¡•¹ÑÉ¥•ÍmÉ•±Í}¹…µ•t¤(€€€€€€€Í¡••ÑÌ€ôÝ½É­‰½½¬¹™¥¹¡D ‰Í¡••ÑÌˆ¤¤(€€€€€€€¥˜Í¡••ÑÌ¥Ì9½¹”è(€€€€€€€€€€€Í¡••ÑÌ€ôP¹MÕ‰±•µ•¹Ð¡Ý½É­‰½½¬°D ‰Í¡••ÑÌˆ¤¤((€€€€€€€•á¥ÍÑ¥¹}Ñ…É•ÑÌ€ôì(€€€€€€€€€€€¹½‘”¹…ÑÑÉ¥ˆ¹•Ð ‰Q…É•Ðˆ°€ˆˆ¤(€€€€€€€€€€€™½È¹½‘”¥¸É•±…Ñ¥½¹Í¡¥ÁÌ¹™¥¹‘…±°¡˜‰íííI1}9MõõõI•±…Ñ¥½¹Í¡¥Àˆ¤(€€€€€€€ô(€€€€€€€Í¡••Ñ}¹Õµ‰•È€ô€Ä(€€€€€€€Ý¡¥±”˜‰Ý½É­Í¡••ÑÌ½Í¡••ÑíÍ¡••Ñ}¹Õµ‰•Éô¹áµ°ˆ¥¸•á¥ÍÑ¥¹}Ñ…É•ÑÌè(€€€€€€€€€€€Í¡••Ñ}¹Õµ‰•È€¬ô€Ä(€€€€€€€Ñ…É•Ð€ô˜‰Ý½É­Í¡••ÑÌ½Í¡••ÑíÍ¡••Ñ}¹Õµ‰•Éô¹áµ°ˆ(€€€€€€€Í¡••Ñ}Á…Ñ €ô˜‰á°½íÑ…É•Ñôˆ((€€€€€€€•á¥ÍÑ¥¹}É¥‘Ì€ôì(€€€€€€€€€€€¹½‘”¹…ÑÑÉ¥ˆ¹•Ð ‰%ˆ°€ˆˆ¤(€€€€€€€€€€€™½È¹½‘”¥¸É•±…Ñ¥½¹Í¡¥ÁÌ¹™¥¹‘…±°¡˜‰íííI1}9MõõõI•±…Ñ¥½¹Í¡¥Àˆ¤(€€€€€€€ô(€€€€€€€É¥‘}¹Õµ‰•È€ô€Ä(€€€€€€€Ý¡¥±”˜‰É%‘íÉ¥‘}¹Õµ‰•Éôˆ¥¸•á¥ÍÑ¥¹}É¥‘Ìè(€€€€€€€€€€€É¥‘}¹Õµ‰•È€¬ô€Ä(€€€€€€€É•±…Ñ¥½¹Í¡¥Á}¥€ô˜‰É%‘íÉ¥‘}¹Õµ‰•Éôˆ(€€€€€€€P¹MÕ‰±•µ•¹Ð (€€€€€€€€€€€É•±…Ñ¥½¹Í¡¥ÁÌ°(€€€€€€€€€€€˜‰íííI1}9MõõõI•±…Ñ¥½¹Í¡¥Àˆ°(€€€€€€€€€€€ì(€€€€€€€€€€€€€€€€‰%ˆèÉ•±…Ñ¥½¹Í¡¥Á}¥°(€€€€€€€€€€€€€€€€‰QåÁ”ˆè˜‰í=%}I1}9Mô½Ý½É­Í¡••Ðˆ°(€€€€€€€€€€€€€€€€‰Q…É•ÐˆèÑ…É•Ð°(€€€€€€€€€€€ô°(€€€€€€€€¤((€€€€€€€Í¡••Ñ}¥‘Ì€ôm¥¹Ð¡¹½‘”¹…ÑÑÉ¥ˆ¹•Ð ‰Í¡••Ñ%ˆ°€ˆÀˆ¤¤™½È¹½‘”¥¸Í¡••ÑÌ¹™¥¹‘…±°¡D ‰Í¡••Ðˆ¤¥t(€€€€€€€¹•Ý}Í¡••Ð€ôP¹±•µ•¹Ð (€€€€€€€€€€€D ‰Í¡••Ðˆ¤°(€€€€€€€€€€€ì(€€€€€€€€€€€€€€€€‰¹…µ”ˆèU%Q}M!Q}95°(€€€€€€€€€€€€€€€€‰Í¡••Ñ%ˆèÍÑÈ¡µ…à¡Í¡••Ñ}¥‘Ì°‘•™…Õ±ÐôÀ¤€¬€Ä¤°(€€€€€€€€€€€€€€€˜‰ííí=%}I1}9Mõõõ¥ˆèÉ•±…Ñ¥½¹Í¡¥Á}¥°(€€€€€€€€€€€ô°(€€€€€€€€¤(€€€€€€€¡¥±‘É•¸€ô±¥ÍÐ¡Í¡••ÑÌ¤(€€€€€€€‘…Ñ…}¥¹‘•à€ô¹•áÐ ¡¥¹‘•à™½È¥¹‘•à°¹½‘”¥¸•¹Õµ•É…Ñ”¡¡¥±‘É•¸¤¥˜¹½‘”¹…ÑÑÉ¥ˆ¹•Ð ‰¹…µ”ˆ¤€ôô€‰…Ñ„ˆ¤°±•¸¡¡¥±‘É•¸¤€´€Ä¤(€€€€€€€Í¡••ÑÌ¹¥¹Í•ÉÐ¡µ…à¡‘…Ñ…}¥¹‘•à€¬€Ä°€À¤°¹•Ý}Í¡••Ð¤((€€€€€€€½¹Ñ•¹Ñ}ÑåÁ•Í}¹…µ”€ô€‰m½¹Ñ•¹Ñ}QåÁ•Ít¹áµ°ˆ(€€€€€€€½¹Ñ•¹Ñ}ÑåÁ•Ì€ôP¹™É½µÍÑÉ¥¹œ¡•¹ÑÉ¥•Ím½¹Ñ•¹Ñ}ÑåÁ•Í}¹…µ•t¤(€€€€€€€P¹MÕ‰±•µ•¹Ð (€€€€€€€€€€€½¹Ñ•¹Ñ}ÑåÁ•Ì°(€€€€€€€€€€€˜‰ííí=9Q9Q}QeAM}9Mõõõ=Ù•ÉÉ¥‘”ˆ°(€€€€€€€€€€€ì(€€€€€€€€€€€€€€€€‰A…ÉÑ9…µ”ˆè˜ˆ½íÍ¡••Ñ}Á…Ñ¡ôˆ°(€€€€€€€€€€€€€€€€‰½¹Ñ•¹ÑQåÁ”ˆè€‰…ÁÁ±¥…Ñ¥½¸½Ù¹¹½Á•¹áµ±™½Éµ…ÑÌµ½™™¥•‘½Õµ•¹Ð¹ÍÁÉ•…‘Í¡••Ñµ°¹Ý½É­Í¡••Ð­áµ°ˆ°(€€€€€€€€€€€ô°(€€€€€€€€¤(€€€€€€€•¹ÑÉ¥•ÍmÝ½É­‰½½­}¹…µ•t€ôÍ•É¥…±¥é•}áµ°¡Ý½É­‰½½¬°€ ‰àÄÔˆ°€‰áÈˆ°€‰áÈØˆ°€‰áÈÄÀˆ°€‰áÈÈˆ¤¤(€€€€€€€•¹ÑÉ¥•ÍmÉ•±Í}¹…µ•t€ôÍ•É¥…±¥é•}áµ°¡É•±…Ñ¥½¹Í¡¥ÁÌ°‘•™…Õ±Ñ}¹…µ•ÍÁ…”õI1}9L¤(€€€€€€€•¹ÑÉ¥•Ím½¹Ñ•¹Ñ}ÑåÁ•Í}¹…µ•t€ôÍ•É¥…±¥é•}áµ°¡½¹Ñ•¹Ñ}ÑåÁ•Ì°‘•™…Õ±Ñ}¹…µ•ÍÁ…”õ=9Q9Q}QeAM}9L¤((€€€€€€€É½½Ð€ôP¹±•µ•¹Ð¡D ‰Ý½É­Í¡••Ðˆ¤¤(€€€€€€€Ù¥•ÝÌ€ôP¹MÕ‰±•µ•¹Ð¡É½½Ð°D ‰Í¡••ÑY¥•ÝÌˆ¤¤(€€€€€€€Ù¥•Ü€ôP¹MÕ‰±•µ•¹Ð¡Ù¥•ÝÌ°D ‰Í¡••ÑY¥•Üˆ¤°ì‰Ý½É­‰½½­Y¥•Ý%ˆè€ˆÀ‰ô¤(€€€€€€€P¹MÕ‰±•µ•¹Ð¡Ù¥•Ü°D ‰Á…¹”ˆ¤°ì‰åMÁ±¥Ðˆè€ˆÄˆ°€‰Ñ½Á1•™Ñ•±°ˆè€‰Èˆ°€‰…Ñ¥Ù•A…¹”ˆè€‰‰½ÑÑ½µ1•™Ðˆ°€‰ÍÑ…Ñ”ˆè€‰™É½é•¸‰ô¤(€€€€€€€P¹MÕ‰±•µ•¹Ð¡É½½Ð°D ‰Í¡••Ñ½Éµ…ÑAÈˆ¤°ì‰‘•™…Õ±ÑI½Ý!•¥¡Ðˆè€ˆÄÔ‰ô¤(€€€€€€€½±Õµ¹Ì€ôP¹MÕ‰±•µ•¹Ð¡É½½Ð°D ‰½±Ìˆ¤¤(€€€€€€€™½È¥¹‘•à°Ý¥‘Ñ ¥¸•¹Õµ•É…Ñ”  Ü°€ä°€Äà°€Èà°€ÄÌ°€ÄÜ°€ÄÜ°€ÄÜ°€ØÈ°€ÄÀ¤°ÍÑ…ÉÐôÄ¤è(€€€€€€€€€€€P¹MÕ‰±•µ•¹Ð¡½±Õµ¹Ì°D ‰½°ˆ¤°ì‰µ¥¸ˆèÍÑÈ¡¥¹‘•à¤°€‰µ…àˆèÍÑÈ¡¥¹‘•à¤°€‰Ý¥‘Ñ ˆèÍÑÈ¡Ý¥‘Ñ ¤°€‰ÕÍÑ½µ]¥‘Ñ ˆè€ˆÄ‰ô¤(€€€€€€€Í¡••Ñ}‘…Ñ„€ôP¹MÕ‰±•µ•¹Ð¡É½½Ð°D ‰Í¡••Ñ…Ñ„ˆ¤¤(€€€€€€€¡•…‘•È€ôP¹MÕ‰±•µ•¹Ð¡Í¡••Ñ}‘…Ñ„°D ‰É½Üˆ¤°ì‰Èˆè€ˆÄ‰ô¤(€€€€€€€™½È¥¹‘•à°Ù…±Õ”¥¸•¹Õµ•É…Ñ”  ‹®Ê#¶bàˆ°€‹²nPˆ°€‹ªÖ³®Úˆ°€‹¶V·®ª¤ˆ°€‹®Âc²bƒ² ˆ°€‹ªâÃ²’ªÂHˆ°€‹²z®‚—ªÂHˆ°€‹²Â£²vÐˆ°€‹²
-³²r€ˆ°€‹² ƒ²vÓ®>dˆ¤°ÍÑ…ÉÐôÄ¤è(€€€€€€€€€€€½±‘•¹]½É­‰½½¬¹}…ÁÁ•¹‘}¥¹±¥¹•}•±°¡¡•…‘•È°˜‰í½±}¹…µ”¡¥¹‘•à¥ôÄˆ°Ù…±Õ”¤(€€€€€€€P¹MÕ‰±•µ•¹Ð¡É½½Ð°D ‰…ÕÑ½¥±Ñ•Èˆ¤°ì‰É•˜ˆè€‰Äé(Ä‰ô¤(€€€€€€€P¹MÕ‰±•µ•¹Ð¡É½½Ð°D ‰¡åÁ•É±¥¹­Ìˆ¤¤(€€€€€€€É•ÑÕÉ¸Í¡••Ñ}Á…Ñ °É½½Ð((€€€‘•˜}…ÁÁ•¹‘}…Õ‘¥Ñ}Í¡••Ð¡Í•±˜°•¹ÑÉ¥•Ìè‘¥ÑmÍÑÈ°‰åÑ•Ít¤€´ø9½¹”è(€€€€€€€‘¥É•Ñ}±½Ì€ôÍ•±˜¹}‘¥É•Ñ}¥¹ÁÕÑ}±½Ì ¤(€€€€€€€•á¥ÍÑ¥¹œ€ôÍ•±˜¹}Ý½É­Í¡••Ñ}Ñ…É•Ð¡•¹ÑÉ¥•Ì°U%Q}M!Q}95¤(€€€€€€€¥˜•á¥ÍÑ¥¹œ¥Ì9½¹”è(€€€€€€€€€€€Í¡••Ñ}Á…Ñ °…Õ‘¥Ñ}É½½Ð€ôÍ•±˜¹}¹•Ý}…Õ‘¥Ñ}Í¡••Ð¡•¹ÑÉ¥•Ì¤(€€€€€€€•±Í”è(€€€€€€€€€€€Í¡••Ñ}Á…Ñ €ô•á¥ÍÑ¥¹lÁt(€€€€€€€€€€€…Õ‘¥Ñ}É½½Ð€ôP¹™É½µÍÑÉ¥¹œ¡•¹ÑÉ¥•ÍmÍ¡••Ñ}Á…Ñ¡t¤(€€€€€€€¥˜¹½Ð‘¥É•Ñ}±½Ìè(€€€€€€€€€€€•¹ÑÉ¥•ÍmÍ¡••Ñ}Á…Ñ¡t€ôÍ•É¥…±¥é•}áµ°¡…Õ‘¥Ñ}É½½Ð¤(€€€€€€€€€€€É•ÑÕÉ¸((€€€€€€€Í¡••Ñ}‘…Ñ„€ô…Õ‘¥Ñ}É½½Ð¹™¥¹¡D ‰Í¡••Ñ…Ñ„ˆ¤¤(€€€€€€€¥˜Í¡••Ñ}‘…Ñ„¥Ì9½¹”è(€€€€€€€€€€€Í¡••Ñ}‘…Ñ„€ôP¹MÕ‰±•µ•¹Ð¡…Õ‘¥Ñ}É½½Ð°D ‰Í¡••Ñ…Ñ„ˆ¤¤(€€€€€€€•á¥ÍÑ¥¹}É½ÝÌ€ôm¥¹Ð¡É½Ü¹…ÑÑÉ¥ˆ¹•Ð ‰Èˆ°€ˆÀˆ¤¤™½ÈÉ½Ü¥¸Í¡••Ñ}‘…Ñ„¹™¥¹‘…±°¡D ‰É½Üˆ¤¥t(€€€€€€€¹•áÑ}É½Ü€ôµ…à¡•á¥ÍÑ¥¹}É½ÝÌ°‘•™…Õ±ÐôÄ¤€¬€Ä(€€€€€€€¡åÁ•É±¥¹­Ì€ô…Õ‘¥Ñ}É½½Ð¹™¥¹¡D ‰¡åÁ•É±¥¹­Ìˆ¤¤(€€€€€€€¥˜¡åÁ•É±¥¹­Ì¥Ì9½¹”è(€€€€€€€€€€€¡åÁ•É±¥¹­Ì€ôP¹MÕ‰±•µ•¹Ð¡…Õ‘¥Ñ}É½½Ð°D ‰¡åÁ•É±¥¹­Ìˆ¤¤((€€€€€€€™½È¥Ñ•´¥¸‘¥É•Ñ}±½Ìè(€€€€€€€€€€€É½Ü€ôP¹MÕ‰±•µ•¹Ð¡Í¡••Ñ}‘…Ñ„°D ‰É½Üˆ¤°ì‰ÈˆèÍÑÈ¡¹•áÑ}É½Ü¥ô¤(€€€€€€€€€€€µ½¹Ñ €ôÍ•±˜¹}…Õ‘¥Ñ}µ½¹Ñ ¡¥Ñ•´¹•±°¤(€€€€€€€€€€€‘•±Ñ„€ô€ (€€€€€€€€€€€€€€€™±½…Ð¡¥Ñ•´¹¹•Ý}Ù…±Õ”¤€´™±½…Ð¡¥Ñ•´¹½±‘}Ù…±Õ”¤(€€€€€€€€€€€€€€€¥˜¥Í¥¹ÍÑ…¹”¡¥Ñ•´¹½±‘}Ù…±Õ”°€¡¥¹Ð°™±½…Ð¤¤…¹¥Í¥¹ÍÑ…¹”¡¥Ñ•´¹¹•Ý}Ù…±Õ”°€¡¥¹Ð°™±½…Ð¤¤(€€€€€€€€€€€€€€€•±Í”€ˆˆ(€€€€€€€€€€€€¤(€€€€€€€€€€€Ù…±Õ•Ì€ô€ (€€€€€€€€€€€€€€€¹•áÑ}É½Ü€´€Ä°(€€€€€€€€€€€€€€€˜‰íµ½¹Ñ¡÷²nPˆ¥˜µ½¹Ñ •±Í”€ˆˆ°(€€€€€€€€€€€€€€€Í•±˜¹}…Õ‘¥Ñ}…Ñ•½Éä¡¥Ñ•´¹Í½ÕÉ”¤°(€€€€€€€€€€€€€€€Í•±˜¹}…Õ‘¥Ñ}¥Ñ•´¡¥Ñ•´¤°(€€€€€€€€€€€€€€€¥Ñ•´¹•±°°(€€€€€€€€€€€€€€€¥Ñ•´¹½±‘}Ù…±Õ”°(€€€€€€€€€€€€€€€¥Ñ•´¹¹•Ý}Ù…±Õ”°(€€€€€€€€€€€€€€€‘•±Ñ„°(€€€€€€€€€€€€€€€¥Ñ•´¹É•…Í½¸°(€€€€€€€€€€€€€€€€‹²vÓ®>dˆ°(€€€€€€€€€€€€¤(€€€€€€€€€€€™½È¥¹‘•à°Ù…±Õ”¥¸•¹Õµ•É…Ñ”¡Ù…±Õ•Ì°ÍÑ…ÉÐôÄ¤è(€€€€€€€€€€€€€€€Í•±˜¹}…ÁÁ•¹‘}¥¹±¥¹•}•±°¡É½Ü°˜‰í½±}¹…µ”¡¥¹‘•à¥õí¹•áÑ}É½Ýôˆ°Ù…±Õ”¤(€€€€€€€€€€€P¹MÕ‰±•µ•¹Ð (€€€€€€€€€€€€€€€¡åÁ•É±¥¹­Ì°(€€€€€€€€€€€€€€€D ‰¡åÁ•É±¥¹¬ˆ¤°(€€€€€€€€€€€€€€€ì(€€€€€€€€€€€€€€€€€€€€‰É•˜ˆè˜‰)í¹•áÑ}É½Ýôˆ°(€€€€€€€€€€€€€€€€€€€€‰±½…Ñ¥½¸ˆè˜ˆ…Ñ„œ…í¥Ñ•´¹•±±ôˆ°(€€€€€€€€€€€€€€€€€€€€‰‘¥ÍÁ±…äˆè€‹²vÓ®>dˆ°(€€€€€€€€€€€€€€€ô°(€€€€€€€€€€€€¤(€€€€€€€€€€€¹•áÑ}É½Ü€¬ô€Ä((€€€€€€€…ÕÑ½}™¥±Ñ•È€ô…Õ‘¥Ñ}É½½Ð¹™¥¹¡D ‰…ÕÑ½¥±Ñ•Èˆ¤¤(€€€€€€€¥˜…ÕÑ½}™¥±Ñ•È¥Ì9½¹”è(€€€€€€€€€€€…ÕÑ½}™¥±Ñ•È€ôP¹MÕ‰±•µ•¹Ð¡…Õ‘¥Ñ}É½½Ð°D ‰…ÕÑ½¥±Ñ•Èˆ¤¤(€€€€€€€…ÕÑ½}™¥±Ñ•È¹…ÑÑÉ¥‰l‰É•˜‰t€ô˜‰Äé)í¹•áÑ}É½Ü€´€Åôˆ(€€€€€€€•¹ÑÉ¥•ÍmÍ¡••Ñ}Á…Ñ¡t€ôÍ•É¥…±¥é•}áµ°¡…Õ‘¥Ñ}É½½Ð¤((€€€‘•˜Í…Ù”¡Í•±˜°‘•ÍÑ¥¹…Ñ¥½¸èÍÑÈðA…Ñ ¤€´øA…Ñ è(€€€€€€€‘•ÍÑ¥¹…Ñ¥½¸€ôA…Ñ ¡‘•ÍÑ¥¹…Ñ¥½¸¤(€€€€€€€‘•ÍÑ¥¹…Ñ¥½¸¹Á…É•¹Ð¹µ­‘¥È¡Á…É•¹ÑÌõQÉÕ”°•á¥ÍÑ}½¬õQÉÕ”¤(€€€€€€€Í•±˜¹É•…±Õ±…Ñ” ¤(€€€€€€€€Œ%˜…¸¥¹ÁÕÐÉ•Á±…•ÌÑ¡”…¹¡½È½˜„Í¡…É•™½ÉµÕ±„°‘•Ñ… ½¹±äÑ¡…Ð(€€€€€€€€ŒÍ¡…É•É½ÕÀ¸=Ñ¡•È™½ÉµÕ±…Ì…¹…¡•Ù…±Õ•ÌÉ•µ…¥¸‰åÑ”µ•ÅÕ¥Ù…±•¹Ð(€€€€€€€€Œ¥¸µ•…¹¥¹œÑ¼Ñ¡”½±‘•¸5½‘•°°Ý¡¥ ¥ÌÑ¡”µ½ÍÐá•°µ½µÁ…Ñ¥‰±”(€€€€€€€€ŒÝ…äÑ¼ÁÉ•Í•ÉÙ”„½µÁ±•àÝ½É­‰½½¬¸(€€€€€€€¥µÁ…Ñ•‘}Í¡…É•èÍ•ÑmÍÑÉt€ôÍ•Ð ¤(€€€€€€€™½È…‘‘È¥¸Í•±˜¹½Ù•ÉÉ¥‘•Ìè(€€€€€€€€€€€•±°€ôÍ•±˜¹•±±Ì¹•Ð¡…‘‘È¤(€€€€€€€€€€€˜€ô•±°¹™¥¹¡D ‰˜ˆ¤¤¥˜•±°¥Ì¹½Ð9½¹”•±Í”9½¹”(€€€€€€€€€€€¥˜˜¥Ì¹½Ð9½¹”…¹˜¹…ÑÑÉ¥ˆ¹•Ð ‰Ðˆ¤€ôô€‰Í¡…É•ˆ…¹˜¹…ÑÑÉ¥ˆ¹•Ð ‰Í¤ˆ¤…¹€¡˜¹Ñ•áÐ½È€ˆˆ¤¹ÍÑÉ¥À ¤è(€€€€€€€€€€€€€€€¥µÁ…Ñ•‘}Í¡…É•¹…‘¡˜¹…ÑÑÉ¥‰l‰Í¤‰t¤((€€€€€€€™½È…‘‘È°•±°¥¸Í•±˜¹•±±Ì¹¥Ñ•µÌ ¤è(€€€€€€€€€€€˜€ô•±°¹™¥¹¡D ‰˜ˆ¤¤(€€€€€€€€€€€¥˜˜¥Ì9½¹”½È˜¹…ÑÑÉ¥ˆ¹•Ð ‰Í¤ˆ¤¹½Ð¥¸¥µÁ…Ñ•‘}Í¡…É•½È…‘‘È¥¸Í•±˜¹½Ù•ÉÉ¥‘•Ìè(€€€€€€€€€€€€€€€½¹Ñ¥¹Õ”(€€€€€€€€€€€˜¹…ÑÑÉ¥ˆ¹±•…È ¤(€€€€€€€€€€€˜¹Ñ•áÐ€ôÍ•±˜¹™½ÉµÕ±…Ím…‘‘Ét¹±ÍÑÉ¥À ˆôˆ¤((€€€€€€€™½È…‘‘È°Ù…±Õ”¥¸Í•±˜¹½Ù•ÉÉ¥‘•Ì¹¥Ñ•µÌ ¤è(€€€€€€€€€€€•±°€ôÍ•±˜¹•±±Ì¹•Ð¡…‘‘È¤(€€€€€€€€€€€¥˜•±°¥Ì9½¹”è(€€€€€€€€€€€€€€€É½Ý}¹Õ´€ôÉ”¹Í•…É ¡È‰q¬ˆ°…‘‘È¤¹É½ÕÀ À¤(€€€€€€€€€€€€€€€Í¡••Ñ}‘…Ñ„€ôÍ•±˜¹É½½Ð¹™¥¹¡D ‰Í¡••Ñ…Ñ„ˆ¤¤(€€€€€€€€€€€€€€€É½Ü€ô¹•áÐ ¡È™½ÈÈ¥¸Í¡••Ñ}‘…Ñ„¹™¥¹‘…±°¡D ‰É½Üˆ¤¤¥˜È¹…ÑÑÉ¥ˆ¹•Ð ‰Èˆ¤€ôôÉ½Ý}¹Õ´¤°9½¹”¤(€€€€€€€€€€€€€€€¥˜É½Ü¥Ì9½¹”è(€€€€€€€€€€€€€€€€€€€É½Ü€ôP¹MÕ‰±•µ•¹Ð¡Í¡••Ñ}‘…Ñ„°D ‰É½Üˆ¤°ì‰ÈˆèÉ½Ý}¹Õµô¤(€€€€€€€€€€€€€€€•±°€ôP¹MÕ‰±•µ•¹Ð¡É½Ü°D ‰Œˆ¤°ì‰Èˆè…‘‘Éô¤(€€€€€€€€€€€€€€€Í•±˜¹•±±Ím…‘‘Ét€ô•±°(€€€€€€€€€€€™½È¡¥±¥¸±¥ÍÐ¡•±°¤è(€€€€€€€€€€€€€€€¥˜¡¥±¹Ñ…œ¥¸€¡D ‰˜ˆ¤°D ‰Øˆ¤°D ‰¥Ìˆ¤¤è•±°¹É•µ½Ù”¡¡¥±¤(€€€€€€€€€€€¥˜¥Í¥¹ÍÑ…¹”¡Ù…±Õ”°ÍÑÈ¤è(€€€€€€€€€€€€€€€•±°¹…ÑÑÉ¥‰l‰Ð‰t€ô€‰¥¹±¥¹•MÑÈˆ(€€€€€€€€€€€€€€€¥¹±¥¹”€ôP¹MÕ‰±•µ•¹Ð¡•±°°D ‰¥Ìˆ¤¤(€€€€€€€€€€€€€€€P¹MÕ‰±•µ•¹Ð¡¥¹±¥¹”°D ‰Ðˆ¤¤¹Ñ•áÐ€ôÙ…±Õ”(€€€€€€€€€€€•±Í”è(€€€€€€€€€€€€€€€•±°¹…ÑÑÉ¥ˆ¹Á½À ‰Ðˆ°9½¹”¤(€€€€€€€€€€€€€€€P¹MÕ‰±•µ•¹Ð¡•±°°D ‰Øˆ¤¤¹Ñ•áÐ€ôÉ•ÁÈ¡™±½…Ð¡Ù…±Õ”¤¤(€€€€€€€•¹ÑÉ¥•Ì€ô‘¥Ð¡Í•±˜¹•¹ÑÉ¥•Ì¤(€€€€€€€•¹ÑÉ¥•ÍmÍ•±˜¹Í¡••Ñ}áµ±t€ôÍ•É¥…±¥é•}áµ°¡Í•±˜¹É½½Ð°€ ‰àÄÑ…Œˆ°€‰áÈˆ°€‰áÈÈˆ°€‰áÈÌˆ¤¤(€€€€€€€Í•±˜¹}…ÁÁ•¹‘}…Õ‘¥Ñ}Í¡••Ð¡•¹ÑÉ¥•Ì¤(€€€€€€€¥˜Í•±˜¹}Ý½É­Í¡••Ñ}Ñ…É•Ð¡•¹ÑÉ¥•Ì°U%Q}M!Q}95¤¥Ì9½¹”è(€€€€€€€€€€€É…¥Í”IÕ¹Ñ¥µ•ÉÉ½È ‹²z®‚—®Âc²b®
-Ó²^´ƒ².s¶*ã®–ðƒ²w²Ç¶Vc²ž ƒ®ªï¶Z#²*×®.#®.¸ˆ¤(€€€€€€€Ý½É­‰½½­}¹…µ”€ô€‰á°½Ý½É­‰½½¬¹áµ°ˆ(€€€€€€€Ýˆ€ôP¹™É½µÍÑÉ¥¹œ¡•¹ÑÉ¥•ÍmÝ½É­‰½½­}¹…µ•t¤(€€€€€€€…±Œ€ôÝˆ¹™¥¹¡D ‰…±AÈˆ¤¤(€€€€€€€¥˜…±Œ¥Ì9½¹”è…±Œ€ôP¹MÕ‰±•µ•¹Ð¡Ýˆ°D ‰…±AÈˆ¤¤(€€€€€€€…±Œ¹…ÑÑÉ¥ˆ¹ÕÁ‘…Ñ”¡ì‰…±5½‘”ˆè€‰…ÕÑ¼ˆ°€‰™Õ±±…±=¹1½…ˆè€ˆÄˆ°€‰™½É•Õ±±…±Œˆè€ˆÄ‰ô¤(€€€€€€€•¹ÑÉ¥•ÍmÝ½É­‰½½­}¹…µ•t€ôÍ•É¥…±¥é•}áµ°¡Ýˆ°€ ‰àÄÔˆ°€‰áÈˆ°€‰áÈØˆ°€‰áÈÄÀˆ°€‰áÈÈˆ¤¤(€€€€€€€Ý¥Ñ é¥Á™¥±”¹i¥Á¥±”¡‘•ÍÑ¥¹…Ñ¥½¸°€‰Üˆ°é¥Á™¥±”¹i%A}1Q¤…Ì…É¡¥Ù”è(€€€€€€€€€€€™½È¹…µ”°‘…Ñ„¥¸•¹ÑÉ¥•Ì¹¥Ñ•µÌ ¤è…É¡¥Ù”¹ÝÉ¥Ñ•ÍÑÈ¡¹…µ”°‘…Ñ„¤(€€€€€€€É•ÑÕÉ¸‘•ÍÑ¥¹…Ñ¥½¸((€€€‘•˜±½}‘¥ÑÌ¡Í•±˜¤€´ø±¥ÍÑm‘¥ÑmÍÑÈ°¹åutè(€€€€€€€É•ÑÕÉ¸m…Í‘¥Ð¡¥Ñ•´¤™½È¥Ñ•´¥¸Í•±˜¹±½t(
+        match1 = re.fullmatch(r"([A-Z]+)(\d+)", start)
+        match2 = re.fullmatch(r"([A-Z]+)(\d+)", end)
+        if not match1 or not match2: raise FormulaError(f"Invalid range {start}:{end}")
+        c1, r1, c2, r2 = col_number(match1.group(1)), int(match1.group(2)), col_number(match2.group(1)), int(match2.group(2))
+        return [f"{col_name(col)}{row}" for row in range(min(r1,r2), max(r1,r2)+1) for col in range(min(c1,c2), max(c1,c2)+1)]
+
+    def _clear_calculation_state(self) -> None:
+        self.cache.clear()
+        self.formula_successes.clear()
+        self.formula_fallbacks.clear()
+        self._precedent_cache.clear()
+
+    def set_input(self, addr: str, value: float, source: str, reason: str = "", allow_formula: bool = False) -> None:
+        addr = normalize_ref(addr)
+        old = self.value(addr)
+        has_formula = addr in self.formulas
+        if has_formula and not allow_formula:
+            raise ValueError(f"Protected formula cell cannot be overwritten: {addr}")
+        self.overrides[addr] = float(value or 0)
+        if has_formula:
+            self.formulas.pop(addr, None)
+        self._clear_calculation_state()
+        self.log.append(ChangeLog(addr, old, float(value or 0), source, reason, has_formula))
+
+    def set_text(self, addr: str, value: str, source: str, reason: str = "", allow_formula: bool = False) -> None:
+        addr = normalize_ref(addr)
+        old = self.value(addr)
+        has_formula = addr in self.formulas
+        if has_formula and not allow_formula:
+            raise ValueError(f"Protected formula cell cannot be overwritten: {addr}")
+        text = str(value)
+        self.overrides[addr] = text
+        if has_formula:
+            self.formulas.pop(addr, None)
+        self._clear_calculation_state()
+        self.log.append(ChangeLog(addr, old, text, source, reason, has_formula))
+
+    def recalculate(self) -> dict[str, str]:
+        self._clear_calculation_state()
+        errors: dict[str, str] = {}
+        for addr in self.formulas:
+            try: self.value(addr)
+            except Exception as exc: errors[addr] = str(exc)
+        return errors
+
+    def formula_diagnostics(self, *, recalculate: bool = True) -> dict[str, Any]:
+        """Report evaluator coverage without changing fallback value semantics."""
+        unexpected_errors = self.recalculate() if recalculate else {}
+        fallbacks = [
+            asdict(self.formula_fallbacks[address])
+            for address in sorted(self.formula_fallbacks)
+        ]
+        cached_mismatches: list[dict[str, Any]] = []
+        cached_match_count = 0
+        for address in sorted(self.formula_successes):
+            evaluated = self.cache.get(address)
+            cached = self.raw_value(address)
+            if evaluated in (None, "") and cached in (None, ""):
+                tolerance = 0.0
+                matches = True
+            elif isinstance(evaluated, (int, float)) and isinstance(cached, (int, float)):
+                tolerance = max(1.0, abs(float(cached)) * 1e-9)
+                matches = abs(float(evaluated) - float(cached)) <= tolerance
+            else:
+                tolerance = 0.0
+                matches = evaluated == cached
+            if matches:
+                cached_match_count += 1
+            else:
+                cached_mismatches.append({
+                    "address": address,
+                    "formula": self.formulas[address],
+                    "evaluated_value": evaluated,
+                    "cached_value": cached,
+                    "difference": (
+                        float(evaluated) - float(cached)
+                        if isinstance(evaluated, (int, float))
+                        and isinstance(cached, (int, float))
+                        else None
+                    ),
+                    "tolerance": tolerance,
+                })
+        workbook_formula_count = 0
+        for name, payload in self.entries.items():
+            if name.startswith("xl/worksheets/") and name.endswith(".xml"):
+                try:
+                    workbook_formula_count += sum(1 for _ in ET.fromstring(payload).iter(Q("f")))
+                except ET.ParseError:
+                    continue
+        return {
+            "workbook_formula_count": workbook_formula_count,
+            "model_sheet_formula_count": len(self.formulas),
+            "evaluator_success_count": len(self.formula_successes),
+            "cached_match_count": cached_match_count,
+            "cached_mismatch_count": len(cached_mismatches),
+            "cached_numeric_mismatch_count": sum(
+                item["difference"] is not None for item in cached_mismatches
+            ),
+            "cached_blank_representation_mismatch_count": sum(
+                item["difference"] is None for item in cached_mismatches
+            ),
+            "cached_mismatches": cached_mismatches,
+            "cached_fallback_count": len(fallbacks),
+            "unevaluated_count": max(
+                0,
+                len(self.formulas) - len(self.formula_successes) - len(fallbacks),
+            ),
+            "fallbacks": fallbacks,
+            "unexpected_errors": unexpected_errors,
+        }
+
+    def formula_precedents(self, addr: str) -> tuple[str, ...]:
+        addr = normalize_ref(addr)
+        cached = self._precedent_cache.get(addr)
+        if cached is not None:
+            return cached
+        formula = self.formulas.get(addr, "")
+        precedents: list[str] = []
+        for match in FORMULA_REFERENCE_RE.finditer(formula):
+            # Function names such as LOG10 can otherwise look like A1 refs.
+            if formula[match.end():].lstrip().startswith("("):
+                continue
+            start = normalize_ref(match.group("start"))
+            end = match.group("end")
+            if end:
+                precedents.extend(self._range_cells(start, normalize_ref(end)))
+            else:
+                precedents.append(start)
+        result = tuple(dict.fromkeys(precedents))
+        self._precedent_cache[addr] = result
+        return result
+
+    def dependency_report(
+        self,
+        outputs: list[str] | tuple[str, ...],
+        *,
+        sources: list[str] | tuple[str, ...] = (),
+    ) -> dict[str, Any]:
+        """Trace same-sheet formula dependencies and their fallback coverage."""
+        normalized_outputs = tuple(normalize_ref(cell) for cell in outputs)
+        normalized_sources = {normalize_ref(cell) for cell in sources}
+        for output in normalized_outputs:
+            self.value(output)
+        reachable: set[str] = set()
+        edges: set[tuple[str, str]] = set()
+
+        def walk(cell: str, active: set[str]) -> None:
+            if cell in active:
+                return
+            reachable.add(cell)
+            next_active = {*active, cell}
+            for precedent in self.formula_precedents(cell):
+                edges.add((cell, precedent))
+                walk(precedent, next_active)
+
+        for output in normalized_outputs:
+            walk(output, set())
+
+        reaches_source_cache: dict[str, bool] = {}
+
+        def reaches_source(cell: str, active: set[str]) -> bool:
+            if cell in normalized_sources:
+                reaches_source_cache[cell] = True
+                return True
+            if cell in reaches_source_cache:
+                return reaches_source_cache[cell]
+            if cell in active:
+                return False
+            next_active = {*active, cell}
+            result = any(reaches_source(item, next_active) for item in self.formula_precedents(cell))
+            reaches_source_cache[cell] = result
+            return result
+
+        if normalized_sources:
+            relevant = {cell for cell in reachable if reaches_source(cell, set())}
+            relevant.update(normalized_sources & reachable)
+        else:
+            relevant = set(reachable)
+
+        formula_cells = sorted(cell for cell in relevant if cell in self.formulas)
+        fallback_cells = sorted(cell for cell in formula_cells if cell in self.formula_fallbacks)
+        diagnostics = self.formula_diagnostics(recalculate=False)
+        mismatch_by_cell = {
+            item["address"]: item for item in diagnostics["cached_mismatches"]
+        }
+        cached_mismatches = [
+            mismatch_by_cell[cell] for cell in formula_cells if cell in mismatch_by_cell
+        ]
+        reached_sources = sorted(normalized_sources & reachable)
+
+        def source_path(output: str, source: str) -> list[str]:
+            dead_ends: set[str] = set()
+
+            def find(cell: str, active: set[str]) -> list[str] | None:
+                if cell == source:
+                    return [cell]
+                if cell in active or cell in dead_ends:
+                    return None
+                next_active = {*active, cell}
+                for precedent in self.formula_precedents(cell):
+                    path = find(precedent, next_active)
+                    if path is not None:
+                        return [cell, *path]
+                dead_ends.add(cell)
+                return None
+
+            return find(output, set()) or []
+
+        source_paths = {
+            source: next(
+                (
+                    path
+                    for output in normalized_outputs
+                    if (path := source_path(output, source))
+                ),
+                [],
+            )
+            for source in sorted(normalized_sources)
+        }
+        return {
+            "outputs": list(normalized_outputs),
+            "sources": sorted(normalized_sources),
+            "reached_sources": reached_sources,
+            "unlinked_sources": sorted(normalized_sources - reachable),
+            "reachable_cell_count": len(reachable),
+            "relevant_formula_count": len(formula_cells),
+            "evaluator_success_count": sum(cell in self.formula_successes for cell in formula_cells),
+            "cached_fallback_count": len(fallback_cells),
+            "fallback_cells": fallback_cells,
+            "fallbacks": [asdict(self.formula_fallbacks[cell]) for cell in fallback_cells],
+            "cached_mismatch_count": len(cached_mismatches),
+            "cached_numeric_mismatch_count": sum(
+                item["difference"] is not None for item in cached_mismatches
+            ),
+            "cached_mismatch_cells": [item["address"] for item in cached_mismatches],
+            "cached_mismatches": cached_mismatches,
+            "formula_complete": not fallback_cells and not (normalized_sources - reachable),
+            "source_paths": source_paths,
+            "edges": [list(edge) for edge in sorted(edges) if edge[0] in relevant],
+        }
+
+    def formula_changes(self) -> list[str]:
+        return sorted(addr for addr in self.original_formulas if addr not in self.formulas)
+
+    @staticmethod
+    def _values_differ(old_value: Any, new_value: Any) -> bool:
+        if isinstance(old_value, (int, float)) and isinstance(new_value, (int, float)):
+            return abs(float(old_value) - float(new_value)) > 1e-9
+        return old_value != new_value
+
+    def _direct_input_changes(self) -> set[str]:
+        direct_prefixes = ("sales.", "production.", "mcm.", "raw_material.")
+        direct_sources = {
+            "manufacturing_adjustment",
+            "sga_adjustment",
+            "cogs.goods",
+            "cogs.customs_refund",
+            "cogs.disposal",
+            "cogs.obsolescence",
+        }
+        return {
+            item.cell
+            for item in self.log
+            if (
+                item.source.startswith(direct_prefixes)
+                or item.source in direct_sources
+            )
+            and self._values_differ(item.old_value, item.new_value)
+        }
+
+    def _direct_input_logs(self) -> list[ChangeLog]:
+        changed_cells = self._direct_input_changes()
+        return [item for item in self.log if item.cell in changed_cells]
+
+    def audit_entry_count(self) -> int:
+        """Return the number of existing trace rows in a downloaded workbook."""
+        existing = self._worksheet_target(self.entries, AUDIT_SHEET_NAME)
+        if existing is None:
+            return 0
+        audit_root = ET.fromstring(self.entries[existing[0]])
+        sheet_data = audit_root.find(Q("sheetData"))
+        if sheet_data is None:
+            return 0
+        return max(0, len(sheet_data.findall(Q("row"))) - 1)
+
+    def restore_audit_logs(self, records: list[dict[str, Any]] | None) -> None:
+        """Restore direct-input logs when downloading a result made by an older session."""
+        for record in records or []:
+            required = {"cell", "old_value", "new_value", "source"}
+            if not required.issubset(record):
+                continue
+            self.log.append(
+                ChangeLog(
+                    cell=str(record["cell"]),
+                    old_value=record.get("old_value"),
+                    new_value=record.get("new_value"),
+                    source=str(record["source"]),
+                    reason=str(record.get("reason", "")),
+                    formula_overwritten=bool(record.get("formula_overwritten", False)),
+                )
+            )
+
+    @staticmethod
+    def _audit_category(source: str) -> str:
+        if source.startswith("sales."):
+            return "íŒë§¤"
+        if source.startswith("production."):
+            return "ìƒì‚°"
+        if source.startswith("mcm."):
+            return "MCM(ìœ ìƒì‚¬ê¸‰)"
+        if source.startswith("raw_material.purchase_estimate."):
+            return "ì›ìž¬ë£Œ íˆ¬ìž…ë¹„"
+        if source == "manufacturing_adjustment":
+            return "ì œì¡°ê²½ë¹„"
+        if source == "sga_adjustment":
+            return "íŒê´€ë¹„"
+        return "ë§¤ì¶œì›ê°€"
+
+    def _row_label(self, row: int) -> str:
+        for column in ("D", "C", "B", "A"):
+            value = self.raw_value(f"{column}{row}")
+            if value not in (None, ""):
+                return str(value).strip()
+        return f"{row}í–‰"
+
+    def _sga_section(self, row: int) -> str:
+        """Resolve the nearest Golden Model SG&A section without row hardcoding."""
+        for candidate in range(row, max(0, row - 200), -1):
+            value = str(self.raw_value(f"B{candidate}") or "").strip()
+            if value in {"íŒë§¤ë¹„", "ì¼ë°˜ê´€ë¦¬ë¹„"}:
+                return value
+        return "íŒê´€ë¹„"
+
+    def _audit_item(self, item: ChangeLog) -> str:
+        source = item.source
+        parts = source.split(".")
+        if source.startswith("sales.") and len(parts) >= 3:
+            suffix = {
+                "quantity": "ìˆ˜ëŸ‰",
+                "amount": "ë§¤ì¶œì•¡",
+                "manufactured_quantity": "ì œì¡° ìˆ˜ëŸ‰",
+                "manufactured_amount": "ì œì¡° ë§¤ì¶œì•¡",
+                "goods_quantity": "ìƒí’ˆ ìˆ˜ëŸ‰",
+                "goods_amount": "ìƒí’ˆ ë§¤ì¶œì•¡",
+            }.get(parts[-1], parts[-1])
+            product = {
+                "new_business": "ì‹ ì‚¬ì—…",
+                "other": "ê¸°íƒ€ë§¤ì¶œ",
+            }.get(parts[1], parts[1])
+            return f"{product} {suffix}"
+        if source.startswith("production.") and len(parts) >= 2:
+            return f"{parts[1]} ìƒì‚°ìˆ˜ëŸ‰"
+        if source.startswith("mcm.") and len(parts) >= 2:
+            return f"{parts[1]} ìˆ˜ëŸ‰"
+        if source == "raw_material.purchase_estimate.front_process":
+            return "êµ¬ë§¤íŒ€ ì˜ˆìƒ íˆ¬ìž…ë¹„_ì „ê³µì •"
+        if source == "raw_material.purchase_estimate.back_process":
+            return "êµ¬ë§¤íŒ€ ì˜ˆìƒ íˆ¬ìž…ë¹„_í›„ê³µì •"
+        if source == "cogs.disposal":
+            return "ì œí’ˆ íê¸°ì†ì‹¤"
+        if source == "cogs.obsolescence":
+            return "ì œí’ˆ ì§„ë¶€í™” í‰ê°€ì†ì‹¤"
+        if source == "cogs.customs_refund":
+            return "ì›ìž¬ë£Œ ê´€ì„¸ í™˜ê¸‰ê¸ˆ"
+        if source == "cogs.goods":
+            return "ìƒí’ˆ ë§¤ì¶œì›ê°€"
+        if source == "sga_adjustment":
+            row = int(re.search(r"\d+", item.cell).group(0))
+            prefix = self._sga_section(row)
+            return f"{prefix}_{self._row_label(row)}"
+        row = int(re.search(r"\d+", item.cell).group(0))
+        return self._row_label(row)
+
+    @staticmethod
+    def _audit_month(cell: str) -> int | None:
+        match = re.fullmatch(r"([A-Z]+)\d+", cell)
+        if not match:
+            return None
+        month = col_number(match.group(1)) - col_number("E") + 1
+        return month if 1 <= month <= 12 else None
+
+    @staticmethod
+    def _append_inline_cell(row: ET.Element, address: str, value: Any) -> None:
+        if isinstance(value, (int, float)) and not isinstance(value, bool):
+            cell = ET.SubElement(row, Q("c"), {"r": address})
+            ET.SubElement(cell, Q("v")).text = repr(float(value))
+            return
+        cell = ET.SubElement(row, Q("c"), {"r": address, "t": "inlineStr"})
+        inline = ET.SubElement(cell, Q("is"))
+        text = ET.SubElement(inline, Q("t"))
+        text.text = "" if value is None else str(value)
+
+    @staticmethod
+    def _worksheet_target(entries: dict[str, bytes], sheet_name: str) -> tuple[str, ET.Element, ET.Element] | None:
+        workbook = ET.fromstring(entries["xl/workbook.xml"])
+        sheets = workbook.find(Q("sheets"))
+        if sheets is None:
+            return None
+        sheet = next((node for node in sheets.findall(Q("sheet")) if node.attrib.get("name") == sheet_name), None)
+        if sheet is None:
+            return None
+        relationship_id = sheet.attrib.get(f"{{{OFFICE_REL_NS}}}id")
+        relationships = ET.fromstring(entries["xl/_rels/workbook.xml.rels"])
+        relationship = next(
+            (
+                node for node in relationships.findall(f"{{{REL_NS}}}Relationship")
+                if node.attrib.get("Id") == relationship_id
+            ),
+            None,
+        )
+        if relationship is None:
+            return None
+        target = relationship.attrib["Target"].replace("\\", "/")
+        if target.startswith("/"):
+            path = target.lstrip("/")
+        else:
+            path = f"xl/{target}"
+        return path, workbook, relationships
+
+    @staticmethod
+    def _new_audit_sheet(entries: dict[str, bytes]) -> tuple[str, ET.Element]:
+        workbook_name = "xl/workbook.xml"
+        rels_name = "xl/_rels/workbook.xml.rels"
+        workbook = ET.fromstring(entries[workbook_name])
+        relationships = ET.fromstring(entries[rels_name])
+        sheets = workbook.find(Q("sheets"))
+        if sheets is None:
+            sheets = ET.SubElement(workbook, Q("sheets"))
+
+        existing_targets = {
+            node.attrib.get("Target", "")
+            for node in relationships.findall(f"{{{REL_NS}}}Relationship")
+        }
+        sheet_number = 1
+        while f"worksheets/sheet{sheet_number}.xml" in existing_targets:
+            sheet_number += 1
+        target = f"worksheets/sheet{sheet_number}.xml"
+        sheet_path = f"xl/{target}"
+
+        existing_rids = {
+            node.attrib.get("Id", "")
+            for node in relationships.findall(f"{{{REL_NS}}}Relationship")
+        }
+        rid_number = 1
+        while f"rId{rid_number}" in existing_rids:
+            rid_number += 1
+        relationship_id = f"rId{rid_number}"
+        ET.SubElement(
+            relationships,
+            f"{{{REL_NS}}}Relationship",
+            {
+                "Id": relationship_id,
+                "Type": f"{OFFICE_REL_NS}/worksheet",
+                "Target": target,
+            },
+        )
+
+        sheet_ids = [int(node.attrib.get("sheetId", "0")) for node in sheets.findall(Q("sheet"))]
+        new_sheet = ET.Element(
+            Q("sheet"),
+            {
+                "name": AUDIT_SHEET_NAME,
+                "sheetId": str(max(sheet_ids, default=0) + 1),
+                f"{{{OFFICE_REL_NS}}}id": relationship_id,
+            },
+        )
+        children = list(sheets)
+        data_index = next((index for index, node in enumerate(children) if node.attrib.get("name") == "Data"), len(children) - 1)
+        sheets.insert(max(data_index + 1, 0), new_sheet)
+
+        content_types_name = "[Content_Types].xml"
+        content_types = ET.fromstring(entries[content_types_name])
+        ET.SubElement(
+            content_types,
+            f"{{{CONTENT_TYPES_NS}}}Override",
+            {
+                "PartName": f"/{sheet_path}",
+                "ContentType": "application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml",
+            },
+        )
+        entries[workbook_name] = serialize_xml(workbook, ("x15", "xr", "xr6", "xr10", "xr2"))
+        entries[rels_name] = serialize_xml(relationships, default_namespace=REL_NS)
+        entries[content_types_name] = serialize_xml(content_types, default_namespace=CONTENT_TYPES_NS)
+
+        root = ET.Element(Q("worksheet"))
+        views = ET.SubElement(root, Q("sheetViews"))
+        view = ET.SubElement(views, Q("sheetView"), {"workbookViewId": "0"})
+        ET.SubElement(view, Q("pane"), {"ySplit": "1", "topLeftCell": "A2", "activePane": "bottomLeft", "state": "frozen"})
+        ET.SubElement(root, Q("sheetFormatPr"), {"defaultRowHeight": "15"})
+        columns = ET.SubElement(root, Q("cols"))
+        for index, width in enumerate((7, 9, 18, 28, 13, 17, 17, 17, 62, 10), start=1):
+            ET.SubElement(columns, Q("col"), {"min": str(index), "max": str(index), "width": str(width), "customWidth": "1"})
+        sheet_data = ET.SubElement(root, Q("sheetData"))
+        header = ET.SubElement(sheet_data, Q("row"), {"r": "1"})
+        for index, value in enumerate(("ë²ˆí˜¸", "ì›”", "êµ¬ë¶„", "í•­ëª©", "ë°˜ì˜ ì…€", "ê¸°ì¤€ê°’", "ìž…ë ¥ê°’", "ì°¨ì´", "ì‚¬ìœ ", "ì…€ ì´ë™"), start=1):
+            GoldenWorkbook._append_inline_cell(header, f"{col_name(index)}1", value)
+        ET.SubElement(root, Q("autoFilter"), {"ref": "A1:J1"})
+        ET.SubElement(root, Q("hyperlinks"))
+        return sheet_path, root
+
+    def _append_audit_sheet(self, entries: dict[str, bytes]) -> None:
+        direct_logs = self._direct_input_logs()
+        existing = self._worksheet_target(entries, AUDIT_SHEET_NAME)
+        if existing is None:
+            sheet_path, audit_root = self._new_audit_sheet(entries)
+        else:
+            sheet_path = existing[0]
+            audit_root = ET.fromstring(entries[sheet_path])
+        if not direct_logs:
+            entries[sheet_path] = serialize_xml(audit_root)
+            return
+
+        sheet_data = audit_root.find(Q("sheetData"))
+        if sheet_data is None:
+            sheet_data = ET.SubElement(audit_root, Q("sheetData"))
+        existing_rows = [int(row.attrib.get("r", "0")) for row in sheet_data.findall(Q("row"))]
+        next_row = max(existing_rows, default=1) + 1
+        hyperlinks = audit_root.find(Q("hyperlinks"))
+        if hyperlinks is None:
+            hyperlinks = ET.SubElement(audit_root, Q("hyperlinks"))
+
+        for item in direct_logs:
+            row = ET.SubElement(sheet_data, Q("row"), {"r": str(next_row)})
+            month = self._audit_month(item.cell)
+            delta = (
+                float(item.new_value) - float(item.old_value)
+                if isinstance(item.old_value, (int, float)) and isinstance(item.new_value, (int, float))
+                else ""
+            )
+            values = (
+                next_row - 1,
+                f"{month}ì›”" if month else "",
+                self._audit_category(item.source),
+                self._audit_item(item),
+                item.cell,
+                item.old_value,
+                item.new_value,
+                delta,
+                item.reason,
+                "ì´ë™",
+            )
+            for index, value in enumerate(values, start=1):
+                self._append_inline_cell(row, f"{col_name(index)}{next_row}", value)
+            ET.SubElement(
+                hyperlinks,
+                Q("hyperlink"),
+                {
+                    "ref": f"J{next_row}",
+                    "location": f"'Data'!{item.cell}",
+                    "display": "ì´ë™",
+                },
+            )
+            next_row += 1
+
+        auto_filter = audit_root.find(Q("autoFilter"))
+        if auto_filter is None:
+            auto_filter = ET.SubElement(audit_root, Q("autoFilter"))
+        auto_filter.attrib["ref"] = f"A1:J{next_row - 1}"
+        entries[sheet_path] = serialize_xml(audit_root)
+
+    def save(self, destination: str | Path) -> Path:
+        destination = Path(destination)
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        self.recalculate()
+        # If an input replaces the anchor of a shared formula, detach only that
+        # shared group. Other formulas and cached values remain byte-equivalent
+        # in meaning to the Golden Model, which is the most Excel-compatible
+        # way to preserve a complex workbook.
+        impacted_shared: set[str] = set()
+        for addr in self.overrides:
+            cell = self.cells.get(addr)
+            f = cell.find(Q("f")) if cell is not None else None
+            if f is not None and f.attrib.get("t") == "shared" and f.attrib.get("si") and (f.text or "").strip():
+                impacted_shared.add(f.attrib["si"])
+
+        for addr, cell in self.cells.items():
+            f = cell.find(Q("f"))
+            if f is None or f.attrib.get("si") not in impacted_shared or addr in self.overrides:
+                continue
+            f.attrib.clear()
+            f.text = self.formulas[addr].lstrip("=")
+
+        for addr, value in self.overrides.items():
+            cell = self.cells.get(addr)
+            if cell is None:
+                row_num = re.search(r"\d+", addr).group(0)
+                sheet_data = self.root.find(Q("sheetData"))
+                row = next((r for r in sheet_data.findall(Q("row")) if r.attrib.get("r") == row_num), None)
+                if row is None:
+                    row = ET.SubElement(sheet_data, Q("row"), {"r": row_num})
+                cell = ET.SubElement(row, Q("c"), {"r": addr})
+                self.cells[addr] = cell
+            for child in list(cell):
+                if child.tag in (Q("f"), Q("v"), Q("is")): cell.remove(child)
+            if isinstance(value, str):
+                cell.attrib["t"] = "inlineStr"
+                inline = ET.SubElement(cell, Q("is"))
+                ET.SubElement(inline, Q("t")).text = value
+            else:
+                cell.attrib.pop("t", None)
+                ET.SubElement(cell, Q("v")).text = repr(float(value))
+        entries = dict(self.entries)
+        entries[self.sheet_xml] = serialize_xml(self.root, ("x14ac", "xr", "xr2", "xr3"))
+        self._append_audit_sheet(entries)
+        if self._worksheet_target(entries, AUDIT_SHEET_NAME) is None:
+            raise RuntimeError("ìž…ë ¥ë°˜ì˜ë‚´ì—­ ì‹œíŠ¸ë¥¼ ìƒì„±í•˜ì§€ ëª»í–ˆìŠµë‹ˆë‹¤.")
+        workbook_name = "xl/workbook.xml"
+        wb = ET.fromstring(entries[workbook_name])
+        calc = wb.find(Q("calcPr"))
+        if calc is None: calc = ET.SubElement(wb, Q("calcPr"))
+        calc.attrib.update({"calcMode": "auto", "fullCalcOnLoad": "1", "forceFullCalc": "1"})
+        entries[workbook_name] = serialize_xml(wb, ("x15", "xr", "xr6", "xr10", "xr2"))
+        with zipfile.ZipFile(destination, "w", zipfile.ZIP_DEFLATED) as archive:
+            for name, data in entries.items(): archive.writestr(name, data)
+        return destination
+
+    def log_dicts(self) -> list[dict[str, Any]]:
+        return [asdict(item) for item in self.log]
