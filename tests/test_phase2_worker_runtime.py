@@ -75,7 +75,16 @@ def test_local_worker_completes_and_viewer_reads_only_persisted_view(tmp_path):
     row = next(tmp_path.joinpath("calculation_results").glob("*.json"))
     import json
     stored = json.loads(row.read_text(encoding="utf-8"))
+    assert stored["is_published"] is False
+    assert stored["is_default"] is False
+    assert stored["published_at"] is None
     assert persisted_analysis_view(stored["result"]) == stored["result"]["analysis_view"]
+
+
+def test_legacy_analysis_publication_flags_are_accepted_but_ignored():
+    request = AnalysisRequest.parse({"publish": False, "make_default": True})
+    assert not hasattr(request, "publish")
+    assert not hasattr(request, "make_default")
 
 
 def test_worker_renews_short_lease_while_executor_runs(tmp_path):

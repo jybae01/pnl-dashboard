@@ -69,8 +69,21 @@ class CalculationResultWrite:
     provenance: ResultProvenance
     workbook_bucket: str | None = None
     workbook_path: str | None = None
+    # Deprecated compatibility inputs.  Queue repositories must ignore these;
+    # only the separate Admin publication capability may change visibility.
     publish: bool = False
     make_default: bool = False
+
+
+@runtime_checkable
+class ResultPublicationRepository(Protocol):
+    def set_publication(
+        self,
+        result_id: str,
+        *,
+        is_published: bool,
+        is_default: bool = False,
+    ) -> dict[str, Any]: ...
 
 
 @runtime_checkable

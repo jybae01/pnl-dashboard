@@ -119,6 +119,55 @@ class LocalResultRepositoryAdapter:
         return payload
 
 
+class LocalResultPublicationRepository:
+    """Local mirror of the narrow publication metadata capability."""
+
+    def __init__(self, directory: str | Path):
+        self.directory = Path(directory)
+        self.jobs_file = self.directory / "calculation_jobs.json"
+        self.results_directory = self.directory / "calculation_results"
+        self._lock = threading.RLock()
+
+    def set_publication(
+        self,
+        result_id: str,
+        *,
+        is_published: bool,
+        is_default: bool = False,
+    ) -> dict[str, Any]:
+        if is_default and not is_published:
+            raise ValueError("a default result must be published")
+        with self._lock:
+            jobs = {
+                row["id"]: row
+                for row in json.loads(self.jobs_file.read_text(encoding="utf-8"))
+            }
+            target_path: Path | None = None
+            target: dict[str, Any] | None = None
+            for path in self.results_directory.glob("*.json"):
+                row = json.loads(path.read_text(encoding="utf-8"))
+                if row.get("id") == result_id:
+                    target_path, target = path, row
+                    break
+            if target_path is None or target is None:
+                raise KeyError(result_id)
+            if jobs.get(target["job_id"], {}).get("status") != JobStatus.COMPLETED.value:
+                raise ValueError("only a completed calculation result can be published")
+            if is_default:
+                for path in self.results_directory.glob("*.json"):
+                    row = json.loads(path.read_text(encoding="utf-8"))
+                    if row.get("model_id") == target.get("model_id") and row.get("is_default"):
+                        row["is_default"] = False
+                        path.write_text(json.dumps(row, ensure_ascii=False, indent=2), encoding="utf-8")
+            target["is_published"] = bool(is_published)
+            target["is_default"] = bool(is_default)
+            target["published_at"] = _iso(_utc_now()) if is_published else None
+            target_path.write_text(
+                json.dumps(target, ensure_ascii=False, indent=2), encoding="utf-8"
+            )
+            return target
+
+
 class LocalCalculationJobRepository:
     """File-backed lifecycle adapter; it is not a background worker runner.
 
@@ -266,12 +315,11 @@ class LocalCalculationJobRepository:
                 **result.provenance.as_dict(),
                 "workbook_bucket": result.workbook_bucket,
                 "workbook_path": result.workbook_path,
-                "is_published": result.publish,
-                "is_default": result.make_default,
+                "is_published": False,
+                "is_default": False,
+                "published_at": None,
                 "created_at": _iso(now),
             }
-            if result.make_default and not result.publish:
-                raise ValueError("a default result must be published")
             result_file = self.results_directory / f"{job.id}.json"
             result_file.write_text(
                 json.dumps(result_payload, ensure_ascii=False, indent=2),

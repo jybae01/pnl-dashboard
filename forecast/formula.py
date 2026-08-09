@@ -221,6 +221,26 @@ class FormulaParser:
                 if isinstance(arg, RangeValue): values.extend(numeric(v) for v in arg.values)
                 elif not isinstance(arg, Exception): values.append(numeric(arg))
             return sum(values)
+        if name == "AVERAGE":
+            # Excel ignores blanks, text and logical values reached through
+            # cell/range references, while retaining numeric zero.  The
+            # Golden Model only uses references and ranges, so deliberately
+            # keep this implementation narrower than a general Excel engine.
+            values: list[float] = []
+            for arg in args:
+                if isinstance(arg, Exception):
+                    raise arg
+                candidates = arg.values if isinstance(arg, RangeValue) else [arg]
+                for value in candidates:
+                    if isinstance(value, Exception):
+                        raise value
+                    if isinstance(value, bool):
+                        continue
+                    if isinstance(value, (int, float)):
+                        values.append(float(value))
+            if not values:
+                raise ZeroDivisionError("AVERAGE has no numeric values")
+            return sum(values) / len(values)
         if name == "IF":
             if len(args) != 3: raise FormulaError("IF expects 3 arguments")
             return args[1] if bool(args[0]) else args[2]

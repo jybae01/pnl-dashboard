@@ -26,6 +26,16 @@ to browser JavaScript or stored in the user session.
    and mapping version/hash match published `app_config`, then renders the stored
    `analysis_view`. It never opens Excel or rebuilds effects.
 
+Migration `202608090003_phase2_publication_boundary.sql` keeps the two legacy
+completion booleans only for upgrade ABI compatibility and ignores their values;
+the insert is hard-coded to `false/false/null`. The separate
+`set_calculation_result_publication` RPC checks completed status, job/model
+binding, and published mapping provenance, serializes default changes, and can
+update publication metadata only. Execution is revoked from public/anon/
+authenticated and granted server-side only. `AdminResultPublicationGateway`
+rechecks the Streamlit Admin capability on every call because a Supabase secret
+key itself bypasses RLS.
+
 The worker stores `engine_version`, `mapping_version`, `mapping_hash`,
 `result_schema_version`, backend-produced `fx_total`,
 `raw_material_excl_fx`, product-group-only Mix, a Fact Pack, and both preflight

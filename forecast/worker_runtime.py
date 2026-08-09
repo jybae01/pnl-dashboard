@@ -40,8 +40,6 @@ class AnalysisRequest:
     months: tuple[int, ...] = ()
     baseline_sales_fx: float = 1480.0
     comparison_sales_fx: float = 1480.0
-    publish: bool = False
-    make_default: bool = False
 
     @classmethod
     def parse(cls, value: dict[str, Any] | None) -> "AnalysisRequest":
@@ -61,18 +59,15 @@ class AnalysisRequest:
         comparison_fx = float(payload.get("comparison_sales_fx", 1480.0))
         if baseline_fx <= 0 or comparison_fx <= 0:
             raise ValueError("sales FX values must be positive")
-        publish = bool(payload.get("publish", False))
-        make_default = bool(payload.get("make_default", False))
-        if make_default and not publish:
-            raise ValueError("a default result must be published")
+        # Legacy publish/make_default keys are intentionally accepted and
+        # ignored.  A worker is a calculation capability, never a publication
+        # authority; publication is a separate Admin action.
         baseline_id = payload.get("baseline_model_id")
         return cls(
             baseline_model_id=str(baseline_id) if baseline_id else None,
             months=months,
             baseline_sales_fx=baseline_fx,
             comparison_sales_fx=comparison_fx,
-            publish=publish,
-            make_default=make_default,
         )
 
 
@@ -177,8 +172,6 @@ class DeterministicComparisonExecutor:
         return CalculationResultWrite(
             payload=payload,
             provenance=claim.job.provenance,
-            publish=request.publish,
-            make_default=request.make_default,
         )
 
 

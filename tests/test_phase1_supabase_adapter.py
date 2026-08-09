@@ -145,6 +145,8 @@ class Phase1SupabaseAdapterTests(unittest.TestCase):
         complete = self.client.calls[2][1]
         self.assertEqual(complete["p_mapping_hash"], "c" * 64)
         self.assertEqual(complete["p_result_schema_version"], "1")
+        self.assertNotIn("p_is_published", complete)
+        self.assertNotIn("p_is_default", complete)
 
     def test_direct_enqueue_marks_an_already_uploaded_object_claimable(self):
         job = self.queue.enqueue(

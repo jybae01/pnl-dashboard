@@ -7,11 +7,13 @@ from .contracts import (
     LegacyResultPublisher,
     ModelRepository,
     ResultRepository,
+    ResultPublicationRepository,
 )
 from .local import (
     LocalCalculationJobRepository,
     LocalModelRepositoryAdapter,
     LocalResultRepositoryAdapter,
+    LocalResultPublicationRepository,
 )
 from .factory import RepositoryBundle, create_repository_bundle
 from .supabase import (
@@ -19,7 +21,9 @@ from .supabase import (
     SupabaseMappingConfigRepository,
     SupabaseModelRepositoryAdapter,
     SupabaseResultRepository,
+    SupabaseResultPublicationRepository,
 )
+from .publication import AdminResultPublicationGateway
 
 __all__ = [
     "CalculationJob",
@@ -30,13 +34,17 @@ __all__ = [
     "LocalCalculationJobRepository",
     "LocalModelRepositoryAdapter",
     "LocalResultRepositoryAdapter",
+    "LocalResultPublicationRepository",
     "LegacyResultPublisher",
     "ModelRepository",
     "ResultRepository",
+    "ResultPublicationRepository",
     "RepositoryBundle",
     "SupabaseCalculationJobRepository",
     "SupabaseMappingConfigRepository",
     "SupabaseModelRepositoryAdapter",
     "SupabaseResultRepository",
+    "SupabaseResultPublicationRepository",
+    "AdminResultPublicationGateway",
     "create_repository_bundle",
 ]

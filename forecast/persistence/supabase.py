@@ -306,8 +306,6 @@ class SupabaseCalculationJobRepository:
             "p_result_schema_version": result.provenance.result_schema_version,
             "p_workbook_bucket": result.workbook_bucket,
             "p_workbook_path": result.workbook_path,
-            "p_is_published": result.publish,
-            "p_is_default": result.make_default,
         }
         value = _data(self.client.rpc("complete_calculation_job", params).execute())
         if isinstance(value, list):
@@ -358,6 +356,34 @@ class SupabaseCalculationJobRepository:
         if isinstance(value, list):
             value = value[0] if value else False
         return bool(value)
+
+
+class SupabaseResultPublicationRepository:
+    """Low-level server-only adapter for the narrow Admin publication RPC."""
+
+    def __init__(self, client: Any):
+        self.client = client
+
+    def set_publication(
+        self,
+        result_id: str,
+        *,
+        is_published: bool,
+        is_default: bool = False,
+    ) -> dict[str, Any]:
+        if is_default and not is_published:
+            raise ValueError("a default result must be published")
+        row = _first(self.client.rpc(
+            "set_calculation_result_publication",
+            {
+                "p_result_id": result_id,
+                "p_is_published": bool(is_published),
+                "p_is_default": bool(is_default),
+            },
+        ).execute())
+        if row is None:
+            raise KeyError(result_id)
+        return row
 
 
 class SupabaseResultRepository:

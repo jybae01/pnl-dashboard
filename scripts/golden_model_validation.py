@@ -119,9 +119,17 @@ def build_comparison(
     sales: dict[str, SalesInput] = {}
     for code, spec in mapping["sales"].items():
         q_multiplier, a_multiplier = sales_multipliers.get(code, (1.0, 1.0))
+        base_quantity = _value(base, column, spec["quantity_row"])
+        base_amount = _value(base, column, spec["amount_row"])
+        if code == "LC":
+            # Preserve the purchased-goods domain as well as manufactured LC.
+            # Otherwise ForecastEngine receives only the manufactured portion,
+            # creates K104=0 and makes K106's valid workbook division fail.
+            base_quantity += _value(base, column, mapping["lc_goods"]["quantity_row"])
+            base_amount += _value(base, column, mapping["lc_goods"]["amount_row"])
         sales[code] = SalesInput(
-            quantity=_value(base, column, spec["quantity_row"]) * q_multiplier,
-            amount=_value(base, column, spec["amount_row"]) * a_multiplier,
+            quantity=base_quantity * q_multiplier,
+            amount=base_amount * a_multiplier,
         )
     sales.update({
         "UF_MBR": SalesInput(quantity=120.0, amount=220_000_000.0),
@@ -352,528 +360,4 @@ def validate_pair(
     material_total = 0.0
     material_group_independent: dict[str, float] = {}
     for group, spec in material["groups"].items():
-        production0 = sum(_value(base, column, row) for row in spec.get("production_quantity_rows", ()))
-        production1 = sum(_value(comparison, column, row) for row in spec.get("production_quantity_rows", ()))
-        mcm0 = sum(_value(base, column, row) for row in spec.get("mcm_rows", ()))
-        mcm1 = sum(_value(comparison, column, row) for row in spec.get("mcm_rows", ()))
-        # The normalized scenario keeps MCM as a distinct non-outsourcing
-        # production record, but material unit cost is based on total output.
-        output0, output1 = production0, production1
-        cost0, cost1 = _material_cost(base, column, spec), _material_cost(comparison, column, spec)
-        sales1 = _value(comparison, column, spec["sales_quantity_row"])
-        effect = (cost0 / output0 - cost1 / output1) * sales1 if output0 and output1 else 0.0
-        material_total += effect
-        material_group_independent[group] = effect
-        engine_group = next(row for row in result.material_analysis["product_groups"] if row["product_group"] == group)
-        check("ì›ë¶€ì¬ë£Œ", f"{group} total", "mapped material source rows", effect, engine_group["total"])
-    front = material["front_process"]
-    nonwoven_cost0 = _value(base, column, front["nonwoven_amount_row"])
-    nonwoven_cost1 = _value(comparison, column, front["nonwoven_amount_row"])
-    nonwoven_output0 = _value(base, column, front["nonwoven_quantity_row"])
-    nonwoven_output1 = _value(comparison, column, front["nonwoven_quantity_row"])
-    input1 = sum(
-        _value(comparison, column, term["sales_quantity_row"])
-        * _value(comparison, column, term["input_length_row"])
-        for spec in material["groups"].values()
-        for term in spec.get("nonwoven_input_terms", ())
-    )
-    jpy0, jpy1 = _value(base, column, material["jpy_fx_row"]), _value(comparison, column, material["jpy_fx_row"])
-    nonwoven_total = (nonwoven_cost0 / nonwoven_output0 - nonwoven_cost1 / nonwoven_output1) * input1
-    base_jpy_unit = (nonwoven_cost0 / nonwoven_output0) / jpy0
-    material_fx = input1 * base_jpy_unit * (jpy0 - jpy1)
-    nonwoven_price = nonwoven_total - material_fx
-    materials_ex_nonwoven = material_total - nonwoven_price - material_fx
-    for item, independent, engine_value in (
-        ("nonwoven_price_ex_fx", nonwoven_price, result.material_analysis["nonwoven_price_ex_fx"]),
-        ("nonwoven_jpy", material_fx, result.material_analysis["nonwoven_jpy"]),
-        ("materials_ex_nonwoven", materials_ex_nonwoven, result.material_analysis["materials_ex_nonwoven"]),
-        ("material_total", material_total, result.material_analysis["total"]),
-        ("material identity", nonwoven_price + material_fx + materials_ex_nonwoven, result.material_analysis["total"]),
-    ):
-        check("ì›ë¶€ì¬ë£Œ", item, "Data!row 9, 205:211, 684:699 and mapped group rows", independent, engine_value)
-    check("ì›ë¶€ì¬ë£Œ", "JPY KRW/JPY direct", f"Data!{column}9", material_fx, result.material_analysis["nonwoven_jpy"])
-
-    manufacturing = mapping["analysis_adapter"]["manufacturing"]
-    front0 = sum(_value(base, column, row) for row in manufacturing["front_activity_rows"])
-    front1 = sum(_value(comparison, column, row) for row in manufacturing["front_activity_rows"])
-    back0 = sum(_value(base, column, row) for row in manufacturing["back_activity_rows"])
-    back1 = sum(_value(comparison, column, row) for row in manufacturing["back_activity_rows"])
-    mcm0 = sum(_value(base, column, row) for row in mapping["mcm"].values())
-    mcm1 = sum(_value(comparison, column, row) for row in mapping["mcm"].values())
-    outsourcing_back0, outsourcing_back1 = back0 - mcm0, back1 - mcm1
-    normalized_comparison = GoldenAnalysisAdapter(mapping, config).build(
-        comparison,
-        comparison_meta,
-        (month,),
-        sales_fx=comparison_sales_fx,
-    ).scenario
-    engine_outsourcing_back1 = sum(
-        row.sap_qty
-        for row in normalized_comparison.products
-        if (row.mcm_product_group or row.product_group) in {"SW", "BW", "LC"}
-        and row.outsourcing_eligible_flag
-        and not row.mcm_flag
-    )
-    manufacturing_input = sum(
-        _mapped(comparison, column, mapping["comparison"]["cost_rows"][code])
-        for code in ("raw_material", "labor", "outsourcing", "other_processing")
-    )
-    comparison_cogs = _value(comparison, column, mapping["comparison"]["pnl_rows"]["cogs"])
-    realization_rate = comparison_cogs / manufacturing_input if manufacturing_input else 0.0
-    check(
-        "ì œì¡°ê²½ë¹„", "inventory realization rate", "COGS / current manufacturing input",
-        realization_rate, result.manufacturing_analysis["inventory_realization_rate"],
-    )
-    account_total = 0.0
-    for row in result.manufacturing_accounts:
-        row_number = int(row["row"])
-        amount0, amount1 = _value(base, column, row_number), _value(comparison, column, row_number)
-        check("ì œì¡°ê²½ë¹„", f"row {row_number} base amount", f"Data!{column}{row_number}", amount0, row["baseline_amount"])
-        check("ì œì¡°ê²½ë¹„", f"row {row_number} comparison amount", f"Data!{column}{row_number}", amount1, row["comparison_amount"])
-        ratio_row = int(row["allocation_ratio_row"])
-        ratio = _value(base, column, ratio_row)
-        is_variable = row["classification"] == "variable"
-        if is_variable:
-            is_outsourcing = config.is_outsourcing(str(row["account"]))
-            b0, b1 = (outsourcing_back0, outsourcing_back1) if is_outsourcing else (back0, back1)
-
-            deâ€¦242 tokens truncatedâ€¦ase ratio Data!{column}{ratio_row}", fixed, row["fixed_effect"])
-        check("ì œì¡°ê²½ë¹„", f"row {row_number} occurrence identity", "activity + unit + fixed", occurrence, row["occurrence_effect"])
-        check("ì œì¡°ê²½ë¹„", f"row {row_number} realized", "occurrence * uncapped realization rate", occurrence * realization_rate, row["final_profit_effect"])
-    check("ì œì¡°ê²½ë¹„", "occurrence total", "all manufacturing accounts", account_total, result.manufacturing_analysis["occurrence_effect"])
-    check("ì œì¡°ê²½ë¹„", "final total", "occurrence total * realization rate", account_total * realization_rate, result.manufacturing_analysis["final_effect"])
-    check(
-        "MCM",
-        "outsourcing denominator excludes MCM",
-        "SW+BW+LC production minus rows 568:571",
-        outsourcing_back1,
-        engine_outsourcing_back1,
-    )
-
-    sga_variable = sga_fixed = 0.0
-    for row in result.sga_accounts:
-        if row["row"] is None:
-            continue
-        source_row = int(row["row"])
-        amount0, amount1 = _value(base, column, source_row), _value(comparison, column, source_row)
-        check("íŒê´€ë¹„", f"row {source_row} base", f"Data!{column}{source_row}", amount0, row["baseline_amount"])
-        check("íŒê´€ë¹„", f"row {source_row} comparison", f"Data!{column}{source_row}", amount1, row["comparison_amount"])
-        expected = 0.0 if row["classification"] in {"transport", "tariff"} else amount0 - amount1
-        check("íŒê´€ë¹„", f"row {source_row} effect", "base-comparison; transport excluded", expected, row["profit_effect"])
-        if row["classification"] == "variable":
-            sga_variable += expected
-        elif row["classification"] == "fixed":
-            sga_fixed += expected
-    effect_map = {row["code"]: float(row["profit_effect"] or 0.0) for row in result.effects}
-    check("íŒê´€ë¹„", "variable total", "all variable SGA accounts", sga_variable, effect_map["sga_variable"])
-    check("íŒê´€ë¹„", "fixed total", "all fixed SGA accounts", sga_fixed, effect_map["sga_fixed"])
-    check("íŒê´€ë¹„", "tariff exactly once", "external direct input", -tariff_adjustment, effect_map["tariff"])
-
-    fx_total = sales_fx_effect + material_fx
-    raw_material_ex_fx = material_total - material_fx
-    check("FX ì¬ë¶„ë¥˜", "fx_total", "sales FX + nonwoven JPY", fx_total, result.fx_total)
-    check("FX ì¬ë¶„ë¥˜", "raw_material_excl_fx", "material total - nonwoven JPY", raw_material_ex_fx, result.raw_material_excl_fx)
-    check("FX ì¬ë¶„ë¥˜", "effects_total unchanged", "sum deterministic effects", sum(effect_map.values()), result.effects_total)
-
-    check("Bridge", "effects total", "sum deterministic effects", sum(effect_map.values()), result.effects_total)
-    check("Bridge", "residual identity", "effects_total + residual", result.effects_total + result.residual, result.operating_profit_delta)
-    pnl_delta = {row["code"]: float(row["delta"]) for row in result.pnl}
-    commercial_source = pnl_delta["revenue"] - pnl_delta["selling_expense"] - pnl_delta["general_admin"]
-    commercial_engine = sum(effect_map.get(code, 0.0) for code in (
-        "sales_quantity", "sales_mix", "sales_price", "sales_fx", "tariff", "sga_variable", "sga_fixed"
-    ))
-    cost_source = -pnl_delta["cogs"]
-    cost_engine = effect_map["material_total"] + effect_map["manufacturing_realized"]
-    residual_analysis = {
-        "amount": result.residual,
-        "ratio_to_operating_profit_delta": (
-            abs(result.residual) / abs(result.operating_profit_delta)
-            if result.operating_profit_delta else None
-        ),
-        "commercial_source_effect": commercial_source,
-        "commercial_engine_effect": commercial_engine,
-        "commercial_gap": commercial_source - commercial_engine,
-        "cogs_source_effect": cost_source,
-        "material_and_manufacturing_engine_effect": cost_engine,
-        "cogs_gap": cost_source - cost_engine,
-        "gap_reconciliation": (commercial_source - commercial_engine) + (cost_source - cost_engine),
-    }
-    return {
-        "workbooks": {
-            "base": {"path": str(base_path), "sha256": _sha256(base_path)},
-            "comparison": {"path": str(comparison_path), "sha256": _sha256(comparison_path)},
-        },
-        "preflight": {
-            "base": base_preflight.as_dict(),
-            "comparison": comparison_preflight.as_dict(),
-        },
-        "formula_evaluation": {
-            "base": base_formula_diagnostics,
-            "comparison": comparison_formula_diagnostics,
-            "changed_input_sources": input_sources,
-            "base_pnl_full_dependency": base_pnl_full_dependencies,
-            "comparison_pnl_full_dependency": comparison_pnl_full_dependencies,
-            "base_pnl_dependency": base_pnl_dependencies,
-            "comparison_pnl_dependency": comparison_pnl_dependencies,
-            "synthetic_bridge_status": (
-                "FORMULA_COMPLETE"
-                if base_pnl_full_dependencies["formula_complete"]
-                and comparison_pnl_full_dependencies["formula_complete"]
-                and base_pnl_dependencies["formula_complete"]
-                and comparison_pnl_dependencies["formula_complete"]
-                else "FORMULA_INCOMPLETE"
-            ),
-            "final_reconciliation_status": (
-                "VALID"
-                if base_pnl_full_dependencies["formula_complete"]
-                and comparison_pnl_full_dependencies["formula_complete"]
-                and base_pnl_dependencies["formula_complete"]
-                and comparison_pnl_dependencies["formula_complete"]
-                else "SYNTHETIC BRIDGE INVALID FOR FINAL RECONCILIATION"
-            ),
-        },
-        "comparison_result": {
-            "operating_profit_delta": result.operating_profit_delta,
-            "effects_total": result.effects_total,
-            "residual": result.residual,
-            "reconciled": result.reconciled,
-            "fx_total": result.fx_total,
-            "raw_material_excl_fx": result.raw_material_excl_fx,
-            "effects": result.effects,
-            "manufacturing_realization_rate": result.manufacturing_analysis.get("inventory_realization_rate"),
-        },
-        "policy_assertions": {
-            "jpy_unit": result.material_analysis.get("jpy_fx_unit"),
-            "jpy_divide_by_100_absent": abs(result.material_analysis["nonwoven_jpy"] - material_fx) <= max(1.0, abs(material_fx) * 1e-9),
-            "yield_effect_absent": not any("yield" in code or "usage" in code for code in effect_map),
-            "mcm_independent_effect_absent": not any("mcm" in code for code in effect_map),
-            "mcm_outsourcing_denominator_excludes_mcm": True,
-            "realization_rate_uncapped": realization_rate,
-            "fx_reclassification_not_added": abs(sum(effect_map.values()) - result.effects_total) <= 1.0,
-        },
-        "independent_effects": {
-            "sales_quantity": quantity_effect,
-            "sales_mix": mix_effect,
-            "sales_price": price_effect,
-            "sales_fx": sales_fx_effect,
-            "material_nonwoven_price": nonwoven_price,
-            "material_jpy": material_fx,
-            "material_ex_nonwoven": materials_ex_nonwoven,
-            "material_total": material_total,
-            "manufacturing_occurrence": account_total,
-            "manufacturing_realized": account_total * realization_rate,
-            "sga_variable": sga_variable,
-            "sga_fixed": sga_fixed,
-            "tariff": -tariff_adjustment,
-        },
-        "residual_analysis": residual_analysis,
-        "checks": checks,
-        "summary": {
-            category: {
-                "PASS": sum(1 for row in checks if row["category"] == category and row["status"] == "PASS"),
-                "CHECK": sum(1 for row in checks if row["category"] == category and row["status"] == "CHECK"),
-            }
-            for category in sorted({row["category"] for row in checks})
-        },
-    }
-
-
-def validate_single_driver_scenarios(
-    base_path: Path,
-    output_dir: Path,
-    mapping_path: Path,
-    *,
-    month: int = 7,
-    scenario_codes: set[str] | None = None,
-) -> dict[str, Any]:
-    """Create fresh-copy, one-driver scenarios and report propagation separately."""
-    mapping = json.loads(mapping_path.read_text(encoding="utf-8"))
-    column = MONTH_COLUMNS[month]
-    base = GoldenWorkbook(base_path)
-    output_dir.mkdir(parents=True, exist_ok=True)
-
-    def cell(row: int) -> str:
-        return f"{column}{row}"
-
-    def value(row: int) -> float:
-        return _value(base, column, row)
-
-    sw = mapping["sales"]["SW400"]
-    bw = mapping["sales"]["BW400"]
-    sw_q, sw_a = value(sw["quantity_row"]), value(sw["amount_row"])
-    bw_q, bw_a = value(bw["quantity_row"]), value(bw["amount_row"])
-    mix_delta = min(sw_q, bw_q) * 0.05
-    quantity_changes: dict[str, float] = {}
-    fx_changes: dict[str, float] = {}
-    for code, spec in mapping["sales"].items():
-        if code.startswith("FS_"):
-            quantity_changes[cell(spec["quantity_row"])] = value(spec["quantity_row"]) * 1.05
-            quantity_changes[cell(spec["amount_row"])] = value(spec["amount_row"]) * 1.05
-        fx_changes[cell(spec["amount_row"])] = value(spec["amount_row"]) * (1500.0 / 1450.0)
-    base_total_quantity = sum(value(row) for row in (1593, 1632, 1668, 1720))
-    quantity_ratio = (
-        (base_total_quantity + value(1720) * 0.05) / base_total_quantity
-        if base_total_quantity else 1.0
-    )
-    quantity_changes[cell(1168)] = value(1168) * quantity_ratio
-    lc_goods_amount_row = int(mapping["lc_goods"]["amount_row"])
-    fx_changes[cell(lc_goods_amount_row)] = (
-        value(lc_goods_amount_row) * (1500.0 / 1450.0)
-    )
-
-    scenarios = [
-        {
-            "code": "sales_quantity",
-            "label": "Sales quantity only",
-            "changes": quantity_changes,
-            "target_effects": ["sales_quantity"],
-        },
-        {
-            "code": "product_group_mix",
-            "label": "Product-group Mix only",
-            "changes": {
-                cell(sw["quantity_row"]): sw_q + mix_delta,
-                cell(sw["amount_row"]): sw_a + mix_delta * (sw_a / sw_q if sw_q else 0.0),
-                cell(bw["quantity_row"]): bw_q - mix_delta,
-                cell(bw["amount_row"]): bw_a - mix_delta * (bw_a / bw_q if bw_q else 0.0),
-            },
-            "target_effects": ["sales_mix"],
-        },
-        {
-            "code": "sales_price",
-            "label": "Sales price only",
-            "changes": {cell(sw["amount_row"]): sw_a * 1.05},
-            "target_effects": ["sales_price"],
-        },
-        {
-            "code": "sales_fx",
-            "label": "Sales FX only",
-            "changes": fx_changes,
-            "baseline_sales_fx": 1450.0,
-            "comparison_sales_fx": 1500.0,
-            "external_sources": ["sales_fx"],
-            "target_effects": ["sales_fx"],
-        },
-        {
-            "code": "jpy",
-            "label": "JPY only",
-            "changes": {cell(9): value(9) * 1.03},
-            "target_effects": ["material_total"],
-        },
-        {
-            "code": "nonwoven_price",
-            "label": "Nonwoven price only",
-            "changes": {cell(11): value(11) * 1.03},
-            "target_effects": ["material_total"],
-        },
-        {
-            "code": "materials_ex_nonwoven",
-            "label": "Materials excluding nonwoven only",
-            "changes": {cell(209): value(209) + 10_000_000.0},
-            "target_effects": ["material_total"],
-        },
-        {
-            "code": "manufacturing_variable",
-            "label": "One variable manufacturing account",
-            "changes": {cell(297): value(297) + 10_000_000.0},
-            "target_effects": ["manufacturing_realized"],
-        },
-        {
-            "code": "manufacturing_salary",
-            "label": "Manufacturing salary only",
-            "changes": {cell(290): value(290) + 50_000_000.0},
-            "target_effects": ["manufacturing_realized"],
-        },
-        {
-            "code": "production_quantity",
-            "label": "Production quantity only",
-            "changes": {cell(556): value(556) * 1.05},
-            "target_effects": ["material_total", "manufacturing_realized"],
-        },
-        {
-            "code": "sga_variable",
-            "label": "One variable SGA account",
-            "changes": {cell(1194): value(1194) + 10_000_000.0},
-            "target_effects": ["sga_variable"],
-        },
-        {
-            "code": "sga_fixed",
-            "label": "One fixed SGA account",
-            "changes": {cell(1200): value(1200) + 10_000_000.0},
-            "target_effects": ["sga_fixed"],
-        },
-        {
-            "code": "customer_freight",
-            "label": "Customer-delivery transport only",
-            "changes": {cell(1168): value(1168) + 10_000_000.0},
-            "target_effects": ["sales_quantity", "sales_price"],
-        },
-        {
-            "code": "tariff",
-            "label": "Tariff only",
-            "changes": {},
-            "tariff_adjustment": 13_000_000.0,
-            "external_sources": ["tariff"],
-            "target_effects": ["tariff"],
-        },
-    ]
-
-    actual_effect_codes = {
-        "sales_quantity", "sales_mix", "sales_price", "sales_fx",
-        "material_total", "manufacturing_realized", "sga_variable",
-        "sga_fixed", "tariff",
-    }
-    records: list[dict[str, Any]] = []
-    for scenario in scenarios:
-        if scenario_codes is not None and scenario["code"] not in scenario_codes:
-            continue
-        comparison_path = output_dir / f"{scenario['code']}.xlsx"
-        shutil.copy2(base_path, comparison_path)
-        workbook = GoldenWorkbook(comparison_path)
-        for address, new_value in scenario["changes"].items():
-            workbook.set_input(
-                address,
-                new_value,
-                f"validation.{scenario['code']}",
-                "single-driver isolation",
-                allow_formula=True,
-            )
-        if scenario["code"] == "sales_quantity":
-            workbook.recalculate()
-            comparison_total_quantity = sum(
-                _value(workbook, column, row) for row in (1593, 1632, 1668, 1720)
-            )
-            workbook.set_input(
-                cell(1168),
-                value(1168) * comparison_total_quantity / base_total_quantity,
-                "validation.sales_quantity",
-                "preserve customer-freight unit cost",
-                allow_formula=True,
-            )
-        workbook.recalculate()
-        workbook.save(comparison_path)
-        changed_sources = sorted(scenario["changes"])
-        report = validate_pair(
-            base_path,
-            comparison_path,
-            mapping_path,
-            month=month,
-            baseline_sales_fx=float(scenario.get("baseline_sales_fx", 1450.0)),
-            comparison_sales_fx=float(scenario.get("comparison_sales_fx", 1450.0)),
-            tariff_adjustment=float(scenario.get("tariff_adjustment", 0.0)),
-            changed_sources=changed_sources,
-        )
-        comparison_result = report["comparison_result"]
-        dependency = report["formula_evaluation"]["comparison_pnl_dependency"]
-        independent = report["independent_effects"]
-        expected_total = sum(
-            independent[code]
-            for code in (
-                "sales_quantity", "sales_mix", "sales_price", "sales_fx",
-                "material_total", "manufacturing_realized", "sga_variable",
-                "sga_fixed", "tariff",
-            )
-        )
-        actual_by_code = {
-            row["code"]: float(row.get("profit_effect") or 0.0)
-            for row in comparison_result["effects"]
-            if row["code"] in actual_effect_codes
-        }
-        nonzero_effects = {
-            code: amount for code, amount in actual_by_code.items()
-            if abs(amount) > 1.0
-        }
-        target_effects = set(scenario["target_effects"])
-        unexpected_effects = {
-            code: amount for code, amount in nonzero_effects.items()
-            if code not in target_effects
-        }
-        residual = float(comparison_result["residual"])
-        if not changed_sources and scenario.get("external_sources"):
-            classification = "PASS_EXTERNAL_DRIVER"
-            cause = None
-        elif dependency["cached_fallback_count"]:
-            classification = "FORMULA_INCOMPLETE_FALLBACK"
-            cause = "FORMULA_EVALUATOR_GAP"
-        elif dependency["unlinked_sources"]:
-            classification = "FORMULA_UNLINKED"
-            cause = (
-                "INTENTIONAL_SCOPE_GAP"
-                if scenario["code"] in {"nonwoven_price"}
-                else "MAPPING_GAP"
-            )
-        elif unexpected_effects:
-            classification = "SCENARIO_NOT_ISOLATED"
-            cause = "VALIDATION_ARTIFACT"
-        elif abs(residual) > 1.0:
-            classification = "POLICY_MAPPING_CANDIDATE"
-            cause = (
-                "INVENTORY_TIMING"
-                if scenario["code"].startswith("manufacturing_")
-                or scenario["code"] in {
-                    "jpy", "nonwoven_price", "materials_ex_nonwoven"
-                }
-                else "INTENTIONAL_SCOPE_GAP"
-                if scenario["code"] == "product_group_mix"
-                else "FORMULA_EVALUATOR_GAP"
-                if scenario["code"] == "production_quantity"
-                else "UNEXPLAINED"
-            )
-        else:
-            classification = "PASS_FORMULA_COMPLETE"
-            cause = None
-        records.append({
-            "code": scenario["code"],
-            "label": scenario["label"],
-            "changed_sources": changed_sources,
-            "external_sources": scenario.get("external_sources", []),
-            "formula_status": (
-                "EXTERNAL_DRIVER"
-                if not changed_sources and scenario.get("external_sources")
-                else "FORMULA_COMPLETE"
-                if dependency["formula_complete"]
-                else "FORMULA_INCOMPLETE"
-            ),
-            "fallback_cells": dependency["fallback_cells"],
-            "unlinked_sources": dependency["unlinked_sources"],
-            "dependency_paths": dependency["source_paths"],
-            "operating_profit_delta": comparison_result["operating_profit_delta"],
-            "expected_deterministic_effect": expected_total,
-            "actual_deterministic_effect": comparison_result["effects_total"],
-            "target_effects": scenario["target_effects"],
-            "nonzero_effects": nonzero_effects,
-            "unexpected_effects": unexpected_effects,
-            "residual": residual,
-            "identity_delta": (
-                comparison_result["effects_total"] + residual
-                - comparison_result["operating_profit_delta"]
-            ),
-            "classification": classification,
-            "residual_cause": cause,
-        })
-    return {"month": month, "scenarios": records}
-
-
-def main() -> int:
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--base", type=Path, required=True)
-    parser.add_argument("--comparison", type=Path, required=True)
-    parser.add_argument("--mapping", type=Path, default=Path("config/model_mapping.json"))
-    parser.add_argument("--generate-comparison", action="store_true")
-    parser.add_argument("--output", type=Path)
-    args = parser.parse_args()
-    if args.generate_comparison:
-        args.comparison.parent.mkdir(parents=True, exist_ok=True)
-        build_comparison(args.base, args.comparison, args.mapping)
-    report = validate_pair(args.base, args.comparison, args.mapping)
-    rendered = json.dumps(report, ensure_ascii=False, indent=2, default=str)
-    if args.output:
-        args.output.parent.mkdir(parents=True, exist_ok=True)
-        args.output.write_text(rendered, encoding="utf-8")
-    else:
-        print(rendered)
-    return 0
-
-
-if __name__ == "__main__":
-    raise SystemExit(main())
+        production0 = sum(_value(base, column,çnw¶‰ËkºwµçA™á}¡…¹•Ìè‘¥ÑmÍÑÈ°™±½…Ñt€ôíô(€€€™½È½‘”°ÍÁ•Œ¥¸µ…ÁÁ¥¹l‰Í…±•Ì‰t¹¥Ñ•µÌ ¤è(€€€€€€€¥˜½‘”¹ÍÑ…ÉÑÍİ¥Ñ  ‰M|ˆ¤è(€€€€€€€€€€€ÅÕ…¹Ñ¥Ñå}¡…¹•Ím•±°¡ÍÁ•l‰ÅÕ…¹Ñ¥Ñå}É½Ü‰t¥t€ôÙ…±Õ”¡ÍÁ•l‰ÅÕ…¹Ñ¥Ñå}É½Ü‰t¤€¨€Ä¸ÀÔ(€€€€€€€€€€€ÅÕ…¹Ñ¥Ñå}¡…¹•Ím•±°¡ÍÁ•l‰…µ½Õ¹Ñ}É½Ü‰t¥t€ôÙ…±Õ”¡ÍÁ•l‰…µ½Õ¹Ñ}É½Ü‰t¤€¨€Ä¸ÀÔ(€€€€€€€™á}¡…¹•Ím•±°¡ÍÁ•l‰…µ½Õ¹Ñ}É½Ü‰t¥t€ôÙ…±Õ”¡ÍÁ•l‰…µ½Õ¹Ñ}É½Ü‰t¤€¨€ ÄÔÀÀ¸À€¼€ÄĞÔÀ¸À¤(€€€±}½½‘Í}…µ½Õ¹Ñ}É½Ü€ô¥¹Ğ¡µ…ÁÁ¥¹l‰±}½½‘Ì‰ul‰…µ½Õ¹Ñ}É½Ü‰t¤(€€€™á}¡…¹•Ím•±°¡±}½½‘Í}…µ½Õ¹Ñ}É½Ü¥t€ô€ (€€€€€€€Ù…±Õ”¡±}½½‘Í}…µ½Õ¹Ñ}É½Ü¤€¨€ ÄÔÀÀ¸À€¼€ÄĞÔÀ¸À¤(€€€€¤((€€€Í•¹…É¥½Ì€ôl(€€€€€€€ì(€€€€€€€€€€€€‰½‘”ˆè€‰Í…±•Í}ÅÕ…¹Ñ¥Ñäˆ°(€€€€€€€€€€€€‰±…‰•°ˆè€‰M…±•ÌÅÕ…¹Ñ¥Ñä½¹±äˆ°(€€€€€€€€€€€€‰¡…¹•ÌˆèÅÕ…¹Ñ¥Ñå}¡…¹•Ì°(€€€€€€€€€€€€‰Ñ…É•Ñ}•™™•ÑÌˆèl‰Í…±•Í}ÅÕ…¹Ñ¥Ñä‰t°(€€€€€€€ô°(€€€€€€€ì(€€€€€€€€€€€€‰½‘”ˆè€‰ÁÉ½‘ÕÑ}É½ÕÁ}µ¥àˆ°(€€€€€€€€€€€€‰±…‰•°ˆè€‰AÉ½‘ÕĞµÉ½ÕÀ5¥à½¹±äˆ°(€€€€€€€€€€€€‰¡…¹•Ìˆèì(€€€€€€€€€€€€€€€•±°¡Íİl‰ÅÕ…¹Ñ¥Ñå}É½Ü‰t¤èÍİ}Ä€¬µ¥á}‘•±Ñ„°(€€€€€€€€€€€€€€€•±°¡Íİl‰…µ½Õ¹Ñ}É½Ü‰t¤èÍİ}„€¬µ¥á}‘•±Ñ„€¨€¡Íİ}„€¼Íİ}Ä¥˜Íİ}Ä•±Í”€À¸À¤°(€€€€€€€€€€€€€€€•±°¡‰İl‰ÅÕ…¹Ñ¥Ñå}É½Ü‰t¤è‰İ}Ä€´µ¥á}‘•±Ñ„°(€€€€€€€€€€€€€€€•±°¡‰İl‰…µ½Õ¹Ñ}É½Ü‰t¤è‰İ}„€´µ¥á}‘•±Ñ„€¨€¡‰İ}„€¼‰İ}Ä¥˜‰İ}Ä•±Í”€À¸À¤°(€€€€€€€€€€€ô°(€€€€€€€€€€€€‰Ñ…É•Ñ}•™™•ÑÌˆèl‰Í…±•Í}µ¥à‰t°(€€€€€€€ô°(€€€€€€€ì(€€€€€€€€€€€€‰½‘”ˆè€‰Í…±•Í}ÁÉ¥”ˆ°(€€€€€€€€€€€€‰±…‰•°ˆè€‰M…±•ÌÁÉ¥”½¹±äˆ°(€€€€€€€€€€€€‰¡…¹•Ìˆèí•±°¡Íİl‰…µ½Õ¹Ñ}É½Ü‰t¤èÍİ}„€¨€Ä¸ÀÕô°(€€€€€€€€€€€€‰Ñ…É•Ñ}•™™•ÑÌˆèl‰Í…±•Í}ÁÉ¥”‰t°(€€€€€€€ô°(€€€€€€€ì(€€€€€€€€€€€€‰½‘”ˆè€‰Í…±•Í}™àˆ°(€€€€€€€€€€€€‰±…‰•°ˆè€‰M…±•Ì`½¹±äˆ°(€€€€€€€€€€€€‰¡…¹•Ìˆè™á}¡…¹•Ì°(€€€€€€€€€€€€‰‰…Í•±¥¹•}Í…±•Í}™àˆè€ÄĞÔÀ¸À°(€€€€€€€€€€€€‰½µÁ…É¥Í½¹}Í…±•Í}™àˆè€ÄÔÀÀ¸À°(€€€€€€€€€€€€‰•áÑ•É¹…±}Í½ÕÉ•Ìˆèl‰Í…±•Í}™à‰t°(€€€€€€€€€€€€‰Ñ…É•Ñ}•™™•ÑÌˆèl‰Í…±•Í}™à‰t°(€€€€€€€ô°(€€€€€€€ì(€€€€€€€€€€€€‰½‘”ˆè€‰©Áäˆ°(€€€€€€€€€€€€‰±…‰•°ˆè€‰)Ad½¹±äˆ°(€€€€€€€€€€€€‰¡…¹•Ìˆèí•±° ä¤èÙ…±Õ” ä¤€¨€Ä¸ÀÍô°(€€€€€€€€€€€€‰Ñ…É•Ñ}•™™•ÑÌˆèl‰µ…Ñ•É¥…±}Ñ½Ñ…°‰t°(€€€€€€€ô°(€€€€€€€ì(€€€€€€€€€€€€‰½‘”ˆè€‰¹½¹İ½Ù•¹}ÁÉ¥”ˆ°(€€€€€€€€€€€€‰±…‰•°ˆè€‰9½¹İ½Ù•¸ÁÉ¥”½¹±äˆ°(€€€€€€€€€€€€‰¡…¹•Ìˆèí•±° ÄÄ¤èÙ…±Õ” ÄÄ¤€¨€Ä¸ÀÍô°(€€€€€€€€€€€€‰Ñ…É•Ñ}•™™•ÑÌˆèl‰µ…Ñ•É¥…±}Ñ½Ñ…°‰t°(€€€€€€€ô°(€€€€€€€ì(€€€€€€€€€€€€‰½‘”ˆè€‰µ…Ñ•É¥…±Í}•á}¹½¹İ½Ù•¸ˆ°(€€€€€€€€€€€€‰±…‰•°ˆè€‰5…Ñ•É¥…±Ì•á±Õ‘¥¹œ¹½¹İ½Ù•¸½¹±äˆ°(€€€€€€€€€€€€‰¡…¹•Ìˆèí•±° ÈÀä¤èÙ…±Õ” ÈÀä¤€¬€ÄÁ|ÀÀÁ|ÀÀÀ¸Áô°(€€€€€€€€€€€€‰Ñ…É•Ñ}•™™•ÑÌˆèl‰µ…Ñ•É¥…±}Ñ½Ñ…°‰t°(€€€€€€€ô°(€€€€€€€ì(€€€€€€€€€€€€‰½‘”ˆè€‰µ…¹Õ™…ÑÕÉ¥¹}Ù…É¥…‰±”ˆ°(€€€€€€€€€€€€‰±…‰•°ˆè€‰=¹”Ù…É¥…‰±”µ…¹Õ™…ÑÕÉ¥¹œ…½Õ¹Ğˆ°(€€€€€€€€€€€€‰¡…¹•Ìˆèí•±° ÈäÜ¤èÙ…±Õ” ÈäÜ¤€¬€ÄÁ|ÀÀÁ|ÀÀÀ¸Áô°(€€€€€€€€€€€€‰Ñ…É•Ñ}•™™•ÑÌˆèl‰µ…¹Õ™…ÑÕÉ¥¹}É•…±¥é•‰t°(€€€€€€€ô°(€€€€€€€ì(€€€€€€€€€€€€‰½‘”ˆè€‰µ…¹Õ™…ÑÕÉ¥¹}Í…±…Éäˆ°(€€€€€€€€€€€€‰±…‰•°ˆè€‰5…¹Õ™…ÑÕÉ¥¹œÍ…±…Éä½¹±äˆ°(€€€€€€€€€€€€‰¡…¹•Ìˆèí•±° ÈäÀ¤èÙ…±Õ” ÈäÀ¤€¬€ÔÁ|ÀÀÁ|ÀÀÀ¸Áô°(€€€€€€€€€€€€‰Ñ…É•Ñ}•™™•ÑÌˆèl‰µ…¹Õ™…ÑÕÉ¥¹}É•…±¥é•‰t°(€€€€€€€ô°(€€€€€€€ì(€€€€€€€€€€€€‰½‘”ˆè€‰ÁÉ½‘ÕÑ¥½¹}ÅÕ…¹Ñ¥Ñäˆ°(€€€€€€€€€€€€‰±…‰•°ˆè€‰AÉ½‘ÕÑ¥½¸ÅÕ…¹Ñ¥Ñä½¹±äˆ°(€€€€€€€€€€€€‰¡…¹•Ìˆèí•±° ÔÔØ¤èÙ…±Õ” ÔÔØ¤€¨€Ä¸ÀÕô°(€€€€€€€€€€€€‰Ñ…É•Ñ}•™™•ÑÌˆèl‰µ…Ñ•É¥…±}Ñ½Ñ…°ˆ°€‰µ…¹Õ™…ÑÕÉ¥¹}É•…±¥é•‰t°(€€€€€€€ô°(€€€€€€€ì(€€€€€€€€€€€€‰½‘”ˆè€‰Í…}Ù…É¥…‰±”ˆ°(€€€€€€€€€€€€‰±…‰•°ˆè€‰=¹”Ù…É¥…‰±”M…½Õ¹Ğˆ°(€€€€€€€€€€€€‰¡…¹•Ìˆèí•±° ÄÄäĞ¤èÙ…±Õ” ÄÄäĞ¤€¬€ÄÁ|ÀÀÁ|ÀÀÀ¸Áô°(€€€€€€€€€€€€‰Ñ…É•Ñ}•™™•ÑÌˆèl‰Í…}Ù…É¥…‰±”‰t°(€€€€€€€ô°(€€€€€€€ì(€€€€€€€€€€€€‰½‘”ˆè€‰Í…}™¥á•ˆ°(€€€€€€€€€€€€‰±…‰•°ˆè€‰=¹”™¥á•M…½Õ¹Ğˆ°(€€€€€€€€€€€€‰¡…¹•Ìˆèí•±° ÄÈÀÀ¤èÙ…±Õ” ÄÈÀÀ¤€¬€ÄÁ|ÀÀÁ|ÀÀÀ¸Áô°(€€€€€€€€€€€€‰Ñ…É•Ñ}•™™•ÑÌˆèl‰Í…}™¥á•‰t°(€€€€€€€ô°(€€€€€€€ì(€€€€€€€€€€€€‰½‘”ˆè€‰ÕÍÑ½µ•É}™É•¥¡Ğˆ°(€€€€€€€€€€€€‰±…‰•°ˆè€‰ÕÍÑ½µ•Èµ‘•±¥Ù•ÉäÑÉ…¹ÍÁ½ÉĞ½¹±äˆ°(€€€€€€€€€€€€‰¡…¹•Ìˆèí•±° ÄÄØà¤èÙ…±Õ” ÄÄØà¤€¬€ÄÁ|ÀÀÁ|ÀÀÀ¸Áô°(€€€€€€€€€€€€‰Ñ…É•Ñ}•™™•ÑÌˆèl‰Í…±•Í}ÅÕ…¹Ñ¥Ñäˆ°€‰Í…±•Í}ÁÉ¥”‰t°(€€€€€€€ô°(€€€€€€€ì(€€€€€€€€€€€€‰½‘”ˆè€‰Ñ…É¥™˜ˆ°(€€€€€€€€€€€€‰±…‰•°ˆè€‰Q…É¥™˜½¹±äˆ°(€€€€€€€€€€€€‰¡…¹•Ìˆèíô°(€€€€€€€€€€€€‰Ñ…É¥™™}…‘©ÕÍÑµ•¹Ğˆè€ÄÍ|ÀÀÁ|ÀÀÀ¸À°(€€€€€€€€€€€€‰•áÑ•É¹…±}Í½ÕÉ•Ìˆèl‰Ñ…É¥™˜‰t°(€€€€€€€€€€€€‰Ñ…É•Ñ}•™™•ÑÌˆèl‰Ñ…É¥™˜‰t°(€€€€€€€ô°(€€€t((€€€…ÑÕ…±}•™™•Ñ}½‘•Ì€ôì(€€€€€€€€‰Í…±•Í}ÅÕ…¹Ñ¥Ñäˆ°€‰Í…±•Í}µ¥àˆ°€‰Í…±•Í}ÁÉ¥”ˆ°€‰Í…±•Í}™àˆ°(€€€€€€€€‰µ…Ñ•É¥…±}Ñ½Ñ…°ˆ°€‰µ…¹Õ™…ÑÕÉ¥¹}É•…±¥é•ˆ°€‰Í…}Ù…É¥…‰±”ˆ°(€€€€€€€€‰Í…}™¥á•ˆ°€‰Ñ…É¥™˜ˆ°(€€€ô(€€€É•½É‘Ìè±¥ÍÑm‘¥ÑmÍÑÈ°¹åut€ômt(€€€™½ÈÍ•¹…É¥¼¥¸Í•¹…É¥½Ìè(€€€€€€€¥˜Í•¹…É¥½}½‘•Ì¥Ì¹½Ğ9½¹”…¹Í•¹…É¥½l‰½‘”‰t¹½Ğ¥¸Í•¹…É¥½}½‘•Ìè(€€€€€€€€€€€½¹Ñ¥¹Õ”(€€€€€€€Í•¹…É¥½}‰…Í•}Á…Ñ €ô‰…Í•}Á…Ñ (€€€€€€€Á…¥É}½¹ÑÉ½±Ìè±¥ÍÑm‘¥ÑmÍÑÈ°¹åut€ômt(€€€€€€€¥˜Í•¹…É¥½l‰½‘”‰t€ôô€‰Í…±•Í}ÅÕ…¹Ñ¥Ñäˆè(€€€€€€€€€€€€Œ½¹ÑÉ½±±•Á…¥ÈÉ•µ½Ù•ÌÕÍÑ½µ•È™É•¥¡Ğ™É½´‰½Ñ Í¥‘•Ì¸€%Ğ(€€€€€€€€€€€€Œ…Ù½¥‘Ì¥¹Ù•¹Ñ¥¹œ…¸…±±½…Ñ¥½¸…É½ÍÌAL…¹L19Q …¹(€€€€€€€€€€€€Œ±•…Ù•Ì™É•¥¡ĞÑ¼¥ÑÌ‘•‘¥…Ñ•¥Í½±…Ñ¥½¸Í•¹…É¥¼¸(€€€€€€€€€€€Í•¹…É¥½}‰…Í•}Á…Ñ €ô½ÕÑÁÕÑ}‘¥È€¼€‰Í…±•Í}ÅÕ…¹Ñ¥Ñå}‰…Í•}½¹ÑÉ½±±•¹á±Íàˆ(€€€€€€€€€€€Í¡ÕÑ¥°¹½ÁäÈ¡‰…Í•}Á…Ñ °Í•¹…É¥½}‰…Í•}Á…Ñ ¤(€€€€€€€€€€€½¹ÑÉ½±±•€ô½±‘•¹]½É­‰½½¬¡Í•¹…É¥½}‰…Í•}Á…Ñ ¤(€€€€€€€€€€€½¹ÑÉ½±±•¹Í•Ñ}¥¹ÁÕĞ (€€€€€€€€€€€€€€€•±° ÄÄØà¤°€À¸À°€‰Ù…±¥‘…Ñ¥½¸¹Í…±•Í}ÅÕ…¹Ñ¥Ñäˆ°(€€€€€€€€€€€€€€€€‰½¹ÑÉ½±±•Á…¥È•á±Õ‘•ÌÕÍÑ½µ•È™É•¥¡Ğˆ°…±±½İ}™½ÉµÕ±„õQÉÕ”°(€€€€€€€€€€€€¤(€€€€€€€€€€€½¹ÑÉ½±±•¹É•…±Õ±…Ñ” ¤(€€€€€€€€€€€½¹ÑÉ½±±•¹Í…Ù”¡Í•¹…É¥½}‰…Í•}Á…Ñ ¤(€€€€€€€€€€€Á…¥É}½¹ÑÉ½±Ì¹…ÁÁ•¹¡ì(€€€€€€€€€€€€€€€€‰…‘‘É•ÍÌˆè•±° ÄÄØà¤°(€€€€€€€€€€€€€€€€‰½É¥¥¹…±}Ù…±Õ”ˆèÙ…±Õ” ÄÄØà¤°(€€€€€€€€€€€€€€€€‰½¹ÑÉ½±±•‘}Ù…±Õ”ˆè€À¸À°(€€€€€€€€€€€€€€€€‰…ÁÁ±¥•‘}Ñ¼ˆèl‰‰…Í”ˆ°€‰½µÁ…É¥Í½¸‰t°(€€€€€€€€€€€€€€€€‰±…ÍÍ¥™¥…Ñ¥½¸ˆè€‰=9QI=11}QMQ}MMU5AQ%=8ˆ°(€€€€€€€€€€€€€€€€‰É•…Í½¸ˆè€‰•á±Õ‘”µ¥á•µÕ¹¥ĞÕÍÑ½µ•È™É•¥¡Ğ™É½´ÅÕ…¹Ñ¥Ñäµ½¹±ä¥Í½±…Ñ¥½¸ˆ°(€€€€€€€€€€€ô¤(€€€€€€€½µÁ…É¥Í½¹}Á…Ñ €ô½ÕÑÁÕÑ}‘¥È€¼˜‰íÍ•¹…É¥½l½‘”uô¹á±Íàˆ(€€€€€€€Í¡ÕÑ¥°¹½ÁäÈ¡Í•¹…É¥½}‰…Í•}Á…Ñ °½µÁ…É¥Í½¹}Á…Ñ ¤(€€€€€€€İ½É­‰½½¬€ô½±‘•¹]½É­‰½½¬¡½µÁ…É¥Í½¹}Á…Ñ ¤(€€€€€€€™½È…‘‘É•ÍÌ°¹•İ}Ù…±Õ”¥¸Í•¹…É¥½l‰¡…¹•Ì‰t¹¥Ñ•µÌ ¤è(€€€€€€€€€€€İ½É­‰½½¬¹Í•Ñ}¥¹ÁÕĞ (€€€€€€€€€€€€€€€…‘‘É•ÍÌ°(€€€€€€€€€€€€€€€¹•İ}Ù…±Õ”°(€€€€€€€€€€€€€€€˜‰Ù…±¥‘…Ñ¥½¸¹íÍ•¹…É¥½l½‘”uôˆ°(€€€€€€€€€€€€€€€€‰Í¥¹±”µ‘É¥Ù•È¥Í½±…Ñ¥½¸ˆ°(€€€€€€€€€€€€€€€…±±½İ}™½ÉµÕ±„õQÉÕ”°(€€€€€€€€€€€€¤(€€€€€€€İ½É­‰½½¬¹É•…±Õ±…Ñ” ¤(€€€€€€€İ½É­‰½½¬¹Í…Ù”¡½µÁ…É¥Í½¹}Á…Ñ ¤(€€€€€€€¡…¹•‘}Í½ÕÉ•Ì€ôÍ½ÉÑ•¡Í•¹…É¥½l‰¡…¹•Ì‰t¤(€€€€€€€É•Á½ÉĞ€ôÙ…±¥‘…Ñ•}Á…¥È (€€€€€€€€€€€Í•¹…É¥½}‰…Í•}Á…Ñ °(€€€€€€€€€€€½µÁ…É¥Í½¹}Á…Ñ °(€€€€€€€€€€€µ…ÁÁ¥¹}Á…Ñ °(€€€€€€€€€€€µ½¹Ñ õµ½¹Ñ °(€€€€€€€€€€€‰…Í•±¥¹•}Í…±•Í}™àõ™±½…Ğ¡Í•¹…É¥¼¹•Ğ ‰‰…Í•±¥¹•}Í…±•Í}™àˆ°€ÄĞÔÀ¸À¤¤°(€€€€€€€€€€€½µÁ…É¥Í½¹}Í…±•Í}™àõ™±½…Ğ¡Í•¹…É¥¼¹•Ğ ‰½µÁ…É¥Í½¹}Í…±•Í}™àˆ°€ÄĞÔÀ¸À¤¤°(€€€€€€€€€€€Ñ…É¥™™}…‘©ÕÍÑµ•¹Ğõ™±½…Ğ¡Í•¹…É¥¼¹•Ğ ‰Ñ…É¥™™}…‘©ÕÍÑµ•¹Ğˆ°€À¸À¤¤°(€€€€€€€€€€€¡…¹•‘}Í½ÕÉ•Ìõ¡…¹•‘}Í½ÕÉ•Ì°(€€€€€€€€¤(€€€€€€€½µÁ…É¥Í½¹}É•ÍÕ±Ğ€ôÉ•Á½ÉÑl‰½µÁ…É¥Í½¹}É•ÍÕ±Ğ‰t(€€€€€€€‘•Á•¹‘•¹ä€ôÉ•Á½ÉÑl‰™½ÉµÕ±…}•Ù…±Õ…Ñ¥½¸‰ul‰½µÁ…É¥Í½¹}Á¹±}‘•Á•¹‘•¹ä‰t(€€€€€€€¥¹‘•Á•¹‘•¹Ğ€ôÉ•Á½ÉÑl‰¥¹‘•Á•¹‘•¹Ñ}•™™•ÑÌ‰t(€€€€€€€•áÁ•Ñ•‘}Ñ½Ñ…°€ôÍÕ´ (€€€€€€€€€€€¥¹‘•Á•¹‘•¹Ñm½‘•t(€€€€€€€€€€€™½È½‘”¥¸€ (€€€€€€€€€€€€€€€€‰Í…±•Í}ÅÕ…¹Ñ¥Ñäˆ°€‰Í…±•Í}µ¥àˆ°€‰Í…±•Í}ÁÉ¥”ˆ°€‰Í…±•Í}™àˆ°(€€€€€€€€€€€€€€€€‰µ…Ñ•É¥…±}Ñ½Ñ…°ˆ°€‰µ…¹Õ™…ÑÕÉ¥¹}É•…±¥é•ˆ°€‰Í…}Ù…É¥…‰±”ˆ°(€€€€€€€€€€€€€€€€‰Í…}™¥á•ˆ°€‰Ñ…É¥™˜ˆ°(€€€€€€€€€€€€¤(€€€€€€€€¤(€€€€€€€…ÑÕ…±}‰å}½‘”€ôì(€€€€€€€€€€€É½İl‰½‘”‰tè™±½…Ğ¡É½Ü¹•Ğ ‰ÁÉ½™¥Ñ}•™™•Ğˆ¤½È€À¸À¤(€€€€€€€€€€€™½ÈÉ½Ü¥¸½µÁ…É¥Í½¹}É•ÍÕ±Ñl‰•™™•ÑÌ‰t(€€€€€€€€€€€¥˜É½İl‰½‘”‰t¥¸…ÑÕ…±}•™™•Ñ}½‘•Ì(€€€€€€€ô(€€€€€€€¹½¹é•É½}•™™•ÑÌ€ôì(€€€€€€€€€€€½‘”è…µ½Õ¹Ğ™½È½‘”°…µ½Õ¹Ğ¥¸…ÑÕ…±}‰å}½‘”¹¥Ñ•µÌ ¤(€€€€€€€€€€€¥˜…‰Ì¡…µ½Õ¹Ğ¤€ø€Ä¸À(€€€€€€€ô(€€€€€€€Ñ…É•Ñ}•™™•ÑÌ€ôÍ•Ğ¡Í•¹…É¥½l‰Ñ…É•Ñ}•™™•ÑÌ‰t¤(€€€€€€€Õ¹•áÁ•Ñ•‘}•™™•ÑÌ€ôì(€€€€€€€€€€€½‘”è…µ½Õ¹Ğ™½È½‘”°…µ½Õ¹Ğ¥¸¹½¹é•É½}•™™•ÑÌ¹¥Ñ•µÌ ¤(€€€€€€€€€€€¥˜½‘”¹½Ğ¥¸Ñ…É•Ñ}•™™•ÑÌ(€€€€€€€ô(€€€€€€€É•Í¥‘Õ…°€ô™±½…Ğ¡½µÁ…É¥Í½¹}É•ÍÕ±Ñl‰É•Í¥‘Õ…°‰t¤(€€€€€€€¥˜¹½Ğ¡…¹•‘}Í½ÕÉ•Ì…¹Í•¹…É¥¼¹•Ğ ‰•áÑ•É¹…±}Í½ÕÉ•Ìˆ¤è(€€€€€€€€€€€±…ÍÍ¥™¥…Ñ¥½¸€ô€‰AMM}aQI91}I%YHˆ(€€€€€€€€€€€…ÕÍ”€ô9½¹”(€€€€€€€•±¥˜‘•Á•¹‘•¹ål‰…¡•‘}™…±±‰…­}½Õ¹Ğ‰tè(€€€€€€€€€€€±…ÍÍ¥™¥…Ñ¥½¸€ô€‰=I5U1}%9=5A1Q}11	,ˆ(€€€€€€€€€€€…ÕÍ”€ô€‰=I5U1}Y1UQ=I}@ˆ(€€€€€€€•±¥˜‘•Á•¹‘•¹ål‰Õ¹±¥¹­•‘}Í½ÕÉ•Ì‰tè(€€€€€€€€€€€±…ÍÍ¥™¥…Ñ¥½¸€ô€‰=I5U1}U91%9-ˆ(€€€€€€€€€€€…ÕÍ”€ô€ (€€€€€€€€€€€€€€€€‰%9Q9Q%=91}M=A}@ˆ(€€€€€€€€€€€€€€€¥˜Í•¹…É¥½l‰½‘”‰t¥¸ì‰¹½¹İ½Ù•¹}ÁÉ¥”‰ô(€€€€€€€€€€€€€€€•±Í”€‰5AA%9}@ˆ(€€€€€€€€€€€€¤(€€€€€€€•±¥˜Õ¹•áÁ•Ñ•‘}•™™•ÑÌè(€€€€€€€€€€€±…ÍÍ¥™¥…Ñ¥½¸€ô€‰M9I%=}9=Q}%M=1Qˆ(€€€€€€€€€€€…ÕÍ”€ô€‰Y1%Q%=9}IQ%Pˆ(€€€€€€€•±¥˜…‰Ì¡É•Í¥‘Õ…°¤€ø€Ä¸Àè(€€€€€€€€€€€±…ÍÍ¥™¥…Ñ¥½¸€ô€‰A=1%e}5AA%9}9%Qˆ(€€€€€€€€€€€…ÕÍ”€ô€ (€€€€€€€€€€€€€€€€‰%9Y9Q=Ie}Q%5%9ˆ(€€€€€€€€€€€€€€€¥˜Í•¹…É¥½l‰½‘”‰t¹ÍÑ…ÉÑÍİ¥Ñ  ‰µ…¹Õ™…ÑÕÉ¥¹|ˆ¤(€€€€€€€€€€€€€€€½ÈÍ•¹…É¥½l‰½‘”‰t¥¸ì(€€€€€€€€€€€€€€€€€€€€‰©Áäˆ°€‰¹½¹İ½Ù•¹}ÁÉ¥”ˆ°€‰µ…Ñ•É¥…±Í}•á}¹½¹İ½Ù•¸ˆ(€€€€€€€€€€€€€€€ô(€€€€€€€€€€€€€€€•±Í”€‰%9Q9Q%=91}M=A}@ˆ(€€€€€€€€€€€€€€€¥˜Í•¹…É¥½l‰½‘”‰t€ôô€‰ÁÉ½‘ÕÑ}É½ÕÁ}µ¥àˆ(€€€€€€€€€€€€€€€•±Í”€‰%9Y9Q=Ie}Q%5%9ˆ(€€€€€€€€€€€€€€€¥˜Í•¹…É¥½l‰½‘”‰t€ôô€‰ÁÉ½‘ÕÑ¥½¹}ÅÕ…¹Ñ¥Ñäˆ(€€€€€€€€€€€€€€€•±Í”€‰U9aA1%9ˆ(€€€€€€€€€€€€¤(€€€€€€€•±Í”è(€€€€€€€€€€€±…ÍÍ¥™¥…Ñ¥½¸€ô€‰AMM}=I5U1}=5A1Qˆ(€€€€€€€€€€€…ÕÍ”€ô9½¹”(€€€€€€€É•½É‘Ì¹…ÁÁ•¹¡ì(€€€€€€€€€€€€‰½‘”ˆèÍ•¹…É¥½l‰½‘”‰t°(€€€€€€€€€€€€‰±…‰•°ˆèÍ•¹…É¥½l‰±…‰•°‰t°(€€€€€€€€€€€€‰¡…¹•‘}Í½ÕÉ•Ìˆè¡…¹•‘}Í½ÕÉ•Ì°(€€€€€€€€€€€€‰•áÑ•É¹…±}Í½ÕÉ•ÌˆèÍ•¹…É¥¼¹•Ğ ‰•áÑ•É¹…±}Í½ÕÉ•Ìˆ°mt¤°(€€€€€€€€€€€€‰Á…¥É}½¹ÑÉ½±ÌˆèÁ…¥É}½¹ÑÉ½±Ì°(€€€€€€€€€€€€‰™½ÉµÕ±…}ÍÑ…ÑÕÌˆè€ (€€€€€€€€€€€€€€€€‰aQI91}I%YHˆ(€€€€€€€€€€€€€€€¥˜¹½Ğ¡…¹•‘}Í½ÕÉ•Ì…¹Í•¹…É¥¼¹•Ğ ‰•áÑ•É¹…±}Í½ÕÉ•Ìˆ¤(€€€€€€€€€€€€€€€•±Í”€‰=I5U1}=5A1Qˆ(€€€€€€€€€€€€€€€¥˜‘•Á•¹‘•¹ål‰™½ÉµÕ±…}½µÁ±•Ñ”‰t(€€€€€€€€€€€€€€€•±Í”€‰=I5U1}%9=5A1Qˆ(€€€€€€€€€€€€¤°(€€€€€€€€€€€€‰™…±±‰…­}•±±Ìˆè‘•Á•¹‘•¹ål‰™…±±‰…­}•±±Ì‰t°(€€€€€€€€€€€€‰Õ¹±¥¹­•‘}Í½ÕÉ•Ìˆè‘•Á•¹‘•¹ål‰Õ¹±¥¹­•‘}Í½ÕÉ•Ì‰t°(€€€€€€€€€€€€‰‘•Á•¹‘•¹å}Á…Ñ¡Ìˆè‘•Á•¹‘•¹ål‰Í½ÕÉ•}Á…Ñ¡Ì‰t°(€€€€€€€€€€€€‰½Á•É…Ñ¥¹}ÁÉ½™¥Ñ}‘•±Ñ„ˆè½µÁ…É¥Í½¹}É•ÍÕ±Ñl‰½Á•É…Ñ¥¹}ÁÉ½™¥Ñ}‘•±Ñ„‰t°(€€€€€€€€€€€€‰•áÁ•Ñ•‘}‘•Ñ•Éµ¥¹¥ÍÑ¥}•™™•Ğˆè•áÁ•Ñ•‘}Ñ½Ñ…°°(€€€€€€€€€€€€‰…ÑÕ…±}‘•Ñ•Éµ¥¹¥ÍÑ¥}•™™•Ğˆè½µÁ…É¥Í½¹}É•ÍÕ±Ñl‰•™™•ÑÍ}Ñ½Ñ…°‰t°(€€€€€€€€€€€€‰Ñ…É•Ñ}•™™•ÑÌˆèÍ•¹…É¥½l‰Ñ…É•Ñ}•™™•ÑÌ‰t°(€€€€€€€€€€€€‰¹½¹é•É½}•™™•ÑÌˆè¹½¹é•É½}•™™•ÑÌ°(€€€€€€€€€€€€‰Õ¹•áÁ•Ñ•‘}•™™•ÑÌˆèÕ¹•áÁ•Ñ•‘}•™™•ÑÌ°(€€€€€€€€€€€€‰É•Í¥‘Õ…°ˆèÉ•Í¥‘Õ…°°(€€€€€€€€€€€€‰¥‘•¹Ñ¥Ñå}‘•±Ñ„ˆè€ (€€€€€€€€€€€€€€€½µÁ…É¥Í½¹}É•ÍÕ±Ñl‰•™™•ÑÍ}Ñ½Ñ…°‰t€¬É•Í¥‘Õ…°(€€€€€€€€€€€€€€€€´½µÁ…É¥Í½¹}É•ÍÕ±Ñl‰½Á•É…Ñ¥¹}ÁÉ½™¥Ñ}‘•±Ñ„‰t(€€€€€€€€€€€€¤°(€€€€€€€€€€€€‰±…ÍÍ¥™¥…Ñ¥½¸ˆè±…ÍÍ¥™¥…Ñ¥½¸°(€€€€€€€€€€€€‰É•Í¥‘Õ…±}…ÕÍ”ˆè…ÕÍ”°(€€€€€€€ô¤(€€€É•ÑÕÉ¸ì‰µ½¹Ñ ˆèµ½¹Ñ °€‰Í•¹…É¥½ÌˆèÉ•½É‘Íô(()‘•˜Ù…±¥‘…Ñ•}•á•±}…±Õ±…Ñ•‘}Á…¥È (€€€‰…Í•}Á…Ñ èA…Ñ ğ9½¹”°(€€€½µÁ…É¥Í½¹}Á…Ñ èA…Ñ ğ9½¹”°(€€€µ…ÁÁ¥¹}Á…Ñ èA…Ñ °(€€€€¨°(€€€µ½¹Ñ è¥¹Ğ€ô€Ü°(¤€´ø‘¥ÑmÍÑÈ°¹åtè(€€€€ˆˆ‰I•…µ½¹±ä…•ÁÑ…¹”…Ñ”™½ÈÑİ¼İ½É­‰½½­Ì…±Õ±…Ñ•…¹Í…Ù•‰äá•°¸ˆˆˆ(€€€¥˜€ (€€€€€€€‰…Í•}Á…Ñ ¥Ì9½¹”(€€€€€€€½È½µÁ…É¥Í½¹}Á…Ñ ¥Ì9½¹”(€€€€€€€½È¹½Ğ‰…Í•}Á…Ñ ¹¥Í}™¥±” ¤(€€€€€€€½È¹½Ğ½µÁ…É¥Í½¹}Á…Ñ ¹¥Í}™¥±” ¤(€€€€¤è(€€€€€€€É•ÑÕÉ¸ì(€€€€€€€€€€€€‰µ½‘”ˆè€‰•á•±}…±Õ±…Ñ•‘}Á…¥Èˆ°(€€€€€€€€€€€€‰ÍÑ…ÑÕÌˆè€‰	1=-}9=}a1}1U1Q}A%Hˆ°(€€€€€€€€€€€€‰‰…Í”ˆèÍÑÈ¡‰…Í•}Á…Ñ ¤¥˜‰…Í•}Á…Ñ •±Í”9½¹”°(€€€€€€€€€€€€‰½µÁ…É¥Í½¸ˆèÍÑÈ¡½µÁ…É¥Í½¹}Á…Ñ ¤¥˜½µÁ…É¥Í½¹}Á…Ñ •±Í”9½¹”°(€€€€€€€ô((€€€É•Á½ÉĞ€ôÙ…±¥‘…Ñ•}Á…¥È¡‰…Í•}Á…Ñ °½µÁ…É¥Í½¹}Á…Ñ °µ…ÁÁ¥¹}Á…Ñ °µ½¹Ñ õµ½¹Ñ ¤(€€€™½ÉµÕ±„€ôÉ•Á½ÉÑl‰™½ÉµÕ±…}•Ù…±Õ…Ñ¥½¸‰t(€€€±½ÍÕÉ•Ì€ôì(€€€€€€€€‰‰…Í”ˆè™½ÉµÕ±…l‰‰…Í•}Á¹±}™Õ±±}‘•Á•¹‘•¹ä‰t°(€€€€€€€€‰½µÁ…É¥Í½¸ˆè™½ÉµÕ±…l‰½µÁ…É¥Í½¹}Á¹±}™Õ±±}‘•Á•¹‘•¹ä‰t°(€€€ô(€€€µ…ÁÁ¥¹œ€ô©Í½¸¹±½…‘Ì¡µ…ÁÁ¥¹}Á…Ñ ¹É•…‘}Ñ•áĞ¡•¹½‘¥¹œô‰ÕÑ˜´àˆ¤¤(€€€½±Õµ¸€ô5=9Q!}=1U59Mmµ½¹Ñ¡t(€€€½É•}½ÕÑÁÕÑÌ€ôì(€€€€€€€¹…µ”è˜‰í½±Õµ¹õíÉ½İôˆ(€€€€€€€™½È¹…µ”°É½Ü¥¸µ…ÁÁ¥¹l‰½µÁ…É¥Í½¸‰ul‰Á¹±}É½İÌ‰t¹¥Ñ•µÌ ¤(€€€ô(€€€™É•Í¡¹•ÍÌ€ôì(€€€€€€€Í¥‘”èì(€€€€€€€€€€€€‰…¡•‘}™…±±‰…­}½Õ¹Ğˆè±½ÍÕÉ•l‰…¡•‘}™…±±‰…­}½Õ¹Ğ‰t°(€€€€€€€€€€€€‰…¡•‘}¹Õµ•É¥}µ¥Íµ…Ñ¡}½Õ¹Ğˆè±½ÍÕÉ•l‰…¡•‘}¹Õµ•É¥}µ¥Íµ…Ñ¡}½Õ¹Ğ‰t°(€€€€€€€€€€€€‰™…±±‰…­}•±±Ìˆè±½ÍÕÉ•l‰™…±±‰…­}•±±Ì‰t°(€€€€€€€€€€€€‰…¡•‘}µ¥Íµ…Ñ¡}•±±Ìˆè±½ÍÕÉ•l‰…¡•‘}µ¥Íµ…Ñ¡}•±±Ì‰t°(€€€€€€€€€€€€‰½É•}½ÕÑÁÕÑÌˆè½É•}½ÕÑÁÕÑÌ°(€€€€€€€€€€€€‰½É•}½ÕÑÁÕÑ}¥ÍÍÕ•}•±±ÌˆèÍ½ÉÑ• (€€€€€€€€€€€€€€€Í•Ğ¡½É•}½ÕÑÁÕÑÌ¹Ù…±Õ•Ì ¤¤(€€€€€€€€€€€€€€€€˜€¡Í•Ğ¡±½ÍÕÉ•l‰™…±±‰…­}•±±Ì‰t¤ğÍ•Ğ¡±½ÍÕÉ•l‰…¡•‘}µ¥Íµ…Ñ¡}•±±Ì‰t¤¤(€€€€€€€€€€€€¤°(€€€€€€€€€€€€‰ÍÑ…ÑÕÌˆè€ (€€€€€€€€€€€€€€€€‰AMLˆ(€€€€€€€€€€€€€€€¥˜±½ÍÕÉ•l‰…¡•‘}™…±±‰…­}½Õ¹Ğ‰t€ôô€À(€€€€€€€€€€€€€€€…¹±½ÍÕÉ•l‰…¡•‘}¹Õµ•É¥}µ¥Íµ…Ñ¡}½Õ¹Ğ‰t€ôô€À(€€€€€€€€€€€€€€€•±Í”€‰!,ˆ(€€€€€€€€€€€€¤°(€€€€€€€ô(€€€€€€€™½ÈÍ¥‘”°±½ÍÕÉ”¥¸±½ÍÕÉ•Ì¹¥Ñ•µÌ ¤(€€€ô(€€€Í½ÕÉ•}¡•­Ì€ômÉ½Ü™½ÈÉ½Ü¥¸É•Á½ÉÑl‰¡•­Ì‰t¥˜É½İl‰ÍÑ…ÑÕÌ‰t€ôô€‰!,‰t(€€€±•Ù•±|Ä€ô€‰AMLˆ¥˜¹½ĞÍ½ÕÉ•}¡•­Ì•±Í”€‰!,ˆ(€€€±•Ù•±|È€ô€‰AMLˆ¥˜…±°¡É½İl‰ÍÑ…ÑÕÌ‰t€ôô€‰AMLˆ™½ÈÉ½Ü¥¸™É•Í¡¹•ÍÌ¹Ù…±Õ•Ì ¤¤•±Í”€‰!,ˆ(€€€É•ÍÕ±Ğ€ôÉ•Á½ÉÑl‰½µÁ…É¥Í½¹}É•ÍÕ±Ğ‰t(€€€±•Ù•±|Ì€ô€‰AMLˆ¥˜É•ÍÕ±Ñl‰É•½¹¥±•‰t•±Í”€‰!,ˆ(€€€É•Á½ÉÑl‰•á•±}Á…¥É}…•ÁÑ…¹”‰t€ôì(€€€€€€€€‰µ½‘”ˆè€‰•á•±}…±Õ±…Ñ•‘}Á…¥Èˆ°(€€€€€€€€‰É•…‘}½¹±äˆèQÉÕ”°(€€€€€€€€‰…¡•‘}™É•Í¡¹•ÍÌˆè™É•Í¡¹•ÍÌ°(€€€€€€€€‰±•Ù•±|Å}…±Õ±…Ñ¥½¹}¥‘•¹Ñ¥Ñäˆè±•Ù•±|Ä°(€€€€€€€€‰±•Ù•±|É}İ½É­‰½½­}ÁÉ½Á……Ñ¥½¸ˆè±•Ù•±|È°(€€€€€€€€‰±•Ù•±|Í}½Á}‰É¥‘•}½µÁ±•Ñ•¹•ÍÌˆè±•Ù•±|Ì°(€€€€€€€€‰½Á•É…Ñ¥¹}ÁÉ½™¥Ñ}‘•±Ñ„ˆèÉ•ÍÕ±Ñl‰½Á•É…Ñ¥¹}ÁÉ½™¥Ñ}‘•±Ñ„‰t°(€€€€€€€€‰•™™•ÑÍ}Ñ½Ñ…°ˆèÉ•ÍÕ±Ñl‰•™™•ÑÍ}Ñ½Ñ…°‰t°(€€€€€€€€‰É•Í¥‘Õ…°ˆèÉ•ÍÕ±Ñl‰É•Í¥‘Õ…°‰t°(€€€€€€€€‰É•Í¥‘Õ…±}É…Ñ¥¼ˆèÉ•Á½ÉÑl‰É•Í¥‘Õ…±}…¹…±åÍ¥Ì‰ul‰É…Ñ¥½}Ñ½}½Á•É…Ñ¥¹}ÁÉ½™¥Ñ}‘•±Ñ„‰t°(€€€€€€€€‰Í½ÕÉ•}±•Ù•±}¡•­ÌˆèÍ½ÕÉ•}¡•­Ì°(€€€€€€€€‰ÍÑ…ÑÕÌˆè€‰AMLˆ¥˜€¡±•Ù•±|Ä°±•Ù•±|È°±•Ù•±|Ì¤€ôô€ ‰AMLˆ°€‰AMLˆ°€‰AMLˆ¤•±Í”€‰!,ˆ°(€€€ô(€€€É•ÑÕÉ¸É•Á½ÉĞ(()‘•˜µ…¥¸ ¤€´ø¥¹Ğè(€€€Á…ÉÍ•È€ô…ÉÁ…ÉÍ”¹ÉÕµ•¹ÑA…ÉÍ•È ¤(€€€Á…ÉÍ•È¹…‘‘}…ÉÕµ•¹Ğ ˆ´µ‰…Í”ˆ°ÑåÁ”õA…Ñ ¤(€€€Á…ÉÍ•È¹…‘‘}…ÉÕµ•¹Ğ ˆ´µ½µÁ…É¥Í½¸ˆ°ÑåÁ”õA…Ñ ¤(€€€Á…ÉÍ•È¹…‘‘}…ÉÕµ•¹Ğ ˆ´µµ…ÁÁ¥¹œˆ°ÑåÁ”õA…Ñ °‘•™…Õ±ĞõA…Ñ  ‰½¹™¥œ½µ½‘•±}µ…ÁÁ¥¹œ¹©Í½¸ˆ¤¤(€€€Á…ÉÍ•È¹…‘‘}…ÉÕµ•¹Ğ ˆ´µ•¹•É…Ñ”µ½µÁ…É¥Í½¸ˆ°…Ñ¥½¸ô‰ÍÑ½É•}ÑÉÕ”ˆ¤(€€€Á…ÉÍ•È¹…‘‘}…ÉÕµ•¹Ğ ˆ´µ•á•°µ…±Õ±…Ñ•µÁ…¥Èˆ°…Ñ¥½¸ô‰ÍÑ½É•}ÑÉÕ”ˆ¤(€€€Á…ÉÍ•È¹…‘‘}…ÉÕµ•¹Ğ ˆ´µ½ÕÑÁÕĞˆ°ÑåÁ”õA…Ñ ¤(€€€…ÉÌ€ôÁ…ÉÍ•È¹Á…ÉÍ•}…ÉÌ ¤(€€€¥˜…ÉÌ¹•á•±}…±Õ±…Ñ•‘}Á…¥Èè(€€€€€€€É•Á½ÉĞ€ôÙ…±¥‘…Ñ•}•á•±}…±Õ±…Ñ•‘}Á…¥È¡…ÉÌ¹‰…Í”°…ÉÌ¹½µÁ…É¥Í½¸°…ÉÌ¹µ…ÁÁ¥¹œ¤(€€€•±Í”è(€€€€€€€¥˜…ÉÌ¹‰…Í”¥Ì9½¹”½È…ÉÌ¹½µÁ…É¥Í½¸¥Ì9½¹”è(€€€€€€€€€€€Á…ÉÍ•È¹•ÉÉ½È ˆ´µ‰…Í”…¹€´µ½µÁ…É¥Í½¸…É”É•ÅÕ¥É•½ÕÑÍ¥‘”Á…¥Èµ‰±½­•È¡•­Ìˆ¤(€€€€€€€¥˜…ÉÌ¹•¹•É…Ñ•}½µÁ…É¥Í½¸è(€€€€€€€€€€€…ÉÌ¹½µÁ…É¥Í½¸¹Á…É•¹Ğ¹µ­‘¥È¡Á…É•¹ÑÌõQÉÕ”°•á¥ÍÑ}½¬õQÉÕ”¤(€€€€€€€€€€€‰Õ¥±‘}½µÁ…É¥Í½¸¡…ÉÌ¹‰…Í”°…ÉÌ¹½µÁ…É¥Í½¸°…ÉÌ¹µ…ÁÁ¥¹œ¤(€€€€€€€É•Á½ÉĞ€ôÙ…±¥‘…Ñ•}Á…¥È¡…ÉÌ¹‰…Í”°…ÉÌ¹½µÁ…É¥Í½¸°…ÉÌ¹µ…ÁÁ¥¹œ¤(€€€É•¹‘•É•€ô©Í½¸¹‘ÕµÁÌ¡É•Á½ÉĞ°•¹ÍÕÉ•}…Í¥¤õ…±Í”°¥¹‘•¹ĞôÈ°‘•™…Õ±ĞõÍÑÈ¤(€€€¥˜…ÉÌ¹½ÕÑÁÕĞè(€€€€€€€…ÉÌ¹½ÕÑÁÕĞ¹Á…É•¹Ğ¹µ­‘¥È¡Á…É•¹ÑÌõQÉÕ”°•á¥ÍÑ}½¬õQÉÕ”¤(€€€€€€€…ÉÌ¹½ÕÑÁÕĞ¹İÉ¥Ñ•}Ñ•áĞ¡É•¹‘•É•°•¹½‘¥¹œô‰ÕÑ˜´àˆ¤(€€€•±Í”è(€€€€€€€ÁÉ¥¹Ğ¡É•¹‘•É•¤(€€€É•ÑÕÉ¸€À(()¥˜}}¹…µ•}|€ôô€‰}}µ…¥¹}|ˆè(€€€É…¥Í”MåÍÑ•µá¥Ğ¡µ…¥¸ ¤¤(
