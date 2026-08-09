@@ -546,7 +546,7 @@ except StorageError:
     plan_blob = None
 if plan_blob:
     try:
-        df_p = read_workbook(plan_blob)
+        df_p = read_workbook(plan_blob, scenario_type="Plan")
         qty_sw_p = safe_extract('SW수량입력', df_p, 'qty'); qty_bw_p = safe_extract('BW수량입력', df_p, 'qty')
         qty_ls_p = safe_extract('LS수량입력', df_p, 'qty'); qty_fs_p = safe_extract('FS수량입력', df_p, 'qty')
         price_sw_p = safe_extract('SW단가입력', df_p, 'qty'); price_bw_p = safe_extract('BW단가입력', df_p, 'qty')
@@ -599,7 +599,7 @@ except StorageError:
     actual_blob = None
 if actual_blob:
     try:
-        df_a = read_workbook(actual_blob)
+        df_a = read_workbook(actual_blob, scenario_type="Actual")
         qty_sw_a = safe_extract('SW수량입력', df_a, 'qty'); qty_bw_a = safe_extract('BW수량입력', df_a, 'qty')
         qty_ls_a = safe_extract('LS수량입력', df_a, 'qty'); qty_fs_a = safe_extract('FS수량입력', df_a, 'qty')
         price_sw_a = safe_extract('SW단가입력', df_a, 'qty'); price_bw_a = safe_extract('BW단가입력', df_a, 'qty')
