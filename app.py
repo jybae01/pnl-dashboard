@@ -296,17 +296,18 @@ def render_centered_period_selectors(months, start_key, end_key):
     # 기간 설정 그룹 전체가 중앙의 기간 비교 표와 수평 중심을 맞추도록 배치한다.
     _, selector_area, _ = st.columns([0.9, 1, 1.1], gap="small")
     with selector_area:
-        selector_cols = st.columns([1.25, 0.75, 0.15, 0.75, 0.55], gap="small")
-    with selector_cols[0]:
-        st.markdown("<div style='text-align: right; font-weight: 600; margin-top: 7px; white-space: nowrap;'>기간 설정 :</div>", unsafe_allow_html=True)
-    with selector_cols[1]:
-        st.selectbox("시작월", months, key=start_key, label_visibility="collapsed")
-    with selector_cols[2]:
-        st.markdown("<div style='text-align: center; font-weight: bold; margin-top: 5px; font-size: 16px; color: #4B5563;'>~</div>", unsafe_allow_html=True)
-    with selector_cols[3]:
-        st.selectbox("종료월", months, key=end_key, label_visibility="collapsed")
-    with selector_cols[4]:
-        query_clicked = st.button("조회", key=f"{start_key}_query", use_container_width=True)
+        with st.form(f"{start_key}_{end_key}_period_form", border=False):
+            selector_cols = st.columns([1.25, 0.75, 0.15, 0.75, 0.7], gap="small")
+            with selector_cols[0]:
+                st.markdown("<div style='text-align: right; font-weight: 600; margin-top: 7px; white-space: nowrap;'>기간 설정 :</div>", unsafe_allow_html=True)
+            with selector_cols[1]:
+                st.selectbox("시작월", months, key=start_key, label_visibility="collapsed")
+            with selector_cols[2]:
+                st.markdown("<div style='text-align: center; font-weight: bold; margin-top: 5px; font-size: 16px; color: #4B5563;'>~</div>", unsafe_allow_html=True)
+            with selector_cols[3]:
+                st.selectbox("종료월", months, key=end_key, label_visibility="collapsed")
+            with selector_cols[4]:
+                query_clicked = st.form_submit_button("조회하기", use_container_width=True)
 
     if query_clicked:
         result = apply_draft_period(st.session_state, months, start_key, end_key)
