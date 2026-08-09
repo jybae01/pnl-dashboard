@@ -316,6 +316,7 @@ class GoldenAnalysisAdapter:
                 product_cogs=self._number(workbook.value(f"{column}{spec['cogs_row']}")),
                 sales_fx=float(sales_fx) if sales_fx else 1.0,
                 jpy_fx_krw_per_jpy=jpy,
+                material_applicable_flag=False,
             ))
         return records
 

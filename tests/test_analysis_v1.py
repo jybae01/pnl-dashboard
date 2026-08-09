@@ -341,6 +341,47 @@ class McmMaterialIntegrationTest(unittest.TestCase):
         self.assertNotIn("MCM", final.narrative)
 
 
+class MaterialApplicabilityTest(unittest.TestCase):
+    def test_sales_only_group_does_not_raise_material_denominator_issue(self):
+        base = scenario("base", products=[
+            ProductRecord(
+                "2026-07", "NEW_SALES", "신사업", sales_qty=10,
+                sales_amount=100, material_applicable_flag=False,
+            ),
+        ])
+        comp = scenario("comp", products=[
+            ProductRecord(
+                "2026-07", "NEW_SALES", "신사업", sales_qty=20,
+                sales_amount=250, material_applicable_flag=False,
+            ),
+        ])
+
+        result = calculate_material_effects(base, comp)
+
+        self.assertEqual(result.total, 0.0)
+        self.assertEqual(result.issues, [])
+        self.assertNotIn("신사업", result.by_product_group)
+
+    def test_material_group_still_reports_missing_production_denominator(self):
+        base = scenario("base", products=[
+            ProductRecord(
+                "2026-07", "SW", "SW", sales_qty=10,
+                raw_material_cost=100,
+            ),
+        ])
+        comp = scenario("comp", products=[
+            ProductRecord(
+                "2026-07", "SW", "SW", sales_qty=20,
+                raw_material_cost=120,
+            ),
+        ])
+
+        result = calculate_material_effects(base, comp)
+
+        self.assertEqual(result.total, 0.0)
+        self.assertTrue(any("SW: 원부재료 생산출고 분모가 0임" in issue for issue in result.issues))
+
+
 class SgaAndEngineTest(unittest.TestCase):
     def test_sga_excludes_transport_and_separates_variable_accounts(self):
         config = AnalysisConfig.load(CONFIG)

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import re
 import zipfile
+from numbers import Real
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any, Iterable, Mapping
@@ -11,6 +12,7 @@ from .workbook import extract_period_types, infer_workbook_year
 
 _SPACE = re.compile(r"\s+")
 _ALLOWED_PERIOD_TYPES = {"실적", "추정", "계획"}
+_MONTH_HEADER = re.compile(r"(?<!\d)(\d{1,2})\s*월")
 
 
 def _normalized(value: Any) -> str:
@@ -32,6 +34,13 @@ class AnchorBlockSpec:
     start: AnchorSpec
     stop: AnchorSpec
     mapped_rows: tuple[int, ...]
+
+
+@dataclass(frozen=True)
+class NumericRowSpec:
+    code: str
+    rows: tuple[int, ...]
+    allow_blank: bool = False
 
 
 @dataclass(frozen=True)
@@ -86,49 +95,50 @@ class ExcelPreflightValidator:
         *,
         anchors: Iterable[AnchorSpec] | None = None,
         blocks: Iterable[AnchorBlockSpec] | None = None,
+        numeric_rows: Iterable[NumericRowSpec] | None = None,
     ):
         self.mapping = dict(mapping)
         discovery = self.mapping.get("analysis_adapter", {}).get("account_discovery", {})
         default_anchors = (
             AnchorSpec(
                 "front_raw_material_total",
-                ("전공정 원재료 합계", "전공정원재료합계"),
+                ("전공정 원재료 합계", "전공정원재료합계", "생산출고 계"),
                 int(self.mapping.get("analysis_adapter", {}).get("material", {})
                     .get("front_process", {}).get("total_amount_row", 211)),
-                tolerance=3,
+                tolerance=0,
             ),
             AnchorSpec(
                 "back_raw_material_total",
-                ("후공정 원재료 합계", "후공정원재료합계"),
+                ("후공정 원재료 합계", "후공정원재료합계", "생산출고 계"),
                 int(self.mapping.get("analysis_adapter", {}).get("material", {})
                     .get("back_process", {}).get("total_amount_row", 699)),
-                tolerance=3,
+                tolerance=0,
             ),
             AnchorSpec(
                 "manufacturing_start",
                 (str(discovery.get("manufacturing_start_marker") or "★제조경비 명세서_입력"),),
-                289,
-                tolerance=8,
+                287,
+                tolerance=0,
             ),
             AnchorSpec(
                 "manufacturing_stop",
                 (str(discovery.get("manufacturing_stop_marker") or "*제조원가 변동비/고정비 비율"),),
-                320,
-                tolerance=12,
+                321,
+                tolerance=0,
             ),
             AnchorSpec(
                 "sga_start",
                 (str(discovery.get("sga_start_marker") or "★판매관리비 관리 명세서"),),
-                1167,
-                tolerance=8,
+                1166,
+                tolerance=0,
             ),
             AnchorSpec(
                 "sga_stop",
                 (str(discovery.get("sga_stop_marker") or "★손익계산서"),),
-                1247,
-                tolerance=12,
+                1244,
+                tolerance=0,
             ),
-            AnchorSpec("operating_profit", ("영업이익",), 1306, tolerance=3),
+            AnchorSpec("operating_profit", ("영업이익",), 1306, tolerance=0),
         )
         self.anchors = tuple(anchors or default_anchors)
         by_code = {item.code: item for item in self.anchors}
@@ -148,6 +158,39 @@ class ExcelPreflightValidator:
                 tuple(int(row) for row in self.mapping.get("sga_input_rows", ())),
             ),)
         self.blocks = tuple(blocks or default_blocks)
+        adapter = self.mapping.get("analysis_adapter", {})
+        material = adapter.get("material", {})
+        manufacturing = adapter.get("manufacturing", {})
+        comparison = self.mapping.get("comparison", {})
+        sales_groups = comparison.get("sales_groups", {})
+        pnl_rows = comparison.get("pnl_rows", {})
+        default_numeric_rows = (
+            NumericRowSpec("jpy_fx", (int(material.get("jpy_fx_row", 9)),)),
+            NumericRowSpec("front_raw_material", tuple(range(205, 212))),
+            NumericRowSpec("manufacturing_accounts", tuple(
+                int(row) for row in self.mapping.get("manufacturing_input_rows", ())
+            )),
+            NumericRowSpec("front_allocation_ratios", tuple(
+                int(row) for row in manufacturing.get("front_ratio_rows", {}).values()
+            )),
+            NumericRowSpec("production", tuple(
+                int(row) for row in self.mapping.get("production", {}).values()
+            )),
+            NumericRowSpec("mcm", tuple(
+                int(row) for row in self.mapping.get("mcm", {}).values()
+            ), allow_blank=True),
+            NumericRowSpec("back_raw_material", tuple(range(684, 700))),
+            NumericRowSpec("sales_sources", tuple(sorted({
+                int(spec[key])
+                for spec in sales_groups.values()
+                for key in ("quantity_row", "amount_row", "cogs_row")
+                if key in spec
+            }))),
+            NumericRowSpec("pnl_sources", tuple(sorted(
+                int(row) for row in pnl_rows.values()
+            ))),
+        )
+        self.numeric_rows = tuple(numeric_rows or default_numeric_rows)
 
     def validate(
         self,
@@ -176,7 +219,10 @@ class ExcelPreflightValidator:
         try:
             from openpyxl import load_workbook
 
-            workbook = load_workbook(source, read_only=True, data_only=False)
+            # Structural validation performs many targeted random reads.  A
+            # normal worksheet is materially faster than ReadOnlyWorksheet,
+            # which replays the XML stream for every random cell access.
+            workbook = load_workbook(source, read_only=False, data_only=False)
         except Exception as exc:
             report.issues.append(PreflightIssue(
                 "workbook_open_failed", "워크북을 열 수 없습니다.", observed=str(exc)
@@ -192,6 +238,7 @@ class ExcelPreflightValidator:
                 report.issues = issues
                 return report
             sheet = workbook[data_name]
+            self._validate_month_columns(sheet, issues)
             found: dict[str, int] = {}
             for spec in self.anchors:
                 row = self._find_anchor(sheet, spec)
@@ -237,6 +284,18 @@ class ExcelPreflightValidator:
                     ))
 
             report.period_types = extract_period_types(source)
+            missing_periods = [
+                month for month in range(1, 13)
+                if not str(report.period_types.get(str(month), "")).strip()
+            ]
+            if missing_periods:
+                issues.append(PreflightIssue(
+                    "period_type_missing",
+                    "1~12월의 실적/추정/계획 구분이 모두 필요합니다.",
+                    expected=list(range(1, 13)),
+                    observed=missing_periods,
+                    location="Data!E3:P3",
+                ))
             invalid_periods = {
                 month: value for month, value in report.period_types.items()
                 if value and value not in _ALLOWED_PERIOD_TYPES
@@ -248,6 +307,8 @@ class ExcelPreflightValidator:
                     observed=invalid_periods,
                     location="Data!E3:P3",
                 ))
+
+            self._validate_numeric_sources(sheet, issues)
 
             report.workbook_year = infer_workbook_year(source, fallback_year=expected_year)
             if expected_year is not None and report.workbook_year != int(expected_year):
@@ -281,3 +342,51 @@ class ExcelPreflightValidator:
                 if value and any(label == value or label in value for label in labels):
                     return row
         return None
+
+    @staticmethod
+    def _validate_month_columns(sheet: Any, issues: list[PreflightIssue]) -> None:
+        observed: list[int | None] = []
+        for column_index in range(5, 17):
+            value = str(sheet.cell(2, column_index).value or "").strip()
+            match = _MONTH_HEADER.search(value)
+            observed.append(int(match.group(1)) if match else None)
+        expected = list(range(1, 13))
+        if observed != expected:
+            issues.append(PreflightIssue(
+                "month_header_invalid",
+                "Data 시트의 E~P 열은 1월부터 12월까지 순서대로 있어야 합니다.",
+                expected=expected,
+                observed=observed,
+                location="Data!E2:P2",
+            ))
+
+    def _validate_numeric_sources(
+        self,
+        sheet: Any,
+        issues: list[PreflightIssue],
+    ) -> None:
+        for spec in self.numeric_rows:
+            invalid: list[str] = []
+            for row in spec.rows:
+                valid_in_row = 0
+                for column_index in range(5, 17):
+                    cell = sheet.cell(row, column_index)
+                    value = cell.value
+                    if value in (None, ""):
+                        continue
+                    is_formula = isinstance(value, str) and value.startswith("=")
+                    is_number = isinstance(value, Real) and not isinstance(value, bool)
+                    if is_formula or is_number:
+                        valid_in_row += 1
+                    else:
+                        invalid.append(cell.coordinate)
+                if not spec.allow_blank and valid_in_row == 0:
+                    invalid.append(f"E{row}:P{row} (all blank)")
+            if invalid:
+                issues.append(PreflightIssue(
+                    "source_cell_not_numeric",
+                    f"필수 원천셀은 숫자 또는 수식이어야 합니다: {spec.code}",
+                    expected="number or formula",
+                    observed=invalid[:30],
+                    location=f"Data rows {','.join(str(row) for row in spec.rows)}",
+                ))

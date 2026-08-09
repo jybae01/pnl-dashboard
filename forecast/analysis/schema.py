@@ -40,6 +40,7 @@ class ProductRecord:
     mcm_issue_amount: float = 0.0
     mcm_product_group: str = ""
     outsourcing_eligible_flag: bool = True
+    material_applicable_flag: bool = True
 
     @property
     def sales_basis(self) -> float:

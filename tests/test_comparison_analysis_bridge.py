@@ -47,9 +47,13 @@ class ComparisonAnalysisBridgeTests(unittest.TestCase):
             result.operating_profit_delta,
         )
         self.assertIn("mix_effect", result.sales_analysis["totals"])
-        self.assertIn(
+        self.assertNotIn(
             "신사업",
             [row["product_group"] for row in result.material_analysis["product_groups"]],
+        )
+        self.assertIn(
+            "신사업",
+            [row["product_group"] for row in result.sales_groups],
         )
 
     def test_direct_tariff_is_not_double_counted_in_sga_bridge(self):

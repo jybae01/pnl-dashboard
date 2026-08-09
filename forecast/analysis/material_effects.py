@@ -30,7 +30,12 @@ class MaterialEffects:
 
 
 def _group_rows(scenario: AnalysisScenario, month: str, group: str) -> list[ProductRecord]:
-    return [row for row in scenario.products if row.year_month == month and row.product_group == group]
+    return [
+        row for row in scenario.products
+        if row.year_month == month
+        and row.product_group == group
+        and row.material_applicable_flag
+    ]
 
 
 def calculate_material_effects(base: AnalysisScenario, comparison: AnalysisScenario) -> MaterialEffects:
@@ -38,8 +43,8 @@ def calculate_material_effects(base: AnalysisScenario, comparison: AnalysisScena
     months = sorted(set(base.months) & set(comparison.months))
     for month in months:
         groups = sorted(
-            {row.product_group for row in base.products if row.year_month == month}
-            | {row.product_group for row in comparison.products if row.year_month == month}
+            {row.product_group for row in base.products if row.year_month == month and row.material_applicable_flag}
+            | {row.product_group for row in comparison.products if row.year_month == month and row.material_applicable_flag}
             | {row.mcm_product_group for row in base.products if row.year_month == month and row.mcm_product_group}
             | {row.mcm_product_group for row in comparison.products if row.year_month == month and row.mcm_product_group}
         )
