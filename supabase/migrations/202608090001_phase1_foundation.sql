@@ -1,3 +1,6 @@
+Exit code: 0
+Wall time: 1.1 seconds
+Output:
 -- P&L Dashboard Phase 1 persistence/control-plane foundation.
 -- Excel parsing and deterministic calculations intentionally do not run in SQL.
 
@@ -239,6 +242,55 @@ begin
 end;
 $$;
 
+create or replace function public.guard_model_storage_binding()
+returns trigger
+language plpgsql
+set search_path = public
+as $$
+begin
+    if new.workbook_bucket <> 'pnl-models'
+       or new.workbook_path <> format('models/%s/source.xlsx', new.id) then
+        raise exception 'model workbook must use its canonical private Storage path';
+    end if;
+    return new;
+end;
+$$;
+
+create or replace function public.guard_job_storage_binding()
+returns trigger
+language plpgsql
+set search_path = public
+as $$
+begin
+    if new.storage_bucket <> 'pnl-models'
+       or new.storage_path <> format('models/%s/source.xlsx', new.model_id) then
+        raise exception 'calculation job must reference its model source workbook';
+    end if;
+    return new;
+end;
+$$;
+
+create or replace function public.guard_result_storage_binding()
+returns trigger
+language plpgsql
+set search_path = public
+as $$
+begin
+    if new.workbook_bucket is null and new.workbook_path is null then
+        return new;
+    end if;
+    if new.workbook_bucket is null
+       or new.workbook_path is null
+       or new.workbook_bucket <> 'pnl-models'
+       or new.workbook_path <> format(
+            'models/%s/jobs/%s/result.xlsx', new.model_id, new.job_id
+       ) then
+        raise exception 'calculation result must use its canonical job Storage path';
+    end if;
+    return new;
+end;
+$$;
+
 create or replace function public.guard_job_status_transition()
 returns trigger
 language plpgsql
@@ -323,6 +375,24 @@ begin
 end;
 $$;
 
+create or replace function public.guard_app_config_insert()
+returns trigger
+language plpgsql
+set search_path = public
+as $$
+begin
+    if new.status <> 'draft'
+       or new.is_default
+       or new.validated_at is not null
+       or new.published_at is not null
+       or new.validated_by is not null
+       or new.published_by is not null then
+        raise exception 'mapping config must be created as a draft';
+    end if;
+    return new;
+end;
+$$;
+
 create or replace function public.append_row_audit_log()
 returns trigger
 language plpgsql
@@ -362,6 +432,10 @@ drop trigger if exists models_sync_publication on public.models;
 create trigger models_sync_publication
 before insert or update of confirmed, is_published, is_default on public.models
 for each row execute function public.sync_model_publication_flags();
+drop trigger if exists models_guard_storage_binding on public.models;
+create trigger models_guard_storage_binding
+before insert or update of id, workbook_bucket, workbook_path on public.models
+for each row execute function public.guard_model_storage_binding();
 
 drop trigger if exists models_updated_at on public.models;
 create trigger models_updated_at before update on public.models
@@ -381,14 +455,27 @@ drop trigger if exists calculation_jobs_guard_immutable on public.calculation_jo
 create trigger calculation_jobs_guard_immutable
 before update on public.calculation_jobs
 for each row execute function public.guard_job_immutable_fields();
+drop trigger if exists calculation_jobs_guard_storage_binding on public.calculation_jobs;
+create trigger calculation_jobs_guard_storage_binding
+before insert or update of model_id, storage_bucket, storage_path on public.calculation_jobs
+for each row execute function public.guard_job_storage_binding();
 drop trigger if exists calculation_results_guard_immutable on public.calculation_results;
 create trigger calculation_results_guard_immutable
 before update on public.calculation_results
 for each row execute function public.guard_calculation_result_fields();
+drop trigger if exists calculation_results_guard_storage_binding on public.calculation_results;
+create trigger calculation_results_guard_storage_binding
+before insert or update of job_id, model_id, workbook_bucket, workbook_path
+on public.calculation_results
+for each row execute function public.guard_result_storage_binding();
 drop trigger if exists app_config_guard_transition on public.app_config;
 create trigger app_config_guard_transition
 before update on public.app_config
 for each row execute function public.guard_app_config_transition();
+drop trigger if exists app_config_guard_insert on public.app_config;
+create trigger app_config_guard_insert
+before insert on public.app_config
+for each row execute function public.guard_app_config_insert();
 
 drop trigger if exists models_audit on public.models;
 create trigger models_audit after insert or update or delete on public.models
@@ -531,6 +618,16 @@ declare
 begin
     if not public.is_valid_pnl_storage_path(p_storage_path, 'source') then
         raise exception 'invalid source workbook path';
+    end if;
+    if not exists (
+        select 1
+          from public.app_config
+         where config_key = 'model_mapping'
+           and version = p_mapping_version
+           and content_hash = p_mapping_hash
+           and status = 'published'
+    ) then
+        raise exception 'mapping provenance is not published';
     end if;
     insert into public.models (
         id, name, model_type, model_year, created_date, version,
@@ -859,8 +956,14 @@ grant execute on function public.publish_app_config(text, text, boolean) to serv
 
 grant select on table public.models, public.calculation_jobs,
     public.calculation_results, public.app_config to authenticated;
-grant select, insert, update, delete on table public.models, public.calculation_jobs,
-    public.calculation_results, public.app_config to service_role;
+-- Trusted adapters may create source models, pending jobs and mapping drafts.
+-- All lifecycle mutations and result creation must go through the narrow
+-- SECURITY DEFINER RPCs above; direct UPDATE/DELETE would bypass immutability.
+revoke update, delete, truncate on table public.models, public.calculation_jobs,
+    public.calculation_results, public.app_config from service_role;
+grant select, insert on table public.models, public.calculation_jobs, public.app_config
+    to service_role;
+grant select on table public.calculation_results to service_role;
 
 -- Private object bucket. Only Edge/service-role code creates signed uploads.
 insert into storage.buckets (id, name, public, file_size_limit, allowed_mime_types)

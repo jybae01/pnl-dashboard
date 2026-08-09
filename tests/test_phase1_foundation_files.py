@@ -1,3 +1,6 @@
+Exit code: 0
+Wall time: 1.1 seconds
+Output:
 from __future__ import annotations
 
 import unittest
@@ -35,6 +38,28 @@ class Phase1FoundationFileTests(unittest.TestCase):
         self.assertIn("prevent_audit_log_mutation", self.sql)
         self.assertIn("before update or delete or truncate on public.audit_logs", self.sql)
         self.assertIn("revoke update, delete, truncate on table public.audit_logs", self.sql)
+
+    def test_storage_paths_are_bound_to_their_model_and_job_ids(self):
+        for guard in (
+            "guard_model_storage_binding",
+            "guard_job_storage_binding",
+            "guard_result_storage_binding",
+        ):
+            self.assertIn(guard, self.sql)
+        self.assertIn("models/%s/source.xlsx", self.sql)
+        self.assertIn("models/%s/jobs/%s/result.xlsx", self.sql)
+        self.assertIn("new.workbook_bucket is null and new.workbook_path is null", self.sql)
+        self.assertIn("if new.workbook_bucket is null", self.sql)
+
+    def test_service_role_writes_use_narrow_rpcs_and_mapping_starts_as_draft(self):
+        self.assertIn("guard_app_config_insert", self.sql)
+        self.assertIn("mapping config must be created as a draft", self.sql)
+        self.assertIn(
+            "revoke update, delete, truncate on table public.models, public.calculation_jobs",
+            self.sql,
+        )
+        self.assertIn("grant select on table public.calculation_results to service_role", self.sql)
+        self.assertIn("mapping provenance is not published", self.sql)
 
     def test_claim_complete_and_fail_are_guarded_rpc_contracts(self):
         for function in (
