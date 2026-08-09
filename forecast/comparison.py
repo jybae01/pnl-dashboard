@@ -40,6 +40,8 @@ class ComparisonResult:
     effects_total: float
     residual: float
     reconciled: bool
+    fx_total: float
+    raw_material_excl_fx: float
     narrative: str = ""
     mcm_transition: dict[str, Any] | None = None
     manufacturing_accounts: list[dict[str, Any]] = field(default_factory=list)
@@ -195,8 +197,13 @@ class GenericComparisonEngine:
                 **sales_analysis["totals"],
                 "quantity_effect": calculated_analysis_sales.quantity,
                 "mix_effect": calculated_analysis_sales.mix,
-                "pure_price_effect": calculated_analysis_sales.price,
+                "pure_price_effect": calculated_analysis_sales.displayed_price,
+                "displayed_sales_price_effect": calculated_analysis_sales.displayed_price,
+                "sales_price_effect": calculated_analysis_sales.price,
                 "sales_fx_effect": calculated_analysis_sales.sales_fx,
+                "transport_effect": calculated_analysis_sales.transport_effect,
+                "baseline_transport_ex_tariff": calculated_analysis_sales.base_transport_ex_tariff,
+                "comparison_transport_ex_tariff": calculated_analysis_sales.comparison_transport_ex_tariff,
                 "transport_quantity_effect": calculated_analysis_sales.transport_quantity,
                 "transport_unit_effect": calculated_analysis_sales.transport_unit,
                 "tariff_effect": calculated_analysis_sales.tariff,
@@ -226,7 +233,7 @@ class GenericComparisonEngine:
                 },
                 {
                     "code": "sales_price",
-                    "factor": "판매단가 효과(관세 제외 운반비 단가 포함)",
+                    "factor": "판매단가 효과(고객배송 운반비 효과 포함)",
                     "baseline": None,
                     "comparison": None,
                     "delta": None,
@@ -298,6 +305,12 @@ class GenericComparisonEngine:
                 target.get("cost_summary", {}),
             )
             manufacturing_analysis = {}
+        fx_total = float(sales_analysis.get("totals", {}).get("sales_fx_effect") or 0.0) + float(
+            material_analysis.get("nonwoven_jpy") or 0.0
+        )
+        raw_material_excl_fx = float(
+            material_analysis.get("nonwoven_price_ex_fx") or 0.0
+        ) + float(material_analysis.get("materials_ex_nonwoven") or 0.0)
         # Recompute the bridge after the adapter branch. Legacy payloads keep
         # their mapping-driven effects; real Golden Models use normalized V1
         # effects assembled above.
@@ -317,6 +330,8 @@ class GenericComparisonEngine:
             cost_summary=cost_summary,
             effects=effects, operating_profit_delta=op_delta, effects_total=effects_total,
             residual=residual, reconciled=abs(residual) <= tolerance,
+            fx_total=fx_total,
+            raw_material_excl_fx=raw_material_excl_fx,
             narrative=narrative,
             mcm_transition=None,
             manufacturing_accounts=manufacturing_accounts,

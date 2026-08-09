@@ -38,9 +38,23 @@ class CalculationJob:
     error_code: str | None = None
     error_message: str | None = None
     error_detail: dict[str, Any] = field(default_factory=dict)
+    analysis_request: dict[str, Any] = field(default_factory=dict)
+    queue_name: str = "calculation_jobs"
+    queue_message_id: int | None = None
+    queue_enqueued_at: str | None = None
+    queue_archived_at: str | None = None
     created_by: str | None = None
     created_at: str = ""
     updated_at: str = ""
+
+    @property
+    def provenance(self) -> ResultProvenance:
+        return ResultProvenance(
+            engine_version=self.engine_version,
+            mapping_version=self.mapping_version,
+            mapping_hash=self.mapping_hash,
+            result_schema_version=self.result_schema_version,
+        )
 
 
 @dataclass(frozen=True)
@@ -55,8 +69,21 @@ class CalculationResultWrite:
     provenance: ResultProvenance
     workbook_bucket: str | None = None
     workbook_path: str | None = None
+    # Deprecated compatibility inputs.  Queue repositories must ignore these;
+    # only the separate Admin publication capability may change visibility.
     publish: bool = False
     make_default: bool = False
+
+
+@runtime_checkable
+class ResultPublicationRepository(Protocol):
+    def set_publication(
+        self,
+        result_id: str,
+        *,
+        is_published: bool,
+        is_default: bool = False,
+    ) -> dict[str, Any]: ...
 
 
 @runtime_checkable
@@ -64,6 +91,13 @@ class ModelRepository(Protocol):
     def list(self) -> list[ModelMeta]: ...
 
     def get(self, model_id: str) -> ModelMeta: ...
+
+    def get_default(
+        self,
+        *,
+        year: int | None = None,
+        exclude_model_id: str | None = None,
+    ) -> ModelMeta: ...
 
     def path(self, model_id: str) -> Path: ...
 
@@ -83,6 +117,8 @@ class ResultRepository(Protocol):
     """Read side shared by local latest-result and Supabase result adapters."""
 
     def load(self) -> dict[str, Any] | None: ...
+
+    def load_completed(self) -> dict[str, Any] | None: ...
 
 
 @runtime_checkable
@@ -107,6 +143,7 @@ class CalculationJobQueue(Protocol):
         provenance: ResultProvenance,
         created_by: str | None = None,
         max_attempts: int = 3,
+        analysis_request: dict[str, Any] | None = None,
     ) -> CalculationJob: ...
 
     def claim_next(self, worker_id: str, *, lease_seconds: int = 300) -> ClaimedJob | None: ...
@@ -124,3 +161,7 @@ class CalculationJobQueue(Protocol):
         error_detail: dict[str, Any] | None = None,
         retryable: bool = False,
     ) -> JobStatus: ...
+
+    def archive(self, claim: ClaimedJob) -> bool: ...
+
+    def delete_message(self, claim: ClaimedJob) -> bool: ...

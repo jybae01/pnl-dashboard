@@ -60,7 +60,7 @@ class AnalysisEngine:
         effects: list[dict[str, float | str]] = [
             {"code": "sales_quantity", "label": "판매수량 효과", "profit_effect": sales.quantity},
             {"code": "sales_mix", "label": "제품 Mix 효과", "profit_effect": sales.mix},
-            {"code": "sales_price", "label": "판매단가 효과(관세 제외 운반비 원단위 포함)", "profit_effect": sales.price},
+            {"code": "sales_price", "label": "판매단가 효과(고객배송 운반비 효과 포함)", "profit_effect": sales.price},
             {"code": "sales_fx", "label": "매출환율 효과", "profit_effect": sales.sales_fx},
             {"code": "tariff", "label": "관세 효과", "profit_effect": sales.tariff},
             {"code": "nonwoven_price_ex_fx", "label": "부직포 단가효과(환율 제외)", "profit_effect": material.nonwoven_price_ex_fx},

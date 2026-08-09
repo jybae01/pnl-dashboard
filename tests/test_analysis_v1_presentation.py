@@ -116,6 +116,34 @@ def test_sales_identity_uses_base_gp_and_weighted_total_rate():
     assert total["pure_price_delta_usd"] is None
 
 
+def test_transport_canonical_field_reaches_view_and_ai_fact_pack_once():
+    result = sample_result()
+    legacy = build_analysis_view(result, baseline_sales_fx=1_000, comparison_sales_fx=1_100)["sales"]
+    totals = dict(legacy["totals"])
+    totals.update({
+        "transport_effect": -10_000_000,
+        "transport_quantity_effect": 0.0,
+        "transport_unit_effect": -10_000_000,
+        "sales_price_effect": totals["pure_price_effect"] - 10_000_000,
+        "total_sales_effect": totals["total_sales_effect"] - 10_000_000,
+    })
+    result["sales_analysis"] = {
+        "baseline_fx_krw_per_usd": 1_000,
+        "comparison_fx_krw_per_usd": 1_100,
+        "rows": [row for row in legacy["rows"] if row["product_group"] != "Total"],
+        "totals": totals,
+    }
+
+    view = build_analysis_view(result)
+    pack = build_fact_pack(result, analysis_view=view)
+
+    assert view["sales"]["totals"]["transport_effect"] == -10_000_000
+    assert pack["sales"]["customer_delivery_transport_effect_million_krw"] == -10.0
+    assert pack["sales"]["sales_price_effect_million_krw"] == round(
+        totals["sales_price_effect"] / 1_000_000, 6
+    )
+
+
 def test_material_exposes_three_part_policy_without_mcm_or_yield_effects():
     material = build_analysis_view(sample_result())["material"]
     assert material["jpy_fx_unit"] == "KRW/JPY"
@@ -285,8 +313,14 @@ def test_generic_comparison_direction_reverses_all_deltas(monkeypatch):
         }
 
     payloads = {"base": extracted(10.0, 10.0), "comparison": extracted(15.0, 15.0)}
+    extracted_fx = []
+
+    def fake_extract(path, meta, months, *, sales_fx=1.0):
+        extracted_fx.append((path, sales_fx))
+        return payloads[path]
+
     monkeypatch.setattr("forecast.comparison.GoldenWorkbook", lambda path: path)
-    monkeypatch.setattr(engine, "_extract", lambda path, meta, months: payloads[path])
+    monkeypatch.setattr(engine, "_extract", fake_extract)
     base_meta = ModelMeta("base", "Base", "계획", 2026, 1, 12, "2026-01-01", "V1", True, "base.xlsx", "now")
     comp_meta = ModelMeta("comp", "Comp", "실적", 2026, 1, 12, "2026-01-01", "V1", True, "comp.xlsx", "now")
     period = PeriodOption("M01", "1월", (1,), "월")
@@ -304,3 +338,7 @@ def test_generic_comparison_direction_reverses_all_deltas(monkeypatch):
     assert forward.effects[0]["profit_effect"] == -reverse.effects[0]["profit_effect"]
     assert forward.sales_analysis["baseline_fx_krw_per_usd"] == 1400
     assert forward.sales_analysis["comparison_fx_krw_per_usd"] == 1500
+    assert extracted_fx == [
+        ("base", 1400), ("comparison", 1500),
+        ("comparison", 1500), ("base", 1400),
+    ]

@@ -173,9 +173,11 @@ def _write_sales(ws, sales_rows: Iterable[Any], sales_totals: dict[str, float], 
     headers = [
         "제품군", "기준수량", "기준매출액", "기준단가 수식", "기준단가 엔진", "기준GP율",
         "비교수량", "비교매출액", "비교단가 수식", "비교단가 엔진", "비교GP율",
-        "기준FX", "비교FX", "수량효과 수식", "수량효과 엔진", "기준외화단가 수식",
-        "비교외화단가 수식", "순수단가효과 수식", "순수단가효과 엔진", "환율효과 수식",
+        "기준FX", "비교FX", "수량·Mix효과 수식", "수량·Mix효과 엔진", "기준외화단가 수식",
+        "비교외화단가 수식", "판매단가효과 수식", "판매단가효과 엔진", "환율효과 수식",
         "환율효과 엔진", "판매효과합계 수식", "판매효과합계 엔진", "검증",
+        "기준 관세제외 고객배송 운반비", "비교 관세제외 고객배송 운반비",
+        "고객배송 운반비 효과 수식",
     ]
     _write_headers(ws, header_row, headers)
     row_no = header_row + 1
@@ -206,16 +208,51 @@ def _write_sales(ws, sales_rows: Iterable[Any], sales_totals: dict[str, float], 
             ws.cell(row_no, col, formula)
             ws.cell(row_no, col).fill = _FORMULA_FILL if col != 24 else _CHECK_FILL
         row_no += 1
+    transport_effect = _number(sales_totals.get("transport_effect"))
+    baseline_transport = _number(sales_totals.get("baseline_transport_ex_tariff"))
+    comparison_transport = _number(sales_totals.get("comparison_transport_ex_tariff"))
+    ws.cell(row_no, 1, "고객배송 운반비 효과")
+    ws.cell(row_no, 18, f"=AA{row_no}").fill = _FORMULA_FILL
+    ws.cell(row_no, 19, transport_effect)
+    ws.cell(row_no, 22, f"=R{row_no}").fill = _FORMULA_FILL
+    ws.cell(row_no, 23, transport_effect)
+    ws.cell(row_no, 25, baseline_transport)
+    ws.cell(row_no, 26, comparison_transport)
+    ws.cell(row_no, 27, f"=Y{row_no}-Z{row_no}").fill = _FORMULA_FILL
+    ws.cell(
+        row_no,
+        24,
+        f'=IF(MAX(ABS(AA{row_no}-S{row_no}),ABS(V{row_no}-W{row_no}))<=1,"PASS","CHECK")',
+    ).fill = _CHECK_FILL
+    row_no += 1
     last_data_row = row_no - 1
     ws.cell(row_no, 1, "합계").font = _BOLD
     for col in (14, 18, 20, 22):
         ws.cell(row_no, col, f"=SUM({get_column_letter(col)}{first_data_row}:{get_column_letter(col)}{last_data_row})").fill = _FORMULA_FILL
-    ws.cell(row_no, 15, _number(sales_totals.get("quantity_effect")))
-    ws.cell(row_no, 19, _number(sales_totals.get("pure_price_effect")))
+    ws.cell(
+        row_no,
+        15,
+        _number(sales_totals.get("quantity_effect"))
+        + _number(sales_totals.get("mix_effect")),
+    )
+    ws.cell(
+        row_no,
+        19,
+        _number(
+            sales_totals.get(
+                "sales_price_effect", sales_totals.get("pure_price_effect")
+            )
+        ),
+    )
     ws.cell(row_no, 21, _number(sales_totals.get("sales_fx_effect")))
     ws.cell(row_no, 23, _number(sales_totals.get("total_sales_effect")))
     ws.cell(row_no, 24, f'=IF(MAX(ABS(N{row_no}-O{row_no}),ABS(R{row_no}-S{row_no}),ABS(T{row_no}-U{row_no}),ABS(V{row_no}-W{row_no}))<=1,"PASS","CHECK")').fill = _CHECK_FILL
-    _style_data_sheet(ws, header_row, money_columns=(3, 4, 5, 8, 9, 10, 14, 15, 18, 19, 20, 21, 22, 23), percent_columns=(6, 11))
+    _style_data_sheet(
+        ws,
+        header_row,
+        money_columns=(3, 4, 5, 8, 9, 10, 14, 15, 18, 19, 20, 21, 22, 23, 25, 26, 27),
+        percent_columns=(6, 11),
+    )
 
 
 def _write_simple_delta_sheet(ws, title: str, subtitle: str, sections: list[tuple[str, list[dict[str, Any]]]]) -> None:
@@ -325,6 +362,7 @@ def _write_formula_catalog(ws) -> None:
         ("판매", "수량효과", "(비교수량-기준수량)×기준단가×기준GP율", "개선 + / 악화 -", "forecast/sales_comparison.py"),
         ("판매", "순수 단가효과", "비교수량×(비교외화단가-기준외화단가)×(기준FX+비교FX)÷2", "환율효과와 합계가 원화 단가효과에 일치", "forecast/sales_comparison.py"),
         ("판매", "매출환율효과", "비교수량×(비교FX-기준FX)×(기준외화단가+비교외화단가)÷2", "KRW/USD", "forecast/sales_comparison.py"),
+        ("판매", "고객배송 운반비 효과", "기준 관세제외 운반비-비교 관세제외 운반비", "판매단가 효과에 1회 포함; 판관비 Bridge 0", "forecast/analysis/sales_effects.py"),
         ("원부재료", "분해 원칙", "부직포 단가(환율 제외)+부직포 엔화+부직포 제외 원재료", "MCM·수율/사용량 독립효과 금지", "forecast/analysis/material_effects.py"),
         ("생산", "조업도 기준", "SAP 수불부 생산입고", "MES는 정합성 확인 보조", "분석 설정"),
         ("제조경비", "외주가공비 수량", "일반 외주가공 대상 수량", "MCM 관련 수량 제외", "분석 설정"),

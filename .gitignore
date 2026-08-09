@@ -1,15 +1,20 @@
 __pycache__/
 *.py[cod]
 .pytest_cache/
+.pytest-deps/
+.test-venv/
+.pytest-tmp-*/
 .runtime_packages/
 .venv/
 .verify_artifact/
+work/
 .streamlit/secrets.toml
 
 data/**
 !data/.gitkeep
 
 models/*.xlsx
+/*.xlsx
 
 *.log
 *.tmp

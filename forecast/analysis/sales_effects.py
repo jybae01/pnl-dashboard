@@ -13,6 +13,11 @@ class SalesEffects:
     price: float = 0.0
     displayed_price: float = 0.0
     sales_fx: float = 0.0
+    transport_effect: float = 0.0
+    base_transport_ex_tariff: float = 0.0
+    comparison_transport_ex_tariff: float = 0.0
+    # Deprecated payload aliases retained for V1 compatibility.  Transport
+    # is no longer decomposed without a product/unit allocation source.
     transport_quantity: float = 0.0
     transport_unit: float = 0.0
     tariff: float = 0.0
@@ -26,10 +31,36 @@ class SalesEffects:
 def _product_map(scenario: AnalysisScenario) -> dict[tuple[str, str], ProductRecord]:
     result: dict[tuple[str, str], ProductRecord] = {}
     for row in scenario.products:
-        key = (row.year_month, row.product_code)
-        if key in result:
-            raise ValueError(f"중복 제품 레코드: {row.year_month} / {row.product_code}")
-        result[key] = row
+        if not any((row.sales_basis, row.sales_amount, row.product_cogs)):
+            continue
+        key = (row.year_month, row.product_group)
+        current = result.get(key)
+        if current is None:
+            result[key] = row
+            continue
+        if current.unit_basis.upper() != row.unit_basis.upper():
+            raise ValueError(
+                f"제품군 내 판매단위 불일치: {row.year_month} / {row.product_group}"
+            )
+        if current.sales_fx and row.sales_fx and current.sales_fx != row.sales_fx:
+            raise ValueError(
+                f"제품군 내 매출환율 불일치: {row.year_month} / {row.product_group}"
+            )
+        # V1 sales effects are product-group based. SKU composition inside a
+        # group is aggregated before quantity/Mix/price decomposition.
+        result[key] = ProductRecord(
+            year_month=row.year_month,
+            product_code=row.product_group,
+            product_group=row.product_group,
+            unit_basis=row.unit_basis,
+            sales_qty=current.sales_qty + row.sales_qty,
+            sales_length=current.sales_length + row.sales_length,
+            sales_amount=current.sales_amount + row.sales_amount,
+            product_cogs=current.product_cogs + row.product_cogs,
+            sales_fx=current.sales_fx or row.sales_fx,
+            sales_currency=current.sales_currency or row.sales_currency,
+            material_applicable_flag=False,
+        )
     return result
 
 
@@ -101,20 +132,16 @@ def calculate_sales_effects(
     for month in months:
         a0 = base_activity.get(month)
         a1 = comp_activity.get(month)
-        q0 = a0.transport_activity if a0 else 0.0
-        q1 = a1.transport_activity if a1 else 0.0
         tariff0 = a0.tariff_input if a0 else 0.0
         tariff1 = a1.tariff_input if a1 else 0.0
         c0 = base_transport.get(month, 0.0) - (tariff0 if a0 and a0.tariff_in_transport else 0.0)
         c1 = comp_transport.get(month, 0.0) - (tariff1 if a1 and a1.tariff_in_transport else 0.0)
-        u0 = c0 / q0 if q0 else 0.0
-        u1 = c1 / q1 if q1 else 0.0
-        result.transport_quantity += -(q1 - q0) * u0
-        result.transport_unit += -q1 * (u1 - u0)
+        result.base_transport_ex_tariff += c0
+        result.comparison_transport_ex_tariff += c1
+        result.transport_effect += c0 - c1
         result.tariff += tariff0 - tariff1
-        if not q0 and c0:
-            result.issues.append(f"{month}: 기준 판매운반비 활동량이 0이라 운반비 원단위 계산에서 제외됨")
 
-    result.quantity += result.transport_quantity
-    result.price = result.displayed_price + result.transport_unit
+    result.transport_quantity = 0.0
+    result.transport_unit = result.transport_effect
+    result.price = result.displayed_price + result.transport_effect
     return result

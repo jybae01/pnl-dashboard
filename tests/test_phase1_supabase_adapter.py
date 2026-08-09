@@ -7,6 +7,7 @@ from forecast.persistence import CalculationResultWrite, JobStatus
 from forecast.persistence.supabase import (
     SupabaseCalculationJobRepository,
     SupabaseModelRepositoryAdapter,
+    SupabaseResultRepository,
 )
 from forecast.provenance import ResultProvenance
 
@@ -51,6 +52,39 @@ class InsertCall:
         self.client.inserted.append(self.row)
         saved = {**self.row, "id": "job-enqueued", "created_at": "now", "updated_at": "now"}
         return Response([saved])
+
+
+class ResultReadCall:
+    def __init__(self, client):
+        self.client = client
+
+    def select(self, columns):
+        self.client.read_filters.append(("select", columns))
+        return self
+
+    def eq(self, column, value):
+        self.client.read_filters.append(("eq", column, value))
+        return self
+
+    def order(self, column, *, desc=False):
+        self.client.read_filters.append(("order", column, desc))
+        return self
+
+    def limit(self, value):
+        self.client.read_filters.append(("limit", value))
+        return self
+
+    def execute(self):
+        return Response([])
+
+
+class ResultReadSupabase:
+    def __init__(self):
+        self.calls = []
+
+    def rpc(self, name, params):
+        self.calls.append((name, params))
+        return RpcCall([])
 
 
 def job_row(**overrides):
@@ -111,6 +145,8 @@ class Phase1SupabaseAdapterTests(unittest.TestCase):
         complete = self.client.calls[2][1]
         self.assertEqual(complete["p_mapping_hash"], "c" * 64)
         self.assertEqual(complete["p_result_schema_version"], "1")
+        self.assertNotIn("p_is_published", complete)
+        self.assertNotIn("p_is_default", complete)
 
     def test_direct_enqueue_marks_an_already_uploaded_object_claimable(self):
         job = self.queue.enqueue(
@@ -143,6 +179,13 @@ class Phase1SupabaseAdapterTests(unittest.TestCase):
         self.assertTrue(model.confirmed)
         self.assertTrue(model.is_default)
         self.assertEqual(self.client.calls[0][0], "set_model_publication")
+
+    def test_viewer_result_read_uses_narrow_provenance_validating_rpc(self):
+        client = ResultReadSupabase()
+
+        self.assertIsNone(SupabaseResultRepository(client).load_completed())
+
+        self.assertEqual(client.calls, [("get_published_calculation_result", {})])
 
 
 if __name__ == "__main__":

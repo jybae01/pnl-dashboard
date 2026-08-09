@@ -1,6 +1,3 @@
-Exit code: 0
-Wall time: 1.1 seconds
-Output:
 -- P&L Dashboard Phase 1 persistence/control-plane foundation.
 -- Excel parsing and deterministic calculations intentionally do not run in SQL.
 

@@ -15,11 +15,41 @@ from forecast.storage import BaselineStore, ModelMeta, ModelRegistry
 from forecast.workbook import GoldenWorkbook
 
 ROOT = Path(__file__).resolve().parents[1]
+PRIVATE_GOLDEN = ROOT / "models" / "golden_model.xlsx"
 
 
+requires_private_golden = unittest.skipUnless(
+    PRIVATE_GOLDEN.is_file(), "BLOCKED_NO_PRIVATE_GOLDEN"
+)
+
+
+class SalesFxUnitTests(unittest.TestCase):
+    def test_sales_fx_input_reallocates_price_effect_without_changing_total(self):
+        rows = [{
+            "product_group": "SW",
+            "baseline_quantity": 100,
+            "baseline_amount": 100_000,
+            "baseline_gross_margin_rate": 0.4,
+            "comparison_quantity": 110,
+            "comparison_amount": 121_000,
+            "comparison_gross_margin_rate": 0.35,
+        }]
+        same_fx = calculate_sales_effect_rows(rows, 10.0, 10.0)[0]
+        changed_fx = calculate_sales_effect_rows(rows, 10.0, 11.0)[0]
+        self.assertAlmostEqual(same_fx.quantity_effect, 4_000.0)
+        self.assertAlmostEqual(same_fx.pure_price_effect, 11_000.0)
+        self.assertAlmostEqual(same_fx.sales_fx_effect, 0.0)
+        self.assertAlmostEqual(changed_fx.pure_price_effect, 0.0, delta=1e-9)
+        self.assertAlmostEqual(changed_fx.sales_fx_effect, 11_000.0, delta=1e-9)
+        self.assertAlmostEqual(same_fx.unit_value_effect, changed_fx.unit_value_effect, delta=1e-9)
+        totals = sales_effect_totals([changed_fx])
+        self.assertAlmostEqual(totals["total_sales_effect"], 15_000.0, delta=1e-9)
+
+
+@requires_private_golden
 class GoldenModelTests(unittest.TestCase):
     def setUp(self):
-        self.model = ROOT / "models" / "golden_model.xlsx"
+        self.model = PRIVATE_GOLDEN
         self.mapping = ROOT / "config" / "model_mapping.json"
 
     def test_formula_evaluator_matches_cached_key_outputs(self):
@@ -179,27 +209,6 @@ class GoldenModelTests(unittest.TestCase):
         self.assertAlmostEqual(sw["baseline_amount"], workbook.value("K1594"), delta=1.0)
         expected_margin = (workbook.value("K1594") - workbook.value("K1595")) / workbook.value("K1594")
         self.assertAlmostEqual(sw["baseline_gross_margin_rate"], expected_margin, delta=1e-12)
-
-    def test_sales_fx_input_reallocates_price_effect_without_changing_total(self):
-        rows = [{
-            "product_group": "SW",
-            "baseline_quantity": 100,
-            "baseline_amount": 100_000,
-            "baseline_gross_margin_rate": 0.4,
-            "comparison_quantity": 110,
-            "comparison_amount": 121_000,
-            "comparison_gross_margin_rate": 0.35,
-        }]
-        same_fx = calculate_sales_effect_rows(rows, 10.0, 10.0)[0]
-        changed_fx = calculate_sales_effect_rows(rows, 10.0, 11.0)[0]
-        self.assertAlmostEqual(same_fx.quantity_effect, 4_000.0)
-        self.assertAlmostEqual(same_fx.pure_price_effect, 11_000.0)
-        self.assertAlmostEqual(same_fx.sales_fx_effect, 0.0)
-        self.assertAlmostEqual(changed_fx.pure_price_effect, 0.0, delta=1e-9)
-        self.assertAlmostEqual(changed_fx.sales_fx_effect, 11_000.0, delta=1e-9)
-        self.assertAlmostEqual(same_fx.unit_value_effect, changed_fx.unit_value_effect, delta=1e-9)
-        totals = sales_effect_totals([changed_fx])
-        self.assertAlmostEqual(totals["total_sales_effect"], 15_000.0, delta=1e-9)
 
     def test_model_registry_preserves_metadata_without_type_restrictions(self):
         with tempfile.TemporaryDirectory() as directory:

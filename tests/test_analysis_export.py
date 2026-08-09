@@ -107,6 +107,14 @@ def test_build_comparison_audit_workbook(monkeypatch, tmp_path):
     }]
     sales_rows = calculate_sales_effect_rows(sales_input, 1400.0, 1450.0)
     totals = sales_effect_totals(sales_rows)
+    totals.update({
+        "mix_effect": 0.0,
+        "baseline_transport_ex_tariff": 30_000_000.0,
+        "comparison_transport_ex_tariff": 40_000_000.0,
+        "transport_effect": -10_000_000.0,
+        "sales_price_effect": totals["pure_price_effect"] - 10_000_000.0,
+        "total_sales_effect": totals["total_sales_effect"] - 10_000_000.0,
+    })
 
     payload = build_comparison_audit_workbook(
         result=result,
@@ -122,6 +130,10 @@ def test_build_comparison_audit_workbook(monkeypatch, tmp_path):
     workbook = load_workbook(BytesIO(payload), data_only=False)
     assert "원천셀_추적" in workbook.sheetnames
     assert workbook["판매효과_검증"]["D5"].value.startswith("=")
+    assert workbook["판매효과_검증"]["Y6"].value == 30_000_000.0
+    assert workbook["판매효과_검증"]["Z6"].value == 40_000_000.0
+    assert workbook["판매효과_검증"]["AA6"].value == "=Y6-Z6"
+    assert workbook["판매효과_검증"]["S6"].value == -10_000_000.0
     assert workbook["손익_정합성"]["G5"].value == "=E5-D5"
     assert workbook["원천셀_추적"].max_row > 4
     trace_cells = {

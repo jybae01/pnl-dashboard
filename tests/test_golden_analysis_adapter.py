@@ -243,3 +243,16 @@ def test_adapter_discovers_new_sga_rows_and_keeps_transport_sections_distinct(tm
     )
     assert selling_transport["row"] == 1168
     assert general_transport["row"] == 1214
+
+
+def test_adapter_does_not_create_mixed_unit_transport_activity(tmp_path):
+    path = tmp_path / "model.xlsx"
+    _build_workbook(path)
+    adapted = _adapter().build(
+        GoldenWorkbook(path), _meta("base"), (1,), sales_fx=1500.0
+    )
+
+    assert any(row.unit_basis == "PCS" for row in adapted.scenario.products)
+    assert any(row.unit_basis == "LENGTH" for row in adapted.scenario.products)
+    assert adapted.scenario.activities[0].transport_activity == 0.0
+    assert all(row.sales_fx == 1500.0 for row in adapted.scenario.products)
