@@ -1,3 +1,5 @@
+from pathlib import Path
+
 from forecast_dashboard.period_state import (
     apply_draft_period,
     get_applied_period,
@@ -62,3 +64,13 @@ def test_invalid_period_is_not_applied():
     assert "시작월" in result.error_message
     assert get_applied_period(session, MONTHS, START_KEY, END_KEY) == ("2월", "4월")
 
+
+def test_period_selectors_wait_for_form_submission():
+    app_source = Path("app.py").read_text(encoding="utf-8")
+    function_source = app_source.split(
+        "def render_centered_period_selectors", maxsplit=1
+    )[1].split("\nmonths = ", maxsplit=1)[0]
+
+    assert "with st.form(" in function_source
+    assert 'st.form_submit_button("조회하기"' in function_source
+    assert "st.button(" not in function_source
