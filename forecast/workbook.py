@@ -39,6 +39,11 @@ CONTENT_TYPES_NS = "http://schemas.openxmlformats.org/package/2006/content-types
 OFFICE_REL_NS = "http://schemas.openxmlformats.org/officeDocument/2006/relationships"
 AUDIT_SHEET_NAME = "입력반영내역"
 MONTH_COLUMNS = {month: chr(ord("E") + month - 1) for month in range(1, 13)}
+FORMULA_REFERENCE_RE = re.compile(
+    r"(?<![A-Z0-9_])(?P<start>\$?[A-Z]{1,3}\$?\d+)"
+    r"(?::(?P<end>\$?[A-Z]{1,3}\$?\d+))?",
+    re.IGNORECASE,
+)
 PERIOD_TYPE_ALIASES = {
     "actual": "실적",
     "actuals": "실적",
@@ -234,6 +239,15 @@ class ChangeLog:
     formula_overwritten: bool = False
 
 
+@dataclass(frozen=True)
+class FormulaFallback:
+    address: str
+    formula: str
+    exception_type: str
+    exception_message: str
+    cached_value: Any
+
+
 class GoldenWorkbook:
     """OOXML adapter that changes only configured cells and preserves the package."""
 
@@ -255,6 +269,9 @@ class GoldenWorkbook:
         self.overrides: dict[str, Any] = {}
         self.cache: dict[str, Any] = {}
         self.stack: set[str] = set()
+        self.formula_successes: set[str] = set()
+        self.formula_fallbacks: dict[str, FormulaFallback] = {}
+        self._precedent_cache: dict[str, tuple[str, ...]] = {}
         self.log: list[ChangeLog] = []
 
     def _default_model_sheet_xml(self) -> str:
@@ -317,20 +334,41 @@ class GoldenWorkbook:
         self.stack.add(addr)
         try:
             result = evaluate(formula, self.value, self.range_value)
-        except (FormulaError, ZeroDivisionError, TypeError, ValueError):
+        except (FormulaError, ZeroDivisionError, TypeError, ValueError) as exc:
             result = self.raw_value(addr)
+            self.formula_successes.discard(addr)
+            self.formula_fallbacks[addr] = FormulaFallback(
+                address=addr,
+                formula=formula,
+                exception_type=type(exc).__name__,
+                exception_message=str(exc),
+                cached_value=result,
+            )
+        else:
+            self.formula_fallbacks.pop(addr, None)
+            self.formula_successes.add(addr)
         finally:
             self.stack.remove(addr)
         self.cache[addr] = result
         return result
 
     def range_value(self, start: str, end: str) -> RangeValue:
+        cells = self._range_cells(start, end)
+        return RangeValue(cells, [self.value(cell) for cell in cells])
+
+    @staticmethod
+    def _range_cells(start: str, end: str) -> list[str]:
         match1 = re.fullmatch(r"([A-Z]+)(\d+)", start)
         match2 = re.fullmatch(r"([A-Z]+)(\d+)", end)
         if not match1 or not match2: raise FormulaError(f"Invalid range {start}:{end}")
         c1, r1, c2, r2 = col_number(match1.group(1)), int(match1.group(2)), col_number(match2.group(1)), int(match2.group(2))
-        cells = [f"{col_name(col)}{row}" for row in range(min(r1,r2), max(r1,r2)+1) for col in range(min(c1,c2), max(c1,c2)+1)]
-        return RangeValue(cells, [self.value(cell) for cell in cells])
+        return [f"{col_name(col)}{row}" for row in range(min(r1,r2), max(r1,r2)+1) for col in range(min(c1,c2), max(c1,c2)+1)]
+
+    def _clear_calculation_state(self) -> None:
+        self.cache.clear()
+        self.formula_successes.clear()
+        self.formula_fallbacks.clear()
+        self._precedent_cache.clear()
 
     def set_input(self, addr: str, value: float, source: str, reason: str = "", allow_formula: bool = False) -> None:
         addr = normalize_ref(addr)
@@ -341,7 +379,7 @@ class GoldenWorkbook:
         self.overrides[addr] = float(value or 0)
         if has_formula:
             self.formulas.pop(addr, None)
-        self.cache.clear()
+        self._clear_calculation_state()
         self.log.append(ChangeLog(addr, old, float(value or 0), source, reason, has_formula))
 
     def set_text(self, addr: str, value: str, source: str, reason: str = "", allow_formula: bool = False) -> None:
@@ -354,16 +392,156 @@ class GoldenWorkbook:
         self.overrides[addr] = text
         if has_formula:
             self.formulas.pop(addr, None)
-        self.cache.clear()
+        self._clear_calculation_state()
         self.log.append(ChangeLog(addr, old, text, source, reason, has_formula))
 
     def recalculate(self) -> dict[str, str]:
-        self.cache.clear()
+        self._clear_calculation_state()
         errors: dict[str, str] = {}
         for addr in self.formulas:
             try: self.value(addr)
             except Exception as exc: errors[addr] = str(exc)
         return errors
+
+    def formula_diagnostics(self, *, recalculate: bool = True) -> dict[str, Any]:
+        """Report evaluator coverage without changing fallback value semantics."""
+        unexpected_errors = self.recalculate() if recalculate else {}
+        fallbacks = [
+            asdict(self.formula_fallbacks[address])
+            for address in sorted(self.formula_fallbacks)
+        ]
+        cached_mismatches: list[dict[str, Any]] = []
+        cached_match_count = 0
+        for address in sorted(self.formula_successes):
+            evaluated = self.cache.get(address)
+            cached = self.raw_value(address)
+            if evaluated in (None, "") and cached in (None, ""):
+                tolerance = 0.0
+                matches = True
+            elif isinstance(evaluated, (int, float)) and isinstance(cached, (int, float)):
+                tolerance = max(1.0, abs(float(cached)) * 1e-9)
+                matches = abs(float(evaluated) - float(cached)) <= tolerance
+            else:
+                tolerance = 0.0
+                matches = evaluated == cached
+            if matches:
+                cached_match_count += 1
+            else:
+                cached_mismatches.append({
+                    "address": address,
+                    "formula": self.formulas[address],
+                    "evaluated_value": evaluated,
+                    "cached_value": cached,
+                    "difference": (
+                        float(evaluated) - float(cached)
+                        if isinstance(evaluated, (int, float))
+                        and isinstance(cached, (int, float))
+                        else None
+                    ),
+                    "tolerance": tolerance,
+                })
+        workbook_formula_count = 0
+        for name, payload in self.entries.items():
+            if name.startswith("xl/worksheets/") and name.endswith(".xml"):
+                try:
+                    workbook_formula_count += sum(1 for _ in ET.fromstring(payload).iter(Q("f")))
+                except ET.ParseError:
+                    continue
+        return {
+            "workbook_formula_count": workbook_formula_count,
+            "model_sheet_formula_count": len(self.formulas),
+            "evaluator_success_count": len(self.formula_successes),
+            "cached_match_count": cached_match_count,
+            "cached_mismatch_count": len(cached_mismatches),
+            "cached_numeric_mismatch_count": sum(
+                item["difference"] is not None for item in cached_mismatches
+            ),
+            "cached_blank_representation_mismatch_count": sum(
+                item["difference"] is None for item in cached_mismatches
+            ),
+            "cached_mismatches": cached_mismatches,
+            "cached_fallback_count": len(fallbacks),
+            "unevaluated_count": max(
+                0,
+                len(self.formulas) - len(self.formula_successes) - len(fallbacks),
+            ),
+            "fallback…417 tokens truncated…next_active = {*active, cell}
+            for precedent in self.formula_precedents(cell):
+                edges.add((cell, precedent))
+                walk(precedent, next_active)
+
+        for output in normalized_outputs:
+            walk(output, set())
+
+        reaches_source_cache: dict[str, bool] = {}
+
+        def reaches_source(cell: str, active: set[str]) -> bool:
+            if cell in normalized_sources:
+                reaches_source_cache[cell] = True
+                return True
+            if cell in reaches_source_cache:
+                return reaches_source_cache[cell]
+            if cell in active:
+                return False
+            next_active = {*active, cell}
+            result = any(reaches_source(item, next_active) for item in self.formula_precedents(cell))
+            reaches_source_cache[cell] = result
+            return result
+
+        if normalized_sources:
+            relevant = {cell for cell in reachable if reaches_source(cell, set())}
+            relevant.update(normalized_sources & reachable)
+        else:
+            relevant = set(reachable)
+
+        formula_cells = sorted(cell for cell in relevant if cell in self.formulas)
+        fallback_cells = sorted(cell for cell in formula_cells if cell in self.formula_fallbacks)
+        reached_sources = sorted(normalized_sources & reachable)
+
+        def source_path(output: str, source: str) -> list[str]:
+            dead_ends: set[str] = set()
+
+            def find(cell: str, active: set[str]) -> list[str] | None:
+                if cell == source:
+                    return [cell]
+                if cell in active or cell in dead_ends:
+                    return None
+                next_active = {*active, cell}
+                for precedent in self.formula_precedents(cell):
+                    path = find(precedent, next_active)
+                    if path is not None:
+                        return [cell, *path]
+                dead_ends.add(cell)
+                return None
+
+            return find(output, set()) or []
+
+        source_paths = {
+            source: next(
+                (
+                    path
+                    for output in normalized_outputs
+                    if (path := source_path(output, source))
+                ),
+                [],
+            )
+            for source in sorted(normalized_sources)
+        }
+        return {
+            "outputs": list(normalized_outputs),
+            "sources": sorted(normalized_sources),
+            "reached_sources": reached_sources,
+            "unlinked_sources": sorted(normalized_sources - reachable),
+            "reachable_cell_count": len(reachable),
+            "relevant_formula_count": len(formula_cells),
+            "evaluator_success_count": sum(cell in self.formula_successes for cell in formula_cells),
+            "cached_fallback_count": len(fallback_cells),
+            "fallback_cells": fallback_cells,
+            "fallbacks": [asdict(self.formula_fallbacks[cell]) for cell in fallback_cells],
+            "formula_complete": not fallback_cells and not (normalized_sources - reachable),
+            "source_paths": source_paths,
+            "edges": [list(edge) for edge in sorted(edges) if edge[0] in relevant],
+        }
 
     def formula_changes(self) -> list[str]:
         return sorted(addr for addr in self.original_formulas if addr not in self.formulas)

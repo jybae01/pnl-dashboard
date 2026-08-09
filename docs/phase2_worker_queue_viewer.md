@@ -1,35 +1,64 @@
-# Phase 2: durable worker and completed-result viewer
+# Phase 2: trusted Streamlit bridge, durable worker, and completed-result viewer
 
-## Runtime boundary
+## V1 runtime boundary
 
-1. Edge authenticates an administrator, creates model/job metadata and returns
-   a non-upsert signed URL. Excel bytes go directly to private Storage.
-2. The upload callback verifies the canonical object and atomically sends one
-   `calculation_jobs` message to the private basic pgmq queue.
-3. `python -m forecast.worker_cli --backend supabase` runs outside Streamlit.
-   It uses `read` with a visibility timeout, renews both the job lease and pgmq
-   VT, forces Excel pre-flight/Anchor validation, then calls the unchanged
+The V1 operating path is Option A. The browser submits the existing Viewer/Admin
+access code only to the trusted Streamlit server. No Supabase login screen, API
+key, service-role credential, Storage credential, or signed-upload token is sent
+to browser JavaScript or stored in the user session.
+
+1. The Streamlit server rechecks the Admin role, calls the narrow model/job init
+   RPC, uploads Excel bytes server-side to the returned canonical private Storage
+   path, and calls the upload-completed RPC. These DB and Storage operations form
+   a saga, not one transaction: pending-job TTL cleanup, idempotent retry, and
+   orphan-object cleanup are required.
+2. The upload callback verifies the canonical object and atomically enqueues one
+   `calculation_jobs` message in the private basic pgmq queue.
+3. `python -m forecast.worker_cli --backend supabase` runs independently from
+   Streamlit. It reads with a visibility timeout, renews the job lease and pgmq
+   VT, runs Excel preflight/Anchor validation, and invokes the unchanged
    deterministic comparison engine.
-4. Completion commits JSONB/provenance and archives the queue message in one
-   transaction. Retryable failure uses `set_vt(..., 0)`; terminal failure is
-   archived. `pop` is never used.
-5. The Viewer reads only a published row created by a completed job and renders
-   its stored `analysis_view`. It does not open Excel or rebuild effects.
+4. Completion stores immutable JSONB/provenance and archives the queue message in
+   one transaction. It always creates an unpublished, non-default result.
+   Publication/default selection is a separate Admin-only RPC; worker completion
+   never honors `analysis_request.publish` or `make_default` as authorization.
+5. A Viewer reads only a published completed result whose model/job provenance
+   and mapping version/hash match published `app_config`, then renders the stored
+   `analysis_view`. It never opens Excel or rebuilds effects.
 
-The worker stores `engine_version`, `mapping_version`, `mapping_hash` and
-`result_schema_version` from the claim. It also stores backend-produced
-`fx_total`, `raw_material_excl_fx`, product Mix, a Fact Pack and both pre-flight
-reports.
+The worker stores `engine_version`, `mapping_version`, `mapping_hash`,
+`result_schema_version`, backend-produced `fx_total`,
+`raw_material_excl_fx`, product-group-only Mix, a Fact Pack, and both preflight
+reports. SKU-internal variance is not a V1 Mix effect and remains a residual
+analysis item.
 
-## Deployment
+Fixed calculation contracts are:
 
-1. Apply `202608090002_phase2_queue_worker.sql` after the Phase 1 migration.
-   It enables `pgmq` and `pg_cron`, creates the durable queue, replaces guarded
-   lifecycle RPCs and schedules five-minute stale-job cleanup.
-2. Keep `pgmq_public` out of exposed schemas. Worker credentials are service
-   role secrets and must never be placed in Streamlit/browser code.
-3. Deploy `pnl-gateway` with the secrets in its README.
-4. Run at least one independent worker process with `SUPABASE_URL` and
-   `SUPABASE_SERVICE_ROLE_KEY` set.
-5. Exercise the deployed pipeline with `SignedUploadE2EHarness`; real Supabase
-   migration, Cron, Storage and Edge execution cannot be validated offline.
+- `residual = operating_profit_delta - effects_total`
+- `effects_total + residual = operating_profit_delta`
+- `inventory_realization_rate = COGS / current_period_manufacturing_input`
+  without a cap; values above 100% may produce a warning only.
+
+## Optional future JWT Edge path
+
+The existing JWT Edge gateway and signed-upload flow are optional only if a
+future Supabase Auth client is introduced. They are not the V1 Streamlit upload
+or authorization path. No worker claim/complete/fail execution endpoint is
+reintroduced at Edge.
+
+## Deployment readiness
+
+1. Apply `202608090002_phase2_queue_worker.sql` only after the Phase 1 migration.
+   It enables `pgmq`/`pg_cron`, creates the durable queue, installs narrow guarded
+   lifecycle RPCs, and schedules stale-job cleanup.
+2. Keep `pgmq_public` out of exposed schemas. Streamlit and the worker each use a
+   server-only Supabase secret (`SUPABASE_SECRET_KEY`, with legacy
+   `SUPABASE_SERVICE_ROLE_KEY` as compatibility fallback). Separate keys improve
+   rotation and auditability but do not create database privilege isolation;
+   secret keys bypass RLS.
+3. Deploy `pnl-gateway` only if the optional JWT client path is retained.
+4. Run at least one independent worker with server-only credentials.
+5. Validate Option A with a Streamlit-backend upload/auth-bridge live harness.
+   `SignedUploadE2EHarness` validates only the optional Edge path.
+
+No live deployment or credential connection is part of this phase.

@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import shutil
 import sys
 from dataclasses import asdict
 from pathlib import Path
@@ -148,7 +149,7 @@ def build_comparison(
         mcm={"SW400": 120.0, "SW440": 80.0, "BW400": 150.0, "BW440": 50.0},
         manufacturing_adjustments=[
             CostAdjustment(297, 100_000_000.0, "validation variable cost"),
-            CostAdjustment(301, 50_000_000.0, "validation fixed cost"),
+            CostAdjustment(290, 50_000_000.0, "validation salary"),
             CostAdjustment(305, -80_000_000.0, "validation outsourcing cost"),
         ],
         sga_adjustments=[
@@ -178,6 +179,8 @@ def validate_pair(
     month: int = 7,
     baseline_sales_fx: float = 1_450.0,
     comparison_sales_fx: float = 1_500.0,
+    tariff_adjustment: float = 13_000_000.0,
+    changed_sources: list[str] | tuple[str, ...] | None = None,
 ) -> dict[str, Any]:
     mapping = json.loads(mapping_path.read_text(encoding="utf-8"))
     analysis_config_path = mapping_path.with_name("analysis_v1.json")
@@ -193,7 +196,7 @@ def validate_pair(
     comparison_meta = ModelMeta(
         "validation-comparison", "Validation Comparison", "추정", 2026, 1, 12,
         "2026-07-01", "V1", True, comparison_path.name, "validation",
-        tariff_adjustment_monthly={str(month): 13_000_000.0},
+        tariff_adjustment_monthly={str(month): tariff_adjustment},
     )
     period = PeriodOption(f"M{month:02d}", f"{month}월", (month,), "월")
     result = GenericComparisonEngine(mapping_path).compare(
@@ -208,6 +211,29 @@ def validate_pair(
     base = GoldenWorkbook(base_path)
     comparison = GoldenWorkbook(comparison_path)
     column = MONTH_COLUMNS[month]
+    pnl_outputs = [
+        f"{column}{row}"
+        for row in mapping["comparison"]["pnl_rows"].values()
+    ]
+    base_formula_diagnostics = base.formula_diagnostics()
+    comparison_formula_diagnostics = comparison.formula_diagnostics()
+    base_pnl_full_dependencies = base.dependency_report(pnl_outputs)
+    comparison_pnl_full_dependencies = comparison.dependency_report(pnl_outputs)
+    if changed_sources is None:
+        input_sources = sorted(
+            address
+            for address in set(base.cells) | set(comparison.cells)
+            if GoldenWorkbook._values_differ(
+                base.raw_value(address), comparison.raw_value(address)
+            )
+            and (address not in base.formulas or address not in comparison.formulas)
+        )
+    else:
+        input_sources = sorted(changed_sources)
+    base_pnl_dependencies = base.dependency_report(pnl_outputs, sources=input_sources)
+    comparison_pnl_dependencies = comparison.dependency_report(
+        pnl_outputs, sources=input_sources
+    )
     checks: list[dict[str, Any]] = []
 
     def check(
@@ -241,9 +267,9 @@ def validate_pair(
         source_base = _value(base, column, row)
         source_comparison = _value(comparison, column, row)
         if code == "selling_expense":
-            source_comparison += 13_000_000.0
+            source_comparison += tariff_adjustment
         if code == "operating_profit":
-            source_comparison -= 13_000_000.0
+            source_comparison -= tariff_adjustment
         engine_row = pnl_by_code[code]
         check("P&L", f"{code} base", f"Data!{column}{row}", source_base, engine_row["baseline"])
         check(
@@ -411,22 +437,7 @@ def validate_pair(
             is_outsourcing = config.is_outsourcing(str(row["account"]))
             b0, b1 = (outsourcing_back0, outsourcing_back1) if is_outsourcing else (back0, back1)
 
-            def decompose(a0: float, a1: float, q0: float, q1: float) -> tuple[float, float]:
-                if q0 and q1:
-                    unit0, unit1 = a0 / q0, a1 / q1
-                    return (q0 - q1) * unit0, q1 * (unit0 - unit1)
-                return 0.0, a0 - a1
-
-            fa, fu = decompose(amount0 * ratio, amount1 * ratio, front0, front1)
-            ba, bu = decompose(amount0 * (1 - ratio), amount1 * (1 - ratio), b0, b1)
-            activity, unit, fixed = fa + ba, fu + bu, 0.0
-        else:
-            activity, unit, fixed = 0.0, 0.0, amount0 - amount1
-        occurrence = activity + unit + fixed
-        account_total += occurrence
-        check("제조경비", f"row {row_number} activity", f"base ratio Data!{column}{ratio_row}", activity, row["activity_effect"])
-        check("제조경비", f"row {row_number} unit", f"base ratio Data!{column}{ratio_row}", unit, row["unit_effect"])
-        check("제조경비", f"row {row_number} fixed", f"base ratio Data!{column}{ratio_row}", fixed, row["fixed_effect"])
+            de…242 tokens truncated…ase ratio Data!{column}{ratio_row}", fixed, row["fixed_effect"])
         check("제조경비", f"row {row_number} occurrence identity", "activity + unit + fixed", occurrence, row["occurrence_effect"])
         check("제조경비", f"row {row_number} realized", "occurrence * uncapped realization rate", occurrence * realization_rate, row["final_profit_effect"])
     check("제조경비", "occurrence total", "all manufacturing accounts", account_total, result.manufacturing_analysis["occurrence_effect"])
@@ -456,7 +467,7 @@ def validate_pair(
     effect_map = {row["code"]: float(row["profit_effect"] or 0.0) for row in result.effects}
     check("판관비", "variable total", "all variable SGA accounts", sga_variable, effect_map["sga_variable"])
     check("판관비", "fixed total", "all fixed SGA accounts", sga_fixed, effect_map["sga_fixed"])
-    check("판관비", "tariff exactly once", "external direct input", -13_000_000.0, effect_map["tariff"])
+    check("판관비", "tariff exactly once", "external direct input", -tariff_adjustment, effect_map["tariff"])
 
     fx_total = sales_fx_effect + material_fx
     raw_material_ex_fx = material_total - material_fx
@@ -465,8 +476,7 @@ def validate_pair(
     check("FX 재분류", "effects_total unchanged", "sum deterministic effects", sum(effect_map.values()), result.effects_total)
 
     check("Bridge", "effects total", "sum deterministic effects", sum(effect_map.values()), result.effects_total)
-    check("Bridge", "current residual identity", "effects_total + residual", result.effects_total + result.residual, result.operating_profit_delta)
-    check("Bridge", "requested minus-residual identity", "effects_total - residual", result.effects_total - result.residual, result.operating_profit_delta)
+    check("Bridge", "residual identity", "effects_total + residual", result.effects_total + result.residual, result.operating_profit_delta)
     pnl_delta = {row["code"]: float(row["delta"]) for row in result.pnl}
     commercial_source = pnl_delta["revenue"] - pnl_delta["selling_expense"] - pnl_delta["general_admin"]
     commercial_engine = sum(effect_map.get(code, 0.0) for code in (
@@ -497,6 +507,31 @@ def validate_pair(
             "base": base_preflight.as_dict(),
             "comparison": comparison_preflight.as_dict(),
         },
+        "formula_evaluation": {
+            "base": base_formula_diagnostics,
+            "comparison": comparison_formula_diagnostics,
+            "changed_input_sources": input_sources,
+            "base_pnl_full_dependency": base_pnl_full_dependencies,
+            "comparison_pnl_full_dependency": comparison_pnl_full_dependencies,
+            "base_pnl_dependency": base_pnl_dependencies,
+            "comparison_pnl_dependency": comparison_pnl_dependencies,
+            "synthetic_bridge_status": (
+                "FORMULA_COMPLETE"
+                if base_pnl_full_dependencies["formula_complete"]
+                and comparison_pnl_full_dependencies["formula_complete"]
+                and base_pnl_dependencies["formula_complete"]
+                and comparison_pnl_dependencies["formula_complete"]
+                else "FORMULA_INCOMPLETE"
+            ),
+            "final_reconciliation_status": (
+                "VALID"
+                if base_pnl_full_dependencies["formula_complete"]
+                and comparison_pnl_full_dependencies["formula_complete"]
+                and base_pnl_dependencies["formula_complete"]
+                and comparison_pnl_dependencies["formula_complete"]
+                else "SYNTHETIC BRIDGE INVALID FOR FINAL RECONCILIATION"
+            ),
+        },
         "comparison_result": {
             "operating_profit_delta": result.operating_profit_delta,
             "effects_total": result.effects_total,
@@ -516,6 +551,21 @@ def validate_pair(
             "realization_rate_uncapped": realization_rate,
             "fx_reclassification_not_added": abs(sum(effect_map.values()) - result.effects_total) <= 1.0,
         },
+        "independent_effects": {
+            "sales_quantity": quantity_effect,
+            "sales_mix": mix_effect,
+            "sales_price": price_effect,
+            "sales_fx": sales_fx_effect,
+            "material_nonwoven_price": nonwoven_price,
+            "material_jpy": material_fx,
+            "material_ex_nonwoven": materials_ex_nonwoven,
+            "material_total": material_total,
+            "manufacturing_occurrence": account_total,
+            "manufacturing_realized": account_total * realization_rate,
+            "sga_variable": sga_variable,
+            "sga_fixed": sga_fixed,
+            "tariff": -tariff_adjustment,
+        },
         "residual_analysis": residual_analysis,
         "checks": checks,
         "summary": {
@@ -526,6 +576,282 @@ def validate_pair(
             for category in sorted({row["category"] for row in checks})
         },
     }
+
+
+def validate_single_driver_scenarios(
+    base_path: Path,
+    output_dir: Path,
+    mapping_path: Path,
+    *,
+    month: int = 7,
+    scenario_codes: set[str] | None = None,
+) -> dict[str, Any]:
+    """Create fresh-copy, one-driver scenarios and report propagation separately."""
+    mapping = json.loads(mapping_path.read_text(encoding="utf-8"))
+    column = MONTH_COLUMNS[month]
+    base = GoldenWorkbook(base_path)
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    def cell(row: int) -> str:
+        return f"{column}{row}"
+
+    def value(row: int) -> float:
+        return _value(base, column, row)
+
+    sw = mapping["sales"]["SW400"]
+    bw = mapping["sales"]["BW400"]
+    sw_q, sw_a = value(sw["quantity_row"]), value(sw["amount_row"])
+    bw_q, bw_a = value(bw["quantity_row"]), value(bw["amount_row"])
+    mix_delta = min(sw_q, bw_q) * 0.05
+    quantity_changes: dict[str, float] = {}
+    fx_changes: dict[str, float] = {}
+    for code, spec in mapping["sales"].items():
+        if code.startswith("FS_"):
+            quantity_changes[cell(spec["quantity_row"])] = value(spec["quantity_row"]) * 1.05
+            quantity_changes[cell(spec["amount_row"])] = value(spec["amount_row"]) * 1.05
+        fx_changes[cell(spec["amount_row"])] = value(spec["amount_row"]) * (1500.0 / 1450.0)
+    base_total_quantity = sum(value(row) for row in (1593, 1632, 1668, 1720))
+    quantity_ratio = (
+        (base_total_quantity + value(1720) * 0.05) / base_total_quantity
+        if base_total_quantity else 1.0
+    )
+    quantity_changes[cell(1168)] = value(1168) * quantity_ratio
+    lc_goods_amount_row = int(mapping["lc_goods"]["amount_row"])
+    fx_changes[cell(lc_goods_amount_row)] = (
+        value(lc_goods_amount_row) * (1500.0 / 1450.0)
+    )
+
+    scenarios = [
+        {
+            "code": "sales_quantity",
+            "label": "Sales quantity only",
+            "changes": quantity_changes,
+            "target_effects": ["sales_quantity"],
+        },
+        {
+            "code": "product_group_mix",
+            "label": "Product-group Mix only",
+            "changes": {
+                cell(sw["quantity_row"]): sw_q + mix_delta,
+                cell(sw["amount_row"]): sw_a + mix_delta * (sw_a / sw_q if sw_q else 0.0),
+                cell(bw["quantity_row"]): bw_q - mix_delta,
+                cell(bw["amount_row"]): bw_a - mix_delta * (bw_a / bw_q if bw_q else 0.0),
+            },
+            "target_effects": ["sales_mix"],
+        },
+        {
+            "code": "sales_price",
+            "label": "Sales price only",
+            "changes": {cell(sw["amount_row"]): sw_a * 1.05},
+            "target_effects": ["sales_price"],
+        },
+        {
+            "code": "sales_fx",
+            "label": "Sales FX only",
+            "changes": fx_changes,
+            "baseline_sales_fx": 1450.0,
+            "comparison_sales_fx": 1500.0,
+            "external_sources": ["sales_fx"],
+            "target_effects": ["sales_fx"],
+        },
+        {
+            "code": "jpy",
+            "label": "JPY only",
+            "changes": {cell(9): value(9) * 1.03},
+            "target_effects": ["material_total"],
+        },
+        {
+            "code": "nonwoven_price",
+            "label": "Nonwoven price only",
+            "changes": {cell(11): value(11) * 1.03},
+            "target_effects": ["material_total"],
+        },
+        {
+            "code": "materials_ex_nonwoven",
+            "label": "Materials excluding nonwoven only",
+            "changes": {cell(209): value(209) + 10_000_000.0},
+            "target_effects": ["material_total"],
+        },
+        {
+            "code": "manufacturing_variable",
+            "label": "One variable manufacturing account",
+            "changes": {cell(297): value(297) + 10_000_000.0},
+            "target_effects": ["manufacturing_realized"],
+        },
+        {
+            "code": "manufacturing_salary",
+            "label": "Manufacturing salary only",
+            "changes": {cell(290): value(290) + 50_000_000.0},
+            "target_effects": ["manufacturing_realized"],
+        },
+        {
+            "code": "production_quantity",
+            "label": "Production quantity only",
+            "changes": {cell(556): value(556) * 1.05},
+            "target_effects": ["material_total", "manufacturing_realized"],
+        },
+        {
+            "code": "sga_variable",
+            "label": "One variable SGA account",
+            "changes": {cell(1194): value(1194) + 10_000_000.0},
+            "target_effects": ["sga_variable"],
+        },
+        {
+            "code": "sga_fixed",
+            "label": "One fixed SGA account",
+            "changes": {cell(1200): value(1200) + 10_000_000.0},
+            "target_effects": ["sga_fixed"],
+        },
+        {
+            "code": "customer_freight",
+            "label": "Customer-delivery transport only",
+            "changes": {cell(1168): value(1168) + 10_000_000.0},
+            "target_effects": ["sales_quantity", "sales_price"],
+        },
+        {
+            "code": "tariff",
+            "label": "Tariff only",
+            "changes": {},
+            "tariff_adjustment": 13_000_000.0,
+            "external_sources": ["tariff"],
+            "target_effects": ["tariff"],
+        },
+    ]
+
+    actual_effect_codes = {
+        "sales_quantity", "sales_mix", "sales_price", "sales_fx",
+        "material_total", "manufacturing_realized", "sga_variable",
+        "sga_fixed", "tariff",
+    }
+    records: list[dict[str, Any]] = []
+    for scenario in scenarios:
+        if scenario_codes is not None and scenario["code"] not in scenario_codes:
+            continue
+        comparison_path = output_dir / f"{scenario['code']}.xlsx"
+        shutil.copy2(base_path, comparison_path)
+        workbook = GoldenWorkbook(comparison_path)
+        for address, new_value in scenario["changes"].items():
+            workbook.set_input(
+                address,
+                new_value,
+                f"validation.{scenario['code']}",
+                "single-driver isolation",
+                allow_formula=True,
+            )
+        if scenario["code"] == "sales_quantity":
+            workbook.recalculate()
+            comparison_total_quantity = sum(
+                _value(workbook, column, row) for row in (1593, 1632, 1668, 1720)
+            )
+            workbook.set_input(
+                cell(1168),
+                value(1168) * comparison_total_quantity / base_total_quantity,
+                "validation.sales_quantity",
+                "preserve customer-freight unit cost",
+                allow_formula=True,
+            )
+        workbook.recalculate()
+        workbook.save(comparison_path)
+        changed_sources = sorted(scenario["changes"])
+        report = validate_pair(
+            base_path,
+            comparison_path,
+            mapping_path,
+            month=month,
+            baseline_sales_fx=float(scenario.get("baseline_sales_fx", 1450.0)),
+            comparison_sales_fx=float(scenario.get("comparison_sales_fx", 1450.0)),
+            tariff_adjustment=float(scenario.get("tariff_adjustment", 0.0)),
+            changed_sources=changed_sources,
+        )
+        comparison_result = report["comparison_result"]
+        dependency = report["formula_evaluation"]["comparison_pnl_dependency"]
+        independent = report["independent_effects"]
+        expected_total = sum(
+            independent[code]
+            for code in (
+                "sales_quantity", "sales_mix", "sales_price", "sales_fx",
+                "material_total", "manufacturing_realized", "sga_variable",
+                "sga_fixed", "tariff",
+            )
+        )
+        actual_by_code = {
+            row["code"]: float(row.get("profit_effect") or 0.0)
+            for row in comparison_result["effects"]
+            if row["code"] in actual_effect_codes
+        }
+        nonzero_effects = {
+            code: amount for code, amount in actual_by_code.items()
+            if abs(amount) > 1.0
+        }
+        target_effects = set(scenario["target_effects"])
+        unexpected_effects = {
+            code: amount for code, amount in nonzero_effects.items()
+            if code not in target_effects
+        }
+        residual = float(comparison_result["residual"])
+        if not changed_sources and scenario.get("external_sources"):
+            classification = "PASS_EXTERNAL_DRIVER"
+            cause = None
+        elif dependency["cached_fallback_count"]:
+            classification = "FORMULA_INCOMPLETE_FALLBACK"
+            cause = "FORMULA_EVALUATOR_GAP"
+        elif dependency["unlinked_sources"]:
+            classification = "FORMULA_UNLINKED"
+            cause = (
+                "INTENTIONAL_SCOPE_GAP"
+                if scenario["code"] in {"nonwoven_price"}
+                else "MAPPING_GAP"
+            )
+        elif unexpected_effects:
+            classification = "SCENARIO_NOT_ISOLATED"
+            cause = "VALIDATION_ARTIFACT"
+        elif abs(residual) > 1.0:
+            classification = "POLICY_MAPPING_CANDIDATE"
+            cause = (
+                "INVENTORY_TIMING"
+                if scenario["code"].startswith("manufacturing_")
+                or scenario["code"] in {
+                    "jpy", "nonwoven_price", "materials_ex_nonwoven"
+                }
+                else "INTENTIONAL_SCOPE_GAP"
+                if scenario["code"] == "product_group_mix"
+                else "FORMULA_EVALUATOR_GAP"
+                if scenario["code"] == "production_quantity"
+                else "UNEXPLAINED"
+            )
+        else:
+            classification = "PASS_FORMULA_COMPLETE"
+            cause = None
+        records.append({
+            "code": scenario["code"],
+            "label": scenario["label"],
+            "changed_sources": changed_sources,
+            "external_sources": scenario.get("external_sources", []),
+            "formula_status": (
+                "EXTERNAL_DRIVER"
+                if not changed_sources and scenario.get("external_sources")
+                else "FORMULA_COMPLETE"
+                if dependency["formula_complete"]
+                else "FORMULA_INCOMPLETE"
+            ),
+            "fallback_cells": dependency["fallback_cells"],
+            "unlinked_sources": dependency["unlinked_sources"],
+            "dependency_paths": dependency["source_paths"],
+            "operating_profit_delta": comparison_result["operating_profit_delta"],
+            "expected_deterministic_effect": expected_total,
+            "actual_deterministic_effect": comparison_result["effects_total"],
+            "target_effects": scenario["target_effects"],
+            "nonzero_effects": nonzero_effects,
+            "unexpected_effects": unexpected_effects,
+            "residual": residual,
+            "identity_delta": (
+                comparison_result["effects_total"] + residual
+                - comparison_result["operating_profit_delta"]
+            ),
+            "classification": classification,
+            "residual_cause": cause,
+        })
+    return {"month": month, "scenarios": records}
 
 
 def main() -> int:
