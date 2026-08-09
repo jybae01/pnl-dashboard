@@ -78,10 +78,22 @@ set search_path = public, pg_temp
 as $$
 declare
     v_result public.calculation_results%rowtype;
+    v_model_id uuid;
 begin
     if p_is_default and not p_is_published then
         raise exception 'a default result must be published';
     end if;
+
+    select model_id into v_model_id
+      from public.calculation_results
+     where id = p_result_id;
+    if not found then
+        raise exception 'only a completed calculation result can be published';
+    end if;
+
+    -- Every publication operation follows Model -> target Result -> previous
+    -- defaults, preventing same-model default changes from reversing locks.
+    perform 1 from public.models where id = v_model_id for update;
 
     select result_row.* into v_result
       from public.calculation_results result_row
@@ -106,8 +118,6 @@ begin
     end if;
 
     if p_is_default then
-        -- Serialize same-model default changes before clearing the old row.
-        perform 1 from public.models where id = v_result.model_id for update;
         update public.calculation_results
            set is_default = false
          where model_id = v_result.model_id
@@ -128,6 +138,102 @@ begin
 end;
 $$;
 
+create or replace function public.get_published_calculation_result()
+returns setof public.calculation_results
+language sql
+stable
+security definer
+set search_path = public, pg_temp
+as $$
+    select result_row.*
+      from public.calculation_results result_row
+      join public.calculation_jobs job
+        on job.id = result_row.job_id
+       and job.model_id = result_row.model_id
+     where result_row.is_published
+       and job.status = 'completed'
+       and exists (
+           select 1
+             from public.app_config config
+            where config.config_key = 'model_mapping'
+              and config.status = 'published'
+              and config.version = result_row.mapping_version
+              and config.content_hash = result_row.mapping_hash
+       )
+     order by result_row.is_default desc, result_row.created_at desc
+     limit 1;
+$$;
+
+-- Defense in depth for a future authenticated/JWT Viewer path.  The trusted
+-- V1 Streamlit server uses the narrow read RPC above because service_role
+-- bypasses RLS.
+drop policy if exists calculation_results_read_policy on public.calculation_results;
+create policy calculation_results_read_policy on public.calculation_results
+for select to authenticated
+using (
+    (
+        is_published
+        and exists (
+            select 1
+              from public.calculation_jobs job
+             where job.id = calculation_results.job_id
+               and job.model_id = calculation_results.model_id
+               and job.status = 'completed'
+        )
+        and exists (
+            select 1
+              from public.app_config config
+             where config.config_key = 'model_mapping'
+               and config.status = 'published'
+               and config.version = calculation_results.mapping_version
+               and config.content_hash = calculation_results.mapping_hash
+        )
+    )
+    or exists (
+        select 1 from public.calculation_jobs job
+         where job.id = calculation_results.job_id
+           and job.created_by = auth.uid()
+    )
+);
+
+drop policy if exists pnl_storage_read_policy on storage.objects;
+create policy pnl_storage_read_policy on storage.objects for select to authenticated
+using (
+    bucket_id = 'pnl-models'
+    and public.is_valid_pnl_storage_path(name)
+    and (
+        exists (
+            select 1 from public.models model
+             where model.workbook_bucket = bucket_id
+               and model.workbook_path = name
+               and (model.is_published or model.created_by = auth.uid())
+        )
+        or exists (
+            select 1
+              from public.calculation_results result_row
+              join public.calculation_jobs job
+                on job.id = result_row.job_id
+               and job.model_id = result_row.model_id
+             where result_row.workbook_bucket = bucket_id
+               and result_row.workbook_path = name
+               and (
+                   job.created_by = auth.uid()
+                   or (
+                       result_row.is_published
+                       and job.status = 'completed'
+                       and exists (
+                           select 1 from public.app_config config
+                            where config.config_key = 'model_mapping'
+                              and config.status = 'published'
+                              and config.version = result_row.mapping_version
+                              and config.content_hash = result_row.mapping_hash
+                       )
+                   )
+               )
+        )
+    )
+);
+
 revoke all on function public.complete_calculation_job(
     uuid, uuid, jsonb, text, text, text, text, text, text, boolean, boolean
 ) from public, anon, authenticated;
@@ -139,3 +245,6 @@ revoke all on function public.set_calculation_result_publication(uuid, boolean, 
     from public, anon, authenticated;
 grant execute on function public.set_calculation_result_publication(uuid, boolean, boolean)
     to service_role;
+revoke all on function public.get_published_calculation_result()
+    from public, anon, authenticated;
+grant execute on function public.get_published_calculation_result() to service_role;

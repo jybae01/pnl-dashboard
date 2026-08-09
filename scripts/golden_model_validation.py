@@ -327,20 +327,17 @@ def validate_pair(
         mix_effect += total1 * mix_component
     transport0 = _value(base, column, int(mapping["special_rows"]["selling_transport"]))
     transport1 = _value(comparison, column, int(mapping["special_rows"]["selling_transport"]))
-    transport_q0 = sum(float(row["q0"]) for row in raw_sales.values())
-    transport_q1 = sum(float(row["q1"]) for row in raw_sales.values())
-    transport_unit0 = transport0 / transport_q0 if transport_q0 else 0.0
-    transport_unit1 = transport1 / transport_q1 if transport_q1 else 0.0
-    transport_quantity = -(transport_q1 - transport_q0) * transport_unit0
-    transport_unit = -transport_q1 * (transport_unit1 - transport_unit0)
-    quantity_effect += transport_quantity
-    price_effect = displayed_price + transport_unit
+    transport_quantity = 0.0
+    transport_effect = transport0 - transport1
+    price_effect = displayed_price + transport_effect
     sales_total = quantity_effect + mix_effect + price_effect + sales_fx_effect
     sales_engine = result.sales_analysis["totals"]
     for item, independent in {
         "quantity_effect": quantity_effect,
         "mix_effect": mix_effect,
-        "pure_price_effect": price_effect,
+        "pure_price_effect": displayed_price,
+        "sales_price_effect": price_effect,
+        "transport_effect": transport_effect,
         "sales_fx_effect": sales_fx_effect,
         "total_sales_effect": sales_total,
     }.items():
@@ -575,12 +572,11 @@ def validate_pair(
             "fx_reclassification_not_added": abs(sum(effect_map.values()) - result.effects_total) <= 1.0,
         },
         "mixed_unit_audit": {
-            "status": "ENGINE_BUG",
-            "location": "forecast.analysis.golden_adapter: ActivityRecord.transport_activity",
+            "status": "PASS",
+            "location": "forecast.analysis.sales_effects",
             "finding": (
-                "The current transport denominator sums PCS-based SW/BW/LC "
-                "sales_basis with FS LENGTH. No allocation-policy change is "
-                "made by this validation hardening."
+                "V1 customer-delivery transport uses the total non-tariff "
+                "expense delta. No PCS/LENGTH denominator is constructed."
             ),
         },
         "independent_effects": {
@@ -732,7 +728,7 @@ def validate_single_driver_scenarios(
             "code": "customer_freight",
             "label": "Customer-delivery transport only",
             "changes": {cell(1168): value(1168) + 10_000_000.0},
-            "target_effects": ["sales_quantity", "sales_price"],
+            "target_effects": ["sales_price"],
         },
         {
             "code": "tariff",
@@ -755,27 +751,6 @@ def validate_single_driver_scenarios(
             continue
         scenario_base_path = base_path
         pair_controls: list[dict[str, Any]] = []
-        if scenario["code"] == "sales_quantity":
-            # A controlled pair removes customer freight from both sides.  It
-            # avoids inventing an allocation across PCS and FS LENGTH and
-            # leaves freight to its dedicated isolation scenario.
-            scenario_base_path = output_dir / "sales_quantity_base_controlled.xlsx"
-            shutil.copy2(base_path, scenario_base_path)
-            controlled = GoldenWorkbook(scenario_base_path)
-            controlled.set_input(
-                cell(1168), 0.0, "validation.sales_quantity",
-                "controlled pair excludes customer freight", allow_formula=True,
-            )
-            controlled.recalculate()
-            controlled.save(scenario_base_path)
-            pair_controls.append({
-                "address": cell(1168),
-                "original_value": value(1168),
-                "controlled_value": 0.0,
-                "applied_to": ["base", "comparison"],
-                "classification": "CONTROLLED_TEST_ASSUMPTION",
-                "reason": "exclude mixed-unit customer freight from quantity-only isolation",
-            })
         comparison_path = output_dir / f"{scenario['code']}.xlsx"
         shutil.copy2(scenario_base_path, comparison_path)
         workbook = GoldenWorkbook(comparison_path)
@@ -898,6 +873,9 @@ def validate_excel_calculated_pair(
     mapping_path: Path,
     *,
     month: int = 7,
+    baseline_sales_fx: float = 1_450.0,
+    comparison_sales_fx: float = 1_450.0,
+    tariff_adjustment: float = 0.0,
 ) -> dict[str, Any]:
     """Read-only acceptance gate for two workbooks calculated and saved by Excel."""
     if (
@@ -913,14 +891,57 @@ def validate_excel_calculated_pair(
             "comparison": str(comparison_path) if comparison_path else None,
         }
 
-    report = validate_pair(base_path, comparison_path, mapping_path, month=month)
+    base_sha = _sha256(base_path)
+    comparison_sha = _sha256(comparison_path)
+    if base_sha == comparison_sha:
+        return {
+            "mode": "excel_calculated_pair",
+            "status": "BLOCKED_IDENTICAL_EXCEL_CALCULATED_PAIR",
+            "base": {"path": str(base_path), "sha256": base_sha},
+            "comparison": {"path": str(comparison_path), "sha256": comparison_sha},
+        }
+
+    base_workbook = GoldenWorkbook(base_path)
+    comparison_workbook = GoldenWorkbook(comparison_path)
+    mapping = json.loads(mapping_path.read_text(encoding="utf-8"))
+    column = MONTH_COLUMNS[month]
+    formula_drift = sorted(
+        address
+        for address in set(base_workbook.formulas) | set(comparison_workbook.formulas)
+        if base_workbook.formulas.get(address) != comparison_workbook.formulas.get(address)
+    )
+    changed_sources = sorted(
+        address
+        for address in set(base_workbook.cells) | set(comparison_workbook.cells)
+        if address.startswith(column)
+        and address[len(column):].isdigit()
+        and int(address[len(column):]) > 3
+        and address not in base_workbook.formulas
+        and address not in comparison_workbook.formulas
+        and GoldenWorkbook._values_differ(
+            base_workbook.raw_value(address), comparison_workbook.raw_value(address)
+        )
+    )
+    report = validate_pair(
+        base_path,
+        comparison_path,
+        mapping_path,
+        month=month,
+        baseline_sales_fx=baseline_sales_fx,
+        comparison_sales_fx=comparison_sales_fx,
+        tariff_adjustment=tariff_adjustment,
+        changed_sources=changed_sources,
+    )
     formula = report["formula_evaluation"]
+    changed_dependency = formula["comparison_pnl_dependency"]
+    unlinked_changed_sources = list(changed_dependency["unlinked_sources"])
+    linked_changed_sources = sorted(
+        set(changed_sources) - set(unlinked_changed_sources)
+    )
     closures = {
         "base": formula["base_pnl_full_dependency"],
         "comparison": formula["comparison_pnl_full_dependency"],
     }
-    mapping = json.loads(mapping_path.read_text(encoding="utf-8"))
-    column = MONTH_COLUMNS[month]
     core_outputs = {
         name: f"{column}{row}"
         for name, row in mapping["comparison"]["pnl_rows"].items()
@@ -947,12 +968,39 @@ def validate_excel_calculated_pair(
     }
     source_checks = [row for row in report["checks"] if row["status"] == "CHECK"]
     level_1 = "PASS" if not source_checks else "CHECK"
-    level_2 = "PASS" if all(row["status"] == "PASS" for row in freshness.values()) else "CHECK"
+    level_2 = (
+        "PASS"
+        if not formula_drift
+        and bool(linked_changed_sources)
+        and not unlinked_changed_sources
+        and all(row["status"] == "PASS" for row in freshness.values())
+        else "CHECK"
+    )
     result = report["comparison_result"]
     level_3 = "PASS" if result["reconciled"] else "CHECK"
     report["excel_pair_acceptance"] = {
         "mode": "excel_calculated_pair",
         "read_only": True,
+        "pair_integrity": {
+            "base_sha256": base_sha,
+            "comparison_sha256": comparison_sha,
+            "distinct_files": True,
+            "formula_structure_status": "PASS" if not formula_drift else "CHECK",
+            "formula_drift_cells": formula_drift,
+            "changed_sources": changed_sources,
+            "linked_changed_sources": linked_changed_sources,
+            "unlinked_changed_sources": unlinked_changed_sources,
+            "changed_source_status": (
+                "PASS"
+                if linked_changed_sources and not unlinked_changed_sources
+                else "CHECK_UNLINKED_SOURCE"
+                if unlinked_changed_sources
+                else "CHECK_NO_CHANGED_SOURCE"
+            ),
+            "baseline_sales_fx": baseline_sales_fx,
+            "comparison_sales_fx": comparison_sales_fx,
+            "tariff_adjustment": tariff_adjustment,
+        },
         "cached_freshness": freshness,
         "level_1_calculation_identity": level_1,
         "level_2_workbook_propagation": level_2,
@@ -962,7 +1010,13 @@ def validate_excel_calculated_pair(
         "residual": result["residual"],
         "residual_ratio": report["residual_analysis"]["ratio_to_operating_profit_delta"],
         "source_level_checks": source_checks,
-        "status": "PASS" if (level_1, level_2, level_3) == ("PASS", "PASS", "PASS") else "CHECK",
+        "status": (
+            "PASS"
+            if linked_changed_sources
+            and not unlinked_changed_sources
+            and (level_1, level_2, level_3) == ("PASS", "PASS", "PASS")
+            else "CHECK"
+        ),
     }
     return report
 
@@ -974,10 +1028,20 @@ def main() -> int:
     parser.add_argument("--mapping", type=Path, default=Path("config/model_mapping.json"))
     parser.add_argument("--generate-comparison", action="store_true")
     parser.add_argument("--excel-calculated-pair", action="store_true")
+    parser.add_argument("--baseline-sales-fx", type=float, default=1450.0)
+    parser.add_argument("--comparison-sales-fx", type=float, default=1450.0)
+    parser.add_argument("--tariff-adjustment", type=float, default=0.0)
     parser.add_argument("--output", type=Path)
     args = parser.parse_args()
     if args.excel_calculated_pair:
-        report = validate_excel_calculated_pair(args.base, args.comparison, args.mapping)
+        report = validate_excel_calculated_pair(
+            args.base,
+            args.comparison,
+            args.mapping,
+            baseline_sales_fx=args.baseline_sales_fx,
+            comparison_sales_fx=args.comparison_sales_fx,
+            tariff_adjustment=args.tariff_adjustment,
+        )
     else:
         if args.base is None or args.comparison is None:
             parser.error("--base and --comparison are required outside pair-blocker checks")

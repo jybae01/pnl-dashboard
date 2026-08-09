@@ -77,10 +77,19 @@ def _render_sales(view: dict[str, Any]) -> None:
         "제품 Mix 효과", format_million(totals.get("mix_effect"), signed=True)
     )
     effect_cards[2].metric(
-        "순수 판매단가 효과", format_million(totals.get("pure_price_effect"), signed=True)
+        "고객배송 운반비 포함 판매단가 효과",
+        format_million(
+            totals.get("sales_price_effect", totals.get("pure_price_effect")),
+            signed=True,
+        ),
     )
     effect_cards[3].metric(
         "매출환율 효과", format_million(totals.get("sales_fx_effect"), signed=True)
+    )
+    st.caption(
+        "고객배송 운반비 효과: "
+        + format_million(totals.get("transport_effect"), signed=True)
+        + " (판매단가 효과에 1회 포함)"
     )
     st.caption("단위: 금액 백만원 / 수량 SW·BW·LC PCS, FS m / 단가차이 USD/판매단위")
     rows = []

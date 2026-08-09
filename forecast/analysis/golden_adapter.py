@@ -289,6 +289,7 @@ class GoldenAnalysisAdapter:
                     unit_basis="PCS",
                     production_qty=mcm_quantity,
                     sap_production_qty=mcm_quantity,
+                    sales_fx=float(sales_fx) if sales_fx else 1.0,
                     nonwoven_output_length=0.0,
                     jpy_fx_krw_per_jpy=jpy,
                     mcm_flag=True,
@@ -381,7 +382,6 @@ class GoldenAnalysisAdapter:
                     self._number(workbook.value(f"{column}{row}"))
                     for row in manufacturing["back_activity_rows"]
                 ),
-                transport_activity=sum(row.sales_basis for row in month_products),
                 manufacturing_input_cost=manufacturing_input,
                 tariff_input=self._monthly_tariff(meta, month),
                 tariff_in_transport=bool(getattr(meta, "tariff_in_workbook", False)),
@@ -389,7 +389,9 @@ class GoldenAnalysisAdapter:
             for source in sga_rows:
                 account = str(source["account"])
                 section = str(source.get("section") or "")
-                # Selling transport drives the sales-price transport split;
+                # Selling transport drives the canonical customer-delivery
+                # transport effect; no PCS/LENGTH activity denominator exists
+                # in V1.  The raw source row is retained for the detail table.
                 # same-named general-admin transport remains fixed SGA. Encode
                 # the section only in the normalized account, retaining the
                 # raw source row for the existing UI detail table.

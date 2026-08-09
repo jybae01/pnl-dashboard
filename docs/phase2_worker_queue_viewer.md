@@ -34,7 +34,16 @@ binding, and published mapping provenance, serializes default changes, and can
 update publication metadata only. Execution is revoked from public/anon/
 authenticated and granted server-side only. `AdminResultPublicationGateway`
 rechecks the Streamlit Admin capability on every call because a Supabase secret
-key itself bypasses RLS.
+key itself bypasses RLS. This is an Option A application-capability boundary,
+not a distinct database role held by the Worker. The factory constructs the
+Admin publication capability separately and never places it in Worker or UI
+session state.
+
+Viewer reads use `get_published_calculation_result`, not a broad table query.
+The RPC, authenticated RLS policy, and result-object Storage policy all require
+published result, completed job, matching job/result model, and published
+mapping version/hash. Publication operations use the consistent lock order
+Model -> target Result -> prior default rows.
 
 The worker stores `engine_version`, `mapping_version`, `mapping_hash`,
 `result_schema_version`, backend-produced `fx_total`,

@@ -80,11 +80,11 @@ class ResultReadCall:
 
 class ResultReadSupabase:
     def __init__(self):
-        self.read_filters = []
+        self.calls = []
 
-    def table(self, name):
-        assert name == "calculation_results"
-        return ResultReadCall(self)
+    def rpc(self, name, params):
+        self.calls.append((name, params))
+        return RpcCall([])
 
 
 def job_row(**overrides):
@@ -180,14 +180,12 @@ class Phase1SupabaseAdapterTests(unittest.TestCase):
         self.assertTrue(model.is_default)
         self.assertEqual(self.client.calls[0][0], "set_model_publication")
 
-    def test_viewer_result_read_requires_published_completed_job(self):
+    def test_viewer_result_read_uses_narrow_provenance_validating_rpc(self):
         client = ResultReadSupabase()
 
         self.assertIsNone(SupabaseResultRepository(client).load_completed())
 
-        self.assertIn(("select", "*,calculation_jobs!inner(status)"), client.read_filters)
-        self.assertIn(("eq", "is_published", True), client.read_filters)
-        self.assertIn(("eq", "calculation_jobs.status", "completed"), client.read_filters)
+        self.assertEqual(client.calls, [("get_published_calculation_result", {})])
 
 
 if __name__ == "__main__":

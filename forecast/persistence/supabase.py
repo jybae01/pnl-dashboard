@@ -395,14 +395,7 @@ class SupabaseResultRepository:
 
     def load_completed(self) -> dict[str, Any] | None:
         row = _first(
-            self.client.table("calculation_results")
-            .select("*,calculation_jobs!inner(status)")
-            .eq("is_published", True)
-            .eq("calculation_jobs.status", "completed")
-            .order("is_default", desc=True)
-            .order("created_at", desc=True)
-            .limit(1)
-            .execute()
+            self.client.rpc("get_published_calculation_result", {}).execute()
         )
         if row is None:
             return None

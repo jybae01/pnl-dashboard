@@ -77,7 +77,7 @@ Each scenario starts from a fresh Base copy. Amounts are KRW.
 
 | Driver | Source(s) | Propagation | OP delta | Deterministic effect | Residual | Assessment |
 |---|---|---|---:|---:|---:|---|
-| Sales quantity | FS inputs; freight zeroed on both controlled sides | Complete | 31,944,443.192 | 31,944,443.192 | -0.000004 | PASS; no non-target effect |
+| Sales quantity | FS inputs; customer freight unchanged | Complete | 31,944,443.192 | 31,944,443.192 | -0.000004 | PASS; no non-target effect |
 | Product-group Mix | SW400↔BW400, total PCS fixed | Complete | 32,534,928.969 | 26,831,230.049 | 5,703,698.920 | `INTENTIONAL_SCOPE_GAP`; no SKU-Mix effect added |
 | Sales price | `K33` | Complete | 181,634,784.757 | 181,634,784.757 | ~0 | PASS |
 | Sales FX | all positive-quantity revenue sources + LC goods, external FX | Complete | 848,087,451.343 | 848,087,451.343 | ~0 | PASS |
@@ -100,14 +100,17 @@ figures are therefore not a salary isolation result.
 
 Level 1 sales identities match their independent source calculations. V1 Mix is
 only SW/BW/LC/FS/new-business product-group Mix. SKU-internal composition is not
-promoted to an effect. The quantity harness now uses a controlled pair with
-customer freight set to zero on both sides. It produces no non-target price
-component and records the control as `CONTROLLED_TEST_ASSUMPTION`.
+promoted to an effect. Customer-delivery transport now uses only the non-tariff
+expense delta: Base minus Comparison. `transport_quantity_effect` is zero and
+the compatibility `transport_unit_effect` equals canonical `transport_effect`.
+The amount is included once in sales-price effect and remains zero in the SGA
+bridge.
 
-The former KRW 306,863 price component was a validation artifact that exposed a
-real adapter limitation: `transport_activity` combines PCS-based SW/BW/LC with
-FS LENGTH, while LC totals can be paired with manufactured-only quantity. This
-is `ENGINE_BUG` plus `BUSINESS_POLICY_GAP`; no allocation policy is invented.
+No PCS/LENGTH transport denominator is constructed. The former KRW 306,863
+price component is classified as a resolved `VALIDATION_ARTIFACT` caused by the
+removed mixed-unit split. LC commercial-total versus manufactured-only source
+alignment remains separately visible for real-pair source-level checking; it is
+not used to recreate a mixed-unit transport allocation.
 
 ## 7. Materials
 
@@ -144,8 +147,8 @@ effect” only; no deterministic effect is added in this phase.
 ## 9. SGA
 
 Variable SGA, fixed SGA, customer delivery freight, and external tariff isolate
-to zero residual (within floating tolerance). Customer freight remains in the
-sales transport decomposition and is not double-counted as SGA.
+to zero residual (within floating tolerance). Customer freight uses the direct
+non-tariff expense delta and is not double-counted as SGA.
 
 ## 10. FX
 
@@ -179,8 +182,9 @@ Residual cause codes used are `VALIDATION_ARTIFACT`,
 Confirmed validation artifacts are stale comparison caches, the former K106
 zero denominator, the old K301-as-salary scenario, direct-total 211/699 OP
 assumptions, and the former freight-adjusted quantity construction. The
-mixed-unit transport denominator is a confirmed engine limitation, but no
-allocation policy is invented. No real P&L mapping gap is proven. The 211/699 source semantics need
+mixed-unit transport denominator has been removed from V1; customer-delivery
+transport is the total non-tariff expense delta without an allocation policy.
+No real P&L mapping gap is proven. The 211/699 source semantics need
 business confirmation only if they are intended to be P&L drivers rather than
 analysis pools.
 
@@ -191,7 +195,13 @@ actually recalculated and saved: Base Golden Model and Comparison Golden Model.
 They must have current cached formulas. Until supplied, real OP propagation,
 comparison cached-value freshness, actual 211/699 intent, and full Bridge
 completeness are **BLOCKED**. The private `models/golden_model.xlsx` is absent;
-the known `sales_fx` monkeypatch signature issue is tracked separately.
+the former `sales_fx` monkeypatch signature issue is fixed and its forwarded
+baseline/comparison FX values are regression-tested.
+
+Pair acceptance rejects identical SHA-256 files, formula-structure drift,
+stale P&L dependency caches, and pairs without a linked selected-month source.
+FX defaults are neutral on both sides and tariff defaults to zero; external
+assumptions must be supplied explicitly.
 
 ## 15. Supabase Live E2E readiness
 

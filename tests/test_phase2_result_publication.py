@@ -9,6 +9,7 @@ from forecast.persistence.local import (
     LocalResultRepositoryAdapter,
 )
 from forecast.persistence.publication import AdminResultPublicationGateway
+from forecast.persistence.factory import create_admin_result_publication_gateway
 from forecast.provenance import ResultProvenance
 from forecast.storage import ResultStore
 
@@ -69,6 +70,18 @@ def test_viewer_capability_cannot_publish(tmp_path):
         LocalResultPublicationRepository(tmp_path / "jobs"),
         lambda: (_ for _ in ()).throw(PermissionError("admin required")),
     )
+    with pytest.raises(PermissionError, match="admin required"):
+        gateway.set_publication(result_id, is_published=True)
+
+
+def test_factory_builds_server_only_admin_capability_and_rechecks_role(tmp_path):
+    result_id = _completed_result(tmp_path)
+    gateway = create_admin_result_publication_gateway(
+        tmp_path,
+        lambda: (_ for _ in ()).throw(PermissionError("admin required")),
+        backend="local",
+    )
+
     with pytest.raises(PermissionError, match="admin required"):
         gateway.set_publication(result_id, is_published=True)
 

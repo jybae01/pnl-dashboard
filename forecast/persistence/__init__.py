@@ -15,7 +15,11 @@ from .local import (
     LocalResultRepositoryAdapter,
     LocalResultPublicationRepository,
 )
-from .factory import RepositoryBundle, create_repository_bundle
+from .factory import (
+    RepositoryBundle,
+    create_admin_result_publication_gateway,
+    create_repository_bundle,
+)
 from .supabase import (
     SupabaseCalculationJobRepository,
     SupabaseMappingConfigRepository,
@@ -46,5 +50,6 @@ __all__ = [
     "SupabaseResultRepository",
     "SupabaseResultPublicationRepository",
     "AdminResultPublicationGateway",
+    "create_admin_result_publication_gateway",
     "create_repository_bundle",
 ]

@@ -34,6 +34,8 @@ Streamlit은 Golden Model 셀을 읽거나 손익효과를 자체 계산하지 �
 - 재고실현율은 `매출원가 / 당기투입 제조원가`이며 100% 상한을 두지 않는다.
 - 변동 판관비는 브랜드사용료·포장비다. 나머지 일반 판관비는 고정 판관비다.
 - 판매비 구역의 고객배송 운반비는 실제 금액을 표시하지만 Bridge는 판매효과로 연결해 판관비와 중복 계산하지 않는다.
+- V1 고객배송 운반비 효과는 `Base 관세 제외 운반비 - Comparison 관세 제외 운반비`다. 제품군별 배부 source가 없으므로 PCS와 m를 합산한 분모나 원단위 분해를 사용하지 않는다.
+- 호환 payload의 `transport_quantity_effect`는 0, `transport_unit_effect`는 canonical `transport_effect`와 같다. 합계에는 판매단가 효과를 통해 한 번만 반영한다.
 - 관세는 외부효과/관세효과로 정확히 한 번만 반영한다.
 - 정합성은 `effects_total + residual = operating_profit_delta`로 검증하며 residual을 기타효과에 숨기지 않는다.
 

@@ -160,7 +160,13 @@ def build_fact_pack(
             "quantity_effect_million_krw": _money_million(sales_totals.get("quantity_effect")),
             "mix_effect_million_krw": _money_million(sales_totals.get("mix_effect")),
             "pure_price_effect_million_krw": _money_million(sales_totals.get("pure_price_effect")),
+            "sales_price_effect_million_krw": _money_million(
+                sales_totals.get("sales_price_effect", sales_totals.get("pure_price_effect"))
+            ),
             "sales_fx_effect_million_krw": _money_million(sales_totals.get("sales_fx_effect")),
+            "customer_delivery_transport_effect_million_krw": _money_million(
+                sales_totals.get("transport_effect")
+            ),
             "total_sales_effect_million_krw": _money_million(sales_totals.get("total_sales_effect")),
             "products": _compact_sales_rows(sales_rows),
         },
@@ -229,6 +235,15 @@ def build_fact_pack(
             sales_view.get("totals", {}).get("mix_effect")
         ),
         "pure_price_effect_million_krw": _money_million(sales_view.get("totals", {}).get("pure_price_effect")),
+        "sales_price_effect_million_krw": _money_million(
+            sales_view.get("totals", {}).get(
+                "sales_price_effect",
+                sales_view.get("totals", {}).get("pure_price_effect"),
+            )
+        ),
+        "customer_delivery_transport_effect_million_krw": _money_million(
+            sales_view.get("totals", {}).get("transport_effect")
+        ),
         "sales_fx_effect_million_krw": _money_million(sales_view.get("totals", {}).get("sales_fx_effect")),
         "total_sales_effect_million_krw": _money_million(sales_view.get("totals", {}).get("total_sales_effect")),
         "products": _compact_sales_rows(sales_view.get("rows", [])),

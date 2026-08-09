@@ -58,13 +58,14 @@ class SalesEffectsTest(unittest.TestCase):
             pnl=[PnlRecord("2026-05", 2140, 1000, 200)],
         )
         result = calculate_sales_effects(base, comp, config)
-        self.assertAlmostEqual(result.quantity, 124.0)
+        self.assertAlmostEqual(result.quantity, 140.0)
         self.assertAlmostEqual(result.mix, 110.0)
-        self.assertAlmostEqual(result.price, 216.0)
+        self.assertAlmostEqual(result.price, 200.0)
         self.assertAlmostEqual(result.tariff, -10.0)
-        self.assertAlmostEqual(result.transport_quantity, -16.0)
-        self.assertAlmostEqual(result.transport_unit, -24.0)
-        self.assertAlmostEqual(result.price, result.displayed_price + result.transport_unit)
+        self.assertAlmostEqual(result.transport_effect, -40.0)
+        self.assertEqual(result.transport_quantity, 0.0)
+        self.assertAlmostEqual(result.transport_unit, result.transport_effect)
+        self.assertAlmostEqual(result.price, result.displayed_price + result.transport_effect)
 
     def test_exact_symmetric_price_fx_split(self):
         config = AnalysisConfig.load(CONFIG)
@@ -82,6 +83,25 @@ class SalesEffectsTest(unittest.TestCase):
         self.assertAlmostEqual(result.price, 110.0)
         self.assertAlmostEqual(result.sales_fx, 210.0)
         self.assertAlmostEqual(result.price + result.sales_fx, 320.0)
+
+    def test_v1_mix_ignores_sku_composition_inside_product_group(self):
+        config = AnalysisConfig.load(CONFIG)
+        base = scenario("base", products=[
+            ProductRecord("2026-05", "SW_A", "SW", sales_qty=60, sales_amount=600, product_cogs=540),
+            ProductRecord("2026-05", "SW_B", "SW", sales_qty=40, sales_amount=400, product_cogs=280),
+            ProductRecord("2026-05", "BW_A", "BW", sales_qty=100, sales_amount=1_000, product_cogs=500),
+        ])
+        comparison = scenario("comparison", products=[
+            ProductRecord("2026-05", "SW_A", "SW", sales_qty=20, sales_amount=200, product_cogs=180),
+            ProductRecord("2026-05", "SW_B", "SW", sales_qty=80, sales_amount=800, product_cogs=560),
+            ProductRecord("2026-05", "BW_A", "BW", sales_qty=100, sales_amount=1_000, product_cogs=500),
+        ])
+
+        result = calculate_sales_effects(base, comparison, config)
+
+        self.assertEqual(result.quantity, 0.0)
+        self.assertEqual(result.mix, 0.0)
+        self.assertEqual(result.displayed_price, 0.0)
 
     def test_reference_workbook_transport_and_tariff_split(self):
         """Reproduce 판매,원부재료/판관비 reference cells X14:X16."""
@@ -105,9 +125,101 @@ class SalesEffectsTest(unittest.TestCase):
             pnl=[PnlRecord("2026-05", 0, 0, 0)],
         )
         result = calculate_sales_effects(base, comp, config)
-        self.assertAlmostEqual(result.transport_quantity, 66551363.42329753, places=4)
-        self.assertAlmostEqual(result.transport_unit, -121138113.1728915, places=4)
+        self.assertEqual(result.transport_quantity, 0.0)
+        self.assertAlmostEqual(result.transport_effect, -54586749.74959415, places=4)
+        self.assertAlmostEqual(result.transport_unit, result.transport_effect, places=4)
         self.assertAlmostEqual(result.tariff, 198216043.2498839, places=4)
+
+    def test_transport_never_builds_a_mixed_pcs_length_denominator(self):
+        config = AnalysisConfig.load(CONFIG)
+        base = scenario(
+            "base",
+            products=[
+                ProductRecord("2026-05", "SW", "SW", sales_qty=100, sales_amount=1_000),
+                ProductRecord(
+                    "2026-05", "FS", "FS", unit_basis="LENGTH",
+                    sales_length=10, sales_amount=1_000,
+                ),
+            ],
+            sga_expenses=[ExpenseRecord("2026-05", "판매비_운반비", 50, "sga")],
+            activities=[ActivityRecord("2026-05", transport_activity=110)],
+        )
+        comp = scenario(
+            "comp",
+            products=[
+                ProductRecord("2026-05", "SW", "SW", sales_qty=200, sales_amount=2_000),
+                ProductRecord(
+                    "2026-05", "FS", "FS", unit_basis="LENGTH",
+                    sales_length=1_000_000, sales_amount=100_000_000,
+                ),
+            ],
+            sga_expenses=[ExpenseRecord("2026-05", "판매비_운반비", 50, "sga")],
+            activities=[ActivityRecord("2026-05", transport_activity=1_000_200)],
+        )
+
+        result = calculate_sales_effects(base, comp, config)
+
+        self.assertEqual(result.transport_effect, 0.0)
+        self.assertEqual(result.transport_quantity, 0.0)
+        self.assertEqual(result.transport_unit, 0.0)
+
+    def test_customer_transport_delta_is_once_in_sales_price(self):
+        config = AnalysisConfig.load(CONFIG)
+        base = scenario(
+            "base",
+            sga_expenses=[ExpenseRecord("2026-05", "판매비_운반비", 100, "sga")],
+            activities=[ActivityRecord("2026-05")],
+        )
+        comp = scenario(
+            "comp",
+            sga_expenses=[ExpenseRecord("2026-05", "판매비_운반비", 110, "sga")],
+            activities=[ActivityRecord("2026-05")],
+        )
+
+        sales = calculate_sales_effects(base, comp, config)
+        sga = calculate_sga_effects(base, comp, config)
+
+        self.assertEqual(sales.transport_effect, -10.0)
+        self.assertEqual(sales.transport_quantity, 0.0)
+        self.assertEqual(sales.transport_unit, -10.0)
+        self.assertEqual(sales.price, -10.0)
+        self.assertEqual(sales.total, -10.0)
+        self.assertEqual(sga.total, 0.0)
+        self.assertEqual(sga.details[0]["profit_effect"], 0.0)
+
+    def test_tariff_and_transport_are_each_counted_once(self):
+        config = AnalysisConfig.load(CONFIG)
+        base = scenario(
+            "base",
+            sga_expenses=[ExpenseRecord("2026-05", "판매비_운반비", 100, "sga")],
+            activities=[ActivityRecord(
+                "2026-05", tariff_input=20, tariff_in_transport=True,
+            )],
+        )
+        tariff_only = scenario(
+            "tariff",
+            sga_expenses=[ExpenseRecord("2026-05", "판매비_운반비", 113, "sga")],
+            activities=[ActivityRecord(
+                "2026-05", tariff_input=33, tariff_in_transport=True,
+            )],
+        )
+        both = scenario(
+            "both",
+            sga_expenses=[ExpenseRecord("2026-05", "판매비_운반비", 123, "sga")],
+            activities=[ActivityRecord(
+                "2026-05", tariff_input=33, tariff_in_transport=True,
+            )],
+        )
+
+        tariff = calculate_sales_effects(base, tariff_only, config)
+        combined = calculate_sales_effects(base, both, config)
+
+        self.assertEqual(tariff.transport_effect, 0.0)
+        self.assertEqual(tariff.tariff, -13.0)
+        self.assertEqual(tariff.total, -13.0)
+        self.assertEqual(combined.transport_effect, -10.0)
+        self.assertEqual(combined.tariff, -13.0)
+        self.assertEqual(combined.total, -23.0)
 
 
 class MaterialEffectsTest(unittest.TestCase):

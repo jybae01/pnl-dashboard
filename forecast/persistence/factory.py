@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 from dataclasses import dataclass
 from pathlib import Path
+from collections.abc import Callable
 from typing import Any
 
 from ..mapping_config import LocalMappingConfigRepository
@@ -12,12 +13,15 @@ from .local import (
     LocalCalculationJobRepository,
     LocalModelRepositoryAdapter,
     LocalResultRepositoryAdapter,
+    LocalResultPublicationRepository,
 )
+from .publication import AdminResultPublicationGateway
 from .supabase import (
     SupabaseCalculationJobRepository,
     SupabaseMappingConfigRepository,
     SupabaseModelRepositoryAdapter,
     SupabaseResultRepository,
+    SupabaseResultPublicationRepository,
 )
 
 
@@ -74,11 +78,39 @@ def create_repository_bundle(
 
 def _create_supabase_client() -> Any:
     url = os.getenv("SUPABASE_URL", "").strip()
-    service_key = os.getenv("SUPABASE_SERVICE_ROLE_KEY", "").strip()
+    service_key = (
+        os.getenv("SUPABASE_SECRET_KEY", "").strip()
+        or os.getenv("SUPABASE_SERVICE_ROLE_KEY", "").strip()
+    )
     if not url or not service_key:
-        raise RuntimeError("SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY are required")
+        raise RuntimeError(
+            "SUPABASE_URL and SUPABASE_SECRET_KEY "
+            "(or legacy SUPABASE_SERVICE_ROLE_KEY) are required"
+        )
     try:
         from supabase import create_client
     except ModuleNotFoundError as exc:
         raise RuntimeError("install the optional supabase dependency") from exc
     return create_client(url, service_key)
+
+
+def create_admin_result_publication_gateway(
+    data_directory: str | Path,
+    require_admin: Callable[[], None],
+    *,
+    backend: str | None = None,
+    supabase_client: Any | None = None,
+) -> AdminResultPublicationGateway:
+    """Build the trusted-server Admin capability without exposing it to Worker/UI state."""
+
+    directory = Path(data_directory)
+    selected = (backend or os.getenv("PNL_REPOSITORY_BACKEND", "local")).strip().lower()
+    if selected == "local":
+        repository = LocalResultPublicationRepository(directory / "jobs")
+    elif selected == "supabase":
+        repository = SupabaseResultPublicationRepository(
+            supabase_client or _create_supabase_client()
+        )
+    else:
+        raise ValueError("PNL_REPOSITORY_BACKEND must be 'local' or 'supabase'")
+    return AdminResultPublicationGateway(repository, require_admin)
