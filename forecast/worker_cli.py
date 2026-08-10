@@ -34,7 +34,11 @@ def main(argv: list[str] | None = None) -> int:
     args = parser().parse_args(argv)
     bundle = create_repository_bundle(args.data_directory, backend=args.backend)
     control = WorkerJobControl(bundle.jobs, args.worker_id)
-    executor = DeterministicComparisonExecutor(bundle.models, args.mapping)
+    executor = DeterministicComparisonExecutor(
+        bundle.models,
+        args.mapping,
+        allow_legacy_local_inputs=(bundle.backend == "local"),
+    )
     stop = threading.Event()
 
     def request_stop(_signum: int, _frame: object) -> None:

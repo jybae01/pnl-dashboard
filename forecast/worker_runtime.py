@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import hashlib
 import threading
 from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
@@ -32,6 +33,18 @@ class WorkerExecutor(Protocol):
 
 class LeaseLostError(RuntimeError):
     pass
+
+
+class InputProvenanceUnresolvedError(ValueError):
+    pass
+
+
+class InputIntegrityMismatchError(ValueError):
+    def __init__(self, side: str, expected_sha256: str, actual_sha256: str):
+        self.side = side
+        self.expected_sha256 = expected_sha256
+        self.actual_sha256 = actual_sha256
+        super().__init__(f"{side} workbook SHA-256 does not match the claimed job")
 
 
 @dataclass(frozen=True)
@@ -82,9 +95,12 @@ class DeterministicComparisonExecutor:
         self,
         models: ModelRepository,
         mapping_path: str | Path,
+        *,
+        allow_legacy_local_inputs: bool = False,
     ):
         self.models = models
         self.mapping_path = Path(mapping_path)
+        self.allow_legacy_local_inputs = allow_legacy_local_inputs
         self.mapping = json.loads(self.mapping_path.read_text(encoding="utf-8"))
         self.preflight = ExcelPreflightValidator(self.mapping)
 
@@ -101,15 +117,40 @@ class DeterministicComparisonExecutor:
                 "worker mapping_hash does not match the mapping pinned to the claimed job"
             )
 
-        comparison_meta = self.models.get(claim.job.model_id)
-        baseline_meta = (
-            self.models.get(request.baseline_model_id)
-            if request.baseline_model_id
-            else self.models.get_default(
-                year=comparison_meta.year,
-                exclude_model_id=comparison_meta.id,
-            )
+        durable_inputs = (
+            claim.job.baseline_model_id,
+            claim.job.comparison_model_id,
+            claim.job.baseline_workbook_sha256,
+            claim.job.comparison_workbook_sha256,
         )
+        if any(durable_inputs):
+            if not all(durable_inputs):
+                raise InputProvenanceUnresolvedError(
+                    "durable job input provenance is incomplete; resubmit the job"
+                )
+            if claim.job.model_id != claim.job.comparison_model_id:
+                raise InputProvenanceUnresolvedError(
+                    "legacy model_id must equal comparison_model_id"
+                )
+            comparison_meta = self.models.get(claim.job.comparison_model_id)
+            baseline_meta = self.models.get(claim.job.baseline_model_id)
+        else:
+            # Explicitly isolated compatibility path for local Phase 1/2 jobs.
+            # Supabase durable jobs are created by create_durable_calculation_job
+            # and always take the pinned branch above.
+            if not self.allow_legacy_local_inputs:
+                raise InputProvenanceUnresolvedError(
+                    "job has no durable input provenance; resubmit the job"
+                )
+            comparison_meta = self.models.get(claim.job.model_id)
+            baseline_meta = (
+                self.models.get(request.baseline_model_id)
+                if request.baseline_model_id
+                else self.models.get_default(
+                    year=comparison_meta.year,
+                    exclude_model_id=comparison_meta.id,
+                )
+            )
         if baseline_meta.id == comparison_meta.id:
             raise ValueError("baseline and comparison models must be different")
         if heartbeat:
@@ -117,6 +158,17 @@ class DeterministicComparisonExecutor:
 
         baseline_path = self.models.path(baseline_meta.id)
         comparison_path = self.models.path(comparison_meta.id)
+        if all(durable_inputs):
+            baseline_hash = hashlib.sha256(baseline_path.read_bytes()).hexdigest()
+            comparison_hash = hashlib.sha256(comparison_path.read_bytes()).hexdigest()
+            if baseline_hash != claim.job.baseline_workbook_sha256:
+                raise InputIntegrityMismatchError(
+                    "baseline", claim.job.baseline_workbook_sha256, baseline_hash
+                )
+            if comparison_hash != claim.job.comparison_workbook_sha256:
+                raise InputIntegrityMismatchError(
+                    "comparison", claim.job.comparison_workbook_sha256, comparison_hash
+                )
         baseline_report = self.preflight.require(
             baseline_path, expected_year=baseline_meta.year
         )
@@ -295,12 +347,22 @@ class WorkerRunner:
             lease.stop()
             retryable = isinstance(exc, (OSError, TimeoutError, ConnectionError))
             error_code = (
-                "preflight_failed"
+                "INPUT_INTEGRITY_MISMATCH"
+                if isinstance(exc, InputIntegrityMismatchError)
+                else "INPUT_PROVENANCE_UNRESOLVED"
+                if isinstance(exc, InputProvenanceUnresolvedError)
+                else "preflight_failed"
                 if isinstance(exc, PreflightValidationError)
                 else "worker_execution_failed"
             )
             detail = (
-                {"preflight": exc.report.as_dict()}
+                {
+                    "input_side": exc.side,
+                    "expected_sha256": exc.expected_sha256,
+                    "actual_sha256": exc.actual_sha256,
+                }
+                if isinstance(exc, InputIntegrityMismatchError)
+                else {"preflight": exc.report.as_dict()}
                 if isinstance(exc, PreflightValidationError)
                 else {"exception_type": type(exc).__name__}
             )

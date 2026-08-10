@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import hashlib
 import shutil
 import uuid
 from datetime import datetime
@@ -42,6 +43,7 @@ class ModelMeta:
     mapping_status: str = "published"
     mapping_version: str = "legacy"
     mapping_hash: str = ""
+    workbook_sha256: str | None = None
 
     def __post_init__(self) -> None:
         # A legacy caller can still construct metadata with confirmed=True.
@@ -148,6 +150,7 @@ class ModelRegistry:
             normalized.setdefault("mapping_status", "published" if normalized["is_published"] else "draft")
             normalized.setdefault("mapping_version", "legacy")
             normalized.setdefault("mapping_hash", "")
+            normalized.setdefault("workbook_sha256", None)
             models.append(ModelMeta(**normalized))
         return models
 
@@ -212,6 +215,7 @@ class ModelRegistry:
             mapping_status=resolved_mapping_status,
             mapping_version=str(mapping_version or "legacy"),
             mapping_hash=str(mapping_hash or ""),
+            workbook_sha256=hashlib.sha256(content).hexdigest(),
         )
         records = [asdict(item) for item in self.list()]
         if meta.is_default:

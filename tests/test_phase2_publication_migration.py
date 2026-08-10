@@ -11,6 +11,7 @@ def test_migration_order_is_phase1_then_queue_then_publication():
         "202608090001_phase1_foundation.sql",
         "202608090002_phase2_queue_worker.sql",
         "202608090003_phase2_publication_boundary.sql",
+        "202608090004_phase25_analysis_inputs.sql",
     ]
 
 

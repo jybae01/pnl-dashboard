@@ -28,6 +28,10 @@ class CalculationJob:
     mapping_version: str
     mapping_hash: str
     result_schema_version: str
+    baseline_model_id: str | None = None
+    comparison_model_id: str | None = None
+    baseline_workbook_sha256: str | None = None
+    comparison_workbook_sha256: str | None = None
     upload_completed_at: str | None = None
     attempt: int = 0
     max_attempts: int = 3
@@ -134,17 +138,12 @@ class LegacyResultPublisher(ResultRepository, Protocol):
 
 @runtime_checkable
 class CalculationJobQueue(Protocol):
-    def enqueue(
-        self,
-        *,
-        model_id: str,
-        storage_bucket: str,
-        storage_path: str,
-        provenance: ResultProvenance,
-        created_by: str | None = None,
-        max_attempts: int = 3,
-        analysis_request: dict[str, Any] | None = None,
-    ) -> CalculationJob: ...
+    """Worker-side lease/settlement contract shared by local and Supabase.
+
+    Job creation is intentionally adapter-specific: local legacy enqueue keeps
+    its single-model compatibility API, while Supabase exposes the explicit
+    Base/Comparison durable creation contract.
+    """
 
     def claim_next(self, worker_id: str, *, lease_seconds: int = 300) -> ClaimedJob | None: ...
 

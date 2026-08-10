@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import uuid
 from dataclasses import asdict
 from datetime import datetime
@@ -58,6 +59,9 @@ def _row_to_model(row: Mapping[str, Any]) -> ModelMeta:
         mapping_status=str(row.get("mapping_status") or ("published" if published else "draft")),
         mapping_version=str(row.get("mapping_version") or "legacy"),
         mapping_hash=str(row.get("mapping_hash") or ""),
+        workbook_sha256=(
+            str(row["workbook_sha256"]) if row.get("workbook_sha256") else None
+        ),
     )
 
 
@@ -72,6 +76,20 @@ def _row_to_job(row: Mapping[str, Any]) -> CalculationJob:
         mapping_version=str(row["mapping_version"]),
         mapping_hash=str(row["mapping_hash"]),
         result_schema_version=str(row["result_schema_version"]),
+        baseline_model_id=(
+            str(row["baseline_model_id"]) if row.get("baseline_model_id") else None
+        ),
+        comparison_model_id=(
+            str(row["comparison_model_id"]) if row.get("comparison_model_id") else None
+        ),
+        baseline_workbook_sha256=(
+            str(row["baseline_workbook_sha256"])
+            if row.get("baseline_workbook_sha256") else None
+        ),
+        comparison_workbook_sha256=(
+            str(row["comparison_workbook_sha256"])
+            if row.get("comparison_workbook_sha256") else None
+        ),
         upload_completed_at=row.get("upload_completed_at"),
         attempt=int(row.get("attempt", 0)),
         max_attempts=int(row.get("max_attempts", 3)),
@@ -203,6 +221,7 @@ class SupabaseModelRepositoryAdapter:
             "mapping_status": metadata.get("mapping_status") or ("published" if published else "draft"),
             "mapping_version": str(metadata.get("mapping_version") or "legacy"),
             "mapping_hash": str(metadata.get("mapping_hash") or ""),
+            "workbook_sha256": hashlib.sha256(content).hexdigest(),
         }
         saved = _first(self.client.table("models").insert(row).execute())
         return _row_to_model(saved or row)
@@ -233,43 +252,32 @@ class SupabaseCalculationJobRepository:
     def enqueue(
         self,
         *,
-        model_id: str,
-        storage_bucket: str,
-        storage_path: str,
+        baseline_model_id: str,
+        comparison_model_id: str,
         provenance: ResultProvenance,
         created_by: str | None = None,
         max_attempts: int = 3,
         analysis_request: dict[str, Any] | None = None,
     ) -> CalculationJob:
-        row = {
-            "model_id": model_id,
-            "status": JobStatus.PENDING.value,
-            "storage_bucket": storage_bucket,
-            "storage_path": storage_path,
-            # Direct repository enqueue means the caller has already placed
-            # the object. Edge initialization uses the DB RPC instead and
-            # remains unclaimable until /jobs/{id}/uploaded verifies Storage.
-            "upload_completed_at": datetime.now().astimezone().isoformat(timespec="seconds"),
-            **provenance.as_dict(),
-            "created_by": created_by,
-            "max_attempts": max_attempts,
-            "analysis_request": analysis_request or {},
-        }
-        saved = _first(self.client.table("calculation_jobs").insert(row).execute())
+        if not baseline_model_id:
+            raise ValueError("baseline_model_id is required for a durable job")
+        if not comparison_model_id:
+            raise ValueError("comparison_model_id is required for a durable job")
+        if baseline_model_id == comparison_model_id:
+            raise ValueError("baseline and comparison models must be different")
+        saved = _first(self.client.rpc("create_durable_calculation_job", {
+            "p_baseline_model_id": baseline_model_id,
+            "p_comparison_model_id": comparison_model_id,
+            "p_engine_version": provenance.engine_version,
+            "p_mapping_version": provenance.mapping_version,
+            "p_mapping_hash": provenance.mapping_hash,
+            "p_result_schema_version": provenance.result_schema_version,
+            "p_created_by": created_by,
+            "p_max_attempts": max_attempts,
+            "p_analysis_request": analysis_request or {},
+        }).execute())
         if saved is None:
-            raise RuntimeError("Supabase did not return the inserted calculation job")
-        try:
-            queued = _data(self.client.rpc(
-                "enqueue_calculation_job", {"p_job_id": saved["id"]}
-            ).execute())
-            if isinstance(queued, list):
-                queued = queued[0] if queued else None
-            if queued is not None:
-                saved = {**saved, "queue_message_id": int(queued)}
-        except KeyError:
-            # Backward compatibility for Phase 1 test doubles. A real
-            # Supabase API error is deliberately not swallowed.
-            pass
+            raise RuntimeError("Supabase did not return the durable calculation job")
         return _row_to_job(saved)
 
     def claim_next(self, worker_id: str, *, lease_seconds: int = 300) -> ClaimedJob | None:
@@ -405,6 +413,8 @@ class SupabaseResultRepository:
             for key in (
                 "id", "job_id", "model_id", "engine_version", "mapping_version",
                 "mapping_hash", "result_schema_version", "workbook_bucket", "workbook_path",
+                "baseline_model_id", "comparison_model_id",
+                "baseline_workbook_sha256", "comparison_workbook_sha256",
             )
         })
         return payload
