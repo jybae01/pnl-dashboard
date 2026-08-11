@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import shutil
 import uuid
 from dataclasses import asdict
 from datetime import datetime
@@ -177,6 +178,16 @@ class SupabaseModelRepositoryAdapter:
         temporary.write_bytes(content)
         temporary.replace(target)
         return target
+
+    def clear_cache(self) -> None:
+        """Remove downloaded workbook artifacts from this adapter-owned cache."""
+        if self.cache_directory.is_symlink() or not self.cache_directory.is_dir():
+            raise RuntimeError("model cache root must be an owned directory, not a symlink")
+        for child in self.cache_directory.iterdir():
+            if child.is_symlink() or child.is_file():
+                child.unlink()
+            elif child.is_dir():
+                shutil.rmtree(child)
 
     def add(self, content: bytes, **metadata: Any) -> ModelMeta:
         model_id = str(uuid.uuid4())

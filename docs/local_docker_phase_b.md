@@ -50,11 +50,13 @@ filesystems at `/app/data`. This is the bounded writable location used by the
 Supabase adapter's per-container model cache; it is not shared session state and
 is discarded with the container.
 
-The current adapter does not evict distinct cached model IDs. The controlled
-Local Phase B probe uses one existing model pair, but a long-running production
-Worker needs an explicit cache-eviction/recycling policy before this 256 MiB
-boundary is treated as an availability guarantee. Container recreation clears
-the private cache; maintenance cannot sweep another container's tmpfs.
+The independent Worker clears its private downloaded-model cache at startup and
+after every settled claimed job, including failed or retryable jobs. A cleanup
+failure terminates the Worker instead of silently weakening the filesystem
+boundary; container restart retries startup cleanup. BFF caches remain separate
+and bounded by their tmpfs and container lifecycle because deleting a live BFF
+cache could race concurrent requests. Maintenance cannot sweep another
+container's private tmpfs.
 
 ## Secrets and local CA
 

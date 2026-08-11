@@ -3,6 +3,8 @@ from __future__ import annotations
 import tempfile
 import unittest
 import hashlib
+from pathlib import Path
+from unittest.mock import patch
 
 from forecast.persistence import CalculationResultWrite, JobStatus
 from forecast.persistence.supabase import (
@@ -138,6 +140,48 @@ class Phase1SupabaseAdapterTests(unittest.TestCase):
         self.client = FakeSupabase()
         self.queue = SupabaseCalculationJobRepository(self.client)
         self.provenance = ResultProvenance("1.1.0", "analysis-v1.0.0", "c" * 64, "1")
+
+    def test_model_cache_cleanup_removes_contents_but_preserves_owned_root(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            cache = Path(temporary) / "model_cache"
+            sibling = Path(temporary) / "outside.xlsx"
+            sibling.write_bytes(b"outside")
+            repository = SupabaseModelRepositoryAdapter(self.client, cache)
+            nested = cache / "model-1"
+            nested.mkdir()
+            nested.joinpath("model.xlsx").write_bytes(b"workbook")
+            cache.joinpath("partial.uploading.xlsx").write_bytes(b"partial")
+
+            repository.clear_cache()
+
+            self.assertTrue(cache.is_dir())
+            self.assertEqual(list(cache.iterdir()), [])
+            self.assertEqual(sibling.read_bytes(), b"outside")
+            repository.clear_cache()
+            self.assertEqual(list(cache.iterdir()), [])
+
+    def test_model_cache_cleanup_rejects_non_directory_root(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            cache = Path(temporary) / "model_cache"
+            repository = SupabaseModelRepositoryAdapter(self.client, cache)
+            cache.rmdir()
+            cache.write_bytes(b"not-a-directory")
+
+            with self.assertRaisesRegex(RuntimeError, "owned directory"):
+                repository.clear_cache()
+
+    def test_model_cache_cleanup_propagates_deletion_failure(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            cache = Path(temporary) / "model_cache"
+            repository = SupabaseModelRepositoryAdapter(self.client, cache)
+            cache.joinpath("model-1").mkdir()
+
+            with patch(
+                "forecast.persistence.supabase.shutil.rmtree",
+                side_effect=PermissionError("denied"),
+            ):
+                with self.assertRaises(PermissionError):
+                    repository.clear_cache()
 
     def test_job_adapter_uses_guarded_claim_complete_and_fail_rpcs(self):
         self.client.responses["claim_calculation_job"] = [job_row()]

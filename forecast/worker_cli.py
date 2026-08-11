@@ -33,6 +33,20 @@ def parser() -> argparse.ArgumentParser:
 def main(argv: list[str] | None = None) -> int:
     args = parser().parse_args(argv)
     bundle = create_repository_bundle(args.data_directory, backend=args.backend)
+    cache_cleanup = (
+        getattr(bundle.models, "clear_cache", None)
+        if bundle.backend == "supabase"
+        else None
+    )
+    if bundle.backend == "supabase" and not callable(cache_cleanup):
+        raise RuntimeError("Supabase Worker model cache cleanup is unavailable")
+    if cache_cleanup is not None:
+        cache_cleanup()
+
+    def cleanup_after_job(_outcome: object) -> None:
+        if cache_cleanup is not None:
+            cache_cleanup()
+
     control = WorkerJobControl(bundle.jobs, args.worker_id)
     executor = DeterministicComparisonExecutor(
         bundle.models,
@@ -56,6 +70,7 @@ def main(argv: list[str] | None = None) -> int:
         lease_seconds=args.lease_seconds,
         poll_seconds=args.poll_seconds,
         stop_event=stop,
+        after_job=cleanup_after_job if cache_cleanup is not None else None,
     )
     if args.once:
         runner.run_once()

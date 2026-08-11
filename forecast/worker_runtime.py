@@ -341,6 +341,7 @@ class WorkerRunner:
         lease_seconds: int = 300,
         poll_seconds: float = 2.0,
         stop_event: threading.Event | None = None,
+        after_job: Callable[[WorkerRunResult], None] | None = None,
     ):
         if lease_seconds < 1 or poll_seconds < 0:
             raise ValueError("lease_seconds must be positive and poll_seconds non-negative")
@@ -349,6 +350,7 @@ class WorkerRunner:
         self.lease_seconds = lease_seconds
         self.poll_seconds = poll_seconds
         self.stop_event = stop_event or threading.Event()
+        self.after_job = after_job
 
     def run_once(self) -> WorkerRunResult:
         claim = self.control.claim(lease_seconds=self.lease_seconds)
@@ -368,7 +370,7 @@ class WorkerRunner:
             lease.stop()
             lease.raise_if_failed()
             result_id = self.control.complete(claim, result)
-            return WorkerRunResult(
+            outcome = WorkerRunResult(
                 claimed=True,
                 job_id=claim.job.id,
                 status=JobStatus.COMPLETED,
@@ -407,7 +409,11 @@ class WorkerRunner:
                 error_detail=detail,
                 retryable=retryable,
             )
-            return WorkerRunResult(claimed=True, job_id=claim.job.id, status=status)
+            outcome = WorkerRunResult(claimed=True, job_id=claim.job.id, status=status)
+
+        if self.after_job is not None:
+            self.after_job(outcome)
+        return outcome
 
     def run_forever(self, *, max_jobs: int | None = None) -> int:
         processed = 0

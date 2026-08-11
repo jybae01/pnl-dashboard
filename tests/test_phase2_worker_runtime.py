@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import time
+from types import SimpleNamespace
 
 import pytest
 
+import forecast.worker_cli as worker_cli
 from forecast.persistence.contracts import CalculationResultWrite, JobStatus
 from forecast.persistence.local import LocalCalculationJobRepository
 from forecast.provenance import ResultProvenance
@@ -43,6 +45,16 @@ class SlowExecutor(SuccessfulExecutor):
     def execute(self, claim, *, heartbeat=None):
         time.sleep(0.12)
         return super().execute(claim, heartbeat=heartbeat)
+
+
+class FailingExecutor:
+    def execute(self, claim, *, heartbeat=None):
+        raise ValueError("controlled failure")
+
+
+class RetryableExecutor:
+    def execute(self, claim, *, heartbeat=None):
+        raise OSError("controlled retryable failure")
 
 
 def _enqueue(tmp_path):
@@ -95,6 +107,94 @@ def test_worker_renews_short_lease_while_executor_runs(tmp_path):
     )
     outcome = runner.run_once()
     assert outcome.status is JobStatus.COMPLETED
+
+
+@pytest.mark.parametrize(
+    ("executor", "expected_status"),
+    [
+        (SuccessfulExecutor(), JobStatus.COMPLETED),
+        (FailingExecutor(), JobStatus.FAILED),
+        (RetryableExecutor(), JobStatus.PENDING),
+    ],
+)
+def test_worker_runs_cleanup_after_claim_is_settled(tmp_path, executor, expected_status):
+    queue = _enqueue(tmp_path)
+    cleanups = []
+
+    def observe_cleanup(outcome):
+        cleanups.append((outcome.status, queue.get(outcome.job_id).status))
+
+    runner = WorkerRunner(
+        WorkerJobControl(queue, "worker-test"), executor,
+        lease_seconds=2, poll_seconds=0,
+        after_job=observe_cleanup,
+    )
+
+    outcome = runner.run_once()
+
+    assert outcome.claimed
+    assert outcome.status is expected_status
+    assert cleanups == [(expected_status, expected_status)]
+
+
+def test_worker_does_not_run_after_job_cleanup_without_a_claim(tmp_path):
+    cleanups = []
+    runner = WorkerRunner(
+        WorkerJobControl(LocalCalculationJobRepository(tmp_path), "worker-test"),
+        SuccessfulExecutor(),
+        lease_seconds=2,
+        poll_seconds=0,
+        after_job=lambda outcome: cleanups.append(outcome.status),
+    )
+
+    assert not runner.run_once().claimed
+    assert cleanups == []
+
+
+def test_after_job_cleanup_failure_does_not_resettle_completed_job(tmp_path):
+    queue = _enqueue(tmp_path)
+    runner = WorkerRunner(
+        WorkerJobControl(queue, "worker-test"),
+        SuccessfulExecutor(),
+        lease_seconds=2,
+        poll_seconds=0,
+        after_job=lambda _outcome: (_ for _ in ()).throw(OSError("cache cleanup failed")),
+    )
+
+    with pytest.raises(OSError, match="cache cleanup failed"):
+        runner.run_once()
+
+    assert queue.claim_next("worker-second") is None
+
+
+def test_supabase_worker_cli_clears_cache_at_startup_and_after_job(monkeypatch):
+    events = []
+
+    class Models:
+        def clear_cache(self):
+            events.append("clear")
+
+    bundle = SimpleNamespace(models=Models(), jobs=object(), backend="supabase")
+    monkeypatch.setattr(worker_cli, "create_repository_bundle", lambda *_args, **_kwargs: bundle)
+    monkeypatch.setattr(worker_cli, "WorkerJobControl", lambda *_args, **_kwargs: object())
+    monkeypatch.setattr(
+        worker_cli,
+        "DeterministicComparisonExecutor",
+        lambda *_args, **_kwargs: object(),
+    )
+
+    class Runner:
+        def __init__(self, *_args, after_job=None, **_kwargs):
+            events.append("runner")
+            self.after_job = after_job
+
+        def run_once(self):
+            self.after_job(SimpleNamespace(status=JobStatus.COMPLETED))
+
+    monkeypatch.setattr(worker_cli, "WorkerRunner", Runner)
+
+    assert worker_cli.main(["--backend", "supabase", "--once"]) == 0
+    assert events == ["clear", "runner", "clear"]
 
 
 def test_viewer_rejects_raw_or_unmaterialized_result():
