@@ -4,6 +4,7 @@ import { bffClient } from '../integration/client';
 import { AnalysisModelDto, ApiClientError, ForecastGenerateResponseDto, ForecastMonthInputDto } from '../integration/types';
 
 type State = 'IDLE' | 'EDITING' | 'SUBMITTING' | 'VALIDATION_ERROR' | 'SUCCESS' | 'ERROR';
+const V1_FORECAST_SYNC_MAX_MONTHS = 6;
 
 const blankMonth = (month: number): ForecastMonthInputDto => ({
   month,
@@ -39,6 +40,7 @@ export const ForecastGenerationView: React.FC = () => {
   }, []);
 
   const months = useMemo(() => Array.from({ length: endMonth - startMonth + 1 }, (_, i) => startMonth + i), [startMonth, endMonth]);
+  const maxEndMonth = Math.min(12, startMonth + V1_FORECAST_SYNC_MAX_MONTHS - 1);
   useEffect(() => {
     setInputs((old) => Object.fromEntries(months.map((month) => [month, old[month] || JSON.stringify(blankMonth(month), null, 2)])));
     requestSequence.current += 1; setState('EDITING'); setResult(null); idempotencyKey.current = crypto.randomUUID();
@@ -70,7 +72,7 @@ export const ForecastGenerationView: React.FC = () => {
       setResult(saved); setState('SUCCESS');
     } catch (error) {
       if (sequence !== requestSequence.current) return;
-      if (error instanceof ApiClientError && ['VALIDATION_ERROR', 'IDEMPOTENCY_CONFLICT'].includes(error.code)) {
+      if (error instanceof ApiClientError && ['VALIDATION_ERROR', 'IDEMPOTENCY_CONFLICT', 'FORECAST_SCOPE_NOT_APPROVED'].includes(error.code)) {
         setState('VALIDATION_ERROR'); setMessage(error.message);
       } else { setState('ERROR'); setMessage('Forecast 생성에 실패했습니다. 잠시 후 다시 시도하세요.'); }
     }
@@ -86,8 +88,8 @@ export const ForecastGenerationView: React.FC = () => {
         <label>기준 Model<select disabled={state === 'SUBMITTING'} value={baseModelId} onChange={(e) => { requestSequence.current += 1; setBaseModelId(e.target.value); idempotencyKey.current = crypto.randomUUID(); }} style={{ width: '100%' }}>
           {models.map((m) => <option key={m.model_id} value={m.model_id}>{m.display_name} ({m.model_year})</option>)}
         </select></label>
-        <label>시작 월<input disabled={state === 'SUBMITTING'} type="number" min={1} max={12} value={startMonth} onChange={(e) => setStartMonth(Math.min(Number(e.target.value), endMonth))} /></label>
-        <label>종료 월<input disabled={state === 'SUBMITTING'} type="number" min={startMonth} max={12} value={endMonth} onChange={(e) => setEndMonth(Math.max(Number(e.target.value), startMonth))} /></label>
+        <label>시작 월<input disabled={state === 'SUBMITTING'} type="number" min={1} max={12} value={startMonth} onChange={(e) => { const next = Math.min(12, Math.max(1, Number(e.target.value))); setStartMonth(next); setEndMonth((current) => Math.min(Math.max(current, next), Math.min(12, next + V1_FORECAST_SYNC_MAX_MONTHS - 1))); }} /></label>
+        <label>종료 월<input disabled={state === 'SUBMITTING'} type="number" min={startMonth} max={maxEndMonth} value={endMonth} onChange={(e) => setEndMonth(Math.min(Math.max(Number(e.target.value), startMonth), maxEndMonth))} /></label>
         <label>Model 표시명<input disabled={state === 'SUBMITTING'} value={name} onChange={(e) => { requestSequence.current += 1; setName(e.target.value); idempotencyKey.current = crypto.randomUUID(); }} /></label>
         <label>버전<input disabled={state === 'SUBMITTING'} value={version} onChange={(e) => { requestSequence.current += 1; setVersion(e.target.value); idempotencyKey.current = crypto.randomUUID(); }} /></label>
       </div>

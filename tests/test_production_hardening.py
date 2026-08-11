@@ -13,6 +13,8 @@ from types import SimpleNamespace
 
 import pytest
 
+import forecast.bff.http_factory as http_factory_module
+
 from forecast.benchmark import (
     ForecastBenchmarkResult,
     _run_engine,
@@ -23,7 +25,12 @@ from forecast.bff.auth import AccessCodeSessionService
 from forecast.bff.errors import ApiErrorCode, BffError
 from forecast.bff.production import SupabaseLoginRateLimiter, SupabaseSessionStore, TrustedProxyPolicy
 from forecast.bff.http import HttpBffSettings
-from forecast.bff.http_factory import _proxy_cidrs, create_http_bff_from_environment
+from forecast.bff.http_factory import (
+    V1_FORECAST_SYNC_MAX_MONTHS,
+    _forecast_policy,
+    _proxy_cidrs,
+    create_http_bff_from_environment,
+)
 from forecast.parser_isolation import IsolatedExcelPreflight, IsolatedParserError
 from forecast.temp_artifacts import TempArtifactPolicy
 from forecast.bff.evidence_history import _escape_workbook_text
@@ -147,6 +154,100 @@ def test_production_origin_proxy_and_backend_selection_fail_closed(monkeypatch):
     monkeypatch.setenv("SUPABASE_SERVICE_ROLE_KEY", "must-not-select-backend")
     with pytest.raises(RuntimeError, match="PNL_REPOSITORY_BACKEND=supabase"):
         create_http_bff_from_environment()
+
+
+def _clear_forecast_policy(monkeypatch):
+    for name in (
+        "BFF_FORECAST_MODE", "BFF_FORECAST_SYNC_APPROVED",
+        "BFF_FORECAST_SYNC_MAX_MONTHS",
+    ):
+        monkeypatch.delenv(name, raising=False)
+
+
+def test_production_forecast_disabled_mode_is_explicit_and_does_not_enable_sync(monkeypatch):
+    _clear_forecast_policy(monkeypatch)
+    monkeypatch.setenv("BFF_FORECAST_MODE", "disabled")
+    monkeypatch.setenv("BFF_FORECAST_SYNC_APPROVED", "false")
+    policy = _forecast_policy("production")
+    assert policy.mode == "disabled"
+    assert policy.enabled is False
+    assert policy.max_sync_months == V1_FORECAST_SYNC_MAX_MONTHS == 6
+
+
+def test_production_forecast_sync_mode_requires_explicit_bounded_approval(monkeypatch):
+    _clear_forecast_policy(monkeypatch)
+    monkeypatch.setenv("BFF_FORECAST_MODE", "sync")
+    monkeypatch.setenv("BFF_FORECAST_SYNC_APPROVED", "true")
+    monkeypatch.setenv("BFF_FORECAST_SYNC_MAX_MONTHS", "6")
+    policy = _forecast_policy("production")
+    assert policy.enabled is True and policy.max_sync_months == 6
+
+
+def test_production_disabled_composition_starts_without_forecast_service_or_runtime_rpc(monkeypatch, tmp_path):
+    class Client:
+        def __init__(self): self.calls = []
+        def rpc(self, name, payload):
+            self.calls.append((name, payload))
+            return _Call(lambda: None)
+
+    client = Client()
+    captured = {}
+    monkeypatch.setattr(
+        http_factory_module, "create_repository_bundle",
+        lambda *args, **kwargs: SimpleNamespace(models=SimpleNamespace(client=client)),
+    )
+    monkeypatch.setattr(http_factory_module, "load_registered_provenance", lambda *args: object())
+    monkeypatch.setattr(
+        http_factory_module, "create_supabase_bff_application",
+        lambda **kwargs: captured.update(kwargs) or object(),
+    )
+    monkeypatch.setattr(http_factory_module, "configure_temp_artifacts", lambda *args: None)
+    monkeypatch.setattr(
+        http_factory_module, "create_http_bff",
+        lambda *args, **kwargs: SimpleNamespace(state=SimpleNamespace()),
+    )
+    values = {
+        "PNL_REPOSITORY_BACKEND": "supabase",
+        "BFF_ENVIRONMENT": "production",
+        "BFF_FORECAST_MODE": "disabled",
+        "BFF_FORECAST_SYNC_APPROVED": "false",
+        "BFF_FORECAST_SYNC_MAX_MONTHS": "6",
+        "VIEWER_CODE": "v" * 16,
+        "ADMIN_CODE": "a" * 16,
+        "BFF_ACTOR_NAMESPACE_SECRET": "n" * 32,
+        "BFF_CSRF_SECRET": "c" * 32,
+        "BFF_ALLOWED_ORIGINS": "https://phase-b.localhost:8443",
+        "BFF_COOKIE_SECURE": "true",
+        "BFF_PROXY_MODE": "trusted",
+        "BFF_TRUSTED_PROXY_CIDRS": "172.30.0.10/32",
+        "BFF_TEMP_ROOT": str(tmp_path.resolve()),
+    }
+    for name, value in values.items(): monkeypatch.setenv(name, value)
+    app = create_http_bff_from_environment(project_root=Path.cwd())
+    assert app.state.forecast_mode == "disabled"
+    assert app.state.forecast_sync_max_months == 6
+    assert captured["forecast_enabled"] is False
+    assert captured["forecast_sync_max_months"] == 6
+    assert client.calls == []
+
+
+@pytest.mark.parametrize(
+    "values,message",
+    [
+        ({}, "BFF_FORECAST_MODE"),
+        ({"BFF_FORECAST_MODE": "async", "BFF_FORECAST_SYNC_APPROVED": "false"}, "BFF_FORECAST_MODE"),
+        ({"BFF_FORECAST_MODE": "sync", "BFF_FORECAST_SYNC_APPROVED": "false", "BFF_FORECAST_SYNC_MAX_MONTHS": "6"}, "approval=true"),
+        ({"BFF_FORECAST_MODE": "sync", "BFF_FORECAST_SYNC_APPROVED": "true"}, "MAX_MONTHS is required"),
+        ({"BFF_FORECAST_MODE": "sync", "BFF_FORECAST_SYNC_APPROVED": "true", "BFF_FORECAST_SYNC_MAX_MONTHS": "7"}, "must be 1-6"),
+        ({"BFF_FORECAST_MODE": "disabled", "BFF_FORECAST_SYNC_APPROVED": "true"}, "approval=false"),
+    ],
+)
+def test_production_forecast_policy_invalid_combinations_fail_startup(monkeypatch, values, message):
+    _clear_forecast_policy(monkeypatch)
+    for name, value in values.items():
+        monkeypatch.setenv(name, value)
+    with pytest.raises(RuntimeError, match=message):
+        _forecast_policy("production")
 
 
 def test_temp_orphan_sweep_is_owned_dry_run_and_idempotent(tmp_path: Path):
@@ -391,6 +492,15 @@ def test_parser_timeout_and_crash_are_contained(tmp_path: Path, target, code, ti
     isolated = IsolatedExcelPreflight({}, timeout_seconds=timeout, worker_target=target)
     with pytest.raises(IsolatedParserError, match=code):
         isolated.require_with_metadata(source, expected_year=2026)
+
+
+def test_parser_concurrency_is_instance_bounded_and_validated():
+    isolated = IsolatedExcelPreflight({}, max_concurrency=1)
+    assert isolated._slots.acquire(blocking=False) is True
+    assert isolated._slots.acquire(blocking=False) is False
+    isolated._slots.release()
+    with pytest.raises(ValueError, match="concurrency"):
+        IsolatedExcelPreflight({}, max_concurrency=0)
 
 
 def test_migration_012_is_private_fixed_search_path_and_redacts_sensitive_audit():

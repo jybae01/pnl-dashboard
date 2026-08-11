@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import json
+from pathlib import Path
+
 import pytest
 
 from forecast.bff import create_supabase_bff_application
@@ -77,6 +80,24 @@ def test_factory_composes_explicit_server_only_boundary_without_environment_swit
     ticket = app.login("admin-secret")
     assert app.validate_session(ticket.session_id).role == "admin"
     app.logout(ticket.session_id)
+
+
+def test_factory_defaults_to_disabled_and_keeps_non_forecast_capabilities():
+    mapping = json.loads(Path("config/model_mapping.json").read_text(encoding="utf-8"))
+    app = create_supabase_bff_application(
+        supabase_client=FakeClient(),
+        viewer_code="viewer-secret",
+        admin_code="admin-secret",
+        actor_namespace_secret="stable-server-only-actor-namespace",
+        provenance=ResultProvenance("engine", "mapping", "a" * 64, "1"),
+        model_repository=object(),
+        model_mapping=mapping,
+        mapping_path="config/model_mapping.json",
+    )
+    assert app.model_management is not None
+    assert app.model_ingestion is not None
+    assert app.model_publication is not None
+    assert app.forecast_generation is None
 
 
 def test_idempotency_conflict_is_mapped_without_raw_database_error():

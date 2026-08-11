@@ -63,14 +63,15 @@ class Engine:
         return SimpleNamespace(validations=[{"ok": True}])
 
 
-def service(gateway: Gateway):
+def service(gateway: Gateway, *, max_sync_months: int = 6):
     sessions = AccessCodeSessionService(viewer_code="viewer", admin_code="admin",
         actor_namespace_secret="x" * 32)
     ticket = sessions.login("admin")
     mapping = {"sales": {"LC": {}}, "production": {"LC": 1, "FS_SW": 2},
                "mcm": {}, "manufacturing_input_rows": [], "sga_input_rows": []}
     return ForecastGenerationService(sessions, gateway,
-        ResultProvenance("1.1.0", "analysis-v1", "b" * 64, "1"), "mapping.json", mapping), ticket.session_id
+        ResultProvenance("1.1.0", "analysis-v1", "b" * 64, "1"), "mapping.json", mapping,
+        max_sync_months=max_sync_months), ticket.session_id
 
 
 def request(*, key="key", amount=100):
@@ -79,6 +80,18 @@ def request(*, key="key", amount=100):
             ForecastSalesInput("UF_MBR", 0, 0), ForecastSalesInput("IX", 0, 0),
             ForecastSalesInput("OTHER", 0, 0)),
             (ForecastQuantityInput("LC", 8), ForecastQuantityInput("FS_SW", 3))),), key)
+
+
+def ranged_request(start_month: int, end_month: int):
+    template = request().months[0]
+    return ForecastGenerateRequest(
+        BASE_ID, "Scoped Forecast", 2026, "V1", start_month, end_month,
+        tuple(
+            ForecastMonthInput(month, template.sales, template.production, template.mcm)
+            for month in range(start_month, end_month + 1)
+        ),
+        f"scope-{start_month}-{end_month}",
+    )
 
 
 @patch("forecast.bff.forecast_orchestration.infer_workbook_year", return_value=2026)
@@ -116,6 +129,22 @@ def test_validation_rejects_viewer_bad_period_unknown_product_and_negative_value
     with patch("forecast.bff.forecast_orchestration.mapping_hash", return_value="b" * 64), pytest.raises(BffError) as invalid:
         target.generate(admin_session, bad)
     assert invalid.value.code == ApiErrorCode.VALIDATION_ERROR
+
+
+def test_sync_scope_allows_six_consecutive_months_and_rejects_seven_before_reservation():
+    gateway = Gateway(); target, admin_session = service(gateway, max_sync_months=6)
+    accepted = target._validate(ranged_request(7, 12))
+    assert accepted.start_month == 7 and accepted.end_month == 12
+    with pytest.raises(BffError) as denied:
+        target.generate(admin_session, ranged_request(6, 12))
+    assert denied.value.code == ApiErrorCode.FORECAST_SCOPE_NOT_APPROVED
+    assert denied.value.error.field_errors == {"period": "must not exceed 6 consecutive months"}
+    assert gateway.reservations == 0
+
+
+def test_v1_service_composition_cannot_raise_sync_scope_above_six_months():
+    with pytest.raises(ValueError, match="1-6"):
+        service(Gateway(), max_sync_months=7)
 
 
 def test_migration_011_is_additive_race_safe_private_and_strict_default():

@@ -20,6 +20,7 @@ from ..temp_artifacts import temp_artifact_policy
 
 IDEMPOTENCY_KEY_PATTERN = re.compile(r"^[A-Za-z0-9._:-]{1,128}$")
 MAX_FORECAST_WORKBOOK_BYTES = 50 * 1024 * 1024
+V1_FORECAST_SYNC_MAX_MONTHS = 6
 
 
 @dataclass(frozen=True)
@@ -141,7 +142,8 @@ class ForecastGenerationService:
 
     def __init__(self, sessions: AccessCodeSessionService, gateway: ForecastGateway,
                  provenance: ResultProvenance, mapping_path: str | Path,
-                 mapping: Mapping[str, Any], *, max_execution_seconds: int = 900) -> None:
+                 mapping: Mapping[str, Any], *, max_execution_seconds: int = 900,
+                 max_sync_months: int = V1_FORECAST_SYNC_MAX_MONTHS) -> None:
         self._sessions = sessions
         self._gateway = gateway
         self._provenance = provenance
@@ -149,7 +151,13 @@ class ForecastGenerationService:
         self._mapping = mapping
         if not 30 <= max_execution_seconds <= 1500:
             raise ValueError("forecast execution budget must be 30-1500 seconds")
+        if (not isinstance(max_sync_months, int) or isinstance(max_sync_months, bool)
+                or not 1 <= max_sync_months <= V1_FORECAST_SYNC_MAX_MONTHS):
+            raise ValueError(
+                f"forecast synchronous scope must be 1-{V1_FORECAST_SYNC_MAX_MONTHS} months"
+            )
         self._max_execution_seconds = max_execution_seconds
+        self._max_sync_months = max_sync_months
 
     def generate(self, session_id: str, request: ForecastGenerateRequest) -> ForecastGenerateResponse:
         principal = self._sessions.require_admin(session_id)
@@ -315,6 +323,14 @@ class ForecastGenerationService:
             and isinstance(request.end_month, int) and not isinstance(request.end_month, bool))
         if not months_are_int or not 1 <= request.start_month <= request.end_month <= 12:
             errors["period"] = "must satisfy 1 <= start_month <= end_month <= 12"
+        elif request.end_month - request.start_month + 1 > self._max_sync_months:
+            raise BffError(
+                ApiErrorCode.FORECAST_SCOPE_NOT_APPROVED,
+                "Forecast request exceeds the approved synchronous scope",
+                field_errors={
+                    "period": f"must not exceed {self._max_sync_months} consecutive months",
+                },
+            )
         expected = tuple(range(request.start_month, request.end_month + 1)) if months_are_int else ()
         if tuple(item.month for item in request.months) != expected:
             errors["months"] = "must contain each selected month exactly once in order"

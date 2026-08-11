@@ -556,7 +556,10 @@ def create_http_bff(
     @app.post("/api/admin/forecasts", dependencies=[Depends(csrf_guard)])
     def generate_forecast(http_request: Request, body: ForecastGenerateBody, value: str = Depends(admin_session)):
         if application.forecast_generation is None:
-            raise BffError(ApiErrorCode.TRANSIENT_SYSTEM_ERROR, "Forecast capability is not configured")
+            raise BffError(
+                ApiErrorCode.FORECAST_SCOPE_NOT_APPROVED,
+                "Synchronous Forecast is disabled",
+            )
         months = tuple(ForecastMonthInput(
             month=item.month,
             sales=tuple(ForecastSalesInput(**entry.model_dump()) for entry in item.sales),
@@ -720,6 +723,7 @@ def _status_for(code: ApiErrorCode) -> int:
         ApiErrorCode.INPUT_INTEGRITY_MISMATCH: 409,
         ApiErrorCode.INGESTION_CLEANUP_REQUIRED: 500,
         ApiErrorCode.EVIDENCE_GENERATION_FAILED: 500,
+        ApiErrorCode.FORECAST_SCOPE_NOT_APPROVED: 403,
         ApiErrorCode.TRANSIENT_SYSTEM_ERROR: 503,
     }[code]
 

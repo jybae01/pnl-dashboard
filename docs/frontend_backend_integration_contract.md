@@ -529,6 +529,11 @@ Raw Postgres exceptions, headers, access codes, signed URLs, hashes beyond neces
 
 T01 is `PASS`; T02 is `CONTRACT BASELINE PASS`. The five BFF-foundation decisions are implemented, but “PASS” does not mean the React integration is runnable.
 
+> Historical overlay note: the non-goals and `Still open` lists below record
+> the state when each vertical slice was added. Later overlays supersede earlier
+> open-item lists. The current Forecast scope and Local Docker deployment gate
+> are defined in `docs/local_docker_phase_b.md`.
+
 ## 26. Explicit non-goals
 
 This implementation overlay includes only the framework-neutral BFF application services and additive Migration 005. No frontend edit/import, npm install, package/lock change, HTTP server/route adapter, model-upload saga, Evidence delivery, P&L seven-query implementation, Forecast orchestration, cancel/progress, Worker calculation, Edge deployment, Supabase live operation, engine/formula/residual change, mock removal, UI redesign, deployment, main merge, rebase, reset, or PR #20/#21 modification is included.
@@ -624,6 +629,6 @@ Additive Migration 011 adds a durable Forecast operation with advisory-lock idem
 
 The React placeholder is replaced by a real adapter and input screen with `IDLE/EDITING/SUBMITTING/VALIDATION_ERROR/SUCCESS/ERROR` behavior, stable retry idempotency, no fake progress, and stale-response suppression. The existing Streamlit code contains no separate canonical automatic comparison step, so direct comparison remains the normal explicit Analysis flow.
 
-V1 execution is synchronous in the trusted FastAPI worker because the only available canonical workflow is synchronous and bounded to twelve months and a 50 MiB Workbook. The private Golden fixture is not present in this workspace, so representative production timing remains a production-hardening acceptance item; proxy timeout and async promotion thresholds must be measured before Production Ready.
+V1 execution is synchronous in the trusted FastAPI worker and is fail-closed at a maximum of six consecutive Forecast months. The backend is authoritative; the React input also limits the selectable end month for a consistent UX. Full twelve-month synchronous Forecast is `DEFERRED_UNVERIFIED` and must not be inferred from the six-month evidence. Any later scope increase requires a representative twelve-month company Workbook benchmark plus resource, timeout, concurrency, and deployed-topology validation.
 
 Still open: shared production session/rate-limit stores, proxy/request timeouts and concurrency quotas, live Migration 011/Storage E2E, audit human attribution, Golden Workbook performance/business acceptance, Forecast template download (no canonical artifact exists), cancel, and real progress/stage.

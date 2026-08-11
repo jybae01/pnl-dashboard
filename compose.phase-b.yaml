@@ -1,0 +1,233 @@
+name: pnl-phase-b
+
+x-python-base: &python-base
+  build:
+    context: .
+    dockerfile: Dockerfile
+  image: pnl-phase-b-python:${PHASE_B_IMAGE_TAG:-local}
+  init: true
+  restart: unless-stopped
+  read_only: true
+  cap_drop: [ALL]
+  security_opt: [no-new-privileges:true]
+  pids_limit: 256
+  networks: [phase-b]
+  logging:
+    driver: json-file
+    options:
+      max-size: 10m
+      max-file: "3"
+
+x-bff: &bff
+  <<: *python-base
+  environment:
+    PNL_REPOSITORY_BACKEND: supabase
+    SUPABASE_URL: https://ysatkswhhajicfgbrtpv.supabase.co
+    SUPABASE_SECRET_KEY_FILE: /run/secrets/supabase_secret_key
+    VIEWER_CODE_FILE: /run/secrets/viewer_code
+    ADMIN_CODE_FILE: /run/secrets/admin_code
+    BFF_ACTOR_NAMESPACE_SECRET_FILE: /run/secrets/actor_namespace_secret
+    BFF_CSRF_SECRET_FILE: /run/secrets/csrf_secret
+    BFF_ENVIRONMENT: production
+    BFF_FORECAST_MODE: ${BFF_FORECAST_MODE:-disabled}
+    BFF_FORECAST_SYNC_APPROVED: ${BFF_FORECAST_SYNC_APPROVED:-false}
+    BFF_FORECAST_SYNC_MAX_MONTHS: ${BFF_FORECAST_SYNC_MAX_MONTHS:-6}
+    BFF_FORECAST_MAX_SECONDS: "120"
+    BFF_FORECAST_PERMIT_LEASE_SECONDS: "240"
+    BFF_FORECAST_MAX_CONCURRENCY: "1"
+    BFF_FORECAST_REQUEST_MAX_BYTES: "1048576"
+    BFF_SESSION_TTL_SECONDS: "28800"
+    BFF_LOGIN_MAX_ATTEMPTS: "5"
+    BFF_LOGIN_WINDOW_SECONDS: "300"
+    BFF_ALLOWED_ORIGINS: https://phase-b.localhost:8443
+    BFF_COOKIE_SECURE: "true"
+    BFF_COOKIE_SAME_SITE: strict
+    BFF_PROXY_MODE: trusted
+    BFF_TRUSTED_PROXY_CIDRS: 172.30.0.10/32
+    BFF_FORWARDED_HEADER: x-forwarded-for
+    BFF_TEMP_ROOT: /var/tmp/pnl
+    BFF_TEMP_QUOTA_BYTES: "536870912"
+    BFF_TEMP_ORPHAN_AGE_SECONDS: "86400"
+    BFF_PARSER_TIMEOUT_SECONDS: "45"
+    BFF_PARSER_MEMORY_LIMIT_BYTES: "805306368"
+    BFF_PARSER_MAX_CONCURRENCY: "1"
+    BFF_LOG_LEVEL: INFO
+  secrets:
+    - supabase_secret_key
+    - viewer_code
+    - admin_code
+    - actor_namespace_secret
+    - csrf_secret
+  tmpfs:
+    - /var/tmp/pnl:rw,noexec,nosuid,nodev,size=536870912,uid=10001,gid=10001,mode=0700
+    - /app/data:rw,noexec,nosuid,nodev,size=268435456,uid=10001,gid=10001,mode=0700
+  mem_limit: 1536m
+  mem_reservation: 768m
+  cpus: 1.0
+  healthcheck:
+    test: [CMD, python, -c, "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health/ready', timeout=3).read()"]
+    interval: 10s
+    timeout: 5s
+    retries: 12
+    start_period: 20s
+
+services:
+  edge:
+    build:
+      context: .
+      dockerfile: deploy/Dockerfile.edge
+    image: pnl-phase-b-edge:${PHASE_B_IMAGE_TAG:-local}
+    restart: unless-stopped
+    init: true
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    pids_limit: 128
+    ports:
+      - 127.0.0.1:8443:8443
+    volumes:
+      - ./deploy/Caddyfile.phase-b:/etc/caddy/Caddyfile:ro
+      - edge_data:/data
+      - edge_config:/config
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,nodev,size=32m
+    mem_limit: 128m
+    cpus: 0.25
+    networks:
+      phase-b:
+        ipv4_address: 172.30.0.10
+    depends_on:
+      frontend:
+        condition: service_started
+      bff-a:
+        condition: service_healthy
+      bff-b:
+        condition: service_healthy
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: "3"
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      args:
+        VITE_BFF_BASE_URL: ""
+    image: pnl-phase-b-frontend:${PHASE_B_IMAGE_TAG:-local}
+    restart: unless-stopped
+    init: true
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    pids_limit: 128
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,nodev,size=32m
+    mem_limit: 128m
+    cpus: 0.25
+    networks: [phase-b]
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: "3"
+
+  bff-a:
+    <<: *bff
+
+  bff-b:
+    <<: *bff
+
+  worker:
+    <<: *python-base
+    command: [python, -m, forecast.worker_cli, --backend, supabase, --poll-seconds, "1"]
+    environment:
+      PNL_REPOSITORY_BACKEND: supabase
+      SUPABASE_URL: https://ysatkswhhajicfgbrtpv.supabase.co
+      SUPABASE_SECRET_KEY_FILE: /run/secrets/supabase_secret_key
+      PNL_WORKER_ID: phase-b-worker
+    secrets: [supabase_secret_key]
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,nodev,size=256m,uid=10001,gid=10001,mode=0700
+      - /app/data:rw,noexec,nosuid,nodev,size=268435456,uid=10001,gid=10001,mode=0700
+    mem_limit: 1024m
+    mem_reservation: 384m
+    cpus: 1.0
+
+  maintenance:
+    <<: *python-base
+    profiles: [maintenance]
+    restart: "no"
+    command: [python, -m, forecast.maintenance, cleanup]
+    environment:
+      PNL_REPOSITORY_BACKEND: supabase
+      SUPABASE_URL: https://ysatkswhhajicfgbrtpv.supabase.co
+      SUPABASE_SECRET_KEY_FILE: /run/secrets/supabase_secret_key
+      BFF_TEMP_ROOT: /var/tmp/pnl
+      BFF_TEMP_QUOTA_BYTES: "536870912"
+    secrets: [supabase_secret_key]
+    tmpfs:
+      - /var/tmp/pnl:rw,noexec,nosuid,nodev,size=536870912,uid=10001,gid=10001,mode=0700
+      - /app/data:rw,noexec,nosuid,nodev,size=268435456,uid=10001,gid=10001,mode=0700
+    mem_limit: 512m
+    cpus: 0.5
+
+  probe:
+    <<: *python-base
+    profiles: [probe]
+    restart: "no"
+    command: [python, scripts/phase_b_topology_probe.py]
+    environment:
+      PHASE_B_EDGE_URL: https://phase-b.localhost:8443
+      PHASE_B_CA_FILE: /caddy-data/caddy/pki/authorities/local/root.crt
+      PHASE_B_BFF_A_URL: http://bff-a:8000
+      PHASE_B_BFF_B_URL: http://bff-b:8000
+      PHASE_B_PROBE_IP: 172.30.0.50
+      SUPABASE_URL: https://ysatkswhhajicfgbrtpv.supabase.co
+      SUPABASE_SECRET_KEY_FILE: /run/secrets/supabase_secret_key
+      VIEWER_CODE_FILE: /run/secrets/viewer_code
+      ADMIN_CODE_FILE: /run/secrets/admin_code
+    secrets:
+      - supabase_secret_key
+      - viewer_code
+      - admin_code
+    volumes:
+      - edge_data:/caddy-data:ro
+    extra_hosts:
+      - phase-b.localhost:172.30.0.10
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,nodev,size=64m,uid=10001,gid=10001,mode=0700
+    mem_limit: 512m
+    cpus: 0.5
+    networks:
+      phase-b:
+        ipv4_address: 172.30.0.50
+    depends_on:
+      edge:
+        condition: service_started
+      worker:
+        condition: service_started
+
+networks:
+  phase-b:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.30.0.0/24
+
+volumes:
+  edge_data:
+  edge_config:
+
+secrets:
+  supabase_secret_key:
+    file: ${PHASE_B_SECRETS_DIR:?set PHASE_B_SECRETS_DIR}/supabase_secret_key
+  viewer_code:
+    file: ${PHASE_B_SECRETS_DIR:?set PHASE_B_SECRETS_DIR}/viewer_code
+  admin_code:
+    file: ${PHASE_B_SECRETS_DIR:?set PHASE_B_SECRETS_DIR}/admin_code
+  actor_namespace_secret:
+    file: ${PHASE_B_SECRETS_DIR:?set PHASE_B_SECRETS_DIR}/actor_namespace_secret
+  csrf_secret:
+    file: ${PHASE_B_SECRETS_DIR:?set PHASE_B_SECRETS_DIR}/csrf_secret

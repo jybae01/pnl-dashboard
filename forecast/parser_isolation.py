@@ -24,18 +24,21 @@ class IsolatedExcelPreflight:
     containment and wall timeout, but has no stdlib-enforced memory limit.
     """
 
-    _slots = threading.BoundedSemaphore(2)
-
     def __init__(self, mapping: Mapping[str, Any], *, timeout_seconds: int = 30,
                  memory_limit_bytes: int = 1024 * 1024 * 1024,
+                 max_concurrency: int = 2,
                  worker_target=None) -> None:
         if not 1 <= timeout_seconds <= 300:
             raise ValueError("parser timeout must be 1-300 seconds")
         if not 256 * 1024 * 1024 <= memory_limit_bytes <= 4 * 1024 * 1024 * 1024:
             raise ValueError("parser memory limit must be 256MiB-4GiB")
+        if (not isinstance(max_concurrency, int) or isinstance(max_concurrency, bool)
+                or not 1 <= max_concurrency <= 4):
+            raise ValueError("parser concurrency must be 1-4")
         self._mapping = dict(mapping)
         self._timeout = timeout_seconds
         self._memory_limit = memory_limit_bytes
+        self._slots = threading.BoundedSemaphore(max_concurrency)
         self._worker_target = worker_target or _parse_worker
 
     def require_with_metadata(self, path: str | Path, *, expected_year: int,

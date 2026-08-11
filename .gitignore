@@ -10,6 +10,9 @@ __pycache__/
 .verify_artifact/
 work/
 .streamlit/secrets.toml
+/.env.phase-b
+/deploy/local-secrets/
+/deploy/local-ca/
 
 data/**
 !data/.gitkeep

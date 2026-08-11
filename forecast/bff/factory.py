@@ -13,7 +13,7 @@ from .application import (
 from .auth import AccessCodeSessionService, SessionStore
 from ..preflight import ExcelPreflightValidator
 from .gateway import SupabaseBffApplicationGateway, SupabaseModelIngestionGateway, SupabaseForecastGateway
-from .forecast_orchestration import ForecastGenerationService
+from .forecast_orchestration import ForecastGenerationService, V1_FORECAST_SYNC_MAX_MONTHS
 from .evidence_history import CalculationHistoryService, EvidenceDeliveryService
 from .analysis_presentation import AnalysisPresentationService
 from .pnl_dashboard import PnlDashboardService
@@ -41,6 +41,8 @@ def create_supabase_bff_application(
     forecast_max_concurrency: int = 1,
     forecast_permit_lease_seconds: int = 1200,
     forecast_max_execution_seconds: int = 900,
+    forecast_enabled: bool = False,
+    forecast_sync_max_months: int = V1_FORECAST_SYNC_MAX_MONTHS,
     workbook_validator: Any | None = None,
 ) -> TrustedBffApplication:
     """Compose the server-only BFF boundary from explicit trusted inputs.
@@ -127,6 +129,7 @@ def create_supabase_bff_application(
                     permit_lease_seconds=forecast_permit_lease_seconds,
                 ), provenance, mapping_path, model_mapping,
                 max_execution_seconds=forecast_max_execution_seconds,
-            ) if model_capabilities and mapping_path else None
+                max_sync_months=forecast_sync_max_months,
+            ) if forecast_enabled and model_capabilities and mapping_path else None
         ),
     )

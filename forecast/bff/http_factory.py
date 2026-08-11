@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import json
+from dataclasses import dataclass
 from pathlib import Path
 
 from fastapi import FastAPI
@@ -16,6 +17,14 @@ from .production import (
 from ..temp_artifacts import configure_temp_artifacts
 from ..parser_isolation import IsolatedExcelPreflight
 from ..logging_config import configure_structured_logging
+from .forecast_orchestration import V1_FORECAST_SYNC_MAX_MONTHS
+
+
+@dataclass(frozen=True)
+class ForecastRuntimePolicy:
+    mode: str
+    enabled: bool
+    max_sync_months: int
 
 
 def create_http_bff_from_environment(
@@ -32,6 +41,8 @@ def create_http_bff_from_environment(
 
     root = Path(project_root or Path(__file__).resolve().parents[2])
     configure_structured_logging(os.getenv("BFF_LOG_LEVEL", "INFO"))
+    environment = os.getenv("BFF_ENVIRONMENT", "development").strip().lower()
+    forecast_policy = _forecast_policy(environment)
     backend = os.getenv("PNL_REPOSITORY_BACKEND", "local").strip().lower()
     if backend != "supabase":
         raise RuntimeError(
@@ -45,7 +56,6 @@ def create_http_bff_from_environment(
         root / "config" / "mapping_registry.json",
         root / "config" / "release.json",
     )
-    environment = os.getenv("BFF_ENVIRONMENT", "development").strip().lower()
     forecast_max_seconds = int(os.getenv("BFF_FORECAST_MAX_SECONDS", "900"))
     forecast_permit_seconds = int(os.getenv("BFF_FORECAST_PERMIT_LEASE_SECONDS", "1200"))
     forecast_max_concurrency = int(os.getenv("BFF_FORECAST_MAX_CONCURRENCY", "1"))
@@ -84,10 +94,13 @@ def create_http_bff_from_environment(
         forecast_max_concurrency=forecast_max_concurrency,
         forecast_permit_lease_seconds=forecast_permit_seconds,
         forecast_max_execution_seconds=forecast_max_seconds,
+        forecast_enabled=forecast_policy.enabled,
+        forecast_sync_max_months=forecast_policy.max_sync_months,
         workbook_validator=(IsolatedExcelPreflight(
             mapping_document,
             timeout_seconds=int(os.getenv("BFF_PARSER_TIMEOUT_SECONDS", "30")),
             memory_limit_bytes=int(os.getenv("BFF_PARSER_MEMORY_LIMIT_BYTES", str(1024 * 1024 * 1024))),
+            max_concurrency=int(os.getenv("BFF_PARSER_MAX_CONCURRENCY", "2")),
         ) if environment == "production" else None),
     )
     origins = tuple(
@@ -96,10 +109,6 @@ def create_http_bff_from_environment(
     if environment == "production" and not origins:
         raise RuntimeError("BFF_ALLOWED_ORIGINS is required in production")
     if environment == "production":
-        if not _truthy(os.getenv("BFF_FORECAST_SYNC_APPROVED", "false")):
-            raise RuntimeError(
-                "synchronous Forecast requires an explicit staging benchmark approval"
-            )
         temp_root = Path(_required("BFF_TEMP_ROOT"))
         if not temp_root.is_absolute():
             raise RuntimeError("BFF_TEMP_ROOT must be absolute in production")
@@ -110,9 +119,10 @@ def create_http_bff_from_environment(
         if orphan_age < max(3600, forecast_max_seconds + 300):
             raise RuntimeError("BFF_TEMP_ORPHAN_AGE_SECONDS is below the active-operation safety window")
         configure_temp_artifacts(temp_root, temp_quota, orphan_age)
-        client.rpc("set_bff_forecast_max_concurrency", {
-            "p_max": forecast_max_concurrency,
-        }).execute()
+        if forecast_policy.enabled:
+            client.rpc("set_bff_forecast_max_concurrency", {
+                "p_max": forecast_max_concurrency,
+            }).execute()
     settings = HttpBffSettings(
         environment=environment,
         cookie_secure=_truthy(os.getenv("BFF_COOKIE_SECURE", "false")),
@@ -135,12 +145,15 @@ def create_http_bff_from_environment(
         _proxy_cidrs(environment),
         forwarded_header=os.getenv("BFF_FORWARDED_HEADER", "x-forwarded-for"),
     )
-    return create_http_bff(
+    app = create_http_bff(
         application, settings=settings, rate_limiter=effective_limiter,
         proxy_policy=proxy_policy, audit_sink=audit_sink,
         readiness_check=(lambda: _readiness(client)) if environment == "production" else None,
         production_execution_policy_ready=(environment == "production"),
     )
+    app.state.forecast_mode = forecast_policy.mode
+    app.state.forecast_sync_max_months = forecast_policy.max_sync_months
+    return app
 
 
 def _required(name: str) -> str:
@@ -152,6 +165,55 @@ def _required(name: str) -> str:
 
 def _truthy(value: str) -> bool:
     return value.strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _explicit_bool(name: str) -> bool:
+    raw = _required(name).lower()
+    if raw in {"1", "true", "yes", "on"}:
+        return True
+    if raw in {"0", "false", "no", "off"}:
+        return False
+    raise RuntimeError(f"{name} must be an explicit boolean")
+
+
+def _forecast_policy(environment: str) -> ForecastRuntimePolicy:
+    production = environment == "production"
+    mode = os.getenv("BFF_FORECAST_MODE", "" if production else "sync").strip().lower()
+    if mode not in {"disabled", "sync"}:
+        raise RuntimeError("BFF_FORECAST_MODE must be disabled or sync")
+    if not production:
+        raw_max = os.getenv(
+            "BFF_FORECAST_SYNC_MAX_MONTHS", str(V1_FORECAST_SYNC_MAX_MONTHS)
+        ).strip()
+        try:
+            max_months = int(raw_max)
+        except ValueError as exc:
+            raise RuntimeError("BFF_FORECAST_SYNC_MAX_MONTHS must be an integer") from exc
+        if not 1 <= max_months <= V1_FORECAST_SYNC_MAX_MONTHS:
+            raise RuntimeError(
+                f"BFF_FORECAST_SYNC_MAX_MONTHS must be 1-{V1_FORECAST_SYNC_MAX_MONTHS}"
+            )
+        return ForecastRuntimePolicy(mode, mode == "sync", max_months)
+
+    approved = _explicit_bool("BFF_FORECAST_SYNC_APPROVED")
+    raw_max = os.getenv("BFF_FORECAST_SYNC_MAX_MONTHS", "").strip()
+    if mode == "sync" and not raw_max:
+        raise RuntimeError("BFF_FORECAST_SYNC_MAX_MONTHS is required in sync mode")
+    try:
+        max_months = int(raw_max) if raw_max else V1_FORECAST_SYNC_MAX_MONTHS
+    except ValueError as exc:
+        raise RuntimeError("BFF_FORECAST_SYNC_MAX_MONTHS must be an integer") from exc
+    if not 1 <= max_months <= V1_FORECAST_SYNC_MAX_MONTHS:
+        raise RuntimeError(
+            f"BFF_FORECAST_SYNC_MAX_MONTHS must be 1-{V1_FORECAST_SYNC_MAX_MONTHS}"
+        )
+    if mode == "disabled":
+        if approved:
+            raise RuntimeError("disabled Forecast mode requires sync approval=false")
+        return ForecastRuntimePolicy(mode, False, max_months)
+    if not approved:
+        raise RuntimeError("sync Forecast mode requires explicit approval=true")
+    return ForecastRuntimePolicy(mode, True, max_months)
 
 
 def _readiness(client) -> bool:

@@ -382,3 +382,26 @@ def test_forecast_http_is_admin_csrf_protected_and_returns_only_safe_draft_dto()
     assert response.json()["is_published"] is False
     assert response.json()["is_default"] is False
     assert "workbook_path" not in response.text and "service_role" not in response.text
+
+
+def test_forecast_disabled_mode_is_admin_authenticated_and_fails_closed():
+    application = make_application_only()
+    app = create_http_bff(
+        application,
+        settings=HttpBffSettings(environment="test", csrf_secret="csrf-secret-at-least-32-characters"),
+    )
+    client = TestClient(app)
+    login = client.post("/api/session/login", json={"access_code": "a"})
+    assert login.status_code == 200
+    body = {
+        "base_model_id": BASE, "name": "Disabled Forecast", "model_year": 2026,
+        "version": "V1", "start_month": 7, "end_month": 7,
+        "months": [{"month": 7, "sales": [], "production": []}],
+        "idempotency_key": "forecast-disabled",
+    }
+    denied = client.post(
+        "/api/admin/forecasts", json=body,
+        headers={"X-CSRF-Token": client.cookies.get("pnl_csrf")},
+    )
+    assert denied.status_code == 403
+    assert denied.json()["error"]["code"] == "FORECAST_SCOPE_NOT_APPROVED"
