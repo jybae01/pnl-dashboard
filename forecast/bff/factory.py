@@ -15,6 +15,7 @@ from ..preflight import ExcelPreflightValidator
 from .gateway import SupabaseBffApplicationGateway, SupabaseModelIngestionGateway
 from .evidence_history import CalculationHistoryService, EvidenceDeliveryService
 from .analysis_presentation import AnalysisPresentationService
+from .pnl_dashboard import PnlDashboardService
 from .model_ingestion import (
     ModelIngestionService,
     ModelManagementService,
@@ -105,6 +106,11 @@ def create_supabase_bff_application(
             sessions,
             gateway,
             provenance,
+            supported_result_schema_versions=versions,
+        ),
+        pnl_dashboard=PnlDashboardService(
+            sessions,
+            gateway,
             supported_result_schema_versions=versions,
         ),
     )

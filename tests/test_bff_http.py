@@ -134,6 +134,7 @@ def make_fixture(*, limiter=None, clock=None) -> Fixture:
         evidence=FakeEvidence(),
         history=FakeHistory(),
         presentation=FakePresentation(),
+        pnl_dashboard=FakePnlDashboard(),
     )
     app = create_http_bff(
         app_service,
@@ -160,6 +161,11 @@ class FakeEvidence:
         workbook.active["A1"] = result_id
         workbook.save(path)
         return EvidenceArtifact(path, f"손익분석_근거_{result_id[:8]}.xlsx", MIME_XLSX, root)
+
+
+class FakePnlDashboard:
+    def viewer_read(self, _session):
+        return {"result_id": RESULT, "job_id": JOB, "dto_version": "1"}
 
 
 class FakeHistory:
@@ -330,3 +336,14 @@ def test_evidence_http_streams_xlsx_and_history_is_admin_only():
     assert viewer.client.get("/api/admin/calculation-history").status_code == 403
     assert viewer.client.get(f"/api/admin/results/{RESULT}/evidence").status_code == 403
     assert viewer.client.get(f"/api/viewer/results/{RESULT}/evidence").status_code == 200
+
+
+def test_pnl_dashboard_is_viewer_capability_with_no_store_and_no_internal_fields():
+    anonymous = make_fixture()
+    assert anonymous.client.get("/api/viewer/pnl-dashboard").status_code == 401
+    viewer = make_fixture(); viewer.login("viewer-code")
+    response = viewer.client.get("/api/viewer/pnl-dashboard")
+    assert response.status_code == 200
+    assert response.headers["cache-control"].startswith("no-store")
+    assert response.json() == {"result_id": RESULT, "job_id": JOB, "dto_version": "1"}
+    assert "claim_token" not in response.text and "storage_path" not in response.text

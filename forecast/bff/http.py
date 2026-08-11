@@ -395,6 +395,16 @@ def create_http_bff(
             )
         return application.presentation.viewer_read(value, result_id)
 
+    @app.get("/api/viewer/pnl-dashboard")
+    def viewer_pnl_dashboard(response: Response, value: str = Depends(viewer_session)):
+        if application.pnl_dashboard is None:
+            raise BffError(
+                ApiErrorCode.TRANSIENT_SYSTEM_ERROR,
+                "P&L dashboard capability is not configured",
+            )
+        response.headers["Cache-Control"] = "no-store, private"
+        return application.pnl_dashboard.viewer_read(value)
+
     @app.get("/api/admin/results/{result_id}/evidence")
     def admin_evidence(result_id: str, value: str = Depends(admin_session)):
         if application.evidence is None:

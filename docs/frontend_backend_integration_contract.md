@@ -591,3 +591,25 @@ Presentation source-gap classification:
 - **D — frontend mock without business definition:** the legacy 8/10 count, dummy summary prose, generic fabricated drilldown, hard-coded KPI/waterfall/manufacturing figures, and zero-filled absent groups are not preserved.
 
 Still open: the separate P&L Dashboard seven-source contract, Forecast React orchestration, full production session/rate-limit infrastructure, production temp orphan sweeping, live Migration 009 validation, Golden business acceptance, AI narrative, cancel, and real progress/stage.
+
+## P&L Dashboard seven-source vertical-slice overlay
+
+The Fixed Cost taxonomy gate is resolved without changing the engine. `manufacturing_realized` already includes variable manufacturing activity/unit effects and fixed manufacturing occurrence effects after inventory realization. `sga_fixed` is fixed SG&A only and excludes customer delivery freight and tariff. A new top-level Fixed Cost effect would therefore double-count fixed manufacturing.
+
+The actual frontend inventory and canonical mapping are:
+
+| Block | Connected component | Former source | Canonical source | Class |
+|---|---|---|---|---|
+| KPI | `PnlDashboardPanel` KPI cards | `MockPnlService.getKpiSummary` | persisted comparison P&L, latest-month and selected-period snapshots | C→resolved |
+| Monthly trend | monthly table | `getMonthlyTrends` dummy arrays and `MAX_ACTUAL_MONTH=6` | Worker-time month-keyed deterministic comparison snapshots plus Model `period_types` | C→resolved |
+| P&L statement | canonical statement table | `getPnlTable` mock hierarchy | persisted comparison `pnl` lines | B→resolved |
+| Manufacturing | cost/account table | `getMfgCostBreakdown`, including hard-coded `9060` | persisted `cost_summary`, `material_analysis`, and all manufacturing accounts | B→resolved |
+| SG&A | account table | `getSgaBreakdown` mock rows | persisted all-account `sga_accounts` | B→resolved |
+| Product groups | product-group table | `getItemSegmentPnl` allocated mock SG&A/OP | persisted `sales_groups` revenue/COGS/GP and unit context only | B/D→canonical subset |
+| Key facts | deterministic effect table | `getKeyNotes` mock narrative | persisted canonical effects, Residual, and reconciliation identity | B/D→canonical facts |
+
+The reduced canonical contract intentionally omits mock-only adjusted OP, invented product-group SG&A/OP allocations, annual plan targets, and narrative causes. It does not create backend business rules to preserve those fields. Migration 010 exposes one cohesive strictly available Viewer snapshot using the existing default-first, otherwise newest-result policy and result availability RPC. Worker completion creates the monthly dashboard snapshot while pinned workbooks are already open; Viewer/Admin dashboard requests never open Excel or execute an engine.
+
+`PnlDashboardDto` preserves raw KRW, nullable ratios, explicit period type, actual months, LC=`4인치 LC`, FS=`m`, and other product groups=`PCS`. It contains no aggregate quantity across units. Runtime validation rejects financial-line, P&L subtotal, product GP, unit, JPY/MCM policy, fixed-cost policy, and reconciliation mismatches. React clears stale state before each read, aborts superseded reads, and separates `LOADING`, `READY`, `EMPTY`, `ERROR`, and `INVALID_PAYLOAD`.
+
+Still open after this slice: Forecast React orchestration, P&L mock-only fields without a canonical definition, shared production session/rate-limit stores, live Migration 010 validation, production worker cost budgeting for up to twelve monthly snapshots, Golden business acceptance, cancel, and real progress/stage.

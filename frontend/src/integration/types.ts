@@ -203,6 +203,80 @@ export interface CalculationHistoryDto {
   dto_version: '1';
 }
 
+export interface DashboardFinancialLineDto {
+  code: string;
+  label: string;
+  baseline: number;
+  comparison: number;
+  delta: number;
+  comparison_ratio_to_revenue: number | null;
+}
+
+export interface PnlDashboardDto {
+  result_id: string;
+  job_id: string;
+  identity: {
+    baseline_model_id: string; baseline_model_name: string;
+    comparison_model_id: string; comparison_model_name: string;
+    model_year: number; start_month: number; end_month: number;
+    available_months: number[]; actual_months: number[];
+    actual_through_month: number | null;
+  };
+  kpis: {
+    latest_month: number;
+    revenue: { latest: DashboardFinancialLineDto; period: DashboardFinancialLineDto };
+    gross_profit: { latest: DashboardFinancialLineDto; period: DashboardFinancialLineDto };
+    operating_profit: { latest: DashboardFinancialLineDto; period: DashboardFinancialLineDto };
+    latest_operating_margin: { baseline: number | null; comparison: number | null; delta_percentage_points: number | null };
+    period_operating_margin: { baseline: number | null; comparison: number | null; delta_percentage_points: number | null };
+  };
+  monthly_series: Array<{
+    month: number; comparison_period_type: '실적' | '추정' | '계획' | null;
+    revenue: DashboardFinancialLineDto; cogs: DashboardFinancialLineDto;
+    gross_profit: DashboardFinancialLineDto;
+    operating_profit: DashboardFinancialLineDto;
+    baseline_operating_margin: number | null; comparison_operating_margin: number | null;
+  }>;
+  pnl_statement: DashboardFinancialLineDto[];
+  manufacturing: {
+    cost_lines: DashboardFinancialLineDto[];
+    material_components: {
+      nonwoven_price_ex_fx: number | null; nonwoven_jpy: number | null;
+      materials_ex_nonwoven: number | null; total: number | null;
+      jpy_fx_unit: 'KRW/JPY'; mcm_is_separate_effect: false;
+    };
+    accounts: DashboardAccountDto[];
+    fixed_cost_policy: {
+      manufacturing_effect_includes_variable_and_fixed: true;
+      fixed_manufacturing_is_not_a_separate_top_level_effect: true;
+    };
+  };
+  sga: { accounts: DashboardAccountDto[]; fixed_scope: string };
+  product_groups: Array<{
+    code: 'SW' | 'BW' | 'LC' | 'FS' | '신사업'; display_name: string;
+    quantity_unit: 'PCS' | 'm'; baseline_quantity: number; comparison_quantity: number;
+    baseline_revenue: number; comparison_revenue: number; revenue_delta: number;
+    baseline_cogs: number; comparison_cogs: number;
+    baseline_gross_profit: number; comparison_gross_profit: number;
+  }>;
+  key_facts: {
+    effects: Array<{ code: string; label: string; profit_effect: number }>;
+    effects_total: number; residual: number; operating_profit_delta: number; reconciled: boolean;
+  };
+  result_schema_version: string;
+  completed_at: string;
+  published_at: string;
+  currency_unit: 'KRW';
+  dto_version: '1';
+}
+
+export interface DashboardAccountDto {
+  account: string; classification: string; section: string;
+  baseline: number; comparison: number; delta: number; profit_effect: number | null;
+  inventory_realization_rate: number | null; activity_effect: number | null;
+  unit_effect: number | null; fixed_effect: number | null;
+}
+
 export interface ApiErrorDto {
   error: {
     code: string;

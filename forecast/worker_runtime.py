@@ -18,6 +18,7 @@ from .persistence.contracts import (
 )
 from .preflight import ExcelPreflightValidator, PreflightValidationError
 from .presentation.analysis_view import build_analysis_view
+from .presentation.pnl_dashboard import build_pnl_dashboard_snapshot
 from .provenance import mapping_hash
 from .worker import WorkerJobControl
 
@@ -206,6 +207,37 @@ class DeterministicComparisonExecutor:
             comparison_sales_fx=request.comparison_sales_fx,
             analysis_view=view,
         )
+        monthly_results: list[dict[str, Any]] = []
+        for month in months:
+            if len(months) == 1:
+                monthly_result = result
+            else:
+                monthly_result = asdict(engine.compare(
+                    baseline_meta,
+                    baseline_path,
+                    comparison_meta,
+                    comparison_path,
+                    PeriodOption(
+                        key=f"M{month:02d}",
+                        label=f"{month}월",
+                        months=(month,),
+                        period_type="월",
+                    ),
+                    baseline_sales_fx=request.baseline_sales_fx,
+                    comparison_sales_fx=request.comparison_sales_fx,
+                ))
+            monthly_results.append(monthly_result)
+            if heartbeat:
+                heartbeat()
+        try:
+            pnl_dashboard = build_pnl_dashboard_snapshot(result, monthly_results)
+        except ValueError:
+            if not self.allow_legacy_local_inputs:
+                raise
+            # Compatibility-only local workers may process pre-V1 mappings.
+            # Preserve their calculation Result, but do not publish a fake or
+            # partially normalized dashboard snapshot.
+            pnl_dashboard = None
         if heartbeat:
             heartbeat()
 
@@ -221,6 +253,8 @@ class DeterministicComparisonExecutor:
                 "comparison": comparison_report.as_dict(),
             },
         }
+        if pnl_dashboard is not None:
+            payload["pnl_dashboard"] = pnl_dashboard
         return CalculationResultWrite(
             payload=payload,
             provenance=claim.job.provenance,

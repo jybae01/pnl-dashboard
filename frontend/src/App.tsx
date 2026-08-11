@@ -19,7 +19,7 @@ function routeFromHash(role?: Role): CoreRoute {
   if (!['pnl', 'forecast', 'variance', 'management'].includes(route)) {
     return role === 'admin' ? 'management' : 'variance';
   }
-  if (role === 'viewer' && route !== 'variance') return 'variance';
+  if (role === 'viewer' && !['pnl', 'variance'].includes(route)) return 'variance';
   return route;
 }
 
@@ -44,7 +44,7 @@ export function App() {
   }, [session?.role]);
 
   function navigate(next: CoreRoute) {
-    if (session?.role === 'viewer' && next !== 'variance') return;
+    if (session?.role === 'viewer' && !['pnl', 'variance'].includes(next)) return;
     window.location.hash = next;
     setRoute(next);
   }
@@ -57,8 +57,8 @@ export function App() {
     <Header />
     <nav className="app-nav" aria-label="주요 화면">
       <div className="nav-tabs">
+        <button className={`nav-tab-btn ${route === 'pnl' ? 'active' : ''}`} onClick={() => navigate('pnl')}>1. 손익 현황</button>
         {session.role === 'admin' && <>
-          <button className={`nav-tab-btn ${route === 'pnl' ? 'active' : ''}`} onClick={() => navigate('pnl')}>1. 손익 현황 <span className="nav-tab-badge">후속 연결</span></button>
           <button className={`nav-tab-btn ${route === 'forecast' ? 'active' : ''}`} onClick={() => navigate('forecast')}>2. Forecast <span className="nav-tab-badge">Placeholder</span></button>
           <button className={`nav-tab-btn ${route === 'management' ? 'active' : ''}`} onClick={() => navigate('management')}>3. 데이터 관리 / 분석 실행</button>
         </>}
@@ -78,7 +78,7 @@ export function App() {
       </div>
     </nav>
     <main className="app-content">
-      {route === 'pnl' && session.role === 'admin' && <PnlStatusView onNavigateToVariance={() => navigate('variance')} />}
+      {route === 'pnl' && <PnlStatusView />}
       {route === 'forecast' && session.role === 'admin' && <ForecastGenerationView />}
       {route === 'management' && session.role === 'admin' && <ModelManagementView />}
       {route === 'variance' && <CoreAnalysisView role={session.role} />}

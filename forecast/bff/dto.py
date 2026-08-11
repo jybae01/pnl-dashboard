@@ -264,6 +264,25 @@ class AnalysisPresentationResponse:
 
 
 @dataclass(frozen=True)
+class PnlDashboardResponse:
+    result_id: str
+    job_id: str
+    identity: dict[str, Any]
+    kpis: dict[str, Any]
+    monthly_series: tuple[dict[str, Any], ...]
+    pnl_statement: tuple[dict[str, Any], ...]
+    manufacturing: dict[str, Any]
+    sga: dict[str, Any]
+    product_groups: tuple[dict[str, Any], ...]
+    key_facts: dict[str, Any]
+    result_schema_version: str
+    completed_at: str
+    published_at: str
+    currency_unit: str = "KRW"
+    dto_version: str = "1"
+
+
+@dataclass(frozen=True)
 class CalculationHistoryItem:
     job_id: str
     result_id: str | None

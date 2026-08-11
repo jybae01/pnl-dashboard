@@ -354,6 +354,7 @@ class TrustedBffApplication:
         evidence: Any | None = None,
         history: Any | None = None,
         presentation: Any | None = None,
+        pnl_dashboard: Any | None = None,
     ) -> None:
         self.sessions = sessions
         self.submissions = submissions
@@ -366,6 +367,7 @@ class TrustedBffApplication:
         self.evidence = evidence
         self.history = history
         self.presentation = presentation
+        self.pnl_dashboard = pnl_dashboard
 
     def login(self, access_code: str) -> SessionTicket:
         return self.sessions.login(access_code)
