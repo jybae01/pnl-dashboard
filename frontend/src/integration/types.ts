@@ -100,6 +100,83 @@ export interface StoredResultDto {
   dto_version: '1';
 }
 
+export type PresentationEffectCode =
+  | 'sales_quantity' | 'sales_mix' | 'sales_price' | 'sales_fx' | 'material_total'
+  | 'manufacturing_realized' | 'sga_variable' | 'sga_fixed' | 'tariff';
+export type PresentationEffectCategory = 'INTERNAL' | 'EXTERNAL' | 'COST';
+export type ResidualClassification =
+  | 'VALIDATION_ARTIFACT' | 'FORMULA_EVALUATOR_GAP' | 'MAPPING_GAP' | 'ENGINE_BUG'
+  | 'INTENTIONAL_SCOPE_GAP' | 'INVENTORY_TIMING' | 'BUSINESS_POLICY_GAP' | 'UNEXPLAINED';
+
+export interface AnalysisDrilldownRowDto {
+  row_id: string;
+  label: string;
+  unit: string;
+  baseline: number | null;
+  comparison: number | null;
+  delta: number | null;
+  profit_effect: number | null;
+  note: string;
+}
+
+export interface AnalysisDrilldownDto {
+  kind: 'sales' | 'material' | 'manufacturing' | 'sga' | 'tariff' | 'unavailable';
+  available: boolean;
+  rows: AnalysisDrilldownRowDto[];
+  unavailable_reason: string | null;
+}
+
+export interface AnalysisPresentationEffectDto {
+  code: PresentationEffectCode;
+  label: string;
+  category: PresentationEffectCategory;
+  profit_effect: number;
+  description: string;
+  drilldown: AnalysisDrilldownDto;
+}
+
+export interface AnalysisResidualDto {
+  amount: number;
+  classification: ResidualClassification;
+  display_label: string;
+}
+
+export interface AnalysisPresentationDto {
+  identity: {
+    result_id: string; job_id: string;
+    baseline_model_id: string; comparison_model_id: string;
+    baseline_model_name: string; comparison_model_name: string;
+    start_month: number; end_month: number;
+    baseline_sales_fx: number; comparison_sales_fx: number;
+    result_schema_version: string; completed_at: string;
+    is_published: boolean; is_default: boolean; published_at: string | null;
+  };
+  kpis: {
+    baseline_revenue: number; comparison_revenue: number; revenue_delta: number;
+    baseline_operating_profit: number; comparison_operating_profit: number;
+    operating_profit_delta: number; effects_total: number; residual: number;
+  };
+  effects: AnalysisPresentationEffectDto[];
+  residual: AnalysisResidualDto;
+  product_groups: Array<{
+    code: 'SW' | 'BW' | 'LC' | 'FS' | '신사업'; display_name: string;
+    quantity_unit: 'PCS' | 'm'; baseline_quantity: number; comparison_quantity: number;
+    baseline_revenue: number; comparison_revenue: number;
+  }>;
+  manufacturing_activities: Array<{
+    process: string; production_basis: string; unit: 'PCS' | 'm';
+    baseline: number; comparison: number; delta: number;
+  }>;
+  executive_summary: {
+    operating_profit_delta: number;
+    top_positive_effects: AnalysisPresentationEffectDto[];
+    top_negative_effects: AnalysisPresentationEffectDto[];
+    residual: AnalysisResidualDto;
+  };
+  currency_unit: 'KRW';
+  dto_version: '1';
+}
+
 export interface CalculationHistoryItemDto {
   job_id: string;
   result_id: string | null;

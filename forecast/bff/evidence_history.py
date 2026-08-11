@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import hashlib
 import json
 import re
 import shutil
@@ -22,7 +21,6 @@ from .gateway import BffApplicationGateway, GatewayTransientError
 _SAFE_TIMESTAMP = re.compile(r"^\d{4}-\d{2}-\d{2}T")
 _STATUSES = {"pending", "processing", "completed", "failed"}
 MAX_EVIDENCE_BYTES = 100 * 1024 * 1024
-MAX_SOURCE_BYTES = 50 * 1024 * 1024
 MAX_STORED_RESULT_BYTES = 25 * 1024 * 1024
 MAX_SALES_ROWS = 10_000
 
@@ -128,19 +126,8 @@ class EvidenceDeliveryService:
                 "Evidence workbook generation failed",
             )
         root = Path(tempfile.mkdtemp(prefix="pnl-evidence-"))
-        baseline_path = root / "baseline.xlsx"
-        comparison_path = root / "comparison.xlsx"
         output_path = root / "evidence.xlsx"
         try:
-            baseline_bytes = self._gateway.download_model_source(
-                values["baseline_workbook_bucket"], values["baseline_workbook_path"]
-            )
-            comparison_bytes = self._gateway.download_model_source(
-                values["comparison_workbook_bucket"], values["comparison_workbook_path"]
-            )
-            _write_verified(baseline_path, baseline_bytes, values["baseline_workbook_sha256"])
-            _write_verified(comparison_path, comparison_bytes, values["comparison_workbook_sha256"])
-
             result = dict(values["result_payload"]["comparison_result"])
             sales = result.get("sales_analysis")
             if not isinstance(sales, Mapping) or not isinstance(sales.get("rows"), list) \
@@ -173,8 +160,6 @@ class EvidenceDeliveryService:
                 sales_totals=dict(sales["totals"]),
                 baseline_fx=baseline_fx,
                 comparison_fx=comparison_fx,
-                baseline_path=baseline_path,
-                comparison_path=comparison_path,
                 mapping_path=self._mapping_path,
             )
             size = output_path.stat().st_size
@@ -251,9 +236,7 @@ def _validated_evidence_row(
     required = (
         "result_id", "job_id", "result_payload", "analysis_request",
         "baseline_model_id", "comparison_model_id", "baseline_workbook_sha256",
-        "comparison_workbook_sha256", "baseline_workbook_bucket",
-        "baseline_workbook_path", "comparison_workbook_bucket",
-        "comparison_workbook_path", "engine_version", "mapping_version",
+        "comparison_workbook_sha256", "engine_version", "mapping_version",
         "mapping_hash", "result_schema_version",
     )
     if any(row.get(key) is None for key in required):
@@ -278,12 +261,6 @@ def _validated_evidence_row(
         raise _integrity_failure()
     if not isinstance(values["result_payload"], Mapping) or not isinstance(values["analysis_request"], Mapping):
         raise _integrity_failure()
-    for side in ("baseline", "comparison"):
-        model_id = values[f"{side}_model_id"]
-        if values[f"{side}_workbook_bucket"] != "pnl-models":
-            raise _integrity_failure()
-        if values[f"{side}_workbook_path"] != f"models/{model_id}/source.xlsx":
-            raise _integrity_failure()
     return values
 
 
@@ -321,12 +298,6 @@ def _history_item(row: Mapping[str, Any]) -> CalculationHistoryItem:
         )
     except (KeyError, TypeError, ValueError) as exc:
         raise _integrity_failure() from exc
-
-
-def _write_verified(path: Path, payload: bytes, expected_sha: str) -> None:
-    if not payload or len(payload) > MAX_SOURCE_BYTES or hashlib.sha256(payload).hexdigest() != expected_sha:
-        raise _integrity_failure()
-    path.write_bytes(payload)
 
 
 def _positive_finite(value: Any) -> float:

@@ -160,4 +160,5 @@ def test_migration_contract_is_001_through_004():
         "202608090006_react_core_vertical_slice.sql",
         "202608090007_model_ingestion_vertical_slice.sql",
         "202608090008_evidence_history_vertical_slice.sql",
+        "202608090009_analysis_presentation_vertical_slice.sql",
     ]

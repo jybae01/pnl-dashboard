@@ -2,14 +2,15 @@ import React, { FormEvent, useEffect, useMemo, useRef, useState } from 'react';
 import { bffClient } from './client';
 import {
   AnalysisModelDto,
+  AnalysisPresentationDto,
   ApiClientError,
   JobStatusDto,
   Role,
-  StoredResultDto,
   SubmitRequest,
   ViewerState,
 } from './types';
 import { EvidenceDownloadButton } from './EvidenceDownloadButton';
+import { AnalysisPresentationPanel } from './AnalysisPresentationPanel';
 
 type FormState = Omit<SubmitRequest, 'idempotency_key'>;
 
@@ -26,11 +27,12 @@ export function CoreAnalysisView({ role, modelRefreshKey = 0 }: { role: Role; mo
   const [models, setModels] = useState<AnalysisModelDto[]>([]);
   const [form, setForm] = useState<FormState>(INITIAL_FORM);
   const [job, setJob] = useState<JobStatusDto | null>(null);
-  const [result, setResult] = useState<StoredResultDto | null>(null);
+  const [result, setResult] = useState<AnalysisPresentationDto | null>(null);
   const [viewerState, setViewerState] = useState<ViewerState>('EMPTY');
   const [error, setError] = useState<string | null>(null);
   const [resultId, setResultId] = useState('');
   const logicalRequest = useRef<{ fingerprint: string; key: string } | null>(null);
+  const viewerRequestSequence = useRef(0);
 
   useEffect(() => {
     if (role !== 'admin') return;
@@ -109,9 +111,9 @@ export function CoreAnalysisView({ role, modelRefreshKey = 0 }: { role: Role; mo
     }
     let active = true;
     setResult(null); setViewerState('LOADING'); setError(null);
-    bffClient.adminResult(job.result_id).then((stored) => {
+    bffClient.adminPresentation(job.result_id).then((stored) => {
       if (!active) return;
-      setResult(stored); setResultId(stored.result_id); setViewerState('READY');
+      setResult(stored); setResultId(stored.identity.result_id); setViewerState('READY');
     }).catch((value) => {
       if (!active) return;
       setViewerState(value instanceof ApiClientError && value.code === 'INPUT_INTEGRITY_MISMATCH' ? 'INVALID_PAYLOAD' : 'ERROR');
@@ -157,6 +159,7 @@ export function CoreAnalysisView({ role, modelRefreshKey = 0 }: { role: Role; mo
 
   async function readViewerResult(event: FormEvent) {
     event.preventDefault();
+    const requestSequence = ++viewerRequestSequence.current;
     setResult(null); // never keep a stale published Result while revalidating
     setError(null);
     if (!resultId.trim()) {
@@ -165,10 +168,12 @@ export function CoreAnalysisView({ role, modelRefreshKey = 0 }: { role: Role; mo
     }
     setViewerState('LOADING');
     try {
-      const stored = await bffClient.viewerResult(resultId.trim());
+      const stored = await bffClient.viewerPresentation(resultId.trim());
+      if (requestSequence !== viewerRequestSequence.current) return;
       setResult(stored);
       setViewerState('READY');
     } catch (value) {
+      if (requestSequence !== viewerRequestSequence.current) return;
       setResult(null);
       if (value instanceof ApiClientError && value.code === 'RESULT_NOT_AVAILABLE') {
         setViewerState('EMPTY');
@@ -222,7 +227,7 @@ export function CoreAnalysisView({ role, modelRefreshKey = 0 }: { role: Role; mo
       {error && viewerState !== 'ERROR' && viewerState !== 'INVALID_PAYLOAD' && <div role="alert" style={{ color: '#b91c1c', marginTop: 10 }}>{error}</div>}
       {job && <div className="card" data-testid="job-status" style={{ padding: 14, marginTop: 12 }}>
         <strong>{job.status}</strong> · attempt {job.attempt}/{job.max_attempts || '-'} · Job {job.job_id}
-        {job.status === 'COMPLETED' && job.result_id && viewerState === 'READY' && result?.result_id === job.result_id && <div style={{ marginTop: 10 }}>
+        {job.status === 'COMPLETED' && job.result_id && viewerState === 'READY' && result?.identity.result_id === job.result_id && <div style={{ marginTop: 10 }}>
           <EvidenceDownloadButton resultId={job.result_id} role="admin" />
         </div>}
       </div>}
@@ -242,18 +247,15 @@ function NumberInput({ label, value, onChange }: { label: string; value: number;
 }
 
 function ResultState({ state, error, result, role, onUnavailable }: {
-  state: ViewerState; error: string | null; result: StoredResultDto | null; role: Role; onUnavailable?: () => void;
+  state: ViewerState; error: string | null; result: AnalysisPresentationDto | null; role: Role; onUnavailable?: () => void;
 }) {
   if (state === 'LOADING') return <div role="status" className="card" style={{ padding: 18, marginTop: 12 }}>불러오는 중…</div>;
   if (state === 'ERROR') return <div role="alert" className="card" style={{ padding: 18, marginTop: 12, color: '#b91c1c' }}>{error || '결과 조회 오류'}</div>;
   if (state === 'INVALID_PAYLOAD') return <div role="alert" className="card" style={{ padding: 18, marginTop: 12, color: '#b45309' }}>{error || '결과 계약이 올바르지 않습니다.'}</div>;
   if (state === 'EMPTY' || !result) return <div className="card" data-testid="viewer-empty" style={{ padding: 18, marginTop: 12 }}>표시할 Result가 없습니다.</div>;
-  return <article className="card" data-testid="stored-result" style={{ padding: 18, marginTop: 12 }}>
-    <h2 style={{ fontSize: 16 }}>Stored Result</h2>
-    <div>Result {result.result_id} · Job {result.job_id}</div>
-    <div style={{ marginTop: 10 }}><EvidenceDownloadButton resultId={result.result_id} role={role} onUnavailable={onUnavailable} /></div>
-    <pre style={{ whiteSpace: 'pre-wrap', overflowWrap: 'anywhere', background: '#f8fafc', padding: 12 }}>{JSON.stringify(result.analysis_view, null, 2)}</pre>
-  </article>;
+  return <div className="card" data-testid="stored-result" style={{ padding: 18, marginTop: 12 }}>
+    <AnalysisPresentationPanel value={result} role={role} onUnavailable={onUnavailable} />
+  </div>;
 }
 
 function safeMessage(value: unknown): string {

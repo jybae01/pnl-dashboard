@@ -14,6 +14,7 @@ from .auth import AccessCodeSessionService
 from ..preflight import ExcelPreflightValidator
 from .gateway import SupabaseBffApplicationGateway, SupabaseModelIngestionGateway
 from .evidence_history import CalculationHistoryService, EvidenceDeliveryService
+from .analysis_presentation import AnalysisPresentationService
 from .model_ingestion import (
     ModelIngestionService,
     ModelManagementService,
@@ -100,4 +101,10 @@ def create_supabase_bff_application(
             if mapping_path else None
         ),
         history=CalculationHistoryService(sessions, gateway),
+        presentation=AnalysisPresentationService(
+            sessions,
+            gateway,
+            provenance,
+            supported_result_schema_versions=versions,
+        ),
     )

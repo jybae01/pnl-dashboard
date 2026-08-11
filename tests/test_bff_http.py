@@ -133,6 +133,7 @@ def make_fixture(*, limiter=None, clock=None) -> Fixture:
         AnalysisModelListService(sessions, repository),
         evidence=FakeEvidence(),
         history=FakeHistory(),
+        presentation=FakePresentation(),
     )
     app = create_http_bff(
         app_service,
@@ -174,6 +175,14 @@ class FakeHistory:
             }],
             "next_before_created_at": None, "next_before_job_id": None, "dto_version": "1",
         }
+
+
+class FakePresentation:
+    def admin_read(self, _session, result_id):
+        return {"identity": {"result_id": result_id}, "scope": "admin", "dto_version": "1"}
+
+    def viewer_read(self, _session, result_id):
+        return {"identity": {"result_id": result_id}, "scope": "viewer", "dto_version": "1"}
 
 
 @pytest.mark.parametrize("code,role", [("viewer-code", "viewer"), ("admin-code", "admin")])
@@ -267,6 +276,18 @@ def test_admin_preview_and_strict_viewer_result_are_separate():
     viewer.gateway.available = False
     hidden = viewer.client.get(f"/api/viewer/results/{RESULT}")
     assert hidden.status_code == 404 and hidden.json()["error"]["code"] == "RESULT_NOT_AVAILABLE"
+
+
+def test_presentation_http_routes_keep_admin_and_viewer_capabilities_separate():
+    admin = make_fixture(); admin.login()
+    preview = admin.client.get(f"/api/admin/results/{RESULT}/presentation")
+    assert preview.status_code == 200 and preview.json()["scope"] == "admin"
+    assert "claim_token" not in preview.text and "workbook_path" not in preview.text
+
+    viewer = make_fixture(); viewer.login("viewer-code")
+    assert viewer.client.get(f"/api/admin/results/{RESULT}/presentation").status_code == 403
+    visible = viewer.client.get(f"/api/viewer/results/{RESULT}/presentation")
+    assert visible.status_code == 200 and visible.json()["scope"] == "viewer"
 
 
 def test_production_requires_secure_cookie_and_shared_rate_limiter():

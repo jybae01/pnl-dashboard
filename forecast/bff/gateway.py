@@ -87,6 +87,14 @@ class BffApplicationGateway(Protocol):
         self, result_id: str, *, supported_result_schema_versions: Sequence[str]
     ) -> Mapping[str, Any] | None: ...
 
+    def get_admin_analysis_presentation(
+        self, result_id: str, *, supported_result_schema_versions: Sequence[str]
+    ) -> Mapping[str, Any] | None: ...
+
+    def get_viewer_analysis_presentation(
+        self, result_id: str, *, supported_result_schema_versions: Sequence[str]
+    ) -> Mapping[str, Any] | None: ...
+
     def list_calculation_history(
         self, *, limit: int, before_created_at: str | None, before_job_id: str | None
     ) -> list[Mapping[str, Any]]: ...
@@ -219,6 +227,22 @@ class SupabaseBffApplicationGateway:
         self, result_id: str, *, supported_result_schema_versions: Sequence[str]
     ) -> Mapping[str, Any] | None:
         return self._read("get_calculation_result_evidence_viewer_by_id", {
+            "p_result_id": result_id,
+            "p_supported_result_schema_versions": list(supported_result_schema_versions),
+        })
+
+    def get_admin_analysis_presentation(
+        self, result_id: str, *, supported_result_schema_versions: Sequence[str]
+    ) -> Mapping[str, Any] | None:
+        return self._read("get_calculation_result_presentation_admin_by_id", {
+            "p_result_id": result_id,
+            "p_supported_result_schema_versions": list(supported_result_schema_versions),
+        })
+
+    def get_viewer_analysis_presentation(
+        self, result_id: str, *, supported_result_schema_versions: Sequence[str]
+    ) -> Mapping[str, Any] | None:
+        return self._read("get_calculation_result_presentation_viewer_by_id", {
             "p_result_id": result_id,
             "p_supported_result_schema_versions": list(supported_result_schema_versions),
         })

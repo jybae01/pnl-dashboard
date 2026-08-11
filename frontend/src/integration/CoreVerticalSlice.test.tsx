@@ -2,6 +2,7 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import App from '../App';
 import { CoreAnalysisView } from './CoreAnalysisView';
+import { presentationFixture } from './presentationTestFixture';
 
 const BASE = '11111111-1111-4111-8111-111111111111';
 const COMP = '22222222-2222-4222-8222-222222222222';
@@ -38,12 +39,9 @@ describe('React core vertical slice', () => {
         completed_at: '2026-08-11T00:00:01Z', result_id: RESULT,
         error_code: null, error_message: null, dto_version: '1',
       });
-      if (path.endsWith(`/api/admin/results/${RESULT}`)) return json({
-        result_id: RESULT, job_id: JOB, analysis_view: { summary: { status: 'PASS' } },
-        provenance: { baseline_model_id: BASE, comparison_model_id: COMP },
-        is_published: false, is_default: false, published_at: null,
-        created_at: '2026-08-11T00:00:01Z', dto_version: '1',
-      });
+      if (path.endsWith(`/api/admin/results/${RESULT}/presentation`)) return json(presentationFixture({
+        identity: { ...presentationFixture().identity, is_published: false, published_at: null },
+      }));
       throw new Error(`unexpected request ${path}`);
     });
     vi.stubGlobal('fetch', fetchMock);
@@ -54,10 +52,10 @@ describe('React core vertical slice', () => {
     fireEvent.click(screen.getByRole('button', { name: '접속' }));
     expect(await screen.findByText('Base / Comparison 분석 실행')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: '분석 실행' }));
-    expect(await screen.findByTestId('stored-result', {}, { timeout: 3500 })).toHaveTextContent('PASS');
+    expect(await screen.findByTestId('stored-result', {}, { timeout: 3500 })).toHaveTextContent('영업이익 증감');
     expect(screen.getAllByRole('button', { name: '분석 근거 엑셀 내려받기' })).toHaveLength(2);
     expect(calls.some((value) => value.includes(`/api/jobs/${JOB}`))).toBe(true);
-    expect(calls.some((value) => value.includes(`/api/admin/results/${RESULT}`))).toBe(true);
+    expect(calls.some((value) => value.includes(`/api/admin/results/${RESULT}/presentation`))).toBe(true);
     const submitCall = fetchMock.mock.calls.find((value) => String(value[0]).endsWith('/api/analyses'));
     expect(submitCall).toBeDefined();
     if (!submitCall) throw new Error('submit request was not observed');
@@ -69,13 +67,9 @@ describe('React core vertical slice', () => {
   it('clears cached Viewer result after the backend later denies availability', async () => {
     let reads = 0;
     vi.stubGlobal('fetch', vi.fn((input: RequestInfo | URL) => {
-      if (!String(input).includes('/api/viewer/results/')) throw new Error('unexpected request');
+      if (!String(input).includes('/api/viewer/results/') || !String(input).endsWith('/presentation')) throw new Error('unexpected request');
       reads += 1;
-      if (reads === 1) return json({
-        result_id: RESULT, job_id: JOB, analysis_view: { summary: { status: 'PASS' } },
-        provenance: { baseline_model_id: BASE }, is_default: false,
-        published_at: '2026-08-11T00:00:01Z', created_at: '2026-08-11T00:00:01Z', dto_version: '1',
-      });
+      if (reads === 1) return json(presentationFixture());
       return json({ error: { code: 'RESULT_NOT_AVAILABLE', message: 'Result not available', field_errors: {}, correlation_id: null, dto_version: '1' } }, 404);
     }));
     render(<CoreAnalysisView role="viewer" />);

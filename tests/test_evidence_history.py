@@ -36,9 +36,7 @@ class Gateway:
         return self.viewer_row
 
     def download_model_source(self, bucket, path):
-        assert bucket == "pnl-models"
-        assert path in {f"models/{BASE_ID}/source.xlsx", f"models/{COMP_ID}/source.xlsx"}
-        return SOURCE
+        raise AssertionError("Evidence delivery must not reopen source XLSX bytes")
 
     def list_calculation_history(self, **_kwargs):
         return list(self.history_rows)
@@ -135,7 +133,10 @@ def test_viewer_unavailable_and_sha_mismatch_are_safe(auth, tmp_path):
     assert denied.value.code == ApiErrorCode.RESULT_NOT_AVAILABLE
 
     gateway.admin_row = evidence_row()
-    gateway.admin_row["baseline_workbook_sha256"] = "b" * 64
+    # The DB RPC already compares current model SHA against the immutable
+    # Result/Job snapshot.  The HTTP path must not reopen source XLSX bytes;
+    # application validation therefore rejects malformed provenance only.
+    gateway.admin_row["baseline_workbook_sha256"] = "not-a-sha"
     with pytest.raises(BffError) as mismatch:
         service.admin_download(admin, RESULT_ID)
     assert mismatch.value.code == ApiErrorCode.INPUT_INTEGRITY_MISMATCH

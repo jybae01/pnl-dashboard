@@ -62,7 +62,7 @@ export function App() {
           <button className={`nav-tab-btn ${route === 'forecast' ? 'active' : ''}`} onClick={() => navigate('forecast')}>2. Forecast <span className="nav-tab-badge">Placeholder</span></button>
           <button className={`nav-tab-btn ${route === 'management' ? 'active' : ''}`} onClick={() => navigate('management')}>3. 데이터 관리 / 분석 실행</button>
         </>}
-        <button className={`nav-tab-btn ${route === 'variance' ? 'active' : ''}`} onClick={() => navigate('variance')}>4. Stored Result</button>
+        <button className={`nav-tab-btn ${route === 'variance' ? 'active' : ''}`} onClick={() => navigate('variance')}>4. 손익 분석 결과</button>
         <button className="nav-tab-btn" onClick={async () => {
           try {
             await bffClient.logout();

@@ -377,6 +377,24 @@ def create_http_bff(
     def viewer_result(result_id: str, value: str = Depends(viewer_session)):
         return application.results.viewer_read(value, result_id)
 
+    @app.get("/api/admin/results/{result_id}/presentation")
+    def admin_result_presentation(result_id: str, value: str = Depends(admin_session)):
+        if application.presentation is None:
+            raise BffError(
+                ApiErrorCode.TRANSIENT_SYSTEM_ERROR,
+                "Analysis presentation capability is not configured",
+            )
+        return application.presentation.admin_read(value, result_id)
+
+    @app.get("/api/viewer/results/{result_id}/presentation")
+    def viewer_result_presentation(result_id: str, value: str = Depends(viewer_session)):
+        if application.presentation is None:
+            raise BffError(
+                ApiErrorCode.TRANSIENT_SYSTEM_ERROR,
+                "Analysis presentation capability is not configured",
+            )
+        return application.presentation.viewer_read(value, result_id)
+
     @app.get("/api/admin/results/{result_id}/evidence")
     def admin_evidence(result_id: str, value: str = Depends(admin_session)):
         if application.evidence is None:

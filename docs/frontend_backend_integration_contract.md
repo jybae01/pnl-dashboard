@@ -569,8 +569,25 @@ Still open after this slice: shared production session storage and rate limiting
 
 ## Evidence + History vertical-slice overlay
 
-Evidence delivery and Admin Calculation History are resolved by additive Migration 008 and `forecast.bff.evidence_history`. Evidence is identified by `result_id`, generated on demand from the stored `comparison_result` plus the exact pinned Base/Comparison source bytes, and never invokes the comparison engine. Admin may download a completed unpublished Result after provenance/source checks; Viewer delivery is gated by the same strict current availability predicate as Viewer Result read. The HTTP adapter streams a temporary XLSX with cleanup and the React adapter exposes the exact `분석 근거 엑셀 내려받기` action only for completed/READY results.
+Evidence delivery and Admin Calculation History are resolved by additive Migration 008 and `forecast.bff.evidence_history`. Evidence is identified by `result_id` and generated on demand from the stored canonical Result. The HTTP request path neither reopens Base/Comparison XLSX nor invokes a workbook evaluator or comparison engine; persisted model IDs, SHA snapshots, mapping, engine, schema, period, and FX remain the Evidence provenance. Admin may download a completed unpublished Result after provenance checks; Viewer delivery is gated by the same strict current availability predicate as Viewer Result read. The HTTP adapter streams a temporary XLSX with cleanup and the React adapter exposes the exact `분석 근거 엑셀 내려받기` action only for completed/READY results.
 
 Admin History uses a narrow safe DTO and bounded keyset pagination ordered by `(created_at DESC, job_id DESC)`. Pending, processing, failed, and completed-without-result rows never receive a fabricated `result_id`; only a completed row with a stored Result exposes the Evidence action. Browser DTOs omit claim, lease, queue receipt, Storage path, and raw worker/database errors.
 
 Still open after this overlay: shared production session storage/rate limiting, production temp-volume quotas, explicit access-code actor attribution for read/download audit events, live Migration 008/Storage validation, full `analysis_view` presentation, P&L seven-source DTOs, Forecast orchestration, cancel, and real progress/stage.
+
+## Analysis Result Presentation vertical-slice overlay
+
+Additive Migration 009 exposes two explicit result-by-ID presentation sources: completed Admin preview and strict Viewer availability. Both return only stored `comparison_result`, `analysis_view`, `fact_pack`, analysis request, safe model identity, and immutable result provenance; no Storage path, queue receipt, claim token, or source workbook bytes are exposed. The Viewer application service revalidates availability after mapping so a publication, SHA, or mapping change removes both presentation and Evidence action.
+
+`forecast.bff.analysis_presentation` owns the presentation mapping. The canonical top-level order is `sales_quantity`, `sales_mix`, `sales_price`, `sales_fx`, `material_total`, `manufacturing_realized`, `sga_variable`, `sga_fixed`, and `tariff`, followed by a separately classified Residual. This resolves the handoff's 8-versus-10 mock wording without changing the engine taxonomy. Customer freight remains inside sales price exactly once, tariff remains separate, the raw-material JPY component stays inside `material_total`, and no MCM effect is introduced. The mapper rejects any effect-set, amount, unit, provenance, period, or `effects_total + residual = OP_delta` mismatch; it never plugs or recalculates a business amount.
+
+The reachable React result route consumes `AnalysisPresentationDto`, performs strict runtime validation, and renders backend KPI, waterfall values, effects, available source drilldowns, Residual, actual product groups, and manufacturing activity units. LC is displayed as `4인치 LC`; FS activity stays `m` and other groups stay `PCS`. The browser performs only formatting and waterfall geometry. Unsupported/malformed payloads become `INVALID_PAYLOAD`; Viewer denial clears presentation and Evidence together.
+
+Presentation source-gap classification:
+
+- **A — backend exists, mapper was missing:** KPI rows, canonical effects, sales/material/manufacturing/SG&A details, product groups, activity units, and model/period/FX identity are now mapped.
+- **B — persisted but DTO was missing:** full stored canonical Result and deterministic fact-pack are available only through the narrow Migration 009 RPCs and presentation DTO.
+- **C — deterministic output persistence missing:** no blocker was found for this slice; no new business value was persisted.
+- **D — frontend mock without business definition:** the legacy 8/10 count, dummy summary prose, generic fabricated drilldown, hard-coded KPI/waterfall/manufacturing figures, and zero-filled absent groups are not preserved.
+
+Still open: the separate P&L Dashboard seven-source contract, Forecast React orchestration, full production session/rate-limit infrastructure, production temp orphan sweeping, live Migration 009 validation, Golden business acceptance, AI narrative, cancel, and real progress/stage.

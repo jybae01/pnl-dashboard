@@ -154,6 +154,116 @@ class ViewerResultResponse:
 
 
 @dataclass(frozen=True)
+class AnalysisPresentationIdentityResponse:
+    result_id: str
+    job_id: str
+    baseline_model_id: str
+    comparison_model_id: str
+    baseline_model_name: str
+    comparison_model_name: str
+    start_month: int
+    end_month: int
+    baseline_sales_fx: float
+    comparison_sales_fx: float
+    result_schema_version: str
+    completed_at: str
+    is_published: bool
+    is_default: bool
+    published_at: str | None
+
+
+@dataclass(frozen=True)
+class AnalysisPresentationKpiResponse:
+    baseline_revenue: float
+    comparison_revenue: float
+    revenue_delta: float
+    baseline_operating_profit: float
+    comparison_operating_profit: float
+    operating_profit_delta: float
+    effects_total: float
+    residual: float
+
+
+@dataclass(frozen=True)
+class AnalysisDrilldownRowResponse:
+    row_id: str
+    label: str
+    unit: str
+    baseline: float | None
+    comparison: float | None
+    delta: float | None
+    profit_effect: float | None
+    note: str
+
+
+@dataclass(frozen=True)
+class AnalysisDrilldownResponse:
+    kind: str
+    available: bool
+    rows: tuple[AnalysisDrilldownRowResponse, ...]
+    unavailable_reason: str | None = None
+
+
+@dataclass(frozen=True)
+class AnalysisPresentationEffectResponse:
+    code: str
+    label: str
+    category: str
+    profit_effect: float
+    description: str
+    drilldown: AnalysisDrilldownResponse
+
+
+@dataclass(frozen=True)
+class AnalysisResidualResponse:
+    amount: float
+    classification: str
+    display_label: str
+
+
+@dataclass(frozen=True)
+class AnalysisProductGroupResponse:
+    code: str
+    display_name: str
+    quantity_unit: str
+    baseline_quantity: float
+    comparison_quantity: float
+    baseline_revenue: float
+    comparison_revenue: float
+
+
+@dataclass(frozen=True)
+class AnalysisActivityResponse:
+    process: str
+    production_basis: str
+    unit: str
+    baseline: float
+    comparison: float
+    delta: float
+
+
+@dataclass(frozen=True)
+class AnalysisExecutiveSummaryResponse:
+    operating_profit_delta: float
+    top_positive_effects: tuple[AnalysisPresentationEffectResponse, ...]
+    top_negative_effects: tuple[AnalysisPresentationEffectResponse, ...]
+    residual: AnalysisResidualResponse
+
+
+@dataclass(frozen=True)
+class AnalysisPresentationResponse:
+    identity: AnalysisPresentationIdentityResponse
+    kpis: AnalysisPresentationKpiResponse
+    effects: tuple[AnalysisPresentationEffectResponse, ...]
+    residual: AnalysisResidualResponse
+    product_groups: tuple[AnalysisProductGroupResponse, ...]
+    manufacturing_activities: tuple[AnalysisActivityResponse, ...]
+    executive_summary: AnalysisExecutiveSummaryResponse
+    currency_unit: str = "KRW"
+    dto_version: str = "1"
+
+
+@dataclass(frozen=True)
 class CalculationHistoryItem:
     job_id: str
     result_id: str | None

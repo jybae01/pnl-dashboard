@@ -353,6 +353,7 @@ class TrustedBffApplication:
         model_publication: Any | None = None,
         evidence: Any | None = None,
         history: Any | None = None,
+        presentation: Any | None = None,
     ) -> None:
         self.sessions = sessions
         self.submissions = submissions
@@ -364,6 +365,7 @@ class TrustedBffApplication:
         self.model_publication = model_publication
         self.evidence = evidence
         self.history = history
+        self.presentation = presentation
 
     def login(self, access_code: str) -> SessionTicket:
         return self.sessions.login(access_code)

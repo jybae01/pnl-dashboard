@@ -7,7 +7,7 @@ from io import BytesIO
 from pathlib import Path
 from typing import Any, Iterable
 
-from openpyxl import Workbook, load_workbook
+from openpyxl import Workbook
 from openpyxl.styles import Alignment, Font, PatternFill
 from openpyxl.utils import get_column_letter
 
@@ -475,6 +475,37 @@ def _write_source_trace(
     _style_data_sheet(ws, header_row, money_columns=(11,))
 
 
+def _write_stored_source_provenance(ws, result: dict[str, Any]) -> None:
+    """Write pinned input identity without reopening either source workbook."""
+    header_row = _write_title(
+        ws,
+        "원천모형 Provenance",
+        "완료 Result에 고정된 입력 식별자와 SHA-256입니다. 원천 XLSX는 다운로드 시 다시 열지 않습니다.",
+    )
+    _write_headers(ws, header_row, ["항목", "값"])
+    provenance = result.get("evidence_provenance")
+    if not isinstance(provenance, dict):
+        provenance = {}
+    for key in (
+        "result_id",
+        "job_id",
+        "baseline_model_id",
+        "comparison_model_id",
+        "baseline_workbook_sha256",
+        "comparison_workbook_sha256",
+        "engine_version",
+        "mapping_version",
+        "mapping_hash",
+        "result_schema_version",
+        "analysis_request",
+    ):
+        value = provenance.get(key)
+        if isinstance(value, (dict, list)):
+            value = json.dumps(value, ensure_ascii=False, sort_keys=True)
+        ws.append([key, value])
+    _style_data_sheet(ws, header_row)
+
+
 def build_comparison_audit_workbook(
     *,
     result: dict[str, Any],
@@ -482,8 +513,8 @@ def build_comparison_audit_workbook(
     sales_totals: dict[str, float],
     baseline_fx: float,
     comparison_fx: float,
-    baseline_path: str | Path,
-    comparison_path: str | Path,
+    baseline_path: str | Path | None = None,
+    comparison_path: str | Path | None = None,
     mapping_path: str | Path,
 ) -> bytes:
     """Build a formula-bearing audit workbook for the current comparison result."""
@@ -502,29 +533,29 @@ def build_comparison_audit_workbook(
     _write_sga_detail(workbook.create_sheet("판관비_검증"), result)
     _write_formula_catalog(workbook.create_sheet("수식_정의"))
     months = tuple(int(month) for month in result.get("period", {}).get("months", ()))
-    _write_source_trace(
-        workbook.create_sheet("원천셀_추적"), baseline_path, comparison_path, mapping_path, months,
-    )
+    source_sheet = workbook.create_sheet("원천셀_추적")
+    if baseline_path is not None and comparison_path is not None:
+        _write_source_trace(source_sheet, baseline_path, comparison_path, mapping_path, months)
+    else:
+        _write_stored_source_provenance(source_sheet, result)
 
-    output = BytesIO()
-    workbook.save(output)
-    payload = output.getvalue()
-
-    probe = load_workbook(BytesIO(payload), data_only=False, read_only=True)
     required = {
         "README", "손익_정합성", "판매효과_검증", "원부재료_검증",
         "생산제조경비_검증", "판관비_검증", "수식_정의", "원천셀_추적",
     }
-    missing = required.difference(probe.sheetnames)
+    missing = required.difference(workbook.sheetnames)
     if missing:
         raise ValueError(f"검증 엑셀 필수 시트 누락: {sorted(missing)}")
     if not any(
         isinstance(cell.value, str) and cell.value.startswith("=")
-        for row in probe["판매효과_검증"].iter_rows()
+        for row in workbook["판매효과_검증"].iter_rows()
         for cell in row
     ):
         raise ValueError("판매효과 검증 수식이 생성되지 않았습니다.")
-    return payload
+
+    output = BytesIO()
+    workbook.save(output)
+    return output.getvalue()
 
 
 def write_comparison_audit_workbook(

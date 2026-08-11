@@ -2,6 +2,7 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { CoreAnalysisView } from './CoreAnalysisView';
 import { CalculationHistoryView } from './CalculationHistoryView';
+import { presentationFixture } from './presentationTestFixture';
 
 const RESULT = '44444444-4444-4444-8444-444444444444';
 const JOB = '33333333-3333-4333-8333-333333333333';
@@ -21,11 +22,7 @@ describe('Evidence and history vertical slice', () => {
     vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => undefined);
     vi.stubGlobal('fetch', vi.fn((input: RequestInfo | URL) => {
       const path = String(input);
-      if (path.includes('/api/viewer/results/') && !path.endsWith('/evidence')) return json({
-        result_id: RESULT, job_id: JOB, analysis_view: { summary: { status: 'PASS' } },
-        provenance: { baseline_model_id: 'base' }, is_default: false,
-        published_at: '2026-08-11T00:00:00Z', created_at: '2026-08-11T00:00:00Z', dto_version: '1',
-      });
+      if (path.includes('/api/viewer/results/') && path.endsWith('/presentation')) return json(presentationFixture());
       if (path.endsWith('/evidence')) return Promise.resolve(new Response(new Blob(['xlsx']), {
         status: 200,
         headers: {
@@ -48,10 +45,7 @@ describe('Evidence and history vertical slice', () => {
     let evidenceDenied = false;
     vi.stubGlobal('fetch', vi.fn((input: RequestInfo | URL) => {
       const path = String(input);
-      if (!path.endsWith('/evidence')) return json({
-        result_id: RESULT, job_id: JOB, analysis_view: {}, provenance: {}, is_default: false,
-        published_at: '2026-08-11T00:00:00Z', created_at: '2026-08-11T00:00:00Z', dto_version: '1',
-      });
+      if (!path.endsWith('/evidence')) return json(presentationFixture());
       evidenceDenied = true;
       return json({ error: { code: 'RESULT_NOT_AVAILABLE', message: 'Result not available' } }, 404);
     }));
