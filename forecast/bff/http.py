@@ -23,6 +23,10 @@ from .application import TrustedBffApplication
 from .dto import AnalysisSubmitRequest, ModelUploadRequest
 from .errors import ApiErrorCode, BffError
 from .model_ingestion import MAX_WORKBOOK_BYTES
+from .forecast_orchestration import (
+    ForecastAdjustmentInput, ForecastGenerateRequest, ForecastMonthInput,
+    ForecastQuantityInput, ForecastSalesInput,
+)
 
 
 class LoginBody(BaseModel):
@@ -45,6 +49,69 @@ class ModelPublicationBody(BaseModel):
     model_config = ConfigDict(extra="forbid")
     is_published: StrictBool
     is_default: StrictBool = False
+
+
+class ForecastSalesBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    product_code: StrictStr
+    quantity: StrictFloat | StrictInt
+    amount: StrictFloat | StrictInt
+
+
+class ForecastQuantityBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    product_code: StrictStr
+    quantity: StrictFloat | StrictInt
+
+
+class ForecastAdjustmentBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    row: StrictInt
+    amount: StrictFloat | StrictInt
+    reason: StrictStr = ""
+
+
+class ForecastMonthBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    month: StrictInt
+    sales: list[ForecastSalesBody]
+    production: list[ForecastQuantityBody]
+    mcm: list[ForecastQuantityBody] = []
+    manufacturing_adjustments: list[ForecastAdjustmentBody] = []
+    sga_adjustments: list[ForecastAdjustmentBody] = []
+    disposal_adjustment: StrictFloat | StrictInt = 0
+    disposal_reason: StrictStr = ""
+    obsolescence_adjustment: StrictFloat | StrictInt = 0
+    obsolescence_reason: StrictStr = ""
+    new_business_goods_cogs: StrictFloat | StrictInt = 0
+    new_business_goods_cogs_reason: StrictStr = ""
+    uf_mbr_cogs_rate: StrictFloat | StrictInt = 0.85
+    ix_cogs_rate: StrictFloat | StrictInt = 0.85
+    uf_mbr_transport_rate: StrictFloat | StrictInt = 0.05
+    ix_transport_rate: StrictFloat | StrictInt = 0.05
+    ix_pack_liters: StrictFloat | StrictInt = 25
+    ix_pack_cost: StrictFloat | StrictInt = 380
+    plan_na_sa_sales: StrictFloat | StrictInt = 0
+    na_sa_sales: StrictFloat | StrictInt = 0
+    tariff_applicable_rate: StrictFloat | StrictInt = 0.10
+    tariff_rate: StrictFloat | StrictInt = 0.13
+    raw_material_basis: StrictStr = "model"
+    raw_material_direct: StrictFloat | StrictInt | None = None
+    raw_material_adjustment: StrictFloat | StrictInt = 0
+    raw_material_reason: StrictStr = ""
+    refund_rate: StrictFloat | StrictInt = 0.013
+
+
+class ForecastGenerateBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    base_model_id: StrictStr
+    name: StrictStr
+    model_year: StrictInt
+    version: StrictStr
+    start_month: StrictInt
+    end_month: StrictInt
+    months: list[ForecastMonthBody]
+    idempotency_key: StrictStr
 
 
 @dataclass(frozen=True)
@@ -364,6 +431,25 @@ def create_http_bff(
     @app.post("/api/analyses", dependencies=[Depends(csrf_guard)])
     def submit_analysis(body: SubmitBody, value: str = Depends(admin_session)):
         return application.submissions.submit(value, AnalysisSubmitRequest(**body.model_dump()))
+
+    @app.post("/api/admin/forecasts", dependencies=[Depends(csrf_guard)])
+    def generate_forecast(body: ForecastGenerateBody, value: str = Depends(admin_session)):
+        if application.forecast_generation is None:
+            raise BffError(ApiErrorCode.TRANSIENT_SYSTEM_ERROR, "Forecast capability is not configured")
+        months = tuple(ForecastMonthInput(
+            month=item.month,
+            sales=tuple(ForecastSalesInput(**entry.model_dump()) for entry in item.sales),
+            production=tuple(ForecastQuantityInput(**entry.model_dump()) for entry in item.production),
+            mcm=tuple(ForecastQuantityInput(**entry.model_dump()) for entry in item.mcm),
+            manufacturing_adjustments=tuple(ForecastAdjustmentInput(**entry.model_dump()) for entry in item.manufacturing_adjustments),
+            sga_adjustments=tuple(ForecastAdjustmentInput(**entry.model_dump()) for entry in item.sga_adjustments),
+            **item.model_dump(exclude={"month", "sales", "production", "mcm", "manufacturing_adjustments", "sga_adjustments"}),
+        ) for item in body.months)
+        request = ForecastGenerateRequest(
+            months=months,
+            **body.model_dump(exclude={"months"}),
+        )
+        return application.forecast_generation.generate(value, request)
 
     @app.get("/api/jobs/{job_id}")
     def get_job(job_id: str, value: str = Depends(admin_session)):

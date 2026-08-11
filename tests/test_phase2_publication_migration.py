@@ -18,6 +18,7 @@ def test_migration_order_is_phase1_then_queue_then_publication():
         "202608090008_evidence_history_vertical_slice.sql",
         "202608090009_analysis_presentation_vertical_slice.sql",
         "202608090010_pnl_dashboard_vertical_slice.sql",
+        "202608090011_forecast_react_vertical_slice.sql",
     ]
 
 

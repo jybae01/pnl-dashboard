@@ -135,6 +135,7 @@ def make_fixture(*, limiter=None, clock=None) -> Fixture:
         history=FakeHistory(),
         presentation=FakePresentation(),
         pnl_dashboard=FakePnlDashboard(),
+        forecast_generation=FakeForecast(),
     )
     app = create_http_bff(
         app_service,
@@ -166,6 +167,17 @@ class FakeEvidence:
 class FakePnlDashboard:
     def viewer_read(self, _session):
         return {"result_id": RESULT, "job_id": JOB, "dto_version": "1"}
+
+
+class FakeForecast:
+    def generate(self, _session, request):
+        return {
+            "generation_id": JOB, "model_id": COMP, "display_name": request.name,
+            "model_year": request.model_year, "start_month": request.start_month,
+            "end_month": request.end_month, "is_published": False, "is_default": False,
+            "workbook_sha256": "d" * 64, "idempotency_replayed": False,
+            "execution_mode": "SYNCHRONOUS", "dto_version": "1",
+        }
 
 
 class FakeHistory:
@@ -347,3 +359,25 @@ def test_pnl_dashboard_is_viewer_capability_with_no_store_and_no_internal_fields
     assert response.headers["cache-control"].startswith("no-store")
     assert response.json() == {"result_id": RESULT, "job_id": JOB, "dto_version": "1"}
     assert "claim_token" not in response.text and "storage_path" not in response.text
+
+
+def test_forecast_http_is_admin_csrf_protected_and_returns_only_safe_draft_dto():
+    body = {
+        "base_model_id": BASE, "name": "2026 Forecast", "model_year": 2026,
+        "version": "V1", "start_month": 7, "end_month": 7,
+        "months": [{"month": 7, "sales": [], "production": []}],
+        "idempotency_key": "forecast-key",
+    }
+    anonymous = make_fixture()
+    assert anonymous.client.post("/api/admin/forecasts", json=body).status_code == 401
+    viewer = make_fixture(); viewer.login("viewer-code")
+    assert viewer.client.post("/api/admin/forecasts", json=body,
+        headers={"X-CSRF-Token": viewer.csrf}).status_code == 403
+    admin = make_fixture(); admin.login()
+    assert admin.client.post("/api/admin/forecasts", json=body).status_code == 403
+    response = admin.client.post("/api/admin/forecasts", json=body,
+        headers={"X-CSRF-Token": admin.csrf})
+    assert response.status_code == 200
+    assert response.json()["is_published"] is False
+    assert response.json()["is_default"] is False
+    assert "workbook_path" not in response.text and "service_role" not in response.text

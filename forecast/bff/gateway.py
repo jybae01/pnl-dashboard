@@ -16,6 +16,9 @@ from .model_ingestion import (
     ModelIngestionInProgressError,
     ModelIngestionReservation,
 )
+from .forecast_orchestration import (
+    ForecastFinalizeUncertainError, ForecastGenerateRequest, ForecastGateway, ForecastReservation,
+)
 
 
 class GatewayError(RuntimeError):
@@ -433,3 +436,117 @@ class SupabaseModelIngestionGateway(ModelIngestionGateway):
 def _model_source_path(model_id: str) -> str:
     normalized = str(uuid.UUID(str(model_id)))
     return f"models/{normalized}/source.xlsx"
+
+
+class SupabaseForecastGateway(ForecastGateway):
+    """Server-only Forecast operation and private Storage adapter."""
+
+    bucket = "pnl-models"
+
+    def __init__(self, client: Any) -> None:
+        self._client = client
+
+    def reserve(self, *, actor: str, request: ForecastGenerateRequest,
+                payload: Mapping[str, Any], fingerprint: str,
+                provenance: Any) -> ForecastReservation:
+        row = _first(self._client.rpc("reserve_forecast_generation", {
+            "p_idempotency_actor": actor,
+            "p_idempotency_key": request.idempotency_key,
+            "p_request_fingerprint": fingerprint,
+            "p_request_payload": dict(payload),
+            "p_base_model_id": request.base_model_id,
+            "p_model_year": request.model_year,
+            "p_mapping_version": provenance.mapping_version,
+            "p_mapping_hash": provenance.mapping_hash,
+            "p_engine_version": provenance.engine_version,
+            "p_result_schema_version": provenance.result_schema_version,
+        }).execute())
+        if row is None:
+            raise RuntimeError("forecast reservation returned no row")
+        return ForecastReservation(
+            generation_id=str(row["generation_id"]), model_id=str(row["model_id"]),
+            status=str(row["generation_status"]),
+            lease_token=str(row["lease_token"]) if row.get("lease_token") else None,
+            replayed=bool(row.get("idempotency_replayed")),
+            base_bucket=str(row["base_workbook_bucket"]),
+            base_path=str(row["base_workbook_path"]),
+            base_sha256=str(row["base_workbook_sha256"]),
+        )
+
+    def download_base(self, reservation: ForecastReservation) -> bytes:
+        return bytes(self._client.storage.from_(reservation.base_bucket).download(reservation.base_path))
+
+    def upload_generated(self, model_id: str, path: Path, sha256: str) -> None:
+        target = _model_source_path(model_id)
+        try:
+            with path.open("rb") as payload:
+                self._client.storage.from_(self.bucket).upload(path=target, file=payload,
+                    file_options={"content-type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", "upsert": "false"})
+        except Exception as exc:
+            try:
+                self.verify_generated(model_id, sha256)
+                return
+            except Exception:
+                raise exc
+
+    def verify_generated(self, model_id: str, sha256: str) -> None:
+        payload = bytes(self._client.storage.from_(self.bucket).download(_model_source_path(model_id)))
+        if hashlib.sha256(payload).hexdigest() != sha256:
+            raise ValueError("stored forecast SHA-256 mismatch")
+
+    def finalize(self, reservation: ForecastReservation, *, sha256: str, name: str,
+                 model_year: int, version: str, file_name: str,
+                 period_types: Mapping[str, str], provenance: Any) -> Mapping[str, Any]:
+        error: Exception | None = None
+        try:
+            row = _first(self._client.rpc("finalize_forecast_generation", {
+                "p_generation_id": reservation.generation_id,
+                "p_lease_token": reservation.lease_token,
+                "p_generated_workbook_sha256": sha256,
+                "p_name": name, "p_model_year": model_year, "p_version": version,
+                "p_file_name": file_name, "p_period_types": dict(period_types),
+                "p_mapping_version": provenance.mapping_version,
+                "p_mapping_hash": provenance.mapping_hash,
+                "p_engine_version": provenance.engine_version,
+            }).execute())
+        except Exception as exc:
+            error = exc
+            row = None
+        if row is None:
+            try:
+                row = _first(self._client.rpc("get_completed_forecast_generation", {
+                    "p_generation_id": reservation.generation_id,
+                }).execute())
+            except Exception as recovery_exc:
+                raise ForecastFinalizeUncertainError from recovery_exc
+            if row is None:
+                if error: raise error
+                raise RuntimeError("forecast finalization returned no row")
+            try:
+                self.verify_generated(reservation.model_id, str(row["workbook_sha256"]))
+            except Exception as integrity_exc:
+                raise ForecastFinalizeUncertainError from integrity_exc
+        return row
+
+    def remove_generated(self, model_id: str) -> None:
+        source = _model_source_path(model_id)
+        bucket = self._client.storage.from_(self.bucket)
+        bucket.remove([source])
+        parent, name = source.rsplit("/", 1)
+        if any(str(item.get("name")) == name for item in (bucket.list(parent, {"search": name, "limit": 10}) or [])):
+            raise RuntimeError("forecast cleanup could not be verified")
+
+    def record_failure(self, reservation: ForecastReservation, *, cleanup_succeeded: bool,
+                       error_code: str) -> None:
+        self._client.rpc("record_forecast_generation_failure", {
+            "p_generation_id": reservation.generation_id,
+            "p_lease_token": reservation.lease_token,
+            "p_cleanup_succeeded": cleanup_succeeded,
+            "p_error_code": error_code,
+        }).execute()
+
+    def get_model(self, model_id: str) -> Mapping[str, Any] | None:
+        return _first(self._client.table("models").select(
+            "id,name,model_year,start_month,end_month,is_published,is_default,workbook_sha256,"
+            "source_kind,source_model_id,forecast_generation_id,generation_input_fingerprint"
+        ).eq("id", model_id).limit(1).execute())

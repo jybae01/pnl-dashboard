@@ -16,6 +16,8 @@ import {
   AnalysisPresentationDto,
   AnalysisPresentationEffectDto,
   PnlDashboardDto,
+  ForecastGenerateRequestDto,
+  ForecastGenerateResponseDto,
 } from './types';
 
 const API_ROOT = (import.meta.env.VITE_BFF_BASE_URL || '').replace(/\/$/, '');
@@ -95,6 +97,9 @@ export const bffClient = {
   submit: async (body: SubmitRequest) => validateSubmit(await request<unknown>('/api/analyses', {
     method: 'POST', body: JSON.stringify(body),
   })),
+  generateForecast: async (body: ForecastGenerateRequestDto) => validateForecast(
+    await request<unknown>('/api/admin/forecasts', { method: 'POST', body: JSON.stringify(body) }),
+  ),
   job: async (jobId: string, signal?: AbortSignal) => validateJob(await request<unknown>(`/api/jobs/${jobId}`, { signal })),
   adminResult: async (resultId: string) => validateResult(await request<unknown>(`/api/admin/results/${resultId}`)),
   viewerResult: async (resultId: string) => validateResult(await request<unknown>(`/api/viewer/results/${resultId}`)),
@@ -117,6 +122,17 @@ export const bffClient = {
   },
   downloadEvidence: (resultId: string, role: Role) => downloadEvidence(resultId, role),
 };
+
+function validateForecast(value: unknown): ForecastGenerateResponseDto {
+  if (!isRecord(value) || !uuid(value.generation_id) || !uuid(value.model_id)
+    || typeof value.display_name !== 'string' || !integerInRange(value.model_year, 2000, 2200)
+    || !integerInRange(value.start_month, 1, 12) || !integerInRange(value.end_month, 1, 12)
+    || typeof value.is_published !== 'boolean' || typeof value.is_default !== 'boolean'
+    || typeof value.workbook_sha256 !== 'string' || !/^[0-9a-f]{64}$/.test(value.workbook_sha256)
+    || typeof value.idempotency_replayed !== 'boolean'
+    || value.execution_mode !== 'SYNCHRONOUS' || value.dto_version !== '1') invalidPayload();
+  return value as unknown as ForecastGenerateResponseDto;
+}
 
 async function downloadEvidence(resultId: string, role: Role): Promise<void> {
   const path = `/api/${role === 'admin' ? 'admin' : 'viewer'}/results/${encodeURIComponent(resultId)}/evidence`;

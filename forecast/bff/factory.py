@@ -12,7 +12,8 @@ from .application import (
 )
 from .auth import AccessCodeSessionService
 from ..preflight import ExcelPreflightValidator
-from .gateway import SupabaseBffApplicationGateway, SupabaseModelIngestionGateway
+from .gateway import SupabaseBffApplicationGateway, SupabaseModelIngestionGateway, SupabaseForecastGateway
+from .forecast_orchestration import ForecastGenerationService
 from .evidence_history import CalculationHistoryService, EvidenceDeliveryService
 from .analysis_presentation import AnalysisPresentationService
 from .pnl_dashboard import PnlDashboardService
@@ -112,5 +113,11 @@ def create_supabase_bff_application(
             sessions,
             gateway,
             supported_result_schema_versions=versions,
+        ),
+        forecast_generation=(
+            ForecastGenerationService(
+                sessions, SupabaseForecastGateway(supabase_client), provenance,
+                mapping_path, model_mapping,
+            ) if model_capabilities and mapping_path else None
         ),
     )

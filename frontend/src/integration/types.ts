@@ -53,6 +53,38 @@ export interface ModelUploadResponse {
   dto_version: '1';
 }
 
+export interface ForecastMonthInputDto {
+  month: number;
+  sales: Array<{ product_code: string; quantity: number; amount: number }>;
+  production: Array<{ product_code: string; quantity: number }>;
+  mcm: Array<{ product_code: string; quantity: number }>;
+  manufacturing_adjustments: Array<{ row: number; amount: number; reason: string }>;
+  sga_adjustments: Array<{ row: number; amount: number; reason: string }>;
+  disposal_adjustment?: number; disposal_reason?: string;
+  obsolescence_adjustment?: number; obsolescence_reason?: string;
+  new_business_goods_cogs?: number; new_business_goods_cogs_reason?: string;
+  uf_mbr_cogs_rate?: number; ix_cogs_rate?: number;
+  uf_mbr_transport_rate?: number; ix_transport_rate?: number;
+  ix_pack_liters?: number; ix_pack_cost?: number;
+  plan_na_sa_sales?: number; na_sa_sales?: number;
+  tariff_applicable_rate?: number; tariff_rate?: number;
+  raw_material_basis?: 'model' | 'direct'; raw_material_direct?: number | null;
+  raw_material_adjustment?: number; raw_material_reason?: string; refund_rate?: number;
+}
+
+export interface ForecastGenerateRequestDto {
+  base_model_id: string; name: string; model_year: number; version: string;
+  start_month: number; end_month: number; months: ForecastMonthInputDto[];
+  idempotency_key: string;
+}
+
+export interface ForecastGenerateResponseDto {
+  generation_id: string; model_id: string; display_name: string; model_year: number;
+  start_month: number; end_month: number; is_published: boolean; is_default: boolean;
+  workbook_sha256: string; idempotency_replayed: boolean;
+  execution_mode: 'SYNCHRONOUS'; dto_version: '1';
+}
+
 export interface SubmitRequest {
   baseline_model_id: string;
   comparison_model_id: string;
