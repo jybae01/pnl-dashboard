@@ -3,22 +3,25 @@ from __future__ import annotations
 import hashlib
 import hmac
 import secrets
+import tempfile
 import threading
 import time
 import uuid
 from collections import defaultdict, deque
 from dataclasses import asdict, dataclass
-from typing import Protocol
+from pathlib import Path
+from typing import Annotated, Protocol
 
-from fastapi import Cookie, Depends, FastAPI, Header, Request, Response
+from fastapi import Cookie, Depends, FastAPI, File, Form, Header, Request, Response, UploadFile
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
-from pydantic import BaseModel, ConfigDict, Field, StrictFloat, StrictInt, StrictStr
+from pydantic import BaseModel, ConfigDict, Field, StrictBool, StrictFloat, StrictInt, StrictStr
 
 from .application import TrustedBffApplication
-from .dto import AnalysisSubmitRequest
+from .dto import AnalysisSubmitRequest, ModelUploadRequest
 from .errors import ApiErrorCode, BffError
+from .model_ingestion import MAX_WORKBOOK_BYTES
 
 
 class LoginBody(BaseModel):
@@ -35,6 +38,12 @@ class SubmitBody(BaseModel):
     baseline_sales_fx: StrictFloat | StrictInt
     comparison_sales_fx: StrictFloat | StrictInt
     idempotency_key: StrictStr
+
+
+class ModelPublicationBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    is_published: StrictBool
+    is_default: StrictBool = False
 
 
 @dataclass(frozen=True)
@@ -121,7 +130,58 @@ def create_http_bff(
     @app.middleware("http")
     async def correlation_id(request: Request, call_next):
         request.state.correlation_id = str(uuid.uuid4())
+        upload_request = request.method == "POST" and request.url.path == "/api/admin/models"
+        request_limit = MAX_WORKBOOK_BYTES + 1024 * 1024
+        if upload_request:
+            declared = request.headers.get("content-length")
+            if declared is not None:
+                try:
+                    length = int(declared)
+                except ValueError:
+                    return _error_response(
+                        request, 422, ApiErrorCode.VALIDATION_ERROR, "Invalid Content-Length"
+                    )
+                # Multipart fields and boundaries receive a bounded allowance;
+                # the staged file itself is still independently capped at 50MiB.
+                if length > request_limit:
+                    return _error_response(
+                        request,
+                        413,
+                        ApiErrorCode.VALIDATION_ERROR,
+                        "Workbook upload exceeds the request size limit",
+                        {"file": "file exceeds the 50MB limit"},
+                    )
+            # Starlette parses multipart before the endpoint executes. Cap the
+            # ASGI receive stream too, so chunked or dishonest requests cannot
+            # bypass the declared-length guard and exhaust parser temp storage.
+            original_receive = request._receive
+            received = 0
+            body_too_large = False
+
+            async def capped_receive():
+                nonlocal received, body_too_large
+                message = await original_receive()
+                if message.get("type") == "http.request":
+                    received += len(message.get("body", b""))
+                    if received > request_limit:
+                        body_too_large = True
+                        # Starlette translates multipart receive failures into
+                        # a generic 400. Record the authoritative limit breach
+                        # and stop feeding the parser; the response is replaced
+                        # with the stable 413 below.
+                        return {"type": "http.disconnect"}
+                return message
+
+            request._receive = capped_receive
         response = await call_next(request)
+        if upload_request and body_too_large:
+            return _error_response(
+                request,
+                413,
+                ApiErrorCode.VALIDATION_ERROR,
+                "Workbook upload exceeds the request size limit",
+                {"file": "file exceeds the 50MB limit"},
+            )
         response.headers["X-Correlation-ID"] = request.state.correlation_id
         response.headers["Cache-Control"] = "no-store"
         return response
@@ -239,6 +299,67 @@ def create_http_bff(
             )
         return application.models.list_eligible(value)
 
+    @app.get("/api/admin/models")
+    def list_admin_models(value: str = Depends(admin_session)):
+        if application.model_management is None:
+            raise BffError(ApiErrorCode.TRANSIENT_SYSTEM_ERROR, "Model management capability is not configured")
+        return application.model_management.list_models(value)
+
+    @app.post("/api/admin/models", dependencies=[Depends(csrf_guard)])
+    async def upload_model(
+        file: Annotated[UploadFile, File()],
+        name: Annotated[str, Form(min_length=1, max_length=200)],
+        model_type: Annotated[str, Form(min_length=1, max_length=32)],
+        model_year: Annotated[str, Form(min_length=4, max_length=4)],
+        version: Annotated[str, Form(min_length=1, max_length=64)],
+        idempotency_key: Annotated[str, Form(min_length=1, max_length=128)],
+        value: str = Depends(admin_session),
+    ):
+        if application.model_ingestion is None:
+            raise BffError(ApiErrorCode.TRANSIENT_SYSTEM_ERROR, "Model ingestion capability is not configured")
+        try:
+            year = int(model_year)
+        except ValueError as exc:
+            raise BffError(
+                ApiErrorCode.VALIDATION_ERROR,
+                "Model upload request is invalid",
+                field_errors={"model_year": "must be a four-digit year"},
+            ) from exc
+        staged: Path | None = None
+        try:
+            staged = await _stage_upload(file)
+            return application.model_ingestion.ingest(
+                value,
+                ModelUploadRequest(
+                    name=name,
+                    model_type=model_type,
+                    model_year=year,
+                    version=version,
+                    file_name=file.filename or "",
+                    idempotency_key=idempotency_key,
+                ),
+                staged,
+            )
+        finally:
+            await file.close()
+            if staged is not None:
+                staged.unlink(missing_ok=True)
+
+    @app.post("/api/admin/models/{model_id}/publication", dependencies=[Depends(csrf_guard)])
+    def set_model_publication(
+        model_id: str,
+        body: ModelPublicationBody,
+        value: str = Depends(admin_session),
+    ):
+        if application.model_publication is None:
+            raise BffError(ApiErrorCode.TRANSIENT_SYSTEM_ERROR, "Model publication capability is not configured")
+        return application.model_publication.set_publication(
+            value,
+            model_id,
+            is_published=body.is_published,
+            is_default=body.is_default,
+        )
+
     @app.post("/api/analyses", dependencies=[Depends(csrf_guard)])
     def submit_analysis(body: SubmitBody, value: str = Depends(admin_session)):
         return application.submissions.submit(value, AnalysisSubmitRequest(**body.model_dump()))
@@ -256,6 +377,43 @@ def create_http_bff(
         return application.results.viewer_read(value, result_id)
 
     return app
+
+
+async def _stage_upload(file: UploadFile) -> Path:
+    suffix = Path(file.filename or "").suffix.casefold()
+    if suffix != ".xlsx":
+        raise BffError(
+            ApiErrorCode.VALIDATION_ERROR,
+            "Workbook upload is invalid",
+            field_errors={"file": "only .xlsx files are accepted"},
+        )
+    temporary = tempfile.NamedTemporaryFile(prefix="pnl-model-", suffix=".xlsx", delete=False)
+    path = Path(temporary.name)
+    size = 0
+    try:
+        with temporary:
+            while True:
+                chunk = await file.read(1024 * 1024)
+                if not chunk:
+                    break
+                size += len(chunk)
+                if size > MAX_WORKBOOK_BYTES:
+                    raise BffError(
+                        ApiErrorCode.VALIDATION_ERROR,
+                        "Workbook upload is invalid",
+                        field_errors={"file": "file exceeds the 50MB limit"},
+                    )
+                temporary.write(chunk)
+        if size == 0:
+            raise BffError(
+                ApiErrorCode.VALIDATION_ERROR,
+                "Workbook upload is invalid",
+                field_errors={"file": "upload is empty"},
+            )
+        return path
+    except Exception:
+        path.unlink(missing_ok=True)
+        raise
 
 
 def _csrf_token(secret: str, session_id: str) -> str:
@@ -277,6 +435,7 @@ def _status_for(code: ApiErrorCode) -> int:
         ApiErrorCode.RESULT_NOT_FOUND: 404,
         ApiErrorCode.RESULT_NOT_AVAILABLE: 404,
         ApiErrorCode.INPUT_INTEGRITY_MISMATCH: 409,
+        ApiErrorCode.INGESTION_CLEANUP_REQUIRED: 500,
         ApiErrorCode.TRANSIENT_SYSTEM_ERROR: 503,
     }[code]
 

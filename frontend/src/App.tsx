@@ -5,6 +5,7 @@ import { ForecastGenerationView } from './views/ForecastGenerationView';
 import { bffClient } from './integration/client';
 import { CoreAnalysisView } from './integration/CoreAnalysisView';
 import { LoginView } from './integration/LoginView';
+import { ModelManagementView } from './integration/ModelManagementView';
 import { ApiClientError, Role, SessionDto } from './integration/types';
 import './styles/global.css';
 import './styles/tables.css';
@@ -59,7 +60,7 @@ export function App() {
         {session.role === 'admin' && <>
           <button className={`nav-tab-btn ${route === 'pnl' ? 'active' : ''}`} onClick={() => navigate('pnl')}>1. 손익 현황 <span className="nav-tab-badge">후속 연결</span></button>
           <button className={`nav-tab-btn ${route === 'forecast' ? 'active' : ''}`} onClick={() => navigate('forecast')}>2. Forecast <span className="nav-tab-badge">Placeholder</span></button>
-          <button className={`nav-tab-btn ${route === 'management' ? 'active' : ''}`} onClick={() => navigate('management')}>3. 분석 실행</button>
+          <button className={`nav-tab-btn ${route === 'management' ? 'active' : ''}`} onClick={() => navigate('management')}>3. 데이터 관리 / 분석 실행</button>
         </>}
         <button className={`nav-tab-btn ${route === 'variance' ? 'active' : ''}`} onClick={() => navigate('variance')}>4. Stored Result</button>
         <button className="nav-tab-btn" onClick={async () => {
@@ -79,7 +80,7 @@ export function App() {
     <main className="app-content">
       {route === 'pnl' && session.role === 'admin' && <PnlStatusView onNavigateToVariance={() => navigate('variance')} />}
       {route === 'forecast' && session.role === 'admin' && <ForecastGenerationView />}
-      {route === 'management' && session.role === 'admin' && <CoreAnalysisView role="admin" />}
+      {route === 'management' && session.role === 'admin' && <ModelManagementView />}
       {route === 'variance' && <CoreAnalysisView role={session.role} />}
     </main>
   </div>;

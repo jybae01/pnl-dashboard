@@ -14,6 +14,7 @@ def test_migration_order_is_phase1_then_queue_then_publication():
         "202608090004_phase25_analysis_inputs.sql",
         "202608090005_bff_foundation.sql",
         "202608090006_react_core_vertical_slice.sql",
+        "202608090007_model_ingestion_vertical_slice.sql",
     ]
 
 

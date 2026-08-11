@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import json
 from pathlib import Path
 
 from fastapi import FastAPI
@@ -44,6 +45,7 @@ def create_http_bff_from_environment(
         actor_namespace_secret=_required("BFF_ACTOR_NAMESPACE_SECRET"),
         provenance=provenance,
         model_repository=bundle.models,
+        model_mapping=json.loads((root / "config" / "model_mapping.json").read_text(encoding="utf-8")),
         session_ttl_seconds=int(os.getenv("BFF_SESSION_TTL_SECONDS", "28800")),
     )
     environment = os.getenv("BFF_ENVIRONMENT", "development").strip().lower()

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any, Sequence
+from typing import Any, Mapping, Sequence
 
 from ..provenance import ResultProvenance
 from .application import (
@@ -11,7 +11,13 @@ from .application import (
     TrustedBffApplication,
 )
 from .auth import AccessCodeSessionService
-from .gateway import SupabaseBffApplicationGateway
+from ..preflight import ExcelPreflightValidator
+from .gateway import SupabaseBffApplicationGateway, SupabaseModelIngestionGateway
+from .model_ingestion import (
+    ModelIngestionService,
+    ModelManagementService,
+    ModelPublicationService,
+)
 
 
 def create_supabase_bff_application(
@@ -25,6 +31,7 @@ def create_supabase_bff_application(
     session_ttl_seconds: int = 8 * 60 * 60,
     max_attempts: int = 3,
     model_repository: Any | None = None,
+    model_mapping: Mapping[str, Any] | None = None,
 ) -> TrustedBffApplication:
     """Compose the server-only BFF boundary from explicit trusted inputs.
 
@@ -42,6 +49,8 @@ def create_supabase_bff_application(
     )
     gateway = SupabaseBffApplicationGateway(supabase_client)
     versions = tuple(supported_result_schema_versions or (provenance.result_schema_version,))
+    ingestion_gateway = SupabaseModelIngestionGateway(supabase_client)
+    model_capabilities = model_repository is not None and model_mapping is not None
     return TrustedBffApplication(
         sessions=sessions,
         submissions=AnalysisSubmissionService(
@@ -59,5 +68,23 @@ def create_supabase_bff_application(
         models=(
             AnalysisModelListService(sessions, model_repository)
             if model_repository is not None else None
+        ),
+        model_management=(
+            ModelManagementService(sessions, model_repository)
+            if model_capabilities else None
+        ),
+        model_ingestion=(
+            ModelIngestionService(
+                sessions,
+                model_repository,
+                ingestion_gateway,
+                ExcelPreflightValidator(model_mapping),
+                provenance,
+            )
+            if model_capabilities else None
+        ),
+        model_publication=(
+            ModelPublicationService(sessions, model_repository, ingestion_gateway)
+            if model_capabilities else None
         ),
     )

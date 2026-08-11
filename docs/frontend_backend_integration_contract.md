@@ -554,3 +554,15 @@ React now retains one idempotency key for each logical submit, polls only real `
 Migration 006 is additive and leaves 001–005 unchanged. It locks the selected Base and Comparison model rows at durable Job insertion and rejects unpublished inputs or workbook SHA snapshot drift, closing direct-ID and model-list bypass races.
 
 Still open: shared production session storage/rate limiting, model upload finalization/cleanup, complete field-level `analysis_view` presentation mapping, Evidence delivery, P&L seven-source DTOs, Forecast orchestration, cancel, and real progress/stage.
+
+## Model Ingestion Vertical Slice overlay
+
+The confirmed Streamlit login character is preserved through the HTTP auth adapter: the React screen keeps the light radial background, dark NanoH2O brand card, masked access-code input, server-authoritative failure/lockout countdown, role purpose, and logout. Codes and lockout authority remain server-only.
+
+Model ingestion finalization/cleanup is resolved for the trusted-server V1 slice. `POST /api/admin/models` accepts only `.xlsx` multipart uploads, caps both declared and streamed request bytes, stages to a temporary file, hashes the exact source bytes, performs bounded OOXML package and existing structural preflight, uploads to private `pnl-models/models/{model_id}/source.xlsx`, verifies stored bytes, and finalizes a draft Model. The browser cannot supply Model identity, Storage path, mapping provenance, or publication flags.
+
+Migration 007 adds actor/key/metadata/SHA idempotency reservations, canonical draft finalization, durable `cleanup_required` state, a narrow operator recovery queue, lost-finalize-response recovery, and hardened explicit publication. Same actor/key with the same canonical request replays the Model; a changed request or workbook is `IDEMPOTENCY_CONFLICT`; the same SHA under a new key remains a distinct business Model.
+
+Admin management and analysis selection use separate DTOs. Management can show unpublished or legacy unresolved Models without exposing paths; analysis options remain published-only with workbook SHA provenance. The reachable React management route uses the real multipart adapter and explicit upload states; the handoff's `setTimeout` upload component remains isolated from `App` and is not canonical.
+
+Still open after this slice: shared production session storage and rate limiting; production proxy/body/temp-volume and workbook-parser isolation budgets; live Storage/DB migration validation; user archive/delete; Evidence delivery; full `analysis_view` mapping; P&L seven-source DTOs; Forecast orchestration; cancel; and real progress/stage. Cleanup recovery is an operator RPC, not a browser delete capability.

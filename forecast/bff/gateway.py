@@ -1,9 +1,21 @@
 from __future__ import annotations
 
+import hashlib
+import uuid
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any, Mapping, Protocol, Sequence
 
 from ..provenance import ResultProvenance
+from .dto import ModelUploadRequest
+from .model_ingestion import (
+    ModelIngestionCleanupRequiredError,
+    ModelIngestionConflictError,
+    ModelIngestionFinalizeUncertainError,
+    ModelIngestionGateway,
+    ModelIngestionInProgressError,
+    ModelIngestionReservation,
+)
 
 
 class GatewayError(RuntimeError):
@@ -201,3 +213,137 @@ class SupabaseBffApplicationGateway:
         )):
             raise GatewayValidationError("analysis request was rejected") from exc
         raise GatewayTransientError("Supabase operation failed") from exc
+
+
+class SupabaseModelIngestionGateway(ModelIngestionGateway):
+    """Trusted-server adapter for Migration 007 and the private source bucket."""
+
+    bucket = "pnl-models"
+
+    def __init__(self, client: Any) -> None:
+        self._client = client
+
+    def reserve(
+        self,
+        *,
+        actor: str,
+        request: ModelUploadRequest,
+        workbook_sha256: str,
+        period_types: Mapping[str, str],
+        provenance: ResultProvenance,
+    ) -> ModelIngestionReservation:
+        try:
+            row = _first(self._client.rpc("reserve_model_ingestion", {
+                "p_idempotency_actor": actor,
+                "p_idempotency_key": request.idempotency_key,
+                "p_name": request.name,
+                "p_model_type": request.model_type,
+                "p_model_year": request.model_year,
+                "p_version": request.version,
+                "p_file_name": request.file_name,
+                "p_workbook_sha256": workbook_sha256,
+                "p_period_types": dict(period_types),
+                "p_mapping_version": provenance.mapping_version,
+                "p_mapping_hash": provenance.mapping_hash,
+            }).execute())
+        except Exception as exc:
+            message = str(exc).upper()
+            if "IDEMPOTENCY_CONFLICT" in message:
+                raise ModelIngestionConflictError from exc
+            if "INGESTION_CLEANUP_REQUIRED" in message:
+                raise ModelIngestionCleanupRequiredError from exc
+            raise
+        if row is None:
+            raise RuntimeError("model ingestion reservation returned no row")
+        status = str(row.get("ingestion_status") or "")
+        if status == "in_progress":
+            raise ModelIngestionInProgressError
+        return ModelIngestionReservation(
+            ingestion_id=str(row["ingestion_id"]),
+            model_id=str(row["model_id"]),
+            status=status,
+            lease_token=(str(row["lease_token"]) if row.get("lease_token") else None),
+            idempotency_replayed=bool(row.get("idempotency_replayed")),
+        )
+
+    def upload_source(self, model_id: str, source: Path, workbook_sha256: str) -> None:
+        path = _model_source_path(model_id)
+        try:
+            with source.open("rb") as payload:
+                self._client.storage.from_(self.bucket).upload(
+                    path=path,
+                    file=payload,
+                    file_options={
+                        "content-type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                        "upsert": "false",
+                    },
+                )
+        except Exception as upload_exc:
+            # Recover a lost success response only when the canonical object is exact.
+            try:
+                self.verify_source(model_id, workbook_sha256)
+                return
+            except Exception:
+                raise upload_exc
+
+    def verify_source(self, model_id: str, workbook_sha256: str) -> None:
+        payload = self._client.storage.from_(self.bucket).download(_model_source_path(model_id))
+        if hashlib.sha256(bytes(payload)).hexdigest() != workbook_sha256:
+            raise ValueError("stored source SHA-256 mismatch")
+
+    def finalize(self, reservation: ModelIngestionReservation) -> Mapping[str, Any]:
+        finalize_error: Exception | None = None
+        try:
+            row = _first(self._client.rpc("finalize_model_ingestion", {
+                "p_ingestion_id": reservation.ingestion_id,
+                "p_lease_token": reservation.lease_token,
+            }).execute())
+        except Exception as finalize_exc:
+            finalize_error = finalize_exc
+            row = None
+        if row is None:
+            try:
+                row = _first(self._client.rpc("get_completed_model_ingestion", {
+                    "p_ingestion_id": reservation.ingestion_id,
+                }).execute())
+            except Exception as recovery_exc:
+                raise ModelIngestionFinalizeUncertainError from recovery_exc
+            if row is None:
+                if finalize_error is not None:
+                    raise finalize_error
+                raise RuntimeError("model ingestion finalization returned no row")
+            try:
+                self.verify_source(reservation.model_id, str(row["workbook_sha256"]))
+            except Exception as integrity_exc:
+                raise ModelIngestionFinalizeUncertainError from integrity_exc
+        return row
+
+    def remove_source(self, model_id: str) -> None:
+        source_path = _model_source_path(model_id)
+        bucket = self._client.storage.from_(self.bucket)
+        bucket.remove([source_path])
+        parent, name = source_path.rsplit("/", 1)
+        remaining = bucket.list(parent, {"search": name, "limit": 10})
+        if any(str(item.get("name")) == name for item in (remaining or [])):
+            raise RuntimeError("Storage cleanup could not be verified")
+
+    def record_failure(
+        self,
+        reservation: ModelIngestionReservation,
+        *,
+        cleanup_succeeded: bool,
+        error_code: str,
+        error_detail: Mapping[str, Any],
+    ) -> None:
+        self._client.rpc("record_model_ingestion_failure", {
+            "p_ingestion_id": reservation.ingestion_id,
+            "p_lease_token": reservation.lease_token,
+            "p_cleanup_succeeded": cleanup_succeeded,
+            "p_error_code": error_code,
+            "p_error_detail": dict(error_detail),
+        }).execute()
+
+
+def _model_source_path(model_id: str) -> str:
+    normalized = str(uuid.UUID(str(model_id)))
+    return f"models/{normalized}/source.xlsx"

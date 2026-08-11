@@ -21,6 +21,38 @@ export interface AnalysisModelDto {
   dto_version: '1';
 }
 
+export interface AdminModelDto {
+  model_id: string;
+  display_name: string;
+  model_type: string;
+  model_year: number;
+  start_month: number;
+  end_month: number;
+  version: string;
+  file_name: string;
+  workbook_sha256: string | null;
+  has_workbook_sha256: boolean;
+  is_published: boolean;
+  is_default: boolean;
+  uploaded_at: string;
+  dto_version: '1';
+}
+
+export interface ModelUploadInput {
+  name: string;
+  modelType: 'PLAN' | 'ACTUAL' | 'FORECAST';
+  modelYear: number;
+  version: string;
+  idempotencyKey: string;
+  file: File;
+}
+
+export interface ModelUploadResponse {
+  model: AdminModelDto;
+  idempotency_replayed: boolean;
+  dto_version: '1';
+}
+
 export interface SubmitRequest {
   baseline_model_id: string;
   comparison_model_id: string;

@@ -158,4 +158,5 @@ def test_migration_contract_is_001_through_004():
         "202608090004_phase25_analysis_inputs.sql",
         "202608090005_bff_foundation.sql",
         "202608090006_react_core_vertical_slice.sql",
+        "202608090007_model_ingestion_vertical_slice.sql",
     ]

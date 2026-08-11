@@ -32,6 +32,53 @@ class AnalysisModelListResponse:
 
 
 @dataclass(frozen=True)
+class AdminModelResponse:
+    model_id: str
+    display_name: str
+    model_type: str
+    model_year: int
+    start_month: int
+    end_month: int
+    version: str
+    file_name: str
+    workbook_sha256: str | None
+    has_workbook_sha256: bool
+    is_published: bool
+    is_default: bool
+    uploaded_at: str
+    dto_version: str = "1"
+
+
+@dataclass(frozen=True)
+class AdminModelListResponse:
+    models: tuple[AdminModelResponse, ...]
+    dto_version: str = "1"
+
+
+@dataclass(frozen=True)
+class ModelUploadRequest:
+    name: str
+    model_type: str
+    model_year: int
+    version: str
+    file_name: str
+    idempotency_key: str
+
+
+@dataclass(frozen=True)
+class ModelUploadResponse:
+    model: AdminModelResponse
+    idempotency_replayed: bool
+    dto_version: str = "1"
+
+
+@dataclass(frozen=True)
+class ModelPublicationResponse:
+    model: AdminModelResponse
+    dto_version: str = "1"
+
+
+@dataclass(frozen=True)
 class AnalysisSubmitRequest:
     baseline_model_id: str
     comparison_model_id: str

@@ -1,5 +1,6 @@
 import {
   AnalysisModelDto,
+  AdminModelDto,
   ApiClientError,
   ApiErrorDto,
   JobStatusDto,
@@ -7,6 +8,8 @@ import {
   StoredResultDto,
   SubmitRequest,
   SubmitResponse,
+  ModelUploadInput,
+  ModelUploadResponse,
 } from './types';
 
 const API_ROOT = (import.meta.env.VITE_BFF_BASE_URL || '').replace(/\/$/, '');
@@ -21,7 +24,7 @@ function csrfToken(): string {
 
 async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
   const headers = new Headers(init.headers);
-  if (init.body) headers.set('Content-Type', 'application/json');
+  if (init.body && !(init.body instanceof FormData)) headers.set('Content-Type', 'application/json');
   if (init.method && !['GET', 'HEAD'].includes(init.method.toUpperCase()) && path !== '/api/session/login') {
     headers.set('X-CSRF-Token', csrfToken());
   }
@@ -67,6 +70,22 @@ export const bffClient = {
   session: async () => validateSession(await request<unknown>('/api/session')),
   logout: () => request<{ authenticated: false }>('/api/session/logout', { method: 'POST' }),
   models: async () => validateModels(await request<unknown>('/api/models')),
+  adminModels: async () => validateAdminModels(await request<unknown>('/api/admin/models')),
+  uploadModel: async (input: ModelUploadInput) => {
+    const body = new FormData();
+    body.set('name', input.name);
+    body.set('model_type', input.modelType);
+    body.set('model_year', String(input.modelYear));
+    body.set('version', input.version);
+    body.set('idempotency_key', input.idempotencyKey);
+    body.set('file', input.file, input.file.name);
+    return validateModelUpload(await request<unknown>('/api/admin/models', { method: 'POST', body }));
+  },
+  publishModel: async (modelId: string, isDefault = false) => validateAdminModelResponse(
+    await request<unknown>(`/api/admin/models/${modelId}/publication`, {
+      method: 'POST', body: JSON.stringify({ is_published: true, is_default: isDefault }),
+    }),
+  ),
   submit: async (body: SubmitRequest) => validateSubmit(await request<unknown>('/api/analyses', {
     method: 'POST', body: JSON.stringify(body),
   })),
@@ -86,6 +105,42 @@ function invalidPayload(): never {
 function validateSession(value: unknown): SessionDto {
   if (!isRecord(value) || value.authenticated !== true || !['viewer', 'admin'].includes(String(value.role)) || typeof value.expires_at !== 'string') invalidPayload();
   return value as unknown as SessionDto;
+}
+
+function validateAdminModel(value: unknown): AdminModelDto {
+  if (!isRecord(value)
+    || typeof value.model_id !== 'string'
+    || typeof value.display_name !== 'string'
+    || typeof value.model_type !== 'string'
+    || typeof value.model_year !== 'number'
+    || typeof value.version !== 'string'
+    || typeof value.file_name !== 'string'
+    || !((typeof value.workbook_sha256 === 'string' && /^[0-9a-f]{64}$/.test(value.workbook_sha256)) || value.workbook_sha256 === null)
+    || typeof value.has_workbook_sha256 !== 'boolean'
+    || value.has_workbook_sha256 !== (typeof value.workbook_sha256 === 'string')
+    || typeof value.is_published !== 'boolean'
+    || typeof value.is_default !== 'boolean'
+    || typeof value.uploaded_at !== 'string') invalidPayload();
+  return value as unknown as AdminModelDto;
+}
+
+function validateAdminModels(value: unknown): AdminModelDto[] {
+  if (!isRecord(value) || !Array.isArray(value.models)) invalidPayload();
+  return value.models.map(validateAdminModel);
+}
+
+function validateAdminModelResponse(value: unknown): AdminModelDto {
+  if (!isRecord(value)) invalidPayload();
+  return validateAdminModel(value.model);
+}
+
+function validateModelUpload(value: unknown): ModelUploadResponse {
+  if (!isRecord(value) || typeof value.idempotency_replayed !== 'boolean') invalidPayload();
+  return {
+    model: validateAdminModel(value.model),
+    idempotency_replayed: value.idempotency_replayed,
+    dto_version: '1',
+  };
 }
 
 function validateModels(value: unknown): AnalysisModelDto[] {

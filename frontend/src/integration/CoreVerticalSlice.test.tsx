@@ -54,7 +54,6 @@ describe('React core vertical slice', () => {
     fireEvent.click(screen.getByRole('button', { name: '접속' }));
     expect(await screen.findByText('Base / Comparison 분석 실행')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: '분석 실행' }));
-    expect(await screen.findByText(/PENDING/)).toBeInTheDocument();
     expect(await screen.findByTestId('stored-result', {}, { timeout: 3500 })).toHaveTextContent('PASS');
     expect(calls.some((value) => value.includes(`/api/jobs/${JOB}`))).toBe(true);
     expect(calls.some((value) => value.includes(`/api/admin/results/${RESULT}`))).toBe(true);

@@ -21,7 +21,7 @@ const INITIAL_FORM: FormState = {
   comparison_sales_fx: 1450,
 };
 
-export function CoreAnalysisView({ role }: { role: Role }) {
+export function CoreAnalysisView({ role, modelRefreshKey = 0 }: { role: Role; modelRefreshKey?: number }) {
   const [models, setModels] = useState<AnalysisModelDto[]>([]);
   const [form, setForm] = useState<FormState>(INITIAL_FORM);
   const [job, setJob] = useState<JobStatusDto | null>(null);
@@ -49,7 +49,7 @@ export function CoreAnalysisView({ role }: { role: Role }) {
       if (active) setError(safeMessage(value));
     });
     return () => { active = false; };
-  }, [role]);
+  }, [role, modelRefreshKey]);
 
   useEffect(() => {
     if (!job || !['PENDING', 'PROCESSING'].includes(job.status)) return;
