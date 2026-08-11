@@ -124,6 +124,15 @@ def _first(response: Any) -> dict[str, Any] | None:
     return dict(value) if value else None
 
 
+def _bounded_payload(row: Mapping[str, Any] | None) -> Mapping[str, Any] | None:
+    if row is None:
+        return None
+    payload = row.get("payload")
+    if not isinstance(payload, Mapping):
+        raise GatewayTransientError("bounded RPC returned an invalid shape")
+    return dict(payload)
+
+
 class SupabaseBffApplicationGateway:
     """Server-only adapter for the narrow Migration 005 RPC surface."""
 
@@ -225,18 +234,20 @@ class SupabaseBffApplicationGateway:
     def get_admin_evidence_payload(
         self, result_id: str, *, supported_result_schema_versions: Sequence[str]
     ) -> Mapping[str, Any] | None:
-        return self._read("get_calculation_result_evidence_admin_by_id", {
+        row = self._read("get_bounded_evidence_admin", {
             "p_result_id": result_id,
             "p_supported_result_schema_versions": list(supported_result_schema_versions),
         })
+        return _bounded_payload(row)
 
     def get_viewer_evidence_payload(
         self, result_id: str, *, supported_result_schema_versions: Sequence[str]
     ) -> Mapping[str, Any] | None:
-        return self._read("get_calculation_result_evidence_viewer_by_id", {
+        row = self._read("get_bounded_evidence_viewer", {
             "p_result_id": result_id,
             "p_supported_result_schema_versions": list(supported_result_schema_versions),
         })
+        return _bounded_payload(row)
 
     def get_admin_analysis_presentation(
         self, result_id: str, *, supported_result_schema_versions: Sequence[str]
@@ -432,6 +443,12 @@ class SupabaseModelIngestionGateway(ModelIngestionGateway):
             "p_error_detail": dict(error_detail),
         }).execute()
 
+    def heartbeat(self, reservation: ModelIngestionReservation) -> None:
+        self._client.rpc("heartbeat_model_ingestion", {
+            "p_ingestion_id": reservation.ingestion_id,
+            "p_lease_token": reservation.lease_token,
+        }).execute()
+
 
 def _model_source_path(model_id: str) -> str:
     normalized = str(uuid.UUID(str(model_id)))
@@ -443,8 +460,10 @@ class SupabaseForecastGateway(ForecastGateway):
 
     bucket = "pnl-models"
 
-    def __init__(self, client: Any) -> None:
+    def __init__(self, client: Any, *, max_concurrency: int = 1, permit_lease_seconds: int = 1200) -> None:
         self._client = client
+        self._max_concurrency = max_concurrency
+        self._permit_lease_seconds = permit_lease_seconds
 
     def reserve(self, *, actor: str, request: ForecastGenerateRequest,
                 payload: Mapping[str, Any], fingerprint: str,
@@ -550,3 +569,26 @@ class SupabaseForecastGateway(ForecastGateway):
             "id,name,model_year,start_month,end_month,is_published,is_default,workbook_sha256,"
             "source_kind,source_model_id,forecast_generation_id,generation_input_fingerprint"
         ).eq("id", model_id).limit(1).execute())
+
+    def acquire_execution_permit(self, operation_id: str) -> str:
+        row = _first(self._client.rpc("acquire_forecast_execution_permit", {
+            "p_operation_id": operation_id,
+            "p_max_concurrency": self._max_concurrency,
+            "p_lease_seconds": self._permit_lease_seconds,
+        }).execute())
+        if row is None or not row.get("lease_token"):
+            raise RuntimeError("forecast permit acquisition returned no lease")
+        return str(row["lease_token"])
+
+    def renew_execution_permit(self, operation_id: str, lease_token: str) -> None:
+        self._client.rpc("renew_forecast_execution_permit", {
+            "p_operation_id": operation_id,
+            "p_lease_token": lease_token,
+            "p_lease_seconds": self._permit_lease_seconds,
+        }).execute()
+
+    def release_execution_permit(self, operation_id: str, lease_token: str) -> None:
+        self._client.rpc("release_forecast_execution_permit", {
+            "p_operation_id": operation_id,
+            "p_lease_token": lease_token,
+        }).execute()

@@ -101,8 +101,8 @@ def test_by_id_reads_use_distinct_admin_and_viewer_rpcs():
     client.responses["get_calculation_job_status_by_id"] = []
     client.responses["get_calculation_result_admin_preview_by_id"] = []
     client.responses["get_available_calculation_result_by_id"] = []
-    client.responses["get_calculation_result_evidence_admin_by_id"] = []
-    client.responses["get_calculation_result_evidence_viewer_by_id"] = []
+    client.responses["get_bounded_evidence_admin"] = []
+    client.responses["get_bounded_evidence_viewer"] = []
     client.responses["list_calculation_history_admin"] = []
     gateway = SupabaseBffApplicationGateway(client)
 
@@ -124,8 +124,8 @@ def test_by_id_reads_use_distinct_admin_and_viewer_rpcs():
         "get_calculation_job_status_by_id",
         "get_calculation_result_admin_preview_by_id",
         "get_available_calculation_result_by_id",
-        "get_calculation_result_evidence_admin_by_id",
-        "get_calculation_result_evidence_viewer_by_id",
+        "get_bounded_evidence_admin",
+        "get_bounded_evidence_viewer",
         "list_calculation_history_admin",
     ]
 

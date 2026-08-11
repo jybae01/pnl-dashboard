@@ -163,4 +163,5 @@ def test_migration_contract_is_001_through_004():
         "202608090009_analysis_presentation_vertical_slice.sql",
         "202608090010_pnl_dashboard_vertical_slice.sql",
         "202608090011_forecast_react_vertical_slice.sql",
+        "202608090012_production_hardening_foundation.sql",
     ]

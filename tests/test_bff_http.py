@@ -218,7 +218,8 @@ def test_invalid_and_malformed_session_are_rejected_and_rate_limited_generically
     limiter = InMemoryLoginRateLimiter(max_attempts=2, window_seconds=60)
     fx = make_fixture(limiter=limiter)
     assert fx.client.post("/api/session/login", json={"access_code": "bad"}).status_code == 401
-    assert fx.client.post("/api/session/login", json={"access_code": "bad2"}).status_code == 401
+    locked = fx.client.post("/api/session/login", json={"access_code": "bad2"})
+    assert locked.status_code == 429 and "Retry-After" in locked.headers
     limited = fx.client.post("/api/session/login", json={"access_code": "admin-code"})
     assert limited.status_code == 429 and "Retry-After" in limited.headers
     fx.client.cookies.set("pnl_session", "short")

@@ -16,6 +16,7 @@ from .auth import AccessCodeSessionService
 from .dto import CalculationHistoryItem, CalculationHistoryResponse
 from .errors import ApiErrorCode, BffError
 from .gateway import BffApplicationGateway, GatewayTransientError
+from ..temp_artifacts import temp_artifact_policy
 
 
 _SAFE_TIMESTAMP = re.compile(r"^\d{4}-\d{2}-\d{2}T")
@@ -125,10 +126,12 @@ class EvidenceDeliveryService:
                 ApiErrorCode.EVIDENCE_GENERATION_FAILED,
                 "Evidence workbook generation failed",
             )
-        root = Path(tempfile.mkdtemp(prefix="pnl-evidence-"))
+        policy = temp_artifact_policy()
+        policy.ensure_capacity(MAX_EVIDENCE_BYTES)
+        root = policy.make_directory(prefix="pnl-evidence-")
         output_path = root / "evidence.xlsx"
         try:
-            result = dict(values["result_payload"]["comparison_result"])
+            result = _escape_workbook_text(dict(values["result_payload"]["comparison_result"]))
             sales = result.get("sales_analysis")
             if not isinstance(sales, Mapping) or not isinstance(sales.get("rows"), list) \
                     or not isinstance(sales.get("totals"), Mapping):
@@ -140,7 +143,7 @@ class EvidenceDeliveryService:
                 )
             baseline_fx = _positive_finite(sales.get("baseline_fx_krw_per_usd"))
             comparison_fx = _positive_finite(sales.get("comparison_fx_krw_per_usd"))
-            result["evidence_provenance"] = {
+            result["evidence_provenance"] = _escape_workbook_text({
                 "result_id": result_id,
                 "job_id": values["job_id"],
                 "baseline_model_id": values["baseline_model_id"],
@@ -152,7 +155,7 @@ class EvidenceDeliveryService:
                 "mapping_hash": values["mapping_hash"],
                 "result_schema_version": values["result_schema_version"],
                 "analysis_request": values["analysis_request"],
-            }
+            })
             write_comparison_audit_workbook(
                 output_path,
                 result=result,
@@ -181,6 +184,19 @@ class EvidenceDeliveryService:
                 ApiErrorCode.EVIDENCE_GENERATION_FAILED,
                 "Evidence workbook generation failed",
             ) from exc
+
+
+def _escape_workbook_text(value):
+    """Prevent stored/user text from becoming an executable Excel formula."""
+    if isinstance(value, str):
+        return "'" + value if value.startswith(("=", "+", "-", "@")) else value
+    if isinstance(value, list):
+        return [_escape_workbook_text(item) for item in value]
+    if isinstance(value, tuple):
+        return tuple(_escape_workbook_text(item) for item in value)
+    if isinstance(value, Mapping):
+        return {key: _escape_workbook_text(item) for key, item in value.items()}
+    return value
 
 
 class CalculationHistoryService:

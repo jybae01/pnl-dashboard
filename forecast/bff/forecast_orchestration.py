@@ -5,6 +5,7 @@ import json
 import math
 import re
 import tempfile
+import time
 import uuid
 from dataclasses import asdict, dataclass, replace
 from pathlib import Path
@@ -15,6 +16,7 @@ from ..provenance import ResultProvenance, canonical_json_bytes, mapping_hash
 from ..workbook import extract_period_types, infer_workbook_year
 from .auth import AccessCodeSessionService
 from .errors import ApiErrorCode, BffError
+from ..temp_artifacts import temp_artifact_policy
 
 IDEMPOTENCY_KEY_PATTERN = re.compile(r"^[A-Za-z0-9._:-]{1,128}$")
 MAX_FORECAST_WORKBOOK_BYTES = 50 * 1024 * 1024
@@ -125,6 +127,9 @@ class ForecastGateway(Protocol):
     def record_failure(self, reservation: ForecastReservation, *, cleanup_succeeded: bool,
                        error_code: str) -> None: ...
     def get_model(self, model_id: str) -> Mapping[str, Any] | None: ...
+    def acquire_execution_permit(self, operation_id: str) -> str: ...
+    def renew_execution_permit(self, operation_id: str, lease_token: str) -> None: ...
+    def release_execution_permit(self, operation_id: str, lease_token: str) -> None: ...
 
 
 class ForecastFinalizeUncertainError(RuntimeError):
@@ -136,12 +141,15 @@ class ForecastGenerationService:
 
     def __init__(self, sessions: AccessCodeSessionService, gateway: ForecastGateway,
                  provenance: ResultProvenance, mapping_path: str | Path,
-                 mapping: Mapping[str, Any]) -> None:
+                 mapping: Mapping[str, Any], *, max_execution_seconds: int = 900) -> None:
         self._sessions = sessions
         self._gateway = gateway
         self._provenance = provenance
         self._mapping_path = Path(mapping_path)
         self._mapping = mapping
+        if not 30 <= max_execution_seconds <= 1500:
+            raise ValueError("forecast execution budget must be 30-1500 seconds")
+        self._max_execution_seconds = max_execution_seconds
 
     def generate(self, session_id: str, request: ForecastGenerateRequest) -> ForecastGenerateResponse:
         principal = self._sessions.require_admin(session_id)
@@ -190,24 +198,45 @@ class ForecastGenerationService:
 
         storage_written = False
         finalized = False
-        with tempfile.TemporaryDirectory(prefix="pnl-forecast-") as directory:
+        permit_token: str | None = None
+        started = time.monotonic()
+        policy = temp_artifact_policy()
+        policy.ensure_capacity(MAX_FORECAST_WORKBOOK_BYTES * 3)
+        with tempfile.TemporaryDirectory(prefix="pnl-forecast-", dir=policy.root) as directory:
             root = Path(directory)
             base = root / "base.xlsx"
             final = root / "forecast.xlsx"
             try:
+                if hasattr(self._gateway, "acquire_execution_permit"):
+                    permit_token = self._gateway.acquire_execution_permit(reservation.generation_id)
                 base_bytes = self._gateway.download_base(reservation)
                 if not base_bytes or len(base_bytes) > MAX_FORECAST_WORKBOOK_BYTES:
                     raise BffError(ApiErrorCode.INPUT_INTEGRITY_MISMATCH, "Base model size is invalid")
                 if hashlib.sha256(base_bytes).hexdigest() != reservation.base_sha256:
                     raise BffError(ApiErrorCode.INPUT_INTEGRITY_MISMATCH, "Base model integrity check failed")
                 base.write_bytes(base_bytes)
+                mapping_snapshot = root / "model_mapping.json"
+                # Freeze the already-loaded, provenance-validated mapping for
+                # the whole operation; monthly engines never re-read live config.
+                mapping_snapshot.write_bytes(canonical_json_bytes(self._mapping))
                 source = base
                 for index, month in enumerate(canonical.months):
+                    if time.monotonic() - started > self._max_execution_seconds:
+                        raise BffError(ApiErrorCode.TRANSIENT_SYSTEM_ERROR,
+                                       "Forecast generation exceeded its execution budget")
+                    if permit_token and hasattr(self._gateway, "renew_execution_permit"):
+                        self._gateway.renew_execution_permit(reservation.generation_id, permit_token)
                     destination = final if index == len(canonical.months) - 1 else root / f"month-{month.month}.xlsx"
-                    result = ForecastEngine(source, self._mapping_path).run(_engine_input(month), destination)
+                    previous = source
+                    result = ForecastEngine(source, mapping_snapshot).run(_engine_input(month), destination)
+                    if time.monotonic() - started > self._max_execution_seconds:
+                        raise BffError(ApiErrorCode.TRANSIENT_SYSTEM_ERROR,
+                                       "Forecast generation exceeded its execution budget")
                     if not result.validations or not all(bool(item.get("ok")) for item in result.validations):
                         raise BffError(ApiErrorCode.VALIDATION_ERROR, "Forecast validation failed")
                     source = destination
+                    if previous != destination:
+                        previous.unlink(missing_ok=True)
                 if final.stat().st_size > MAX_FORECAST_WORKBOOK_BYTES:
                     raise BffError(ApiErrorCode.VALIDATION_ERROR, "Generated workbook exceeds 50 MB")
                 generated_sha = hashlib.sha256(final.read_bytes()).hexdigest()
@@ -251,6 +280,12 @@ class ForecastGenerationService:
                     raise BffError(ApiErrorCode.INPUT_INTEGRITY_MISMATCH, "Generated model response is invalid") from exc
                 self._compensate(reservation, storage_written)
                 raise BffError(ApiErrorCode.TRANSIENT_SYSTEM_ERROR, "Forecast generation failed") from exc
+            finally:
+                if permit_token and hasattr(self._gateway, "release_execution_permit"):
+                    try:
+                        self._gateway.release_execution_permit(reservation.generation_id, permit_token)
+                    except Exception:
+                        pass
 
     def _compensate(self, reservation: ForecastReservation, storage_written: bool) -> None:
         cleaned = True

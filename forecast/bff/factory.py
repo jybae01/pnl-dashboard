@@ -10,7 +10,7 @@ from .application import (
     ResultQueryService,
     TrustedBffApplication,
 )
-from .auth import AccessCodeSessionService
+from .auth import AccessCodeSessionService, SessionStore
 from ..preflight import ExcelPreflightValidator
 from .gateway import SupabaseBffApplicationGateway, SupabaseModelIngestionGateway, SupabaseForecastGateway
 from .forecast_orchestration import ForecastGenerationService
@@ -37,6 +37,11 @@ def create_supabase_bff_application(
     model_repository: Any | None = None,
     model_mapping: Mapping[str, Any] | None = None,
     mapping_path: str | None = None,
+    session_store: SessionStore | None = None,
+    forecast_max_concurrency: int = 1,
+    forecast_permit_lease_seconds: int = 1200,
+    forecast_max_execution_seconds: int = 900,
+    workbook_validator: Any | None = None,
 ) -> TrustedBffApplication:
     """Compose the server-only BFF boundary from explicit trusted inputs.
 
@@ -51,6 +56,7 @@ def create_supabase_bff_application(
         admin_code=admin_code,
         actor_namespace_secret=actor_namespace_secret,
         ttl_seconds=session_ttl_seconds,
+        store=session_store,
     )
     gateway = SupabaseBffApplicationGateway(supabase_client)
     versions = tuple(supported_result_schema_versions or (provenance.result_schema_version,))
@@ -83,7 +89,7 @@ def create_supabase_bff_application(
                 sessions,
                 model_repository,
                 ingestion_gateway,
-                ExcelPreflightValidator(model_mapping),
+                workbook_validator or ExcelPreflightValidator(model_mapping),
                 provenance,
             )
             if model_capabilities else None
@@ -116,8 +122,11 @@ def create_supabase_bff_application(
         ),
         forecast_generation=(
             ForecastGenerationService(
-                sessions, SupabaseForecastGateway(supabase_client), provenance,
-                mapping_path, model_mapping,
+                sessions, SupabaseForecastGateway(
+                    supabase_client, max_concurrency=forecast_max_concurrency,
+                    permit_lease_seconds=forecast_permit_lease_seconds,
+                ), provenance, mapping_path, model_mapping,
+                max_execution_seconds=forecast_max_execution_seconds,
             ) if model_capabilities and mapping_path else None
         ),
     )

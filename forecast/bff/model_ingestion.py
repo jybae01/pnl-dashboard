@@ -21,6 +21,7 @@ from .dto import (
     ModelUploadResponse,
 )
 from .errors import ApiErrorCode, BffError
+from ..parser_isolation import IsolatedParserError
 
 
 MAX_WORKBOOK_BYTES = 50 * 1024 * 1024
@@ -86,6 +87,8 @@ class ModelIngestionGateway(Protocol):
         error_detail: Mapping[str, Any],
     ) -> None: ...
 
+    def heartbeat(self, reservation: ModelIngestionReservation) -> None: ...
+
 
 class ModelManagementService:
     def __init__(self, sessions: AccessCodeSessionService, repository: Any) -> None:
@@ -130,11 +133,24 @@ class ModelIngestionService:
         principal = self._sessions.require_admin(session_id)
         normalized = _validate_request(request)
         path = Path(source)
-        _validate_xlsx_package(path, normalized.file_name)
+        isolated_validation = hasattr(self._validator, "require_with_metadata")
+        if not isolated_validation:
+            _validate_xlsx_package(path, normalized.file_name)
         workbook_sha256 = _sha256_file(path)
         try:
-            self._validator.require(path, expected_year=normalized.model_year)
-            period_types = extract_period_types(path)
+            if hasattr(self._validator, "require_with_metadata"):
+                period_types = self._validator.require_with_metadata(
+                    path, expected_year=normalized.model_year, file_name=normalized.file_name,
+                )
+            else:
+                self._validator.require(path, expected_year=normalized.model_year)
+                period_types = extract_period_types(path)
+        except IsolatedParserError as exc:
+            raise BffError(
+                ApiErrorCode.VALIDATION_ERROR,
+                "Workbook structural preflight failed",
+                field_errors={"file": exc.code},
+            ) from exc
         except PreflightValidationError as exc:
             raise BffError(
                 ApiErrorCode.VALIDATION_ERROR,
@@ -192,8 +208,12 @@ class ModelIngestionService:
             # Once an upload is attempted, object state is unknown until the
             # exact-byte verification succeeds; compensation is conservative.
             storage_written = True
+            if hasattr(self._gateway, "heartbeat"):
+                self._gateway.heartbeat(reservation)
             self._gateway.upload_source(reservation.model_id, path, workbook_sha256)
             self._gateway.verify_source(reservation.model_id, workbook_sha256)
+            if hasattr(self._gateway, "heartbeat"):
+                self._gateway.heartbeat(reservation)
             saved = self._gateway.finalize(reservation)
             finalized = True
             response = _model_response(saved)

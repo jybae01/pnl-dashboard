@@ -6,7 +6,7 @@ import secrets
 import threading
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
-from typing import Callable
+from typing import Callable, Protocol
 
 from .dto import SessionResponse, SessionTicket
 from .errors import ApiErrorCode, BffError
@@ -16,15 +16,57 @@ from .errors import ApiErrorCode, BffError
 class SessionPrincipal:
     role: str
     actor_id: str
+    session_ref: str
     expires_at: datetime
+
+
+class SessionStore(Protocol):
+    """Digest-only session persistence; raw bearer tokens never cross this boundary."""
+
+    shared: bool
+
+    def create(self, token_digest: str, principal: SessionPrincipal, ttl_seconds: int) -> None: ...
+    def get(self, token_digest: str, now: datetime) -> SessionPrincipal | None: ...
+    def revoke(self, token_digest: str, now: datetime) -> None: ...
+
+
+class InMemorySessionStore:
+    """Development-only revocable session store."""
+
+    shared = False
+
+    def __init__(self) -> None:
+        self._sessions: dict[str, SessionPrincipal] = {}
+        self._lock = threading.RLock()
+
+    def create(self, token_digest: str, principal: SessionPrincipal, ttl_seconds: int) -> None:
+        del ttl_seconds
+        with self._lock:
+            if token_digest in self._sessions:
+                raise RuntimeError("session token generator returned a duplicate identifier")
+            self._sessions[token_digest] = principal
+
+    def get(self, token_digest: str, now: datetime) -> SessionPrincipal | None:
+        with self._lock:
+            principal = self._sessions.get(token_digest)
+            if principal is None:
+                return None
+            if principal.expires_at <= now:
+                self._sessions.pop(token_digest, None)
+                return None
+            return principal
+
+    def revoke(self, token_digest: str, now: datetime) -> None:
+        del now
+        with self._lock:
+            self._sessions.pop(token_digest, None)
 
 
 class AccessCodeSessionService:
     """Server-only V1 access-code verifier and revocable opaque session store.
 
-    The default store is intentionally process-local. A multi-instance BFF must
-    supply a shared session implementation in a later deployment goal; process
-    restart safely invalidates every session rather than accepting stale state.
+    The default store is intentionally process-local for development. Production
+    composition injects a shared digest-only store.
     """
 
     def __init__(
@@ -36,6 +78,7 @@ class AccessCodeSessionService:
         ttl_seconds: int = 8 * 60 * 60,
         clock: Callable[[], datetime] | None = None,
         token_factory: Callable[[], str] | None = None,
+        store: SessionStore | None = None,
     ) -> None:
         if not viewer_code or not admin_code:
             raise ValueError("VIEWER_CODE and ADMIN_CODE are required")
@@ -51,8 +94,11 @@ class AccessCodeSessionService:
         self._ttl = timedelta(seconds=ttl_seconds)
         self._clock = clock or (lambda: datetime.now(timezone.utc))
         self._token_factory = token_factory or (lambda: secrets.token_urlsafe(32))
-        self._sessions: dict[bytes, SessionPrincipal] = {}
-        self._lock = threading.RLock()
+        self._store = store or InMemorySessionStore()
+
+    @property
+    def shared(self) -> bool:
+        return self._store.shared
 
     @staticmethod
     def _digest(value: str) -> bytes:
@@ -73,17 +119,14 @@ class AccessCodeSessionService:
         session_id = self._token_factory()
         if not isinstance(session_id, str) or len(session_id) < 32:
             raise RuntimeError("session token generator returned an unsafe identifier")
-        token_digest = self._digest(session_id)
+        token_digest = self._digest(session_id).hex()
         principal = SessionPrincipal(
             role=role,
             actor_id=self._actor_id(role),
+            session_ref=f"session-v1:{token_digest[:24]}",
             expires_at=expires_at,
         )
-        with self._lock:
-            self._purge_expired(now)
-            if token_digest in self._sessions:
-                raise RuntimeError("session token generator returned a duplicate identifier")
-            self._sessions[token_digest] = principal
+        self._store.create(token_digest, principal, int(self._ttl.total_seconds()))
         return SessionTicket(
             session_id=session_id,
             session=SessionResponse(role=role, expires_at=expires_at.isoformat()),
@@ -98,8 +141,7 @@ class AccessCodeSessionService:
 
     def logout(self, session_id: str) -> None:
         token_digest = self._session_digest(session_id)
-        with self._lock:
-            self._sessions.pop(token_digest, None)
+        self._store.revoke(token_digest, self._now())
 
     def require_viewer(self, session_id: str) -> SessionPrincipal:
         principal = self._require_session(session_id)
@@ -116,19 +158,15 @@ class AccessCodeSessionService:
     def _require_session(self, session_id: str) -> SessionPrincipal:
         token_digest = self._session_digest(session_id)
         now = self._now()
-        with self._lock:
-            principal = self._sessions.get(token_digest)
-            if principal is None:
-                raise BffError(ApiErrorCode.AUTH_REQUIRED, "Authentication required")
-            if principal.expires_at <= now:
-                del self._sessions[token_digest]
-                raise BffError(ApiErrorCode.AUTH_REQUIRED, "Session expired")
-            return principal
+        principal = self._store.get(token_digest, now)
+        if principal is None:
+            raise BffError(ApiErrorCode.AUTH_REQUIRED, "Authentication required")
+        return principal
 
-    def _session_digest(self, session_id: str) -> bytes:
+    def _session_digest(self, session_id: str) -> str:
         if not isinstance(session_id, str) or not 32 <= len(session_id) <= 512:
             raise BffError(ApiErrorCode.AUTH_REQUIRED, "Authentication required")
-        return self._digest(session_id)
+        return self._digest(session_id).hex()
 
     def _actor_id(self, role: str) -> str:
         digest = hmac.new(
@@ -143,8 +181,3 @@ class AccessCodeSessionService:
         if value.tzinfo is None:
             raise RuntimeError("session clock must return a timezone-aware datetime")
         return value.astimezone(timezone.utc)
-
-    def _purge_expired(self, now: datetime) -> None:
-        expired = [key for key, value in self._sessions.items() if value.expires_at <= now]
-        for key in expired:
-            del self._sessions[key]
