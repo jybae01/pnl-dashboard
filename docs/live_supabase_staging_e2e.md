@@ -278,23 +278,41 @@ objects that support the completed Phase A lifecycle were not removed.
 
 ### Gate 0: disposable clean replay
 
-The final 001--017 sequence has **not** been replayed into a newly empty,
-disposable database during this release-verification run:
+The final 001--017 sequence was replayed successfully into a newly empty,
+disposable local Supabase database after Docker Desktop became available:
 
-- the repository has no disposable migration harness or `supabase/config.toml`;
-- Docker, Podman, `psql`, `pg_ctl`, and a global Supabase CLI are unavailable;
-- the accessible project inventory contains the excluded non-staging project,
-  the successful clean staging target, and the retained inactive 001--003
-  failure-evidence project; none is an already-approved disposable target;
-- the Supabase development-branch listing operation did not return a usable
-  branch, and no paid branch/project was created;
-- `ysatkswhhajicfgbrtpv` was not reset or otherwise used destructively.
+- Docker client/server `29.7.2` ran the Linux/WSL2 engine, and Supabase CLI
+  `2.113.0` initialized a temporary project with PostgreSQL major version 17;
+- the temporary project contained no remote link metadata, and its 17 migration
+  files matched the repository copies by filename and SHA-256;
+- the first `supabase start` created an empty local database and applied all 17
+  migrations in order without a manual patch;
+- `supabase db reset --local --no-seed` then recreated the database and applied
+  the same 001--017 sequence again, exiting 0;
+- `supabase migration list --local` returned exactly the 17 expected versions,
+  with no gap or duplicate;
+- the replayed catalog ran PostgreSQL 17.6 with `pgcrypto` 1.3, `pgmq` 1.5.1,
+  and `pg_cron` 1.6.4. Both queue tables existed and were empty;
+- all 12 public application tables had RLS enabled; the private `pnl-models`
+  bucket retained its 50 MiB XLSX-only contract, and all application/storage
+  data tables were empty except for the intended runtime-limit singleton
+  `(true, 1)`;
+- the exact `*/5 * * * *` stale-job cron entry, fixed search paths, browser
+  EXECUTE revocations, `public` schema CREATE revocations, browser pgmq/internal-
+  table denial, Storage read policy, service-role RPC grants, and final
+  014/015/017 function semantics all matched the contract;
+- the local Security Advisor returned no WARN or ERROR findings.
 
-Static SQL equality, migration tests, and final live-catalog checks below are
-strong incremental/final-state evidence, but they do not replace an empty-DB
-replay. Therefore:
+The database and all core Auth/API/Storage services were healthy after replay.
+The optional Vector log collector restarted because its Docker-log source was
+refused by the new local Docker engine; it is not a migration dependency and did
+not affect either successful reset, the catalog queries, or the advisor result.
+After the evidence was captured, the disposable stack was stopped with
+`--no-backup`, removing its local containers and database volume.
+Every database command used `--local`; `ysatkswhhajicfgbrtpv` was not linked,
+reset, deleted, or otherwise changed.
 
-`MIGRATION 001->017 CLEAN REPRODUCIBILITY = BLOCKED_NO_DISPOSABLE_CLEAN_DB`
+`MIGRATION 001->017 CLEAN REPRODUCIBILITY = PASS`
 
 ### Migration 001--017 inventory
 
@@ -499,12 +517,15 @@ local XLSX artifacts.
 The required single `luna-worker` review ran read-only with its fixed
 `gpt-5.6-luna` model and maximum reasoning setting after Sol completed the
 release diff, migration, live-evidence, and regression consolidation. It found
-no blocker beyond `BLOCKED_NO_DISPOSABLE_CLEAN_DB` and independently confirmed
-the Migration 004 qualifier-only exception, Migration 015 semantic change,
-Migration 016/017 restoration, final grants/RLS/search-path/Storage boundaries,
-shared lockout/session and pgmq/Worker/Result lifecycle, stored-Result-only
-Viewer/Evidence, effect identity, strict Dashboard selection, secret hygiene,
-and the non-Golden synthetic boundary.
+no blocker beyond the then-outstanding `BLOCKED_NO_DISPOSABLE_CLEAN_DB` and
+independently confirmed the Migration 004 qualifier-only exception, Migration
+015 semantic change, Migration 016/017 restoration, final grants/RLS/search-
+path/Storage boundaries, shared lockout/session and pgmq/Worker/Result
+lifecycle, stored-Result-only Viewer/Evidence, effect identity, strict Dashboard
+selection, secret hygiene, and the non-Golden synthetic boundary. After the
+local replay became available, the same read-only reviewer independently
+confirmed that its dynamic history, catalog, ACL, function, advisor, cleanup,
+and remote-isolation evidence resolves that final release-integration blocker.
 
 Two non-blocking wording findings were accepted by Sol: the Dashboard service
 docstring now states the strict published-default pair rather than the obsolete
@@ -513,9 +534,8 @@ actual 15 private-Golden plus 3 structural-fixture split. Neither correction
 changes runtime behavior.
 
 The full offline release regression, live Phase A consistency, security review,
-secret hygiene, and Luna review gates pass. Release Integration cannot be
-declared PASS until a true empty disposable database replays 001--017
-successfully.
+secret hygiene, Luna review, and the true empty disposable 001--017 replay all
+pass. `RELEASE INTEGRATION VERIFICATION = PASS`.
 
 Phase B remains `BLOCKED_NO_DEPLOYMENT_TOPOLOGY`, the company Workbook Forecast
 benchmark remains `BLOCKED_NO_COMPANY_WORKBOOK`, Forecast Sync remains
