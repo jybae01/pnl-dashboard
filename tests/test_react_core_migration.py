@@ -32,4 +32,9 @@ def test_migration_chain_is_001_through_006_without_editing_prior_files():
         "202608090010_pnl_dashboard_vertical_slice.sql",
         "202608090011_forecast_react_vertical_slice.sql",
         "202608090012_production_hardening_foundation.sql",
+        "20260811085901_revoke_audit_trigger_rpc_013.sql",
+        "20260811091516_fix_shared_lockout_null_014.sql",
+        "20260811145917_fix_analysis_month_series_pg17.sql",
+        "20260811150705_align_pnl_dashboard_viewer_contract.sql",
+        "20260811151052_restore_pnl_dashboard_default_contract.sql",
     ]

@@ -824,13 +824,13 @@ using (
 drop policy if exists pnl_storage_read_policy on storage.objects;
 create policy pnl_storage_read_policy on storage.objects for select to authenticated
 using (
-    bucket_id = 'pnl-models'
-    and public.is_valid_pnl_storage_path(name)
+    storage.objects.bucket_id = 'pnl-models'
+    and public.is_valid_pnl_storage_path(storage.objects.name)
     and (
         exists (
             select 1 from public.models model
-             where model.workbook_bucket = bucket_id
-               and model.workbook_path = name
+             where model.workbook_bucket = storage.objects.bucket_id
+               and model.workbook_path = storage.objects.name
                and (model.is_published or model.created_by = auth.uid())
         )
         or exists (
@@ -839,8 +839,8 @@ using (
               join public.calculation_jobs job on job.id = result_row.job_id
               join public.models baseline_model on baseline_model.id = result_row.baseline_model_id
               join public.models comparison_model on comparison_model.id = result_row.comparison_model_id
-             where result_row.workbook_bucket = bucket_id
-               and result_row.workbook_path = name
+             where result_row.workbook_bucket = storage.objects.bucket_id
+               and result_row.workbook_path = storage.objects.name
                and (
                    job.created_by = auth.uid()
                    or (

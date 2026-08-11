@@ -164,4 +164,23 @@ def test_migration_contract_is_001_through_004():
         "202608090010_pnl_dashboard_vertical_slice.sql",
         "202608090011_forecast_react_vertical_slice.sql",
         "202608090012_production_hardening_foundation.sql",
+        "20260811085901_revoke_audit_trigger_rpc_013.sql",
+        "20260811091516_fix_shared_lockout_null_014.sql",
+        "20260811145917_fix_analysis_month_series_pg17.sql",
+        "20260811150705_align_pnl_dashboard_viewer_contract.sql",
+        "20260811151052_restore_pnl_dashboard_default_contract.sql",
     ]
+
+
+def test_storage_policy_qualifies_outer_storage_object_columns():
+    policy = section(
+        "create policy pnl_storage_read_policy",
+        "-- ---------------------------------------------------------------------------\n-- phase 2.5 rpc",
+    )
+    assert policy.count("storage.objects.bucket_id") == 3
+    assert policy.count("storage.objects.name") == 3
+    assert "public.is_valid_pnl_storage_path(storage.objects.name)" in policy
+    assert "model.workbook_bucket = storage.objects.bucket_id" in policy
+    assert "model.workbook_path = storage.objects.name" in policy
+    assert "result_row.workbook_bucket = storage.objects.bucket_id" in policy
+    assert "result_row.workbook_path = storage.objects.name" in policy
