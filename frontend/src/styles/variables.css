@@ -1,0 +1,85 @@
+:root {
+  /* Brand Tokens: NANOH2O Corporate Identity */
+  --brand-orange: #ff5f1f;          /* NANOH2O Signature Orange */
+  --brand-orange-hover: #ea5010;
+  --brand-orange-light: #fff7ed;
+  --brand-orange-border: #fed7aa;
+  --brand-charcoal: #090d16;
+
+  /* Surface & Backgrounds */
+  --bg-app: #f1f5f9;
+  --bg-canvas: #f8fafc;
+  --bg-surface: #ffffff;
+  --bg-surface-alt: #f8fafc;
+  --bg-surface-hover: #f1f5f9;
+  --bg-surface-active: #e2e8f0;
+  --bg-header: #090d16;
+  --bg-nav: #161f30;
+
+  /* Text Colors */
+  --text-primary: #0f172a;
+  --text-secondary: #334155;
+  --text-muted: #64748b;
+  --text-light: #94a3b8;
+  --text-on-dark: #f8fafc;
+  --text-on-dark-muted: #94a3b8;
+
+  /* Borders */
+  --border-subtle: #e2e8f0;
+  --border-default: #cbd5e1;
+  --border-strong: #94a3b8;
+  --border-dark: #334155;
+
+  /* Financial Colors: Favorable (+Profit, -Cost) vs Unfavorable (-Profit, +Cost) */
+  --color-favorable: #047857;       /* Emerald-700 for high text contrast */
+  --color-favorable-bg: #ecfdf5;    /* Emerald-50 */
+  --color-favorable-border: #a7f3d0;
+  --color-unfavorable: #b91c1c;     /* Red-700 */
+  --color-unfavorable-bg: #fef2f2;  /* Red-50 */
+  --color-unfavorable-border: #fecaca;
+  --color-neutral: #475569;         /* Slate-600 */
+  --color-neutral-bg: #f8fafc;
+
+  /* Scenario / Model Accents */
+  --color-plan: #2563eb;            /* Blue-600 */
+  --color-plan-bg: #eff6ff;
+  --color-plan-border: #bfdbfe;
+  --color-actual: #0f766e;          /* Teal-700 */
+  --color-actual-bg: #f0fdfa;
+  --color-actual-border: #99f6e4;
+  --color-forecast: #7c3aed;        /* Violet-600 */
+  --color-forecast-bg: #f5f3ff;
+  --color-forecast-border: #ddd6fe;
+
+  /* Brand / Primary Action */
+  --color-primary: #ff5f1f;         /* NANOH2O Orange for primary focal actions */
+  --color-primary-hover: #ea5010;
+  --color-primary-light: #fff7ed;
+  --color-primary-navy: #1e3a8a;
+
+  /* Status Colors */
+  --color-success: #16a34a;
+  --color-warning: #d97706;
+  --color-warning-bg: #fffbeb;
+  --color-warning-border: #fde68a;
+  --color-error: #dc2626;
+  --color-error-bg: #fef2f2;
+  --color-error-border: #fca5a5;
+  --color-info: #0284c7;
+
+  /* Shadows */
+  --shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
+  --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.08), 0 2px 4px -2px rgba(0, 0, 0, 0.05);
+  --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -4px rgba(0, 0, 0, 0.05);
+  --shadow-modal: 0 20px 25px -5px rgba(0, 0, 0, 0.15), 0 8px 10px -6px rgba(0, 0, 0, 0.1);
+
+  /* Spacing & Radii */
+  --radius-xs: 3px;
+  --radius-sm: 4px;
+  --radius-md: 6px;
+  --radius-lg: 8px;
+
+  /* Typography */
+  --font-sans: -apple-system, BlinkMacSystemFont, "Pretendard", "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+}

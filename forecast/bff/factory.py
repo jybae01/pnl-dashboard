@@ -4,6 +4,7 @@ from typing import Any, Sequence
 
 from ..provenance import ResultProvenance
 from .application import (
+    AnalysisModelListService,
     AnalysisSubmissionService,
     JobQueryService,
     ResultQueryService,
@@ -23,6 +24,7 @@ def create_supabase_bff_application(
     supported_result_schema_versions: Sequence[str] | None = None,
     session_ttl_seconds: int = 8 * 60 * 60,
     max_attempts: int = 3,
+    model_repository: Any | None = None,
 ) -> TrustedBffApplication:
     """Compose the server-only BFF boundary from explicit trusted inputs.
 
@@ -53,5 +55,9 @@ def create_supabase_bff_application(
             sessions,
             gateway,
             supported_result_schema_versions=versions,
+        ),
+        models=(
+            AnalysisModelListService(sessions, model_repository)
+            if model_repository is not None else None
         ),
     )

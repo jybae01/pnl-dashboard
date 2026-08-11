@@ -10,13 +10,14 @@ def section(start: str, end: str) -> str:
     return SQL.split(start, 1)[1].split(end, 1)[0]
 
 
-def test_migration_chain_is_additive_001_through_005():
+def test_migration_chain_is_additive_001_through_006():
     assert [path.name for path in sorted(MIGRATION.parent.glob("*.sql"))] == [
         "202608090001_phase1_foundation.sql",
         "202608090002_phase2_queue_worker.sql",
         "202608090003_phase2_publication_boundary.sql",
         "202608090004_phase25_analysis_inputs.sql",
         "202608090005_bff_foundation.sql",
+        "202608090006_react_core_vertical_slice.sql",
     ]
     assert SQL.startswith("-- trusted bff foundation")
     assert "begin;" in SQL and SQL.rstrip().endswith("commit;")

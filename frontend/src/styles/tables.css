@@ -1,0 +1,188 @@
+/* Dense Financial Table System */
+.financial-table-container {
+  background-color: var(--bg-surface);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-sm);
+  overflow-x: auto;
+  position: relative;
+}
+
+.financial-table {
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+  font-size: 12px;
+  line-height: 1.4;
+  text-align: left;
+}
+
+.financial-table th {
+  background-color: #f8fafc;
+  color: var(--text-secondary);
+  font-weight: 700;
+  font-size: 11px;
+  text-transform: none;
+  padding: 8px 12px;
+  border-bottom: 2px solid var(--border-default);
+  border-right: 1px solid var(--border-subtle);
+  white-space: nowrap;
+  position: sticky;
+  top: 0;
+  z-index: 10;
+}
+
+.financial-table th:last-child {
+  border-right: none;
+}
+
+.financial-table td {
+  padding: 7px 12px;
+  border-bottom: 1px solid var(--border-subtle);
+  border-right: 1px solid var(--border-subtle);
+  color: var(--text-primary);
+  white-space: nowrap;
+}
+
+.financial-table td:last-child {
+  border-right: none;
+}
+
+/* Alignment */
+.financial-table .text-left { text-align: left; }
+.financial-table .text-center { text-align: center; }
+.financial-table .text-right { text-align: right; }
+
+.financial-table th.text-right { text-align: right; }
+.financial-table th.text-center { text-align: center; }
+
+/* Zebra & Hover */
+.financial-table tbody tr:hover {
+  background-color: #f8fafc;
+}
+
+.financial-table tbody tr.row-active {
+  background-color: #eff6ff !important;
+}
+
+/* Row Hierarchy Types */
+.financial-table tr.row-header {
+  background-color: #f1f5f9;
+  font-weight: 700;
+}
+
+.financial-table tr.row-header td {
+  color: var(--text-primary);
+  border-top: 1px solid var(--border-default);
+  border-bottom: 1px solid var(--border-default);
+  font-size: 12.5px;
+}
+
+.financial-table tr.row-total {
+  background-color: #e2e8f0;
+  font-weight: 800;
+}
+
+.financial-table tr.row-total td {
+  color: #0f172a;
+  border-top: 2px solid var(--border-strong);
+  border-bottom: 2px solid var(--border-strong);
+  font-size: 13px;
+}
+
+.financial-table tr.row-sublevel-1 td:first-child {
+  padding-left: 28px;
+}
+
+.financial-table tr.row-sublevel-2 td:first-child {
+  padding-left: 44px;
+  color: var(--text-secondary);
+}
+
+/* Financial Variance Highlight Classes */
+.val-favorable {
+  color: var(--color-favorable) !important;
+  font-weight: 700;
+}
+
+.val-unfavorable {
+  color: var(--color-unfavorable) !important;
+  font-weight: 700;
+}
+
+.val-neutral {
+  color: var(--text-muted);
+}
+
+.badge-favorable {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  background-color: var(--color-favorable-bg);
+  color: var(--color-favorable);
+  border: 1px solid var(--color-favorable-border);
+  padding: 2px 6px;
+  border-radius: var(--radius-xs);
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.badge-unfavorable {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  background-color: var(--color-unfavorable-bg);
+  color: var(--color-unfavorable);
+  border: 1px solid var(--color-unfavorable-border);
+  padding: 2px 6px;
+  border-radius: var(--radius-xs);
+  font-size: 11px;
+  font-weight: 700;
+}
+
+/* Expandable Rows */
+.expand-toggle-btn {
+  background: none;
+  border: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  border-radius: 2px;
+  cursor: pointer;
+  color: var(--text-muted);
+  margin-right: 6px;
+  vertical-align: middle;
+}
+
+.expand-toggle-btn:hover {
+  background-color: var(--bg-surface-hover);
+  color: var(--text-primary);
+}
+
+.drilldown-container {
+  background-color: #fafbfc;
+  padding: 8px 16px 12px 32px;
+  border-bottom: 1px solid var(--border-default);
+}
+
+.drilldown-table {
+  width: 100%;
+  border: 1px solid var(--border-subtle);
+  background-color: #ffffff;
+  border-radius: var(--radius-xs);
+}
+
+.drilldown-table th {
+  background-color: #f1f5f9;
+  font-size: 10.5px;
+  padding: 5px 8px;
+  color: var(--text-secondary);
+}
+
+.drilldown-table td {
+  font-size: 11.5px;
+  padding: 4px 8px;
+  border-bottom: 1px solid #f1f5f9;
+}

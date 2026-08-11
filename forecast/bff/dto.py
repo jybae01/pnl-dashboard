@@ -8,6 +8,26 @@ from typing import Any, Mapping
 class SessionResponse:
     role: str
     expires_at: str
+    authenticated: bool = True
+    dto_version: str = "1"
+
+
+@dataclass(frozen=True)
+class AnalysisModelResponse:
+    model_id: str
+    display_name: str
+    model_type: str
+    model_year: int
+    start_month: int
+    end_month: int
+    is_published: bool
+    is_default: bool
+    dto_version: str = "1"
+
+
+@dataclass(frozen=True)
+class AnalysisModelListResponse:
+    models: tuple[AnalysisModelResponse, ...]
     dto_version: str = "1"
 
 

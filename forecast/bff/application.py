@@ -10,6 +10,8 @@ from ..provenance import ResultProvenance, SHA256_PATTERN
 from .auth import AccessCodeSessionService
 from .dto import (
     AdminResultPreviewResponse,
+    AnalysisModelListResponse,
+    AnalysisModelResponse,
     AnalysisSubmitRequest,
     AnalysisSubmitResponse,
     JobStatusResponse,
@@ -30,6 +32,47 @@ from .gateway import (
 
 IDEMPOTENCY_KEY_PATTERN = re.compile(r"^[A-Za-z0-9._:-]{1,128}$")
 JOB_STATUSES = {"pending", "processing", "completed", "failed"}
+
+
+class AnalysisModelListService:
+    """Narrow Admin model-selection capability over the existing repository."""
+
+    def __init__(self, sessions: AccessCodeSessionService, repository: Any) -> None:
+        self._sessions = sessions
+        self._repository = repository
+
+    def list_eligible(self, session_id: str) -> AnalysisModelListResponse:
+        self._sessions.require_admin(session_id)
+        try:
+            rows = self._repository.list()
+        except Exception as exc:
+            raise BffError(
+                ApiErrorCode.TRANSIENT_SYSTEM_ERROR,
+                "Model list is temporarily unavailable",
+            ) from exc
+        models: list[AnalysisModelResponse] = []
+        for row in rows:
+            if not bool(getattr(row, "is_published", False)):
+                continue
+            if not getattr(row, "workbook_sha256", None):
+                continue
+            try:
+                models.append(AnalysisModelResponse(
+                    model_id=str(uuid.UUID(str(row.id))),
+                    display_name=str(row.name),
+                    model_type=str(row.model_type),
+                    model_year=int(row.year),
+                    start_month=int(row.start_month),
+                    end_month=int(row.end_month),
+                    is_published=True,
+                    is_default=bool(row.is_default),
+                ))
+            except (AttributeError, TypeError, ValueError) as exc:
+                raise BffError(
+                    ApiErrorCode.INPUT_INTEGRITY_MISMATCH,
+                    "Model list contract is invalid",
+                ) from exc
+        return AnalysisModelListResponse(models=tuple(models))
 
 
 @dataclass(frozen=True)
@@ -150,10 +193,9 @@ class JobQueryService:
                 completed_at=_optional_text(row.get("completed_at")),
                 result_id=_optional_text(row.get("result_id")),
                 error_code=_optional_text(row.get("error_code")),
-                error_message=(
-                    _optional_text(row.get("error_message"))
-                    or _safe_job_error_message(row.get("error_code"))
-                ),
+                # Stored worker/DB messages are diagnostic data and may contain
+                # internals. Browser DTOs are derived only from the allowlisted code.
+                error_message=_safe_job_error_message(row.get("error_code")),
             )
         except (KeyError, TypeError, ValueError) as exc:
             raise BffError(
@@ -305,11 +347,13 @@ class TrustedBffApplication:
         submissions: AnalysisSubmissionService,
         jobs: JobQueryService,
         results: ResultQueryService,
+        models: AnalysisModelListService | None = None,
     ) -> None:
         self.sessions = sessions
         self.submissions = submissions
         self.jobs = jobs
         self.results = results
+        self.models = models
 
     def login(self, access_code: str) -> SessionTicket:
         return self.sessions.login(access_code)

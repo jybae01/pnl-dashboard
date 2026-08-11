@@ -1,6 +1,6 @@
 # Frontend–Backend Integration Contract (T01/T02)
 
-Status: `T01 PASS`; `T02 CONTRACT BASELINE PASS`. Migration 005 and the framework-neutral Python application boundary now implement the five BFF-foundation decisions below. This is not `REACT INTEGRATION READY`; no frontend, HTTP adapter, worker calculation, engine, or deployment change is included.
+Status: `T01 PASS`; `T02 CONTRACT BASELINE PASS`. The React Core overlay adds a tested FastAPI transport and one runnable login→model pair→submit→poll→stored-result slice on top of Migration 005, plus additive Migration 006 for atomic published-model eligibility. This remains neither full React integration nor production/live Supabase readiness.
 
 Evidence notation uses paths relative to the backend repository or to the root of the read-only frontend ZIP. `READY` means the complete browser-to-source contract already exists; a useful backend primitive alone is not enough.
 
@@ -544,3 +544,13 @@ Existing assets are reused: deterministic Forecast/Comparison engine, effect/rec
 5. Implement Evidence delivery around the existing generator.
 6. Specify and build P&L seven-block backend sources.
 7. Implement Forecast orchestration last, reusing the existing Python engine and Streamlit behavior as parity reference.
+
+## React Core Vertical Slice overlay
+
+The HTTP/session transport decision is now resolved for this slice: FastAPI exposes named session, model-list, canonical-submit, Admin Job, Admin Result preview, and strict Viewer Result routes. The session identifier is HttpOnly; CSRF is an HMAC-bound cookie/header pair; CORS is allowlist-only; every application operation rechecks Viewer/Admin capability. The built-in session store and login limiter are single-process development implementations, so multi-instance production remains open until shared stores are supplied.
+
+React now retains one idempotency key for each logical submit, polls only real `PENDING/PROCESSING/COMPLETED/FAILED` state with bounded backoff, reads the completed stored Result by `result_id`, and clears stale Viewer Result data whenever strict availability denies the next read. The reachable core route no longer executes the handoff's fake calculation timer, dummy history, or mock Result service.
+
+Migration 006 is additive and leaves 001–005 unchanged. It locks the selected Base and Comparison model rows at durable Job insertion and rejects unpublished inputs or workbook SHA snapshot drift, closing direct-ID and model-list bypass races.
+
+Still open: shared production session storage/rate limiting, model upload finalization/cleanup, complete field-level `analysis_view` presentation mapping, Evidence delivery, P&L seven-source DTOs, Forecast orchestration, cancel, and real progress/stage.
