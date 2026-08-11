@@ -48,9 +48,16 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
       payload?.error.code || 'TRANSIENT_SYSTEM_ERROR',
       payload?.error.message || '요청을 처리할 수 없습니다.',
       payload?.error.correlation_id || response.headers.get('X-Correlation-ID'),
+      parseRetryAfter(response.headers.get('Retry-After')),
     );
   }
   return response.json() as Promise<T>;
+}
+
+function parseRetryAfter(value: string | null): number | null {
+  if (value === null || !/^\d+$/.test(value)) return null;
+  const seconds = Number(value);
+  return Number.isSafeInteger(seconds) && seconds > 0 ? seconds : null;
 }
 
 export const bffClient = {

@@ -49,9 +49,9 @@ describe('React core vertical slice', () => {
     vi.stubGlobal('fetch', fetchMock);
 
     render(<App />);
-    expect(await screen.findByText('손익분석 로그인')).toBeInTheDocument();
-    fireEvent.change(screen.getByLabelText('접근 코드'), { target: { value: 'admin-code' } });
-    fireEvent.click(screen.getByRole('button', { name: '로그인' }));
+    expect(await screen.findByText('손익 데이터 모니터링')).toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText('Access Code'), { target: { value: 'admin-code' } });
+    fireEvent.click(screen.getByRole('button', { name: '접속' }));
     expect(await screen.findByText('Base / Comparison 분석 실행')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: '분석 실행' }));
     expect(await screen.findByText(/PENDING/)).toBeInTheDocument();

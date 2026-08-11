@@ -72,6 +72,9 @@ export function App() {
           }
         }}>로그아웃</button>
       </div>
+      <div className="nav-right-actions" aria-label="현재 권한">
+        <span className="env-tag">{session.role === 'admin' ? 'ADMIN · 업로드/공개/분석' : 'VIEWER · 공개 결과 조회'}</span>
+      </div>
     </nav>
     <main className="app-content">
       {route === 'pnl' && session.role === 'admin' && <PnlStatusView onNavigateToVariance={() => navigate('variance')} />}

@@ -84,6 +84,7 @@ export class ApiClientError extends Error {
     public readonly code: string,
     message: string,
     public readonly correlationId: string | null = null,
+    public readonly retryAfterSeconds: number | null = null,
   ) {
     super(message);
   }

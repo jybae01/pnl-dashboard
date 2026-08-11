@@ -23,6 +23,64 @@ html, body {
   flex-direction: column;
 }
 
+/* Confirmed Streamlit login character, backed by the HTTP auth adapter. */
+.login-shell {
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  padding: 32px;
+  background:
+    radial-gradient(circle at 16% 18%, rgba(255, 95, 31, 0.16), transparent 34%),
+    radial-gradient(circle at 88% 82%, rgba(100, 116, 139, 0.16), transparent 38%),
+    #fcfbfa;
+}
+
+.login-frame {
+  width: min(860px, 100%);
+  display: grid;
+  grid-template-columns: minmax(250px, 0.9fr) minmax(320px, 1.1fr);
+  border: 1px solid rgba(148, 163, 184, 0.3);
+  border-radius: 24px;
+  overflow: hidden;
+  box-shadow: 0 24px 64px rgba(15, 23, 42, 0.16);
+  background: #ffffff;
+}
+
+.login-brand-card {
+  min-height: 440px;
+  padding: 46px 38px;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  color: #fff;
+  background: linear-gradient(145deg, #080d17 0%, #182334 68%, #293345 100%);
+}
+
+.login-brand-kicker { color: #ff7b45; font-size: 11px; font-weight: 800; letter-spacing: 0.15em; }
+.login-brand-copy { max-width: 250px; margin-top: 12px; color: #cbd5e1; font-size: 14px; line-height: 1.7; }
+.login-card { padding: 54px 48px 44px; display: flex; flex-direction: column; justify-content: center; }
+.login-heading { display: flex; gap: 13px; align-items: flex-start; margin-bottom: 32px; }
+.login-heading-mark { width: 5px; height: 43px; border-radius: 4px; background: #ff5f1f; flex: 0 0 auto; }
+.login-heading h1 { color: #0f172a; font-size: 24px; letter-spacing: -0.04em; }
+.login-heading p { margin-top: 8px; color: #64748b; font-size: 13px; }
+.login-label { margin-bottom: 8px; color: #334155; font-size: 12px; font-weight: 700; }
+.login-input { width: 100%; height: 44px; border: 1px solid #cbd5e1; border-radius: 10px; padding: 0 13px; color: #0f172a; background: #fff; box-shadow: inset 0 1px 2px rgba(15, 23, 42, 0.04); }
+.login-input:focus { outline: 3px solid rgba(255, 95, 31, 0.16); border-color: #ff5f1f; }
+.login-error { margin-top: 12px; padding: 10px 12px; border: 1px solid #fecaca; border-radius: 9px; color: #991b1b; background: #fff7f7; }
+.login-lockout { margin-top: 8px; color: #9a3412; font-variant-numeric: tabular-nums; }
+.login-submit { height: 44px; margin-top: 20px; border: 0; border-radius: 10px; color: #fff; background: #ff5f1f; font-weight: 800; box-shadow: 0 8px 18px rgba(255, 95, 31, 0.24); cursor: pointer; }
+.login-submit:hover:not(:disabled) { background: #ea5010; }
+.login-submit:disabled { cursor: not-allowed; opacity: 0.55; }
+.login-help { margin-top: 20px; color: #94a3b8; font-size: 11px; text-align: center; }
+
+@media (max-width: 680px) {
+  .login-shell { padding: 18px; }
+  .login-frame { grid-template-columns: 1fr; }
+  .login-brand-card { min-height: 160px; padding: 28px; }
+  .login-brand-copy { display: none; }
+  .login-card { padding: 36px 28px; }
+}
+
 /* Tabular Numbers for all financial metrics */
 .tabular-nums,
 .num-cell,
