@@ -154,6 +154,34 @@ class ViewerResultResponse:
 
 
 @dataclass(frozen=True)
+class CalculationHistoryItem:
+    job_id: str
+    result_id: str | None
+    status: str
+    baseline_model_id: str
+    baseline_model_name: str
+    comparison_model_id: str
+    comparison_model_name: str
+    start_month: int | None
+    end_month: int | None
+    attempt: int
+    max_attempts: int
+    created_at: str
+    completed_at: str | None
+    error_code: str | None
+    error_message: str | None
+    is_published: bool
+
+
+@dataclass(frozen=True)
+class CalculationHistoryResponse:
+    items: tuple[CalculationHistoryItem, ...]
+    next_before_created_at: str | None
+    next_before_job_id: str | None
+    dto_version: str = "1"
+
+
+@dataclass(frozen=True)
 class SessionTicket:
     """Internal transport handoff; place session_id only in a secure cookie."""
 

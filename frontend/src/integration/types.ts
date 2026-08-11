@@ -100,6 +100,32 @@ export interface StoredResultDto {
   dto_version: '1';
 }
 
+export interface CalculationHistoryItemDto {
+  job_id: string;
+  result_id: string | null;
+  status: JobStatus;
+  baseline_model_id: string;
+  baseline_model_name: string;
+  comparison_model_id: string;
+  comparison_model_name: string;
+  start_month: number | null;
+  end_month: number | null;
+  attempt: number;
+  max_attempts: number;
+  created_at: string;
+  completed_at: string | null;
+  error_code: string | null;
+  error_message: string | null;
+  is_published: boolean;
+}
+
+export interface CalculationHistoryDto {
+  items: CalculationHistoryItemDto[];
+  next_before_created_at: string | null;
+  next_before_job_id: string | null;
+  dto_version: '1';
+}
+
 export interface ApiErrorDto {
   error: {
     code: string;

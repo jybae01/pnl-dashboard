@@ -3,6 +3,10 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
+import tempfile
+from pathlib import Path
+from io import BytesIO
+from openpyxl import Workbook, load_workbook
 
 import pytest
 from fastapi.testclient import TestClient
@@ -21,6 +25,8 @@ from forecast.bff.gateway import (
     SubmissionRecord,
 )
 from forecast.bff.http import HttpBffSettings, InMemoryLoginRateLimiter, create_http_bff
+from forecast.bff.evidence_history import EvidenceArtifact
+from forecast.analysis_export import MIME_XLSX
 from forecast.provenance import ResultProvenance
 
 
@@ -125,6 +131,8 @@ def make_fixture(*, limiter=None, clock=None) -> Fixture:
         JobQueryService(sessions, gateway),
         ResultQueryService(sessions, gateway, supported_result_schema_versions=("1",)),
         AnalysisModelListService(sessions, repository),
+        evidence=FakeEvidence(),
+        history=FakeHistory(),
     )
     app = create_http_bff(
         app_service,
@@ -132,6 +140,40 @@ def make_fixture(*, limiter=None, clock=None) -> Fixture:
         rate_limiter=limiter,
     )
     return Fixture(TestClient(app), gateway)
+
+
+class FakeEvidence:
+    last_root = None
+    def admin_download(self, _session, result_id):
+        return self._artifact(result_id)
+
+    def viewer_download(self, _session, result_id):
+        return self._artifact(result_id)
+
+    @staticmethod
+    def _artifact(result_id):
+        root = Path(tempfile.mkdtemp(prefix="test-evidence-"))
+        FakeEvidence.last_root = root
+        path = root / "evidence.xlsx"
+        workbook = Workbook()
+        workbook.active["A1"] = result_id
+        workbook.save(path)
+        return EvidenceArtifact(path, f"손익분석_근거_{result_id[:8]}.xlsx", MIME_XLSX, root)
+
+
+class FakeHistory:
+    def list_admin(self, _session, **_kwargs):
+        return {
+            "items": [{
+                "job_id": JOB, "result_id": RESULT, "status": "COMPLETED",
+                "baseline_model_id": BASE, "baseline_model_name": "Base",
+                "comparison_model_id": COMP, "comparison_model_name": "Comparison",
+                "start_month": 1, "end_month": 6, "attempt": 1, "max_attempts": 3,
+                "created_at": "2026-08-11T00:00:00Z", "completed_at": "2026-08-11T00:01:00Z",
+                "error_code": None, "error_message": None, "is_published": False,
+            }],
+            "next_before_created_at": None, "next_before_job_id": None, "dto_version": "1",
+        }
 
 
 @pytest.mark.parametrize("code,role", [("viewer-code", "viewer"), ("admin-code", "admin")])
@@ -245,3 +287,25 @@ def make_application_only():
         sessions, AnalysisSubmissionService(sessions, gateway, PROVENANCE),
         JobQueryService(sessions, gateway), ResultQueryService(sessions, gateway, supported_result_schema_versions=("1",)),
     )
+
+
+def test_evidence_http_streams_xlsx_and_history_is_admin_only():
+    admin = make_fixture(); admin.login()
+    evidence = admin.client.get(f"/api/admin/results/{RESULT}/evidence")
+    assert evidence.status_code == 200
+    assert evidence.headers["content-type"].startswith(
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    )
+    assert "attachment" in evidence.headers["content-disposition"]
+    assert evidence.content.startswith(b"PK")
+    assert load_workbook(BytesIO(evidence.content)).active["A1"].value == RESULT
+    assert FakeEvidence.last_root is not None and not FakeEvidence.last_root.exists()
+    history = admin.client.get("/api/admin/calculation-history?limit=20")
+    assert history.status_code == 200
+    assert history.json()["items"][0]["result_id"] == RESULT
+    assert "claim_token" not in history.text and "queue_message_id" not in history.text
+
+    viewer = make_fixture(); viewer.login("viewer-code")
+    assert viewer.client.get("/api/admin/calculation-history").status_code == 403
+    assert viewer.client.get(f"/api/admin/results/{RESULT}/evidence").status_code == 403
+    assert viewer.client.get(f"/api/viewer/results/{RESULT}/evidence").status_code == 200

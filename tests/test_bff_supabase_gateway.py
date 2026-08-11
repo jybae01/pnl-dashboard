@@ -101,6 +101,9 @@ def test_by_id_reads_use_distinct_admin_and_viewer_rpcs():
     client.responses["get_calculation_job_status_by_id"] = []
     client.responses["get_calculation_result_admin_preview_by_id"] = []
     client.responses["get_available_calculation_result_by_id"] = []
+    client.responses["get_calculation_result_evidence_admin_by_id"] = []
+    client.responses["get_calculation_result_evidence_viewer_by_id"] = []
+    client.responses["list_calculation_history_admin"] = []
     gateway = SupabaseBffApplicationGateway(client)
 
     assert gateway.get_job_status("job") is None
@@ -108,10 +111,22 @@ def test_by_id_reads_use_distinct_admin_and_viewer_rpcs():
     assert gateway.get_viewer_result(
         "result", supported_result_schema_versions=("1",)
     ) is None
+    assert gateway.get_admin_evidence_payload(
+        "result", supported_result_schema_versions=("1",)
+    ) is None
+    assert gateway.get_viewer_evidence_payload(
+        "result", supported_result_schema_versions=("1",)
+    ) is None
+    assert gateway.list_calculation_history(
+        limit=25, before_created_at=None, before_job_id=None
+    ) == []
     assert [name for name, _params in client.calls] == [
         "get_calculation_job_status_by_id",
         "get_calculation_result_admin_preview_by_id",
         "get_available_calculation_result_by_id",
+        "get_calculation_result_evidence_admin_by_id",
+        "get_calculation_result_evidence_viewer_by_id",
+        "list_calculation_history_admin",
     ]
 
 

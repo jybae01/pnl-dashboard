@@ -12,10 +12,11 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Annotated, Protocol
 
-from fastapi import Cookie, Depends, FastAPI, File, Form, Header, Request, Response, UploadFile
+from fastapi import Cookie, Depends, FastAPI, File, Form, Header, Query, Request, Response, UploadFile
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import FileResponse, JSONResponse
+from starlette.background import BackgroundTask
 from pydantic import BaseModel, ConfigDict, Field, StrictBool, StrictFloat, StrictInt, StrictStr
 
 from .application import TrustedBffApplication
@@ -376,6 +377,46 @@ def create_http_bff(
     def viewer_result(result_id: str, value: str = Depends(viewer_session)):
         return application.results.viewer_read(value, result_id)
 
+    @app.get("/api/admin/results/{result_id}/evidence")
+    def admin_evidence(result_id: str, value: str = Depends(admin_session)):
+        if application.evidence is None:
+            raise BffError(ApiErrorCode.TRANSIENT_SYSTEM_ERROR, "Evidence capability is not configured")
+        artifact = application.evidence.admin_download(value, result_id)
+        return FileResponse(
+            artifact.path,
+            media_type=artifact.media_type,
+            filename=artifact.filename,
+            background=BackgroundTask(artifact.cleanup),
+        )
+
+    @app.get("/api/viewer/results/{result_id}/evidence")
+    def viewer_evidence(result_id: str, value: str = Depends(viewer_session)):
+        if application.evidence is None:
+            raise BffError(ApiErrorCode.TRANSIENT_SYSTEM_ERROR, "Evidence capability is not configured")
+        artifact = application.evidence.viewer_download(value, result_id)
+        return FileResponse(
+            artifact.path,
+            media_type=artifact.media_type,
+            filename=artifact.filename,
+            background=BackgroundTask(artifact.cleanup),
+        )
+
+    @app.get("/api/admin/calculation-history")
+    def calculation_history(
+        limit: Annotated[int, Query(ge=1, le=50)] = 25,
+        before_created_at: str | None = None,
+        before_job_id: str | None = None,
+        value: str = Depends(admin_session),
+    ):
+        if application.history is None:
+            raise BffError(ApiErrorCode.TRANSIENT_SYSTEM_ERROR, "History capability is not configured")
+        return application.history.list_admin(
+            value,
+            limit=limit,
+            before_created_at=before_created_at,
+            before_job_id=before_job_id,
+        )
+
     return app
 
 
@@ -436,6 +477,7 @@ def _status_for(code: ApiErrorCode) -> int:
         ApiErrorCode.RESULT_NOT_AVAILABLE: 404,
         ApiErrorCode.INPUT_INTEGRITY_MISMATCH: 409,
         ApiErrorCode.INGESTION_CLEANUP_REQUIRED: 500,
+        ApiErrorCode.EVIDENCE_GENERATION_FAILED: 500,
         ApiErrorCode.TRANSIENT_SYSTEM_ERROR: 503,
     }[code]
 

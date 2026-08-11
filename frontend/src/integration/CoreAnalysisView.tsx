@@ -9,6 +9,7 @@ import {
   SubmitRequest,
   ViewerState,
 } from './types';
+import { EvidenceDownloadButton } from './EvidenceDownloadButton';
 
 type FormState = Omit<SubmitRequest, 'idempotency_key'>;
 
@@ -191,7 +192,8 @@ export function CoreAnalysisView({ role, modelRefreshKey = 0 }: { role: Role; mo
             onChange={(event) => setResultId(event.target.value)} placeholder="Result ID" />
           <button className="btn btn-primary">조회</button>
         </form>
-        <ResultState state={viewerState} error={error} result={result} />
+        <ResultState state={viewerState} error={error} result={result} role={role}
+          onUnavailable={() => { setResult(null); setViewerState('EMPTY'); setError(null); }} />
       </section>
     );
   }
@@ -220,8 +222,11 @@ export function CoreAnalysisView({ role, modelRefreshKey = 0 }: { role: Role; mo
       {error && viewerState !== 'ERROR' && viewerState !== 'INVALID_PAYLOAD' && <div role="alert" style={{ color: '#b91c1c', marginTop: 10 }}>{error}</div>}
       {job && <div className="card" data-testid="job-status" style={{ padding: 14, marginTop: 12 }}>
         <strong>{job.status}</strong> · attempt {job.attempt}/{job.max_attempts || '-'} · Job {job.job_id}
+        {job.status === 'COMPLETED' && job.result_id && viewerState === 'READY' && result?.result_id === job.result_id && <div style={{ marginTop: 10 }}>
+          <EvidenceDownloadButton resultId={job.result_id} role="admin" />
+        </div>}
       </div>}
-      <ResultState state={viewerState} error={error} result={result} />
+      <ResultState state={viewerState} error={error} result={result} role={role} />
     </section>
   );
 }
@@ -236,7 +241,9 @@ function NumberInput({ label, value, onChange }: { label: string; value: number;
   return <label><span className="filter-label">{label}</span><input className="filter-select" style={{ width: '100%' }} type="number" value={value} onChange={(event) => onChange(Number(event.target.value))} /></label>;
 }
 
-function ResultState({ state, error, result }: { state: ViewerState; error: string | null; result: StoredResultDto | null }) {
+function ResultState({ state, error, result, role, onUnavailable }: {
+  state: ViewerState; error: string | null; result: StoredResultDto | null; role: Role; onUnavailable?: () => void;
+}) {
   if (state === 'LOADING') return <div role="status" className="card" style={{ padding: 18, marginTop: 12 }}>불러오는 중…</div>;
   if (state === 'ERROR') return <div role="alert" className="card" style={{ padding: 18, marginTop: 12, color: '#b91c1c' }}>{error || '결과 조회 오류'}</div>;
   if (state === 'INVALID_PAYLOAD') return <div role="alert" className="card" style={{ padding: 18, marginTop: 12, color: '#b45309' }}>{error || '결과 계약이 올바르지 않습니다.'}</div>;
@@ -244,6 +251,7 @@ function ResultState({ state, error, result }: { state: ViewerState; error: stri
   return <article className="card" data-testid="stored-result" style={{ padding: 18, marginTop: 12 }}>
     <h2 style={{ fontSize: 16 }}>Stored Result</h2>
     <div>Result {result.result_id} · Job {result.job_id}</div>
+    <div style={{ marginTop: 10 }}><EvidenceDownloadButton resultId={result.result_id} role={role} onUnavailable={onUnavailable} /></div>
     <pre style={{ whiteSpace: 'pre-wrap', overflowWrap: 'anywhere', background: '#f8fafc', padding: 12 }}>{JSON.stringify(result.analysis_view, null, 2)}</pre>
   </article>;
 }

@@ -2,6 +2,7 @@ import { ChangeEvent, FormEvent, useCallback, useEffect, useState } from 'react'
 import { ApiClientError, AdminModelDto } from './types';
 import { bffClient } from './client';
 import { CoreAnalysisView } from './CoreAnalysisView';
+import { CalculationHistoryView } from './CalculationHistoryView';
 
 type UploadState = 'IDLE' | 'SELECTED' | 'VALIDATING' | 'UPLOADING' | 'SUCCESS' | 'VALIDATION_ERROR' | 'ERROR';
 const MAX_BYTES = 50 * 1024 * 1024;
@@ -144,6 +145,7 @@ export function ModelManagementView() {
     </section>
 
     <CoreAnalysisView role="admin" modelRefreshKey={analysisRefreshKey} />
+    <CalculationHistoryView />
   </div>;
 }
 

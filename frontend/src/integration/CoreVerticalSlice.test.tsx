@@ -55,6 +55,7 @@ describe('React core vertical slice', () => {
     expect(await screen.findByText('Base / Comparison 분석 실행')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: '분석 실행' }));
     expect(await screen.findByTestId('stored-result', {}, { timeout: 3500 })).toHaveTextContent('PASS');
+    expect(screen.getAllByRole('button', { name: '분석 근거 엑셀 내려받기' })).toHaveLength(2);
     expect(calls.some((value) => value.includes(`/api/jobs/${JOB}`))).toBe(true);
     expect(calls.some((value) => value.includes(`/api/admin/results/${RESULT}`))).toBe(true);
     const submitCall = fetchMock.mock.calls.find((value) => String(value[0]).endsWith('/api/analyses'));

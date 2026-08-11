@@ -79,6 +79,20 @@ class BffApplicationGateway(Protocol):
         supported_result_schema_versions: Sequence[str],
     ) -> bool: ...
 
+    def get_admin_evidence_payload(
+        self, result_id: str, *, supported_result_schema_versions: Sequence[str]
+    ) -> Mapping[str, Any] | None: ...
+
+    def get_viewer_evidence_payload(
+        self, result_id: str, *, supported_result_schema_versions: Sequence[str]
+    ) -> Mapping[str, Any] | None: ...
+
+    def list_calculation_history(
+        self, *, limit: int, before_created_at: str | None, before_job_id: str | None
+    ) -> list[Mapping[str, Any]]: ...
+
+    def download_model_source(self, bucket: str, path: str) -> bytes: ...
+
 
 def _data(response: Any) -> Any:
     if hasattr(response, "data"):
@@ -192,6 +206,43 @@ class SupabaseBffApplicationGateway:
                 raise GatewayTransientError("availability RPC returned an invalid shape")
             value = next(iter(value.values()))
         return bool(value)
+
+    def get_admin_evidence_payload(
+        self, result_id: str, *, supported_result_schema_versions: Sequence[str]
+    ) -> Mapping[str, Any] | None:
+        return self._read("get_calculation_result_evidence_admin_by_id", {
+            "p_result_id": result_id,
+            "p_supported_result_schema_versions": list(supported_result_schema_versions),
+        })
+
+    def get_viewer_evidence_payload(
+        self, result_id: str, *, supported_result_schema_versions: Sequence[str]
+    ) -> Mapping[str, Any] | None:
+        return self._read("get_calculation_result_evidence_viewer_by_id", {
+            "p_result_id": result_id,
+            "p_supported_result_schema_versions": list(supported_result_schema_versions),
+        })
+
+    def list_calculation_history(
+        self, *, limit: int, before_created_at: str | None, before_job_id: str | None
+    ) -> list[Mapping[str, Any]]:
+        try:
+            value = _data(self._client.rpc("list_calculation_history_admin", {
+                "p_limit": limit,
+                "p_before_created_at": before_created_at,
+                "p_before_job_id": before_job_id,
+            }).execute())
+        except Exception as exc:
+            raise GatewayTransientError("history RPC failed") from exc
+        if not isinstance(value, list):
+            raise GatewayTransientError("history RPC returned an invalid shape")
+        return [dict(row) for row in value]
+
+    def download_model_source(self, bucket: str, path: str) -> bytes:
+        try:
+            return bytes(self._client.storage.from_(bucket).download(path))
+        except Exception as exc:
+            raise GatewayTransientError("model source download failed") from exc
 
     def _read(self, name: str, params: Mapping[str, Any]) -> Mapping[str, Any] | None:
         try:

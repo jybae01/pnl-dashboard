@@ -95,6 +95,6 @@ describe('model ingestion vertical slice', () => {
       target: { files: [new File(['csv'], 'bad.csv')] },
     });
     fireEvent.click(screen.getByRole('button', { name: '모형 등록' }));
-    expect(await screen.findByRole('alert')).toHaveTextContent('.xlsx 파일만 등록할 수 있습니다.');
+    expect(await screen.findByText('.xlsx 파일만 등록할 수 있습니다.')).toHaveAttribute('role', 'alert');
   });
 });

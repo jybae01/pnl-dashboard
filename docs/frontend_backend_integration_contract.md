@@ -566,3 +566,11 @@ Migration 007 adds actor/key/metadata/SHA idempotency reservations, canonical dr
 Admin management and analysis selection use separate DTOs. Management can show unpublished or legacy unresolved Models without exposing paths; analysis options remain published-only with workbook SHA provenance. The reachable React management route uses the real multipart adapter and explicit upload states; the handoff's `setTimeout` upload component remains isolated from `App` and is not canonical.
 
 Still open after this slice: shared production session storage and rate limiting; production proxy/body/temp-volume and workbook-parser isolation budgets; live Storage/DB migration validation; user archive/delete; Evidence delivery; full `analysis_view` mapping; P&L seven-source DTOs; Forecast orchestration; cancel; and real progress/stage. Cleanup recovery is an operator RPC, not a browser delete capability.
+
+## Evidence + History vertical-slice overlay
+
+Evidence delivery and Admin Calculation History are resolved by additive Migration 008 and `forecast.bff.evidence_history`. Evidence is identified by `result_id`, generated on demand from the stored `comparison_result` plus the exact pinned Base/Comparison source bytes, and never invokes the comparison engine. Admin may download a completed unpublished Result after provenance/source checks; Viewer delivery is gated by the same strict current availability predicate as Viewer Result read. The HTTP adapter streams a temporary XLSX with cleanup and the React adapter exposes the exact `분석 근거 엑셀 내려받기` action only for completed/READY results.
+
+Admin History uses a narrow safe DTO and bounded keyset pagination ordered by `(created_at DESC, job_id DESC)`. Pending, processing, failed, and completed-without-result rows never receive a fabricated `result_id`; only a completed row with a stored Result exposes the Evidence action. Browser DTOs omit claim, lease, queue receipt, Storage path, and raw worker/database errors.
+
+Still open after this overlay: shared production session storage/rate limiting, production temp-volume quotas, explicit access-code actor attribution for read/download audit events, live Migration 008/Storage validation, full `analysis_view` presentation, P&L seven-source DTOs, Forecast orchestration, cancel, and real progress/stage.

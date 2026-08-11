@@ -100,6 +100,16 @@ def _write_readme(ws, result: dict[str, Any], baseline_fx: float, comparison_fx:
         ("잔여차이", result.get("residual", 0)),
         ("정합성", "PASS" if result.get("reconciled") else "CHECK"),
     ]
+    evidence = result.get("evidence_provenance", {})
+    if isinstance(evidence, dict):
+        rows.extend(
+            (
+                f"Provenance: {key}",
+                json.dumps(value, ensure_ascii=False, sort_keys=True)
+                if isinstance(value, (dict, list)) else value,
+            )
+            for key, value in evidence.items()
+        )
     start = 4
     for index, (label, value) in enumerate(rows, start):
         ws.cell(index, 1, label).font = _BOLD
@@ -515,3 +525,16 @@ def build_comparison_audit_workbook(
     ):
         raise ValueError("판매효과 검증 수식이 생성되지 않았습니다.")
     return payload
+
+
+def write_comparison_audit_workbook(
+    output_path: str | Path,
+    **kwargs: Any,
+) -> None:
+    """Write the existing bounded in-memory exporter payload to a temp artifact.
+
+    The exporter itself is intentionally unchanged: this adapter prevents the
+    HTTP layer from making another full workbook copy and enables FileResponse
+    streaming plus deterministic cleanup.
+    """
+    Path(output_path).write_bytes(build_comparison_audit_workbook(**kwargs))

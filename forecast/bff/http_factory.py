@@ -46,6 +46,7 @@ def create_http_bff_from_environment(
         provenance=provenance,
         model_repository=bundle.models,
         model_mapping=json.loads((root / "config" / "model_mapping.json").read_text(encoding="utf-8")),
+        mapping_path=str(root / "config" / "model_mapping.json"),
         session_ttl_seconds=int(os.getenv("BFF_SESSION_TTL_SECONDS", "28800")),
     )
     environment = os.getenv("BFF_ENVIRONMENT", "development").strip().lower()

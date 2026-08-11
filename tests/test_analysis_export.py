@@ -96,6 +96,10 @@ def test_build_comparison_audit_workbook(monkeypatch, tmp_path):
             "bridge_position": "판매효과",
         }],
     }
+    result["evidence_provenance"] = {
+        "result_id": "44444444-4444-4444-8444-444444444444",
+        "analysis_request": {"start_month": 1, "end_month": 1},
+    }
     sales_input = [{
         "product_group": "SW",
         "baseline_quantity": 100,
@@ -144,6 +148,9 @@ def test_build_comparison_audit_workbook(monkeypatch, tmp_path):
     }
     assert {"E9", "E205", "E211", "E684", "E699", "E289", "E319", "E345", "E347"} <= trace_cells
     assert workbook["README"]["B15"].value == "PASS"
+    assert "44444444-4444-4444-8444-444444444444" in {
+        cell.value for row in workbook["README"].iter_rows() for cell in row
+    }
     material_text = " ".join(
         str(cell.value or "") for row in workbook["원부재료_검증"].iter_rows() for cell in row
     )

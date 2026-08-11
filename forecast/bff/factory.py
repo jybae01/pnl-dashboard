@@ -13,6 +13,7 @@ from .application import (
 from .auth import AccessCodeSessionService
 from ..preflight import ExcelPreflightValidator
 from .gateway import SupabaseBffApplicationGateway, SupabaseModelIngestionGateway
+from .evidence_history import CalculationHistoryService, EvidenceDeliveryService
 from .model_ingestion import (
     ModelIngestionService,
     ModelManagementService,
@@ -32,6 +33,7 @@ def create_supabase_bff_application(
     max_attempts: int = 3,
     model_repository: Any | None = None,
     model_mapping: Mapping[str, Any] | None = None,
+    mapping_path: str | None = None,
 ) -> TrustedBffApplication:
     """Compose the server-only BFF boundary from explicit trusted inputs.
 
@@ -87,4 +89,15 @@ def create_supabase_bff_application(
             ModelPublicationService(sessions, model_repository, ingestion_gateway)
             if model_capabilities else None
         ),
+        evidence=(
+            EvidenceDeliveryService(
+                sessions,
+                gateway,
+                provenance,
+                mapping_path=mapping_path,
+                supported_result_schema_versions=versions,
+            )
+            if mapping_path else None
+        ),
+        history=CalculationHistoryService(sessions, gateway),
     )
