@@ -19,7 +19,7 @@ EFFECT_CODES = {
 
 
 class PnlDashboardService:
-    """Read the strict current default-or-latest worker-persisted snapshot."""
+    """Read the strict published default Result/default Comparison snapshot."""
 
     def __init__(
         self,
