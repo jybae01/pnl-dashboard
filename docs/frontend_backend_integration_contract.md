@@ -1,6 +1,6 @@
 # Frontend–Backend Integration Contract (T01/T02)
 
-Status: documentation-only contract. No frontend, API, migration, worker, engine, or deployment change is included.
+Status: `T01 PASS`; `T02 CONTRACT BASELINE PASS`. Migration 005 and the framework-neutral Python application boundary now implement the five BFF-foundation decisions below. This is not `REACT INTEGRATION READY`; no frontend, HTTP adapter, worker calculation, engine, or deployment change is included.
 
 Evidence notation uses paths relative to the backend repository or to the root of the read-only frontend ZIP. `READY` means the complete browser-to-source contract already exists; a useful backend primitive alone is not enough.
 
@@ -184,7 +184,7 @@ Abbreviations: L/E/Err = loading/empty/error. `TS` = trusted server/BFF. Evidenc
 | P&L | same | `getSgaBreakdown` | filter | `SgaBreakdownItem[]` | account/month/YTD SGA | one comparison's `analysis_view.sga` | no P&L endpoint | accounts/effects | transport Bridge remains non-duplicated | Viewer | JSON | L/E/Err separate | totals match backend facts | FE `service.ts:27`; BE `analysis_view.py:205-222` | P&L source | `BACKEND_GAP` |
 | P&L | same | `getItemSegmentPnl` | filter | `ProductSegmentPnl[]` | product P&L, PCS/LENGTH | comparison products are not this VM | none | partial `comparison_result.products` | preserve unit basis; no mixed total | Viewer | JSON | L/E/Err separate | SW/BW/LC PCS; FS LENGTH | FE `service.ts:28`; BE `config/analysis_v1.json:5-11` | product-segment source | `BACKEND_GAP` |
 | P&L | same | `getKeyNotes` | filter | `KeyVarianceNote[]` | curated notes | fact pack/narrative are analysis-specific | none | `fact_pack`, summary narrative | server-owned narrative; label AI vs deterministic | Viewer | JSON | L/E/Err separate | no invented facts | FE `service.ts:29`; BE `ai_analysis.py:116-328` | approval/source policy | `BACKEND_GAP` |
-| Analysis | `VarianceAnalysisView` | `getVarianceAnalysis` | current filter lacks model/result ID | `VarianceAnalysisResult` | published result by stable ID | published Result JSONB | current `get_published_calculation_result()` returns latest only | `analysis_view` + provenance | frontend adapter maps fields; canonical remains unchanged | Viewer | React→TS→RPC | L spinner; E no available result; Err/invalid separate | mapping fixture validates every field/unit | FE `VarianceAnalysisView.tsx:25-57`; BE `004:738-775` | result URL/by-ID RPC | `ADAPTER_NEEDED` |
+| Analysis | `VarianceAnalysisView` | `getVarianceAnalysis` | current filter lacks model/result ID | `VarianceAnalysisResult` | published result by stable ID | published Result JSONB | Migration 005 available-result by-ID RPC + `ResultQueryService.viewer_read` | `ViewerResultResponse` (`analysis_view` + provenance) | frontend adapter maps fields; canonical remains unchanged | Viewer | React→HTTP adapter→BFF→RPC | L spinner; E no available result; Err/invalid separate | mapping fixture validates every field/unit | FE `VarianceAnalysisView.tsx:25-57`; BE `forecast/bff/application.py`, `005` | HTTP route and frontend adapter | `ADAPTER_NEEDED` |
 | Analysis | effect table | `getEffectDrilldown` | effect ID + filter | `DrilldownDetailRow[]` | stored analysis rows | `analysis_view` sales/material/mfg/SGA | same Viewer capability | nested rows/accounts | map canonical code→display; no recalculation | Viewer | JSON | L per drilldown; E empty rows; Err explicit | source rows retained | FE `service.ts:32-35`; BE `analysis_view.py:30-222` | canonical effect-code map | `ADAPTER_NEEDED` |
 | Models | App/Data Mgmt | `getModels` | `ModelFilterState` | `DataModelItem[]` | role-scoped model list | `models` | `ModelRepository.list` | `ModelMeta`/row | map names, dates, publication, hash; derive eligibility server-side | Viewer published; Admin broader | React→TS | L; E zero rows; Err explicit | Viewer never receives drafts | FE `service.ts:38`; BE `contracts.py:94-116`, `supabase.py:129-161` | model-list policy | `ADAPTER_NEEDED` |
 | Models | detail modal | `getModelById` | model ID | `DataModelItem|null` | one allowed model | `models` | `ModelRepository.get` | `ModelMeta` | same as list | Viewer/Admin | JSON | L; E 404/not available; Err explicit | no IDOR | FE `service.ts:39`; BE `supabase.py:133-139` | URL/visibility | `ADAPTER_NEEDED` |
@@ -192,15 +192,15 @@ Abbreviations: L/E/Err = loading/empty/error. `TS` = trusted server/BFF. Evidenc
 | Models | future admin action | `updateModelStatus(PUBLISHED/DRAFT)` | ID/status | bool/Model VM | publication/default metadata | `models` | `set_model_publication` | `ModelMeta` | server rechecks Admin; default implies published | Admin | React→TS→RPC | L disable; E 404; Err explicit | Viewer visibility changes immediately | FE `service.ts:41`; BE `supabase.py:229-245` | unpublish/default UX | `ADAPTER_NEEDED` |
 | Models | same interface | `updateModelStatus(ARCHIVED)` | ID/ARCHIVED | bool | archive policy/state | no archive state | none | none | cannot map to delete/unpublish implicitly | Admin | n/a | explicit unavailable | archive semantics tests | FE `service.ts:41`; DB `001:27-60` | archive definition | `BACKEND_GAP` |
 | Models | table | `deleteModels` | IDs | bool | safe delete/archive semantics | FKs restrict used models; no narrow delete | none | none | never map mock deletion to DB delete | Admin | n/a | confirmation; failure explicit | referenced model cannot disappear | FE `service.ts:42`, `DataManagementView.tsx:166-183`; DB `001:84,128-130` | delete vs archive/retention | `BACKEND_GAP` |
-| Calculation | runner | `startJob` | IDs only today | `CalculationJob` | canonical submit + retry-safe key | Job/RPC exists; idempotency unused | `create_durable_calculation_job` | `CalculationJob` row | map start/end→months; FX; never publish | Admin | React→TS→RPC | L submitting; E n/a; Err taxonomy | timeout retry returns same job | FE `service.ts:46`; BE `004:478-560`, DB key `001:104` | idempotency contract missing | `BACKEND_GAP` |
+| Calculation | runner | `startJob` | IDs only today | `CalculationJob` | canonical submit + retry-safe key | actor/key/fingerprint Job contract | Migration 005 idempotent create + `AnalysisSubmissionService` | `AnalysisSubmitRequest/Response` | server validates and pins months/FX/release; never publish | Admin | React→HTTP adapter→BFF→RPC | L submitting; E n/a; Err taxonomy | timeout retry returns same job; collision conflicts | FE `service.ts:46`; BE `forecast/bff/application.py`, `005` | HTTP/frontend adapter | `ADAPTER_NEEDED` |
 | Calculation | runner/poll | `getJobStatus` | job ID | `CalculationJob|null` | status/attempt/timestamps/error/result ID | `calculation_jobs` + result link | no shaped BFF/repository read method | Job row + optional result ID | omit fake percent/stages | submitting Admin; Viewer only if policy allows result | React→TS polling | L poll; E 404; Err retry | PENDING/PROCESSING/COMPLETED/FAILED exact | FE `service.ts:47`; BE `contracts.py:21-52` | who may poll and retention | `ADAPTER_NEEDED` |
 | Calculation | runner | `cancelJob` | job ID | bool | atomic durable cancellation | none | none | none | do not map to local `IDLE` | Admin | n/a | show unsupported/NOT_V1 | race tests required if added | FE `service.ts:48`, mock `calculationService.ts:42-48`; no BE RPC | `NOT_V1` vs future cancel | `BACKEND_GAP` |
 | Evidence | runner/analysis/history | `downloadAnalysisWorkbook` | optional job ID | bool | Evidence bytes/artifact for exact Result | generator exists, durable delivery does not | `build_comparison_audit_workbook` | XLSX bytes | identify by result; generate server-side or reuse artifact | authorized Viewer for available result; Admin diagnostics | React→TS stream or private signed download | preparing/empty/error explicit | workbook binds job/result/provenance | FE `service.ts:49`; BE `analysis_export.py:468-499`, `analysis_export_hook.py:37-95` | on-demand vs Storage/reuse | `BACKEND_GAP` |
 | History | `CalculationHistoryTable` | list history | none | `CalculationHistoryRecord[]` | jobs/results scoped by role | tables contain data | no narrow list RPC/BFF | rows | map IDs/status/provenance, not display text as identity | Admin; Viewer published history only if approved | React→TS | L/E/Err separate | no unpublished leak | FE `CalculationHistoryTable.tsx:4-61`; DB `001:82-151` | retention/filter/scope | `ADAPTER_NEEDED` |
 | Template | upload area | template download | none | binary | approved template artifact | none | none | none | no dummy file | Admin | n/a | preparing/error | hash/version response | FE `ModelUploadArea.tsx:93-100` | owner/version/storage | `BACKEND_GAP` |
 | Forecast | placeholder | Forecast workflow | not defined | not defined | assumptions, generated workbook/model | engine + Streamlit workflow exist | no React/BFF orchestration | `ForecastInput/Result` | reuse engine server-side; never port formulas | Admin | React→TS | full workflow states | parity fixture with Streamlit | FE `ForecastGenerationView.tsx:43-86`; BE `engine.py:26-117`, `app.py:322-1105` | scope/API/artifact lifecycle | `BACKEND_GAP` |
-| Viewer availability | result route | `validate_result_availability` (required) | result ID | availability DTO | exact result eligibility | predicates exist for latest result | current RPC has no ID parameter | reason internally, generic unavailable externally | DB is source; no stale fallback | Viewer/Admin | React→TS→RPC | L/READY/EMPTY/ERROR/INVALID | unpublish/republish matrix | BE `004:738-775` | add by-ID capability | `BACKEND_GAP` |
-| Auth | app shell | login/session/logout | access code | session role | server session and expiry | Streamlit only | no React/BFF endpoints | no DTO | HttpOnly server session; no code/secret in client state | Viewer/Admin | HTTPS same-origin | submitting/invalid/expired | role forged in browser still denied | FE package no auth; BE `app.py:64-95` | session store/expiry/reauth | `BACKEND_GAP` |
+| Viewer availability | result route | `validate_result_availability` | result ID | availability DTO | exact result eligibility | Migration 005 by-ID predicate | `ResultQueryService.validate_result_availability` + RPC | Boolean application capability | DB is source; no stale fallback | Viewer/Admin | React→HTTP adapter→BFF→RPC | L/READY/EMPTY/ERROR/INVALID | unpublish/republish matrix | BE `forecast/bff/application.py`, `005` | HTTP/frontend adapter | `ADAPTER_NEEDED` |
+| Auth | app shell | login/session/logout | access code | session role | server session and expiry | `AccessCodeSessionService` | `TrustedBffApplication.login/validate_session/logout` | `SessionResponse`; token is internal cookie handoff | HttpOnly server session; no code/secret in client state | Viewer/Admin | HTTPS same-origin HTTP adapter | submitting/invalid/expired | forged role denied; expiry/logout verified | FE package no auth; BE `forecast/bff/auth.py`, `application.py` | cookie/CSRF/rate-limit transport | `ADAPTER_NEEDED` |
 
 ## 5. READY / ADAPTER_NEEDED / BACKEND_GAP
 
@@ -214,7 +214,15 @@ Model list/detail/upload/publication, Job status polling, published analysis map
 
 ### BACKEND_GAP
 
-Production-safe idempotent submit, durable cancel, durable progress/stage, stable result-by-ID availability/read, React auth/session endpoints, archive/delete policy, complete P&L seven-block sources, template artifact, Forecast BFF orchestration, and an authorized durable/on-demand Evidence delivery capability are absent. The retired signed-upload saga is also not a valid Phase 2.5 path.
+Durable cancel, durable progress/stage, the later HTTP/cookie adapter, archive/delete policy, complete P&L seven-block sources, template artifact, Forecast BFF orchestration, and an authorized durable/on-demand Evidence delivery capability remain absent. Actor-scoped idempotent submit, narrow Admin Job by-ID, separate Admin/Viewer Result by-ID, and DB-authoritative by-ID availability are resolved by Migration 005 and `forecast/bff`. The retired signed-upload saga is still not a valid Phase 2.5 path.
+
+### BFF foundation resolution overlay
+
+- Session/auth: `AccessCodeSessionService` performs server-only digest comparison, unpredictable opaque sessions stored by digest, expiry, logout invalidation, and `require_viewer`/`require_admin` (`forecast/bff/auth.py`). The single V1 `ADMIN_CODE` credential is the idempotency actor; an HMAC with a required stable server-only namespace secret prevents exposing the code or a reversible actor identifier.
+- Capability boundary: `TrustedBffApplication` composes separate submission, Job, Admin-preview, and Viewer-read services. Every service method revalidates the server session; no browser role assertion or button state is trusted (`forecast/bff/application.py`, `factory.py`).
+- Submit idempotency: Migration 005 uses a partial unique `(idempotency_actor,idempotency_key)` index, DB-owned canonical JSONB request fingerprint, and transaction advisory lock. Same semantic request returns the existing Job; a different request raises `IDEMPOTENCY_CONFLICT`.
+- Job by-ID: `get_calculation_job_status_by_id` returns only the V1 fields and a sanitized error message; claim token, queue receipt, paths, and DB row internals are excluded.
+- Result by-ID: Admin preview permits an unpublished completed stored Result with matching immutable provenance. Viewer read uses a separate by-ID RPC whose single-query predicate rechecks publication, both current model hashes/states, Job/Result provenance, published mapping, supported schema, and payload shape on every call. V1 uses `result_id`; resolving a Result from a completed `job_id` is not required by this chosen path.
 
 ## 6. Canonical DTO
 
@@ -300,7 +308,7 @@ Candidate B (BFF issues a signed URL) remains optional and requires a server-sid
 5. Response returns `job_id`; route becomes `/analysis/jobs/{job_id}`.
 6. Completion returns/links `result_id`; result route becomes `/analysis/results/{result_id}` only after availability authorization.
 
-The current RPC ignores `calculation_jobs.idempotency_key`; therefore step 3/4 is a BACKEND_GAP. A network timeout followed by retry can create duplicate Jobs today.
+Migration 005 resolves step 3/4 for the BFF path: the actor/key lock and DB fingerprint return the original Job after a lost response, while the same key with a different normalized request fails `IDEMPOTENCY_CONFLICT`. The older 004 RPC remains available for non-BFF compatibility and is not the canonical React submission path.
 
 ## 10. Job lifecycle
 
@@ -347,7 +355,7 @@ For every Viewer read, DB/RPC is source of truth. Availability requires:
 - `result.model_id = result.comparison_model_id`;
 - mapping version/hash is currently published.
 
-These predicates exist in the service-role-only narrow latest-result RPC (`004:738-775`). The authenticated table RLS and Storage policies are not equivalent public-availability filters: each also has a creator-owned branch (`004:817-822,844-846`). The trusted Viewer BFF must use the narrow RPC, not generic service-role table/Storage reads. A stable `result_id` form and `validate_result_availability(result_id)` do not exist and are BACKEND_GAP.
+These predicates exist in the service-role-only narrow latest-result RPC (`004:738-775`). The authenticated table RLS and Storage policies are not equivalent public-availability filters: each also has a creator-owned branch (`004:817-822,844-846`). The trusted Viewer BFF must use a narrow RPC, not generic service-role table/Storage reads. Migration 005 adds stable `result_id` capabilities: Admin preview, `validate_calculation_result_availability(result_id, supported_schema_versions)`, and an atomic available-result read. The latest-result compatibility RPC remains unchanged.
 
 Acceptance matrix: both models + Result published → visible; either model unpublished → invisible even if `Result.is_published`; republishing the same immutable-hash Model with valid provenance → visible again. Comparison behaves identically.
 
@@ -422,6 +430,7 @@ RLS policies use `authenticated`, but Option A's server secret bypasses RLS. App
 | `PNL_REPOSITORY_BACKEND` | app/worker factory | server | no | optional; default `local` | both | env, `factory.py:51` | Supabase opt-in; fail closed |
 | `VIEWER_CODE` | Streamlit/current future BFF auth | server only | yes | current app yes | both | `st.secrets`/env, `app.py:64-95` | never browser/session payload/log |
 | `ADMIN_CODE` | same | server only | yes | current app yes | both | same | admin recheck every mutation |
+| `BFF_ACTOR_NAMESPACE_SECRET` | BFF composition/transport config | server only | yes | BFF yes; minimum 32 characters | Supabase BFF | passed explicitly to `create_supabase_bff_application` | stable across restarts; rotation changes the credential-principal idempotency namespace; never derive from or expose with access codes |
 | `SUPABASE_URL` | Python/Edge | server | no, but config | Supabase backend | Supabase | `factory.py:79-94`, Edge `index.ts:3` | no direct React client in V1 |
 | `SUPABASE_SECRET_KEY` | Python trusted server/worker | server only | yes | preferred Supabase key | Supabase | `factory.py:80-88` | bypasses RLS |
 | `SUPABASE_SERVICE_ROLE_KEY` | Python fallback/Edge | server only | yes | legacy fallback/Edge | Supabase | `factory.py:81-88`, Edge `index.ts:5` | never browser |
@@ -474,13 +483,13 @@ Raw Postgres exceptions, headers, access codes, signed URLs, hashes beyond neces
 
 ## 24. Open decisions
 
-1. React access-code session store, expiry/inactivity, logout, CSRF, rate limit, and Admin reauthorization.
+1. **RESOLVED — BFF FOUNDATION:** server-side access-code session store, expiry, logout, stable credential actor, and per-call Viewer/Admin reauthorization. Secure/HttpOnly/SameSite cookie binding, CSRF/origin, rate-limit, and HTTP correlation middleware belong to the next transport Goal.
 2. Whether Viewer can list models or only consume available Results; model detail field allowlist.
 3. Model archive/delete/retention semantics and publication/default UX.
 4. Trusted-server upload A versus redesigned signed upload B; partial-failure cleanup and CORS.
-5. Submit idempotency key semantics and normalized-request conflict behavior.
+5. **RESOLVED — BFF FOUNDATION:** actor/key uniqueness, DB-owned normalized request fingerprint, replay, collision conflict, and concurrent serialization are Migration 005 contracts.
 6. Job status access, retention, resubmit semantics, and whether cancel is `NOT_V1`.
-7. Stable `job_id`/`result_id` routes and by-ID availability/read RPC.
+7. **RESOLVED — BFF FOUNDATION:** narrow Admin Job by-ID, Admin unpublished preview, Viewer Result by-ID, and explicit availability RPC exist. Actual HTTP route/cookie binding remains next-Goal transport work.
 8. Whether any durable stage/progress will be added; until then only state and attempts display.
 9. Exact P&L seven-block source, period/publication semantics, and DTO ownership.
 10. Evidence on-demand stream versus private artifact versus Worker reuse; audit/download lifetime.
@@ -518,21 +527,20 @@ Raw Postgres exceptions, headers, access codes, signed URLs, hashes beyond neces
 - [x] P&L source gap and cache invalidation defined
 - [x] error/date/currency/unit/product contracts defined
 
-T01/T02 may pass as an architecture/inventory deliverable while implementation statuses remain gaps. “PASS” does not mean the React integration is runnable.
+T01 is `PASS`; T02 is `CONTRACT BASELINE PASS`. The five BFF-foundation decisions are implemented, but “PASS” does not mean the React integration is runnable.
 
 ## 26. Explicit non-goals
 
-No frontend edit/import, npm install, package/lock change, API/BFF/application service, migration, Worker, DB, Edge, Supabase live operation, engine/formula/residual change, mock removal, UI redesign, deployment, main merge, rebase, reset, or PR #20/#21 modification is included.
+This implementation overlay includes only the framework-neutral BFF application services and additive Migration 005. No frontend edit/import, npm install, package/lock change, HTTP server/route adapter, model-upload saga, Evidence delivery, P&L seven-query implementation, Forecast orchestration, cancel/progress, Worker calculation, Edge deployment, Supabase live operation, engine/formula/residual change, mock removal, UI redesign, deployment, main merge, rebase, reset, or PR #20/#21 modification is included.
 
 Existing assets are reused: deterministic Forecast/Comparison engine, effect/reconciliation rules, pgmq lifecycle, provenance/SHA checks, publication/default boundary, and Evidence source-cell/formula generator.
 
 ## 27. Recommended next implementation order
 
-1. Decide and implement trusted BFF session/auth primitives and role/capability middleware.
-2. Close submit idempotency and add stable Job/result-by-ID DTO/read/availability contracts.
-3. Implement model list/detail and trusted-server XLSX upload with cleanup; then publication/default.
-4. Replace frontend mock calculation runner with canonical submit + polling (no fake stage/percentage).
-5. Implement `analysis_view` frontend adapter and Viewer state machine with availability revalidation.
-6. Implement Evidence delivery around the existing generator.
-7. Specify and build P&L seven-block backend sources.
-8. Implement Forecast orchestration last, reusing the existing Python engine and Streamlit behavior as parity reference.
+1. Add the trusted HTTP/cookie adapter around the resolved BFF application services, then incorporate React session handling without exposing secrets.
+2. Connect model list/detail and the existing publication capability; keep upload finalization/cleanup as its separate open design.
+3. Replace the frontend mock calculation runner with canonical submit + Job by-ID polling (no fake stage/percentage).
+4. Implement the `analysis_view` frontend adapter and Viewer state machine with by-ID availability revalidation.
+5. Implement Evidence delivery around the existing generator.
+6. Specify and build P&L seven-block backend sources.
+7. Implement Forecast orchestration last, reusing the existing Python engine and Streamlit behavior as parity reference.
