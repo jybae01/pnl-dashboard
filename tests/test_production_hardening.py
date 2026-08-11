@@ -1,16 +1,24 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import os
 import threading
 import time
+import tracemalloc
+import zipfile
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
 
-from forecast.benchmark import benchmark_forecast
+from forecast.benchmark import (
+    ForecastBenchmarkResult,
+    _run_engine,
+    benchmark_forecast,
+    main as benchmark_main,
+)
 from forecast.bff.auth import AccessCodeSessionService
 from forecast.bff.errors import ApiErrorCode, BffError
 from forecast.bff.production import SupabaseLoginRateLimiter, SupabaseSessionStore, TrustedProxyPolicy
@@ -154,11 +162,209 @@ def test_temp_orphan_sweep_is_owned_dry_run_and_idempotent(tmp_path: Path):
 def test_benchmark_labels_fixture_and_reports_1_6_12_without_claiming_golden(tmp_path: Path):
     source = tmp_path / "base.xlsx"; source.write_bytes(b"base")
     mapping = tmp_path / "mapping.json"; mapping.write_text("{}", encoding="utf-8")
-    def runner(src, _mapping, months, root):
+    def runner(src, _mapping, start_month, months, root):
+        assert start_month == 1
         (root / "forecast.xlsx").write_bytes(src.read_bytes() + bytes([months]))
     values = [benchmark_forecast(source, mapping, months=month, runner=runner) for month in (1, 6, 12)]
     assert [value.months for value in values] == [1, 6, 12]
+    assert [(value.start_month, value.end_month) for value in values] == [(1, 1), (1, 6), (1, 12)]
     assert all(value.fixture_class == "synthetic_or_fixture" and value.output_bytes == 5 for value in values)
+    assert all(value.source_unchanged and value.cleanup_succeeded for value in values)
+
+
+def test_benchmark_supports_non_january_forecast_window(tmp_path: Path):
+    source = tmp_path / "base.xlsx"; source.write_bytes(b"base")
+    mapping = tmp_path / "mapping.json"; mapping.write_text("{}", encoding="utf-8")
+    observed = []
+    def runner(src, _mapping, start_month, months, root):
+        observed.append((start_month, months))
+        (root / "forecast.xlsx").write_bytes(src.read_bytes() + b"window")
+    value = benchmark_forecast(source, mapping, start_month=7, months=6, runner=runner)
+    assert observed == [(7, 6)]
+    assert (value.start_month, value.end_month) == (7, 12)
+    assert value.output_preflight_passed is None
+    assert value.expected_month_state_passed is None
+
+
+def test_benchmark_preserves_legacy_runner_contract_for_january(tmp_path: Path):
+    source = tmp_path / "base.xlsx"; source.write_bytes(b"base")
+    mapping = tmp_path / "mapping.json"; mapping.write_text("{}", encoding="utf-8")
+    observed = []
+    def legacy_runner(src, _mapping, months, root):
+        observed.append(months)
+        (root / "forecast.xlsx").write_bytes(src.read_bytes() + b"legacy")
+    value = benchmark_forecast(source, mapping, months=1, runner=legacy_runner)
+    assert observed == [1] and value.start_month == 1
+    with pytest.raises(ValueError, match="legacy benchmark runner"):
+        benchmark_forecast(source, mapping, start_month=7, months=1, runner=legacy_runner)
+
+
+def test_benchmark_uses_explicit_falsey_custom_runner(tmp_path: Path):
+    source = tmp_path / "base.xlsx"; source.write_bytes(b"base")
+    mapping = tmp_path / "mapping.json"; mapping.write_text("{}", encoding="utf-8")
+    class Runner:
+        called = False
+        def __bool__(self): return False
+        def __call__(self, src, _mapping, _start_month, _months, root):
+            self.called = True
+            (root / "forecast.xlsx").write_bytes(src.read_bytes())
+    runner = Runner()
+    value = benchmark_forecast(source, mapping, start_month=7, months=1, runner=runner)
+    assert runner.called is True
+    assert value.output_preflight_passed is None
+
+
+@pytest.mark.parametrize(
+    "start_month,months",
+    [(0, 1), (13, 1), (8, 6), (7, 12), (1.5, 1), (1, 1.5), (True, 1)],
+)
+def test_benchmark_rejects_invalid_forecast_windows(tmp_path: Path, start_month, months):
+    source = tmp_path / "base.xlsx"; source.write_bytes(b"base")
+    mapping = tmp_path / "mapping.json"; mapping.write_text("{}", encoding="utf-8")
+    with pytest.raises(ValueError, match="start_month|window|months"):
+        benchmark_forecast(source, mapping, start_month=start_month, months=months)
+
+
+def test_benchmark_engine_orchestrates_july_through_december_and_cleans_intermediates(
+    tmp_path: Path, monkeypatch,
+):
+    source = tmp_path / "source.xlsx"; source.write_bytes(b"source")
+    mapping = tmp_path / "mapping.json"; mapping.write_text("{}", encoding="utf-8")
+    root = tmp_path / "run"; root.mkdir()
+    calls = []
+    class Engine:
+        def __init__(self, model, mapping_path):
+            self.model = Path(model)
+            assert Path(mapping_path).name == "mapping.json"
+            assert Path(mapping_path).read_text(encoding="utf-8") == "{}"
+        def run(self, request, target):
+            calls.append((request.month, self.model.name, Path(target).name))
+            expected_source = b"source" + bytes(range(7, request.month))
+            assert self.model.read_bytes() == expected_source
+            Path(target).write_bytes(self.model.read_bytes() + bytes([request.month]))
+    monkeypatch.setattr("forecast.benchmark.ForecastEngine", Engine)
+    metrics = _run_engine(source, mapping, 7, 6, root)
+    assert [month for month, _, _ in calls] == [7, 8, 9, 10, 11, 12]
+    assert calls[0][1] == "base.xlsx" and calls[-1][2] == "forecast.xlsx"
+    assert sorted(path.name for path in root.iterdir()) == ["forecast.xlsx", "mapping.json"]
+    assert (root / "forecast.xlsx").read_bytes() == b"source" + bytes(range(7, 13))
+    assert len(metrics.month_wall_seconds) == 6 and metrics.peak_temp_bytes > 0
+
+
+def test_benchmark_exception_cleans_owned_temp_and_preserves_source(tmp_path: Path):
+    source = tmp_path / "base.xlsx"; source.write_bytes(b"base")
+    mapping = tmp_path / "mapping.json"; mapping.write_text("{}", encoding="utf-8")
+    policy = TempArtifactPolicy(tmp_path / "temp", 64 * 1024 * 1024)
+    before = hashlib.sha256(source.read_bytes()).hexdigest()
+    def runner(*_args):
+        raise RuntimeError("controlled benchmark failure")
+    with pytest.raises(RuntimeError, match="controlled benchmark failure"):
+        benchmark_forecast(source, mapping, months=1, runner=runner, temp_policy=policy)
+    assert hashlib.sha256(source.read_bytes()).hexdigest() == before
+    assert list(policy.root.iterdir()) == []
+
+
+def test_benchmark_does_not_reset_or_stop_callers_tracemalloc(tmp_path: Path):
+    source = tmp_path / "base.xlsx"; source.write_bytes(b"base")
+    mapping = tmp_path / "mapping.json"; mapping.write_text("{}", encoding="utf-8")
+    def runner(src, _mapping, _start_month, _months, root):
+        (root / "forecast.xlsx").write_bytes(src.read_bytes())
+    tracemalloc.start()
+    try:
+        value = benchmark_forecast(source, mapping, months=1, runner=runner)
+        assert tracemalloc.is_tracing()
+        assert value.peak_python_bytes is None
+    finally:
+        tracemalloc.stop()
+
+
+def test_benchmark_rejects_malformed_ooxml_zip(tmp_path: Path):
+    source = tmp_path / "base.xlsx"; source.write_bytes(b"base")
+    mapping = tmp_path / "mapping.json"; mapping.write_text("{}", encoding="utf-8")
+    def runner(_source, _mapping, _start_month, _months, root):
+        with zipfile.ZipFile(root / "forecast.xlsx", "w") as archive:
+            archive.writestr("[Content_Types].xml", "")
+            archive.writestr("_rels/.rels", "")
+            archive.writestr("xl/workbook.xml", "")
+    value = benchmark_forecast(source, mapping, months=1, runner=runner)
+    assert value.output_ooxml_package_valid is False
+
+
+def test_benchmark_engine_backed_malformed_ooxml_fails_integrity_and_still_cleans(
+    tmp_path: Path, monkeypatch,
+):
+    source = tmp_path / "source.xlsx"; source.write_bytes(b"source")
+    mapping = tmp_path / "mapping.json"; mapping.write_text("{}", encoding="utf-8")
+    temp_policy = TempArtifactPolicy(tmp_path / "temp", 64 * 1024 * 1024)
+    class Engine:
+        def __init__(self, _model, _mapping): pass
+        def run(self, _request, target):
+            with zipfile.ZipFile(target, "w") as archive:
+                archive.writestr(
+                    "[Content_Types].xml",
+                    '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"/>',
+                )
+                archive.writestr(
+                    "_rels/.rels",
+                    '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"/>',
+                )
+                archive.writestr(
+                    "xl/workbook.xml",
+                    '<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"/>',
+                )
+    monkeypatch.setattr("forecast.benchmark.ForecastEngine", Engine)
+    value = benchmark_forecast(source, mapping, months=1, temp_policy=temp_policy)
+    assert value.output_ooxml_package_valid is True
+    assert value.output_preflight_passed is False
+    assert value.expected_month_state_passed is False
+    assert value.cleanup_succeeded is True and list(temp_policy.root.iterdir()) == []
+
+
+def test_benchmark_cli_accepts_explicit_window_and_repeats(tmp_path: Path, monkeypatch, capsys):
+    source = tmp_path / "source.xlsx"; source.write_bytes(b"source")
+    mapping = tmp_path / "mapping.json"; mapping.write_text("{}", encoding="utf-8")
+    temp_root = tmp_path / "temp"
+    calls = []
+    def fake_benchmark(_source, _mapping, *, months, start_month, fixture_class, temp_policy):
+        calls.append((start_month, months, fixture_class, temp_policy.root))
+        return ForecastBenchmarkResult(
+            fixture_class=fixture_class, months=months, start_month=start_month,
+            end_month=start_month + months - 1, wall_seconds=1.0,
+            month_wall_seconds=(1.0,) * months, peak_python_bytes=1,
+            peak_process_rss_bytes=2, rss_sampling_interval_seconds=0.01,
+            input_bytes=3, output_bytes=4,
+            peak_temp_bytes=5, output_ooxml_package_valid=True,
+            output_preflight_passed=True, expected_month_state_passed=True,
+            source_unchanged=True, cleanup_succeeded=True,
+        )
+    monkeypatch.setattr("forecast.benchmark.benchmark_forecast", fake_benchmark)
+    assert benchmark_main([
+        "--workbook", str(source), "--mapping", str(mapping),
+        "--fixture-class", "private_company_workbook",
+        "--temp-root", str(temp_root), "--start-month", "7",
+        "--months", "1", "6", "--repeats", "2",
+    ]) == 0
+    assert [(start, months) for start, months, _, _ in calls] == [
+        (7, 1), (7, 1), (7, 6), (7, 6),
+    ]
+    payload = json.loads(capsys.readouterr().out)
+    assert [row["run_index"] for row in payload] == [1, 2, 1, 2]
+    assert all(row["fixture_class"] == "private_company_workbook" for row in payload)
+
+
+def test_benchmark_cli_rejects_window_before_running_partial_results(
+    tmp_path: Path, monkeypatch,
+):
+    source = tmp_path / "source.xlsx"; source.write_bytes(b"source")
+    mapping = tmp_path / "mapping.json"; mapping.write_text("{}", encoding="utf-8")
+    calls = []
+    monkeypatch.setattr("forecast.benchmark.benchmark_forecast", lambda *_args, **_kwargs: calls.append(1))
+    with pytest.raises(SystemExit):
+        benchmark_main([
+            "--workbook", str(source), "--mapping", str(mapping),
+            "--temp-root", str(tmp_path / "temp"), "--start-month", "7",
+        ])
+    assert calls == []
 
 
 def test_evidence_text_formula_injection_is_escaped_without_changing_numbers():

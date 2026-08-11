@@ -46,11 +46,27 @@ CIDR chain. Uvicorn/reverse-proxy `forwarded-allow-ips` must match this policy.
 ## Forecast decision and benchmark
 
 `python -m forecast.benchmark --workbook ...` records 1/6/12-month wall time,
-Python peak allocation, input/output size and peak temp bytes. Synthetic/fixture
+per-month time, Python peak allocation, sampled process RSS where supported, input/output
+size and peak temp bytes. `--start-month` and `--months` select an explicit
+forecastable window without weakening the engine's actual-month guard; the
+default remains January-based 1/6/12 measurement. Every engine-backed result also
+reports OOXML package validity, structural preflight/readability, expected month-state propagation,
+source-hash stability and temporary-directory cleanup. Synthetic/fixture
 measurements are labelled separately from private company workbooks. This source
 tree has no private Golden workbook, so synchronous production approval is not
 claimed. Until the staging benchmark demonstrates margin below proxy timeout,
 the production composition fails closed without explicit benchmark approval.
+
+A partial-year company model must request only its forecastable window, for
+example `--start-month 7 --months 1 6`. A July start cannot run the default
+12-month case and must not be used to extrapolate a 12-month performance result.
+Process RSS is a 10ms sampled, process-wide working-set observation; it is useful
+for sizing evidence but is not an allocation delta and can miss shorter peaks.
+The sampler's small thread/inspection overhead is included. Python peak allocation
+is reported only when the benchmark owns the global `tracemalloc` session, so an
+embedding caller's existing tracing state is never reset or stopped.
+CLI repeats share one process, so later RSS samples can include allocator or
+resident memory retained by earlier repeats; they are not isolated-process deltas.
 
 Every operation freezes the already provenance-validated mapping JSON, uses that
 snapshot for every monthly `ForecastEngine`, deletes prior intermediates, enforces
@@ -107,7 +123,9 @@ benchmark approval. Secret presence never selects the repository backend.
   filesystem quota, Uvicorn forwarded-IP policy and maintenance schedule.
 - Size parser slots globally as replicas x workers x per-child memory; the Python
   semaphore is intentionally process-local.
-- Run 1/6/12-month benchmark with a representative private company workbook.
+- Run 1/6-month benchmark over the actual forecastable company window. Run the
+  12-month case only with a representative workbook that has 12 forecastable
+  months; never infer it by doubling the 6-month result.
 - Validate Linux parser RLIMIT behavior and container memory/CPU kill semantics.
 - Exercise audit sink outage/recovery and choose retention for append-only audit.
 - Human/person attribution remains explicitly outside access-code V1.
