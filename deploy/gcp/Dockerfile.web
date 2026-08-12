@@ -1,0 +1,18 @@
+FROM node@sha256:c610fcdfb1d5b4740dd70c284ed3cb16bb857e0f7166196e36a5501df7a3aa32 AS build
+
+WORKDIR /src
+COPY frontend/package.json frontend/package-lock.json ./
+RUN npm ci --no-audit --no-fund
+COPY frontend/ ./
+ARG VITE_BFF_BASE_URL=""
+ENV VITE_BFF_BASE_URL=$VITE_BFF_BASE_URL
+RUN test -z "$VITE_BFF_BASE_URL" && npm run build
+
+FROM caddy@sha256:4c6e91c6ed0e2fa03efd5b44747b625fec79bc9cd06ac5235a779726618e530d
+
+RUN setcap -r /usr/bin/caddy \
+    && chown -R 10001:10001 /data /config
+COPY deploy/gcp/Caddyfile.cloud-run /etc/caddy/Caddyfile
+COPY --from=build /src/dist /srv
+
+USER 10001:10001

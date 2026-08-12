@@ -1,0 +1,61 @@
+apiVersion: run.googleapis.com/v1
+kind: WorkerPool
+metadata:
+  name: pnl-worker
+  annotations:
+    run.googleapis.com/scalingMode: manual
+    run.googleapis.com/manualInstanceCount: "1"
+spec:
+  template:
+    metadata:
+      annotations:
+        run.googleapis.com/execution-environment: gen2
+        run.googleapis.com/secrets: "pnl-supabase-secret-key:projects/__PROJECT_NUMBER__/secrets/pnl-supabase-secret-key"
+    spec:
+      serviceAccountName: pnl-worker@__PROJECT_ID__.iam.gserviceaccount.com
+      containers:
+        - name: worker
+          image: __RUNTIME_IMAGE__
+          args:
+            - python
+            - -m
+            - forecast.worker_cli
+            - --backend
+            - supabase
+            - --poll-seconds
+            - "1"
+          resources:
+            limits:
+              cpu: "1"
+              memory: 1Gi
+          env:
+            - name: PNL_REPOSITORY_BACKEND
+              value: supabase
+            - name: SUPABASE_URL
+              value: __SUPABASE_URL__
+            - name: SUPABASE_SECRET_KEY_FILE
+              value: /var/run/pnl-secrets/supabase/supabase_secret_key
+            - name: PNL_WORKER_ID
+              value: gcp-worker-v1
+          volumeMounts:
+            - name: worker-temp
+              mountPath: /tmp
+            - name: model-cache
+              mountPath: /app/data
+            - name: supabase-secret
+              mountPath: /var/run/pnl-secrets/supabase
+      volumes:
+        - name: worker-temp
+          emptyDir:
+            medium: Memory
+            sizeLimit: 256Mi
+        - name: model-cache
+          emptyDir:
+            medium: Memory
+            sizeLimit: 256Mi
+        - name: supabase-secret
+          secret:
+            secretName: pnl-supabase-secret-key
+            items:
+              - key: latest
+                path: supabase_secret_key

@@ -1,0 +1,35 @@
+{
+	admin off
+	auto_https off
+	persist_config off
+}
+
+:{$PORT} {
+	encode zstd gzip
+
+	@bff path /api/* /health/*
+	handle @bff {
+		reverse_proxy 127.0.0.1:8000 {
+			# The BFF intentionally uses BFF_PROXY_MODE=direct in Cloud Run.
+			# Strip client-controlled identity headers anyway as defense in depth.
+			header_up -Forwarded
+			header_up -X-Forwarded-For
+			header_up -X-Real-IP
+			transport http {
+				dial_timeout 3s
+				response_header_timeout 170s
+			}
+		}
+	}
+
+	handle {
+		root * /srv
+		try_files {path} /index.html
+		file_server
+	}
+
+	log {
+		output stdout
+		format json
+	}
+}

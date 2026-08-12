@@ -13,6 +13,7 @@ work/
 /.env.phase-b
 /deploy/local-secrets/
 /deploy/local-ca/
+/deploy/gcp/rendered/
 
 data/**
 !data/.gitkeep
@@ -22,4 +23,8 @@ models/*.xlsx
 
 *.log
 *.tmp
+*.pem
+*.key
+*service-account*.json
+*credentials*.json
 ~$*.xlsx

@@ -1,0 +1,12 @@
+[
+  {
+    "name": "delete-untagged-after-14-days",
+    "action": {"type": "Delete"},
+    "condition": {"tagState": "untagged", "olderThan": "1209600s"}
+  },
+  {
+    "name": "keep-three-most-recent",
+    "action": {"type": "Keep"},
+    "mostRecentVersions": {"keepCount": 3}
+  }
+]

@@ -18,7 +18,8 @@ COPY --chown=app:app forecast ./forecast
 COPY --chown=app:app config ./config
 COPY --chown=app:app scripts/phase_b_topology_probe.py ./scripts/phase_b_topology_probe.py
 COPY deploy/python-entrypoint.sh /usr/local/bin/pnl-entrypoint
-RUN chmod 0555 /usr/local/bin/pnl-entrypoint \
+RUN sed -i 's/\r$//' /usr/local/bin/pnl-entrypoint \
+    && chmod 0555 /usr/local/bin/pnl-entrypoint \
     && python -m compileall -q forecast
 
 USER app

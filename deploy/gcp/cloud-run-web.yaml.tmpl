@@ -1,0 +1,172 @@
+apiVersion: serving.knative.dev/v1
+kind: Service
+metadata:
+  name: pnl-web
+  annotations:
+    run.googleapis.com/ingress: all
+spec:
+  template:
+    metadata:
+      annotations:
+        autoscaling.knative.dev/minScale: "0"
+        autoscaling.knative.dev/maxScale: "2"
+        run.googleapis.com/container-dependencies: '{"edge":["bff"]}'
+        run.googleapis.com/execution-environment: gen2
+        run.googleapis.com/secrets: "pnl-supabase-secret-key:projects/__PROJECT_NUMBER__/secrets/pnl-supabase-secret-key,pnl-viewer-code:projects/__PROJECT_NUMBER__/secrets/pnl-viewer-code,pnl-admin-code:projects/__PROJECT_NUMBER__/secrets/pnl-admin-code,pnl-actor-namespace-secret:projects/__PROJECT_NUMBER__/secrets/pnl-actor-namespace-secret,pnl-csrf-secret:projects/__PROJECT_NUMBER__/secrets/pnl-csrf-secret"
+        run.googleapis.com/startup-cpu-boost: "true"
+    spec:
+      serviceAccountName: pnl-web@__PROJECT_ID__.iam.gserviceaccount.com
+      containerConcurrency: 4
+      timeoutSeconds: 180
+      containers:
+        - name: edge
+          image: __WEB_IMAGE__
+          ports:
+            - name: http1
+              containerPort: 8080
+          resources:
+            limits:
+              cpu: "1"
+              memory: 512Mi
+          startupProbe:
+            httpGet:
+              path: /health/ready
+              port: 8080
+            initialDelaySeconds: 0
+            timeoutSeconds: 3
+            periodSeconds: 5
+            failureThreshold: 24
+        - name: bff
+          image: __RUNTIME_IMAGE__
+          resources:
+            limits:
+              cpu: "1"
+              memory: 2Gi
+          env:
+            - name: PNL_REPOSITORY_BACKEND
+              value: supabase
+            - name: SUPABASE_URL
+              value: __SUPABASE_URL__
+            - name: SUPABASE_SECRET_KEY_FILE
+              value: /var/run/pnl-secrets/supabase/supabase_secret_key
+            - name: VIEWER_CODE_FILE
+              value: /var/run/pnl-secrets/viewer/viewer_code
+            - name: ADMIN_CODE_FILE
+              value: /var/run/pnl-secrets/admin/admin_code
+            - name: BFF_ACTOR_NAMESPACE_SECRET_FILE
+              value: /var/run/pnl-secrets/actor/actor_namespace_secret
+            - name: BFF_CSRF_SECRET_FILE
+              value: /var/run/pnl-secrets/csrf/csrf_secret
+            - name: BFF_ENVIRONMENT
+              value: production
+            - name: BFF_FORECAST_MODE
+              value: sync
+            - name: BFF_FORECAST_SYNC_APPROVED
+              value: "true"
+            - name: BFF_FORECAST_SYNC_MAX_MONTHS
+              value: "6"
+            - name: BFF_FORECAST_MAX_SECONDS
+              value: "120"
+            - name: BFF_FORECAST_PERMIT_LEASE_SECONDS
+              value: "240"
+            - name: BFF_FORECAST_MAX_CONCURRENCY
+              value: "1"
+            - name: BFF_FORECAST_REQUEST_MAX_BYTES
+              value: "1048576"
+            - name: BFF_SESSION_TTL_SECONDS
+              value: "28800"
+            - name: BFF_LOGIN_MAX_ATTEMPTS
+              value: "5"
+            - name: BFF_LOGIN_WINDOW_SECONDS
+              value: "300"
+            - name: BFF_ALLOWED_ORIGINS
+              value: __CLOUD_RUN_ORIGIN__
+            - name: BFF_COOKIE_SECURE
+              value: "true"
+            - name: BFF_COOKIE_SAME_SITE
+              value: strict
+            - name: BFF_PROXY_MODE
+              value: direct
+            - name: BFF_TEMP_ROOT
+              value: /var/tmp/pnl
+            - name: BFF_TEMP_QUOTA_BYTES
+              value: "536870912"
+            - name: BFF_TEMP_ORPHAN_AGE_SECONDS
+              value: "86400"
+            - name: BFF_PARSER_TIMEOUT_SECONDS
+              value: "45"
+            - name: BFF_PARSER_MEMORY_LIMIT_BYTES
+              value: "805306368"
+            - name: BFF_PARSER_MAX_CONCURRENCY
+              value: "1"
+            - name: BFF_LOG_LEVEL
+              value: INFO
+          volumeMounts:
+            - name: bff-temp
+              mountPath: /var/tmp/pnl
+            - name: model-cache
+              mountPath: /app/data
+            - name: supabase-secret
+              mountPath: /var/run/pnl-secrets/supabase
+            - name: viewer-secret
+              mountPath: /var/run/pnl-secrets/viewer
+            - name: admin-secret
+              mountPath: /var/run/pnl-secrets/admin
+            - name: actor-secret
+              mountPath: /var/run/pnl-secrets/actor
+            - name: csrf-secret
+              mountPath: /var/run/pnl-secrets/csrf
+          startupProbe:
+            httpGet:
+              path: /health/ready
+              port: 8000
+            initialDelaySeconds: 0
+            timeoutSeconds: 3
+            periodSeconds: 5
+            failureThreshold: 24
+          livenessProbe:
+            httpGet:
+              path: /health/live
+              port: 8000
+            timeoutSeconds: 3
+            periodSeconds: 30
+            failureThreshold: 3
+      volumes:
+        - name: bff-temp
+          emptyDir:
+            medium: Memory
+            sizeLimit: 512Mi
+        - name: model-cache
+          emptyDir:
+            medium: Memory
+            sizeLimit: 256Mi
+        - name: supabase-secret
+          secret:
+            secretName: pnl-supabase-secret-key
+            items:
+              - key: latest
+                path: supabase_secret_key
+        - name: viewer-secret
+          secret:
+            secretName: pnl-viewer-code
+            items:
+              - key: latest
+                path: viewer_code
+        - name: admin-secret
+          secret:
+            secretName: pnl-admin-code
+            items:
+              - key: latest
+                path: admin_code
+        - name: actor-secret
+          secret:
+            secretName: pnl-actor-namespace-secret
+            items:
+              - key: latest
+                path: actor_namespace_secret
+        - name: csrf-secret
+          secret:
+            secretName: pnl-csrf-secret
+            items:
+              - key: latest
+                path: csrf_secret
