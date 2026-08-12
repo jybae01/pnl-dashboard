@@ -1,0 +1,7 @@
+title: PNL Worker Pool Lifecycle Controller
+description: Read and set only the configured instance count of the PNL Worker Pool
+stage: GA
+includedPermissions:
+  - run.operations.get
+  - run.workerpools.get
+  - run.workerpools.update

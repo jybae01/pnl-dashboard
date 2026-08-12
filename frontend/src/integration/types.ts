@@ -1,5 +1,6 @@
 export type Role = 'viewer' | 'admin';
 export type JobStatus = 'PENDING' | 'PROCESSING' | 'COMPLETED' | 'FAILED';
+export type WorkerExecutionState = 'QUEUED' | 'STARTING_WORKER' | 'PROCESSING' | 'COMPLETED' | 'FAILED';
 export type ViewerState = 'LOADING' | 'READY' | 'EMPTY' | 'ERROR' | 'INVALID_PAYLOAD';
 
 export interface SessionDto {
@@ -98,6 +99,7 @@ export interface SubmitRequest {
 export interface SubmitResponse {
   job_id: string;
   status: JobStatus;
+  execution_state: WorkerExecutionState;
   idempotency_replayed: boolean;
   dto_version: '1';
 }
@@ -117,7 +119,18 @@ export interface JobStatusDto {
   result_id: string | null;
   error_code: string | null;
   error_message: string | null;
+  execution_state: WorkerExecutionState;
   dto_version: '1';
+}
+
+export interface WorkerStatusDto {
+  desired_instance_count: 0 | 1; configured_instance_count: 0 | 1;
+  actual_instance_count: 0 | 1 | null;
+  queue_depth: number; claimable_count: number; pending_count: number; processing_count: number;
+  active_lease_count: number; active_heartbeat_count: number; recovery_pending_count: number;
+  work_exists: boolean; idle_seconds: number; last_worker_activity_at: string;
+  last_scaling_result: string | null; platform_reconciling: boolean; platform_ready: boolean;
+  operating_policy: 'DEMAND_ONLY'; idle_policy_seconds: 1800; dto_version: '1';
 }
 
 export interface StoredResultDto {

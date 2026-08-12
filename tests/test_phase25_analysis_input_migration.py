@@ -169,6 +169,7 @@ def test_migration_contract_is_001_through_004():
         "20260811145917_fix_analysis_month_series_pg17.sql",
         "20260811150705_align_pnl_dashboard_viewer_contract.sql",
         "20260811151052_restore_pnl_dashboard_default_contract.sql",
+        "202608120001_demand_only_worker_lifecycle.sql",
     ]
 
 

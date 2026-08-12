@@ -87,6 +87,10 @@ spec:
               value: strict
             - name: BFF_PROXY_MODE
               value: direct
+            - name: BFF_WORKER_LIFECYCLE_MODE
+              value: demand_only
+            - name: BFF_WORKER_CONTROLLER_URL
+              value: __WORKER_CONTROLLER_URL__
             - name: BFF_TEMP_ROOT
               value: /var/tmp/pnl
             - name: BFF_TEMP_QUOTA_BYTES

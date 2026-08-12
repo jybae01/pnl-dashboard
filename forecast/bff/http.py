@@ -553,6 +553,31 @@ def create_http_bff(
         _operation_audit(audit, application, value, request, "analysis_submission", result.job_id)
         return result
 
+    @app.get("/api/admin/worker")
+    def worker_status(value: str = Depends(admin_session)):
+        if application.worker_administration is None:
+            raise BffError(
+                ApiErrorCode.TRANSIENT_SYSTEM_ERROR,
+                "Worker control capability is not configured",
+            )
+        return application.worker_administration.status(value)
+
+    @app.post("/api/admin/worker/emergency-wake", dependencies=[Depends(csrf_guard)])
+    def emergency_worker_wake(request: Request, value: str = Depends(admin_session)):
+        if application.worker_administration is None:
+            raise BffError(ApiErrorCode.TRANSIENT_SYSTEM_ERROR, "Worker control capability is not configured")
+        result = application.worker_administration.emergency_wake(value)
+        _operation_audit(audit, application, value, request, "worker_emergency_wake", "pnl-worker")
+        return result
+
+    @app.post("/api/admin/worker/safe-stop", dependencies=[Depends(csrf_guard)])
+    def safe_worker_stop(request: Request, value: str = Depends(admin_session)):
+        if application.worker_administration is None:
+            raise BffError(ApiErrorCode.TRANSIENT_SYSTEM_ERROR, "Worker control capability is not configured")
+        result = application.worker_administration.safe_stop(value)
+        _operation_audit(audit, application, value, request, "worker_safe_stop", "pnl-worker")
+        return result
+
     @app.post("/api/admin/forecasts", dependencies=[Depends(csrf_guard)])
     def generate_forecast(http_request: Request, body: ForecastGenerateBody, value: str = Depends(admin_session)):
         if application.forecast_generation is None:
@@ -724,6 +749,7 @@ def _status_for(code: ApiErrorCode) -> int:
         ApiErrorCode.INGESTION_CLEANUP_REQUIRED: 500,
         ApiErrorCode.EVIDENCE_GENERATION_FAILED: 500,
         ApiErrorCode.FORECAST_SCOPE_NOT_APPROVED: 403,
+        ApiErrorCode.WORKER_BUSY: 409,
         ApiErrorCode.TRANSIENT_SYSTEM_ERROR: 503,
     }[code]
 
@@ -782,6 +808,22 @@ def _operation_audit(
         session_ref=principal.session_ref,
         correlation_id=request.state.correlation_id,
         operation_type=operation_type,
-        operation_id=str(uuid.UUID(str(operation_id))),
+        operation_id=_audit_operation_id(operation_type, operation_id),
         outcome="success",
     )
+
+
+def _audit_operation_id(operation_type: str, operation_id: str) -> str:
+    """Return the UUID storage key used by the existing audit schema.
+
+    Domain resources such as a Worker Pool have stable names rather than UUIDs.
+    Map those names deterministically without placing the raw identifier in a
+    separate, unconstrained audit field.
+    """
+    try:
+        return str(uuid.UUID(str(operation_id)))
+    except (ValueError, TypeError, AttributeError):
+        return str(uuid.uuid5(
+            uuid.NAMESPACE_URL,
+            f"pnl-audit:{operation_type}:{operation_id}",
+        ))

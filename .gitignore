@@ -5,6 +5,7 @@ __pycache__/
 .pytest-deps/
 .test-venv/
 .pytest-tmp-*/
+.pytest-demand-only-*/
 .runtime_packages/
 .venv/
 .verify_artifact/

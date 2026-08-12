@@ -3,6 +3,8 @@
 .codex
 .pytest_cache
 .pytest-deps
+.pytest-tmp-*
+.pytest-demand-only-*
 .test-venv
 .venv
 __pycache__

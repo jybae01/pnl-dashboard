@@ -17,6 +17,7 @@ from forecast.bff.application import (
     JobQueryService,
     ResultQueryService,
     TrustedBffApplication,
+    WorkerAdministrationService,
 )
 from forecast.bff.auth import AccessCodeSessionService
 from forecast.bff.gateway import (
@@ -25,6 +26,7 @@ from forecast.bff.gateway import (
     SubmissionRecord,
 )
 from forecast.bff.http import HttpBffSettings, InMemoryLoginRateLimiter, create_http_bff
+from forecast.bff.production import AuditSink
 from forecast.bff.evidence_history import EvidenceArtifact
 from forecast.analysis_export import MIME_XLSX
 from forecast.provenance import ResultProvenance
@@ -110,7 +112,7 @@ class Fixture:
         return self.client.cookies.get("pnl_csrf")
 
 
-def make_fixture(*, limiter=None, clock=None) -> Fixture:
+def make_fixture(*, limiter=None, clock=None, worker_control=None, audit_sink=None) -> Fixture:
     sessions = AccessCodeSessionService(
         viewer_code="viewer-code", admin_code="admin-code",
         actor_namespace_secret="actor-namespace-secret-at-least-32-chars", ttl_seconds=3600,
@@ -136,11 +138,16 @@ def make_fixture(*, limiter=None, clock=None) -> Fixture:
         presentation=FakePresentation(),
         pnl_dashboard=FakePnlDashboard(),
         forecast_generation=FakeForecast(),
+        worker_administration=(
+            WorkerAdministrationService(sessions, worker_control)
+            if worker_control is not None else None
+        ),
     )
     app = create_http_bff(
         app_service,
         settings=HttpBffSettings(environment="test", csrf_secret="csrf-secret-at-least-32-characters"),
         rate_limiter=limiter,
+        audit_sink=audit_sink,
     )
     return Fixture(TestClient(app), gateway)
 
@@ -201,6 +208,58 @@ class FakePresentation:
 
     def viewer_read(self, _session, result_id):
         return {"identity": {"result_id": result_id}, "scope": "viewer", "dto_version": "1"}
+
+
+class FakeWorkerControl:
+    def __init__(self):
+        self.wakes = 0
+        self.stops = 0
+
+    @staticmethod
+    def _status(desired):
+        return {
+            "desired_instance_count": desired, "configured_instance_count": desired,
+            "actual_instance_count": desired, "queue_depth": 0,
+            "claimable_count": 0, "pending_count": 0, "processing_count": 0,
+            "active_lease_count": 0, "active_heartbeat_count": 0,
+            "recovery_pending_count": 0, "work_exists": False,
+            "idle_seconds": 0, "last_worker_activity_at": "2026-08-12T00:00:00Z",
+            "last_scaling_result": "scaled", "platform_reconciling": False,
+            "platform_ready": True, "operating_policy": "DEMAND_ONLY",
+            "idle_policy_seconds": 1800, "dto_version": "1",
+        }
+
+    def status(self): return self._status(0)
+    def emergency_wake(self):
+        self.wakes += 1
+        return self._status(1)
+    def safe_stop(self):
+        self.stops += 1
+        return self._status(0)
+
+
+class RecordingAudit(AuditSink):
+    def __init__(self): self.events = []
+    def record(self, **event): self.events.append(event)
+
+
+def test_admin_worker_actions_return_success_and_audit_non_uuid_resource_once():
+    control = FakeWorkerControl()
+    audit = RecordingAudit()
+    fx = make_fixture(worker_control=control, audit_sink=audit)
+    fx.login()
+    headers = {"X-CSRF-Token": fx.csrf}
+
+    wake = fx.client.post("/api/admin/worker/emergency-wake", headers=headers)
+    stop = fx.client.post("/api/admin/worker/safe-stop", headers=headers)
+
+    assert wake.status_code == stop.status_code == 200
+    assert control.wakes == control.stops == 1
+    worker_events = [event for event in audit.events if event["event_type"].startswith("worker_")]
+    assert [event["event_type"] for event in worker_events] == [
+        "worker_emergency_wake", "worker_safe_stop",
+    ]
+    assert all(len(event["operation_id"]) == 36 for event in worker_events)
 
 
 @pytest.mark.parametrize("code,role", [("viewer-code", "viewer"), ("admin-code", "admin")])

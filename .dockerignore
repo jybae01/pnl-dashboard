@@ -2,6 +2,8 @@
 .github
 .codex
 .pytest_cache
+.pytest-tmp-*
+.pytest-demand-only-*
 .test-venv
 .venv
 __pycache__

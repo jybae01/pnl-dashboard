@@ -9,6 +9,7 @@ from .application import (
     JobQueryService,
     ResultQueryService,
     TrustedBffApplication,
+    WorkerAdministrationService,
 )
 from .auth import AccessCodeSessionService, SessionStore
 from ..preflight import ExcelPreflightValidator
@@ -44,6 +45,7 @@ def create_supabase_bff_application(
     forecast_enabled: bool = False,
     forecast_sync_max_months: int = V1_FORECAST_SYNC_MAX_MONTHS,
     workbook_validator: Any | None = None,
+    worker_control: Any | None = None,
 ) -> TrustedBffApplication:
     """Compose the server-only BFF boundary from explicit trusted inputs.
 
@@ -71,8 +73,9 @@ def create_supabase_bff_application(
             gateway,
             provenance,
             max_attempts=max_attempts,
+            worker_control=worker_control,
         ),
-        jobs=JobQueryService(sessions, gateway),
+        jobs=JobQueryService(sessions, gateway, worker_control),
         results=ResultQueryService(
             sessions,
             gateway,
@@ -131,5 +134,9 @@ def create_supabase_bff_application(
                 max_execution_seconds=forecast_max_execution_seconds,
                 max_sync_months=forecast_sync_max_months,
             ) if forecast_enabled and model_capabilities and mapping_path else None
+        ),
+        worker_administration=(
+            WorkerAdministrationService(sessions, worker_control)
+            if worker_control is not None else None
         ),
     )

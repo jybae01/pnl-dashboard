@@ -93,6 +93,7 @@ class AnalysisSubmitRequest:
 class AnalysisSubmitResponse:
     job_id: str
     status: str
+    execution_state: str
     idempotency_replayed: bool
     dto_version: str = "1"
 
@@ -113,6 +114,7 @@ class JobStatusResponse:
     result_id: str | None
     error_code: str | None
     error_message: str | None
+    execution_state: str
     dto_version: str = "1"
 
 

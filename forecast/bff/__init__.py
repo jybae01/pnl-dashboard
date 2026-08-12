@@ -4,6 +4,7 @@ from .application import (
     JobQueryService,
     ResultQueryService,
     TrustedBffApplication,
+    WorkerAdministrationService,
 )
 from .auth import AccessCodeSessionService, SessionPrincipal
 from .dto import (
@@ -49,6 +50,7 @@ __all__ = [
     "SubmissionRecord",
     "SupabaseBffApplicationGateway",
     "TrustedBffApplication",
+    "WorkerAdministrationService",
     "ViewerResultResponse",
     "create_supabase_bff_application",
 ]

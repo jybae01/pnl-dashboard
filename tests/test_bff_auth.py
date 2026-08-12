@@ -96,6 +96,7 @@ def test_canonical_v1_error_taxonomy_is_complete():
         "INGESTION_CLEANUP_REQUIRED",
         "EVIDENCE_GENERATION_FAILED",
         "FORECAST_SCOPE_NOT_APPROVED",
+        "WORKER_BUSY",
         "TRANSIENT_SYSTEM_ERROR",
     }
 

@@ -18,6 +18,7 @@ import {
   PnlDashboardDto,
   ForecastGenerateRequestDto,
   ForecastGenerateResponseDto,
+  WorkerStatusDto,
 } from './types';
 
 const API_ROOT = (import.meta.env.VITE_BFF_BASE_URL || '').replace(/\/$/, '');
@@ -97,6 +98,9 @@ export const bffClient = {
   submit: async (body: SubmitRequest) => validateSubmit(await request<unknown>('/api/analyses', {
     method: 'POST', body: JSON.stringify(body),
   })),
+  workerStatus: async () => validateWorkerStatus(await request<unknown>('/api/admin/worker')),
+  emergencyWorkerWake: async () => validateWorkerStatus(await request<unknown>('/api/admin/worker/emergency-wake', { method: 'POST' })),
+  safeWorkerStop: async () => validateWorkerStatus(await request<unknown>('/api/admin/worker/safe-stop', { method: 'POST' })),
   generateForecast: async (body: ForecastGenerateRequestDto) => validateForecast(
     await request<unknown>('/api/admin/forecasts', { method: 'POST', body: JSON.stringify(body) }),
   ),
@@ -239,14 +243,32 @@ function validateModels(value: unknown): AnalysisModelDto[] {
 }
 
 function validateJob(value: unknown): JobStatusDto {
-  if (!isRecord(value) || typeof value.job_id !== 'string' || !['PENDING', 'PROCESSING', 'COMPLETED', 'FAILED'].includes(String(value.status))) invalidPayload();
+  if (!isRecord(value) || typeof value.job_id !== 'string' || !['PENDING', 'PROCESSING', 'COMPLETED', 'FAILED'].includes(String(value.status))
+    || !['QUEUED', 'STARTING_WORKER', 'PROCESSING', 'COMPLETED', 'FAILED'].includes(String(value.execution_state))) invalidPayload();
   if (value.status === 'COMPLETED' && typeof value.result_id !== 'string') invalidPayload();
   return value as unknown as JobStatusDto;
 }
 
 function validateSubmit(value: unknown): SubmitResponse {
-  if (!isRecord(value) || typeof value.job_id !== 'string' || !['PENDING', 'PROCESSING', 'COMPLETED', 'FAILED'].includes(String(value.status)) || typeof value.idempotency_replayed !== 'boolean') invalidPayload();
+  if (!isRecord(value) || typeof value.job_id !== 'string' || !['PENDING', 'PROCESSING', 'COMPLETED', 'FAILED'].includes(String(value.status))
+    || !['QUEUED', 'STARTING_WORKER', 'PROCESSING', 'COMPLETED', 'FAILED'].includes(String(value.execution_state))
+    || typeof value.idempotency_replayed !== 'boolean') invalidPayload();
   return value as unknown as SubmitResponse;
+}
+
+function validateWorkerStatus(value: unknown): WorkerStatusDto {
+  if (!isRecord(value) || ![0, 1].includes(Number(value.desired_instance_count))
+    || ![0, 1].includes(Number(value.configured_instance_count))
+    || !(value.actual_instance_count === null || [0, 1].includes(Number(value.actual_instance_count)))
+    || value.operating_policy !== 'DEMAND_ONLY' || value.idle_policy_seconds !== 1800
+    || typeof value.work_exists !== 'boolean' || typeof value.platform_reconciling !== 'boolean'
+    || typeof value.platform_ready !== 'boolean' || typeof value.last_worker_activity_at !== 'string'
+    || !(value.last_scaling_result === null || typeof value.last_scaling_result === 'string')) invalidPayload();
+  for (const name of ['queue_depth', 'claimable_count', 'pending_count', 'processing_count',
+    'active_lease_count', 'active_heartbeat_count', 'recovery_pending_count', 'idle_seconds']) {
+    if (!Number.isSafeInteger(value[name]) || Number(value[name]) < 0) invalidPayload();
+  }
+  return value as unknown as WorkerStatusDto;
 }
 
 function validateResult(value: unknown): StoredResultDto {

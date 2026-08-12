@@ -12,8 +12,11 @@ Browser (one managed HTTPS origin)
        -> sidecar `bff`: FastAPI localhost:8000, 1 vCPU/2 GiB
   -> external Supabase staging: Database, Auth state, private Storage, pgmq
 
-Cloud Run Worker Pool `pnl-worker` (1 instance, 1 vCPU/1 GiB)
+Cloud Run Worker Pool `pnl-worker` (demand-only 0/1, 1 vCPU/1 GiB)
   -> pgmq claim/lease/heartbeat/retry -> unpublished Result
+
+Private Cloud Run service `pnl-worker-controller` (min 0, max 1)
+  -> Worker Pool get/update only; five-minute Scheduler reconciliation
 
 Cloud Run Job `pnl-maintenance` (manual, default dry-run, 1 task)
   -> controlled cleanup/recovery RPCs
@@ -57,7 +60,7 @@ per endpoint. The selected BFF limit covers these distinct load classes:
 - Request timeout: 180 seconds at both Cloud Run and edge, with the application
   Forecast ceiling kept at 120 seconds. This admits the proven six-month run
   with cleanup margin and does not approve more than six consecutive months.
-- Worker: 1 vCPU/1 GiB, matching the Phase B passing container ceiling. Phase B
+- Worker: 1 vCPU/1 GiB when awake, matching the Phase B passing container ceiling. Phase B
   did not capture a worker-process-only RSS sample, so 1 GiB is a conservative
   proven ceiling rather than a measured minimum; record CPU/RSS during the cloud
   canary before considering a reduction. It is a continuous non-HTTP pgmq
@@ -65,13 +68,15 @@ per endpoint. The selected BFF limit covers these distinct load classes:
 - Maintenance: 1 vCPU/1 GiB, 15-minute task timeout, no retries, one task. The
   stored command is dry-run; `--apply` is an explicit per-execution override.
 
-Worker Pools are a direct fit for the non-HTTP continuous consumer, but they do
-not autoscale. The manifest fixes the pool at one instance; a failed process is
-restarted by the platform, while durable pgmq leases/heartbeats/retries remain
-the correctness mechanism. A replace operation creates a new revision and
-updates the configured instance; deployment success is not workload health, so
-logs plus a queue canary are mandatory. Logs go to Cloud Logging through stdout
-and stderr. The one continuously allocated instance is also the dominant cost.
+Worker Pools are a direct fit for the non-HTTP consumer, but do not demand-scale
+themselves. The manifest starts at zero. Only a committed pgmq-backed Analysis
+request asks the private controller for one instance; a five-minute reconciler
+repairs wake failures and returns an all-clear pool to zero after 30 continuous
+minutes without worker-required activity. See `worker-lifecycle.md` for the
+generation-based sleep/enqueue race contract, emergency recovery, IAM, and cost.
+Platform restart plus durable pgmq leases/heartbeats/retries remain the processing
+correctness mechanism. Deployment success is not workload health, so logs and a
+queue canary are mandatory.
 
 The BFF temp root is a 512 MiB size-limited in-memory volume and also enforces
 the application 512 MiB quota. Cloud Run's writable root filesystem is otherwise
@@ -144,6 +149,7 @@ Google Cloud.
   -Region 'asia-southeast1' `
   -SupabaseUrl 'https://project-ref.supabase.co' `
   -CloudRunOrigin 'https://bootstrap.invalid' `
+  -WorkerControllerUrl 'https://controller-bootstrap.invalid' `
   -WebImage 'asia-southeast1-docker.pkg.dev/exact-project-id/pnl-staging/pnl-web@sha256:<64-hex>' `
   -RuntimeImage 'asia-southeast1-docker.pkg.dev/exact-project-id/pnl-staging/pnl-runtime@sha256:<64-hex>'
 ```
@@ -173,7 +179,7 @@ current readiness goal.
 3. Enable only required APIs:
 
    ```powershell
-   gcloud services enable run.googleapis.com artifactregistry.googleapis.com secretmanager.googleapis.com iam.googleapis.com
+   gcloud services enable run.googleapis.com artifactregistry.googleapis.com secretmanager.googleapis.com iam.googleapis.com cloudscheduler.googleapis.com
    ```
 
    The human bootstrap operator must already have
@@ -191,7 +197,7 @@ current readiness goal.
    Inspect dry-run audit results for at least one policy cycle before using
    `--no-dry-run` in a later controlled change.
 
-5. Create four user-managed service accounts. The human bootstrap operator needs
+5. Create six user-managed service accounts. The human bootstrap operator needs
    `iam.serviceAccounts.create` (normally `roles/iam.serviceAccountCreator`, or a
    separately approved equivalent) for creation; `roles/run.developer` does not
    grant it. Runtime accounts receive no project role:
@@ -200,14 +206,18 @@ current readiness goal.
    gcloud iam service-accounts create pnl-web --display-name='PNL web runtime'
    gcloud iam service-accounts create pnl-worker --display-name='PNL worker runtime'
    gcloud iam service-accounts create pnl-maintenance --display-name='PNL maintenance runtime'
+   gcloud iam service-accounts create pnl-worker-controller --display-name='PNL worker lifecycle controller'
+   gcloud iam service-accounts create pnl-worker-reconciler --display-name='PNL worker reconciler caller'
    gcloud iam service-accounts create pnl-deployer --display-name='PNL deployment operator'
    ```
 
-   Initial creation requires the deployer to have `roles/run.developer` on the
-   project; narrow it after creation if the supported resource-level permissions
-   still cover updates. Grant `roles/artifactregistry.writer` only on
+   Service-account creation uses the bootstrap operator permission above; it is
+   separate from later deployment permissions. Grant the deployer
+   `roles/run.developer` only for application deployment and narrow it after
+   creation if supported resource-level permissions still cover updates. Grant
+   `roles/artifactregistry.writer` only on
    `pnl-staging`, and
-   `roles/iam.serviceAccountUser` on the three runtime accounts. Apply those
+   `roles/iam.serviceAccountUser` on the runtime accounts. Apply those
    grants at the narrowest supported resource scope; do not grant Owner, Editor,
    or service-agent roles. Do not create service-account keys.
 
@@ -220,9 +230,9 @@ current readiness goal.
    gcloud secrets add-iam-policy-binding SECRET_NAME --member='serviceAccount:RUNTIME_ACCOUNT@EXACT_PROJECT_ID.iam.gserviceaccount.com' --role='roles/secretmanager.secretAccessor'
    ```
 
-   Grant Secret Accessor per secret: web gets all five; worker and maintenance
-   get only `pnl-supabase-secret-key`. No runtime account needs any other Google
-   API permission.
+   Grant Secret Accessor per secret: web gets all five; worker, maintenance, and
+   worker-controller get only `pnl-supabase-secret-key`. The reconciler gets no
+   secret. No runtime account receives broad Google API permission.
 
 7. Configure Docker and build/push from the reviewed clean worktree:
 
@@ -234,8 +244,22 @@ current readiness goal.
    gcloud artifacts docker images describe asia-southeast1-docker.pkg.dev/EXACT_PROJECT_ID/pnl-staging/pnl-runtime:COMMIT --format='value(image_summary.digest)'
    ```
 
-8. Render with the two digests and bootstrap origin. Review, then create the web
-   service and only its public invoker binding:
+8. Render with the two digests, bootstrap origins, and create the zero-instance
+   Worker Pool plus private controller first. Create its exact three-permission
+   custom role and bind it only on `pnl-worker`; do not grant `allUsers`:
+
+   ```powershell
+   gcloud iam roles create pnlWorkerLifecycleController --project=EXACT_PROJECT_ID --file=deploy/gcp/worker-controller-role.yaml
+   gcloud run worker-pools replace deploy/gcp/rendered/worker-pool.yaml --region=asia-southeast1
+   gcloud run services replace deploy/gcp/rendered/worker-controller.yaml --region=asia-southeast1
+   gcloud run worker-pools add-iam-policy-binding pnl-worker --region=asia-southeast1 --member='serviceAccount:pnl-worker-controller@EXACT_PROJECT_ID.iam.gserviceaccount.com' --role='projects/EXACT_PROJECT_ID/roles/pnlWorkerLifecycleController'
+   gcloud run services add-iam-policy-binding pnl-worker-controller --region=asia-southeast1 --member='serviceAccount:pnl-web@EXACT_PROJECT_ID.iam.gserviceaccount.com' --role=roles/run.invoker
+   gcloud run services add-iam-policy-binding pnl-worker-controller --region=asia-southeast1 --member='serviceAccount:pnl-worker-reconciler@EXACT_PROJECT_ID.iam.gserviceaccount.com' --role=roles/run.invoker
+   $controllerUrl = gcloud run services describe pnl-worker-controller --region=asia-southeast1 --format='value(status.url)'
+   ```
+
+9. Render again with `$controllerUrl`, then create the web service and only its
+   public invoker binding:
 
    ```powershell
    gcloud run services replace deploy/gcp/rendered/cloud-run-web.yaml --region=asia-southeast1
@@ -243,7 +267,7 @@ current readiness goal.
    gcloud run services describe pnl-web --region=asia-southeast1 --format='value(status.url)'
    ```
 
-9. Render again with that exact HTTPS origin and replace the web service. Verify
+   Render once more with that exact HTTPS origin and replace the web service. Verify
    `/health/live`, `/health/ready`, SPA fallback, and that no separate BFF URL or
    port exists. Before claiming readiness, verify the effective non-root identity
    and create/delete probes under `/var/tmp/pnl` and `/app/data`. Cloud Run owns
@@ -252,15 +276,30 @@ current readiness goal.
    mount strategy, not a root-container fallback. Then test login, CSRF mutation,
    logout, cross-replica session, and distributed lockout.
 
-10. Create the Worker Pool from the reviewed manifest. Deployment success is not
-    health evidence. Confirm one instance, startup logs, one synthetic pgmq job,
-    lease/heartbeat, unpublished completion, Admin publication, and Result read.
+10. Create the five-minute reconciliation schedule with OIDC; it is not a warm
+    schedule and has no weekday/weekend branches:
+
+    The identity running this provisioning step needs
+    `iam.serviceAccounts.actAs` on only `pnl-worker-reconciler` (normally a
+    resource-level `roles/iam.serviceAccountUser` binding). Verify that the
+    Google-managed Cloud Scheduler service agent retains
+    `roles/cloudscheduler.serviceAgent`; do not grant that service-agent role to
+    a human or runtime account.
 
     ```powershell
-    gcloud run worker-pools replace deploy/gcp/rendered/worker-pool.yaml --region=asia-southeast1
+    gcloud iam service-accounts add-iam-policy-binding pnl-worker-reconciler@EXACT_PROJECT_ID.iam.gserviceaccount.com --member='user:BOOTSTRAP_OPERATOR_EMAIL' --role=roles/iam.serviceAccountUser
+    gcloud scheduler jobs create http pnl-worker-reconcile --location=asia-southeast1 --schedule='*/5 * * * *' --time-zone=Etc/UTC --http-method=POST --uri="$controllerUrl/v1/worker/reconcile" --oidc-service-account-email='pnl-worker-reconciler@EXACT_PROJECT_ID.iam.gserviceaccount.com' --oidc-token-audience="$controllerUrl" --attempt-deadline=30s --max-retry-attempts=3 --max-retry-duration=2m --min-backoff=5s --max-backoff=30s --max-doublings=2
     gcloud run worker-pools describe pnl-worker --region=asia-southeast1
     gcloud run worker-pools logs read pnl-worker --region=asia-southeast1 --limit=100
     ```
+
+    Confirm zero at rest. Submit one synthetic Analysis and observe durable pgmq
+    enqueue before zero-to-one, startup, lease/heartbeat, unpublished completion,
+    Admin publication, Result read, and automatic one-to-zero once the durable
+    idle clock reaches 30 minutes. With a five-minute reconciler, the control
+    request is normally issued between 30 and 35 minutes after last activity;
+    the policy threshold remains exactly 30 minutes. Deployment success alone
+    is not health evidence.
 
     The canary must also log `id` and prove create/delete access to `/tmp` and
     `/app/data` as UID 10001 before queue acceptance. Do not infer permissions
@@ -307,7 +346,8 @@ current readiness goal.
 
 Teardown is destructive and is never part of readiness or ordinary deployment.
 After resolving the exact project and region, disable the Worker Pool first,
-export audit evidence, then delete Job, Worker Pool, Service, secrets, service
+export audit evidence, then delete Scheduler job, controller, Job, Worker Pool,
+Service, secrets, service
 accounts, and finally Artifact Registry. Secret destruction and repository
 deletion are irreversible. Supabase and user-owned OCI resources are out of
 scope and must not be changed.
@@ -316,6 +356,9 @@ Official references:
 
 - https://docs.cloud.google.com/run/docs/deploying
 - https://docs.cloud.google.com/run/docs/deploy-worker-pools
+- https://docs.cloud.google.com/run/docs/configuring/workerpools/manual-scaling
+- https://docs.cloud.google.com/run/docs/authenticating/service-to-service
+- https://docs.cloud.google.com/scheduler/docs/http-target-auth
 - https://docs.cloud.google.com/run/docs/container-contract
 - https://docs.cloud.google.com/run/docs/configuring/request-timeout
 - https://docs.cloud.google.com/run/docs/execute/jobs

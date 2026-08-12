@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import math
+import logging
 import re
 import uuid
 from dataclasses import dataclass
@@ -32,6 +33,7 @@ from .gateway import (
 
 IDEMPOTENCY_KEY_PATTERN = re.compile(r"^[A-Za-z0-9._:-]{1,128}$")
 JOB_STATUSES = {"pending", "processing", "completed", "failed"}
+LOGGER = logging.getLogger(__name__)
 
 
 class AnalysisModelListService:
@@ -94,6 +96,7 @@ class AnalysisSubmissionService:
         provenance: ResultProvenance,
         *,
         max_attempts: int = 3,
+        worker_control: Any | None = None,
     ) -> None:
         if not 1 <= max_attempts <= 20:
             raise ValueError("max_attempts must be between 1 and 20")
@@ -101,6 +104,7 @@ class AnalysisSubmissionService:
         self._gateway = gateway
         self._provenance = provenance
         self._max_attempts = max_attempts
+        self._worker_control = worker_control
 
     def submit(
         self,
@@ -144,9 +148,25 @@ class AnalysisSubmissionService:
                 ApiErrorCode.INPUT_INTEGRITY_MISMATCH,
                 "Job status contract is invalid",
             )
+        execution_state = _execution_state(record.status)
+        if record.status in {"pending", "processing"} and self._worker_control is not None:
+            try:
+                control = self._worker_control.ensure_after_enqueue()
+                if record.status == "pending" and control.get("actual_instance_count") != 1:
+                    execution_state = "STARTING_WORKER"
+            except Exception:
+                # The RPC above already committed the Job and pgmq message. A
+                # control-plane failure must never turn durable work into loss;
+                # the five-minute reconciler will retry the wake.
+                LOGGER.warning(
+                    "worker wake deferred to reconciler",
+                    extra={"job_id": record.job_id, "worker_state": "QUEUED"},
+                )
+                execution_state = "QUEUED"
         return AnalysisSubmitResponse(
             job_id=record.job_id,
             status=record.status.upper(),
+            execution_state=execution_state,
             idempotency_replayed=record.idempotency_replayed,
         )
 
@@ -156,9 +176,11 @@ class JobQueryService:
         self,
         sessions: AccessCodeSessionService,
         gateway: BffApplicationGateway,
+        worker_control: Any | None = None,
     ) -> None:
         self._sessions = sessions
         self._gateway = gateway
+        self._worker_control = worker_control
 
     def get_by_id(self, session_id: str, job_id: str) -> JobStatusResponse:
         self._sessions.require_admin(session_id)
@@ -179,6 +201,14 @@ class JobQueryService:
                 "Job status contract is invalid",
             )
         try:
+            execution_state = _execution_state(status)
+            if status == "pending" and self._worker_control is not None:
+                try:
+                    control = self._worker_control.status()
+                    if control.get("actual_instance_count") != 1:
+                        execution_state = "STARTING_WORKER"
+                except Exception:
+                    execution_state = "QUEUED"
             response = JobStatusResponse(
                 job_id=str(row["job_id"]),
                 status=status.upper(),
@@ -196,6 +226,7 @@ class JobQueryService:
                 # Stored worker/DB messages are diagnostic data and may contain
                 # internals. Browser DTOs are derived only from the allowlisted code.
                 error_message=_safe_job_error_message(row.get("error_code")),
+                execution_state=execution_state,
             )
         except (KeyError, TypeError, ValueError) as exc:
             raise BffError(
@@ -356,6 +387,7 @@ class TrustedBffApplication:
         presentation: Any | None = None,
         pnl_dashboard: Any | None = None,
         forecast_generation: Any | None = None,
+        worker_administration: Any | None = None,
     ) -> None:
         self.sessions = sessions
         self.submissions = submissions
@@ -370,6 +402,7 @@ class TrustedBffApplication:
         self.presentation = presentation
         self.pnl_dashboard = pnl_dashboard
         self.forecast_generation = forecast_generation
+        self.worker_administration = worker_administration
 
     def login(self, access_code: str) -> SessionTicket:
         return self.sessions.login(access_code)
@@ -379,6 +412,52 @@ class TrustedBffApplication:
 
     def logout(self, session_id: str) -> None:
         self.sessions.logout(session_id)
+
+
+class WorkerAdministrationService:
+    """Server-authorized emergency controls over the private controller."""
+
+    def __init__(self, sessions: AccessCodeSessionService, worker_control: Any) -> None:
+        self._sessions = sessions
+        self._worker_control = worker_control
+
+    def status(self, session_id: str) -> Mapping[str, Any]:
+        self._sessions.require_admin(session_id)
+        return _safe_worker_status(self._call("status"))
+
+    def emergency_wake(self, session_id: str) -> Mapping[str, Any]:
+        self._sessions.require_admin(session_id)
+        return _safe_worker_status(self._call("emergency_wake"))
+
+    def safe_stop(self, session_id: str) -> Mapping[str, Any]:
+        self._sessions.require_admin(session_id)
+        try:
+            return _safe_worker_status(self._call("safe_stop"))
+        except Exception as exc:
+            from ..worker_lifecycle import WorkerBusyError
+
+            if isinstance(exc, WorkerBusyError):
+                raise BffError(ApiErrorCode.WORKER_BUSY, "Worker has active work") from exc
+            raise
+
+    def _call(self, name: str) -> Mapping[str, Any]:
+        try:
+            value = getattr(self._worker_control, name)()
+        except Exception as exc:
+            from ..worker_lifecycle import WorkerBusyError
+
+            if isinstance(exc, WorkerBusyError):
+                raise
+            raise BffError(
+                ApiErrorCode.TRANSIENT_SYSTEM_ERROR,
+                "Worker control is temporarily unavailable",
+            ) from exc
+        if not isinstance(value, Mapping):
+            raise BffError(
+                ApiErrorCode.INPUT_INTEGRITY_MISMATCH,
+                "Worker control response is invalid",
+            )
+        return value
 
 
 def _validate_submit(request: AnalysisSubmitRequest) -> _ValidatedSubmit:
@@ -439,6 +518,64 @@ def _positive_number(value: Any, field_name: str, errors: dict[str, str]) -> flo
     if isinstance(value, bool) or not math.isfinite(number) or number <= 0:
         errors[field_name] = "must be a positive finite number"
     return number
+
+
+def _execution_state(status: str) -> str:
+    return {
+        "pending": "QUEUED",
+        "processing": "PROCESSING",
+        "completed": "COMPLETED",
+        "failed": "FAILED",
+    }[status]
+
+
+def _safe_worker_status(value: Mapping[str, Any]) -> Mapping[str, Any]:
+    integer_fields = (
+        "desired_instance_count",
+        "configured_instance_count",
+        "queue_depth",
+        "claimable_count",
+        "pending_count",
+        "processing_count",
+        "active_lease_count",
+        "active_heartbeat_count",
+        "recovery_pending_count",
+        "idle_seconds",
+    )
+    try:
+        result: dict[str, Any] = {name: int(value[name]) for name in integer_fields}
+        actual = value.get("actual_instance_count")
+        result["actual_instance_count"] = None if actual is None else int(actual)
+        result["work_exists"] = bool(value["work_exists"])
+        result["platform_reconciling"] = bool(value["platform_reconciling"])
+        result["platform_ready"] = bool(value["platform_ready"])
+        result["operating_policy"] = str(value["operating_policy"])
+        result["idle_policy_seconds"] = int(value["idle_policy_seconds"])
+        result["last_worker_activity_at"] = str(value["last_worker_activity_at"])
+        result["last_scaling_result"] = (
+            None if value.get("last_scaling_result") is None
+            else str(value["last_scaling_result"])
+        )
+    except (KeyError, TypeError, ValueError) as exc:
+        raise BffError(
+            ApiErrorCode.INPUT_INTEGRITY_MISMATCH,
+            "Worker control response is invalid",
+        ) from exc
+    counts = tuple(result[name] for name in integer_fields)
+    if (
+        any(count < 0 for count in counts)
+        or result["desired_instance_count"] not in (0, 1)
+        or result["configured_instance_count"] not in (0, 1)
+        or result["actual_instance_count"] not in (None, 0, 1)
+        or result["operating_policy"] != "DEMAND_ONLY"
+        or result["idle_policy_seconds"] != 1800
+    ):
+        raise BffError(
+            ApiErrorCode.INPUT_INTEGRITY_MISMATCH,
+            "Worker control response is invalid",
+        )
+    result["dto_version"] = "1"
+    return result
 
 
 def _result_parts(

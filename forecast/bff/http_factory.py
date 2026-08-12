@@ -18,6 +18,7 @@ from ..temp_artifacts import configure_temp_artifacts
 from ..parser_isolation import IsolatedExcelPreflight
 from ..logging_config import configure_structured_logging
 from .forecast_orchestration import V1_FORECAST_SYNC_MAX_MONTHS
+from ..worker_lifecycle import CloudRunWorkerControlClient
 
 
 @dataclass(frozen=True)
@@ -80,6 +81,12 @@ def create_http_bff_from_environment(
     admin_code = _required("ADMIN_CODE")
     if environment == "production" and (len(viewer_code) < 16 or len(admin_code) < 16):
         raise RuntimeError("production access codes must contain at least 16 characters")
+    worker_control = None
+    worker_lifecycle_mode = os.getenv("BFF_WORKER_LIFECYCLE_MODE", "external_static").strip().lower()
+    if worker_lifecycle_mode not in {"external_static", "demand_only"}:
+        raise RuntimeError("BFF_WORKER_LIFECYCLE_MODE must be external_static or demand_only")
+    if worker_lifecycle_mode == "demand_only":
+        worker_control = CloudRunWorkerControlClient(_required("BFF_WORKER_CONTROLLER_URL"))
     application = create_supabase_bff_application(
         supabase_client=client,
         viewer_code=viewer_code,
@@ -102,6 +109,7 @@ def create_http_bff_from_environment(
             memory_limit_bytes=int(os.getenv("BFF_PARSER_MEMORY_LIMIT_BYTES", str(1024 * 1024 * 1024))),
             max_concurrency=int(os.getenv("BFF_PARSER_MAX_CONCURRENCY", "2")),
         ) if environment == "production" else None),
+        worker_control=worker_control,
     )
     origins = tuple(
         value.strip() for value in os.getenv("BFF_ALLOWED_ORIGINS", "").split(",") if value.strip()
@@ -153,6 +161,7 @@ def create_http_bff_from_environment(
     )
     app.state.forecast_mode = forecast_policy.mode
     app.state.forecast_sync_max_months = forecast_policy.max_sync_months
+    app.state.worker_operating_policy = worker_lifecycle_mode.upper()
     return app
 
 

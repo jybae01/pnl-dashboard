@@ -29,6 +29,7 @@ def test_migration_chain_is_additive_001_through_017():
         "20260811145917_fix_analysis_month_series_pg17.sql",
         "20260811150705_align_pnl_dashboard_viewer_contract.sql",
         "20260811151052_restore_pnl_dashboard_default_contract.sql",
+        "202608120001_demand_only_worker_lifecycle.sql",
     ]
     assert SQL.startswith("-- trusted bff foundation")
     assert "begin;" in SQL and SQL.rstrip().endswith("commit;")

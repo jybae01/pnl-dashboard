@@ -31,13 +31,13 @@ describe('React core vertical slice', () => {
         { model_id: BASE, display_name: 'Base', model_type: 'PLAN', model_year: 2026, start_month: 1, end_month: 12, is_published: true, is_default: true, dto_version: '1' },
         { model_id: COMP, display_name: 'Comparison', model_type: 'ACTUAL', model_year: 2026, start_month: 1, end_month: 12, is_published: true, is_default: false, dto_version: '1' },
       ], dto_version: '1' });
-      if (path.endsWith('/api/analyses')) return json({ job_id: JOB, status: 'PENDING', idempotency_replayed: false, dto_version: '1' });
+      if (path.endsWith('/api/analyses')) return json({ job_id: JOB, status: 'PENDING', execution_state: 'STARTING_WORKER', idempotency_replayed: false, dto_version: '1' });
       if (path.endsWith(`/api/jobs/${JOB}`)) return json({
         job_id: JOB, status: 'COMPLETED', baseline_model_id: BASE, comparison_model_id: COMP,
         start_month: 1, end_month: 12, attempt: 1, max_attempts: 3,
         created_at: '2026-08-11T00:00:00Z', heartbeat_at: null,
         completed_at: '2026-08-11T00:00:01Z', result_id: RESULT,
-        error_code: null, error_message: null, dto_version: '1',
+        error_code: null, error_message: null, execution_state: 'COMPLETED', dto_version: '1',
       });
       if (path.endsWith(`/api/admin/results/${RESULT}/presentation`)) return json(presentationFixture({
         identity: { ...presentationFixture().identity, is_published: false, published_at: null },
@@ -93,13 +93,13 @@ describe('React core vertical slice', () => {
       if (path.endsWith('/api/analyses')) {
         const body = JSON.parse(String(init?.body)); keys.push(body.idempotency_key); submits += 1;
         if (submits === 1) throw new TypeError('response lost');
-        return json({ job_id: JOB, status: 'PENDING', idempotency_replayed: true, dto_version: '1' });
+        return json({ job_id: JOB, status: 'PENDING', execution_state: 'QUEUED', idempotency_replayed: true, dto_version: '1' });
       }
       if (path.endsWith(`/api/jobs/${JOB}`)) return json({
         job_id: JOB, status: 'FAILED', baseline_model_id: BASE, comparison_model_id: COMP,
         start_month: 1, end_month: 12, attempt: 1, max_attempts: 3,
         created_at: '', heartbeat_at: null, completed_at: null, result_id: null,
-        error_code: 'worker_execution_failed', error_message: 'Job failed', dto_version: '1',
+        error_code: 'worker_execution_failed', error_message: 'Job failed', execution_state: 'FAILED', dto_version: '1',
       });
       throw new Error(`unexpected request ${path}`);
     }));
@@ -109,7 +109,7 @@ describe('React core vertical slice', () => {
     fireEvent.click(run);
     expect(await screen.findByText('서버에 연결할 수 없습니다.')).toBeInTheDocument();
     fireEvent.click(run);
-    expect(await screen.findByText(/PENDING/)).toBeInTheDocument();
+    expect(await screen.findByText(/QUEUED/)).toBeInTheDocument();
     expect(keys).toHaveLength(2);
     expect(keys[0]).toBe(keys[1]);
   });
@@ -121,5 +121,49 @@ describe('React core vertical slice', () => {
     fireEvent.click(screen.getByRole('button', { name: '조회' }));
     expect(await screen.findByText('서버 응답 형식이 올바르지 않습니다.')).toBeInTheDocument();
     expect(screen.queryByTestId('stored-result')).not.toBeInTheDocument();
+  });
+
+  it('shows Admin-only demand Worker status and invokes controlled emergency wake', async () => {
+    document.cookie = 'pnl_csrf=test-csrf; path=/';
+    const calls: Array<[string, RequestInit | undefined]> = [];
+    const worker = (desired: 0 | 1) => ({
+      desired_instance_count: desired, configured_instance_count: desired,
+      actual_instance_count: desired, queue_depth: 0, claimable_count: 0,
+      pending_count: 0, processing_count: 0, active_lease_count: 0,
+      active_heartbeat_count: 0, recovery_pending_count: 0, work_exists: false,
+      idle_seconds: 0, last_worker_activity_at: '2026-08-12T00:00:00Z',
+      last_scaling_result: 'scaled', platform_reconciling: false, platform_ready: true,
+      operating_policy: 'DEMAND_ONLY', idle_policy_seconds: 1800, dto_version: '1',
+    });
+    vi.stubGlobal('fetch', vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      const path = String(input); calls.push([path, init]);
+      if (path.endsWith('/api/models')) return json({ models: [] });
+      if (path.endsWith('/api/admin/worker/emergency-wake')) return json(worker(1));
+      if (path.endsWith('/api/admin/worker')) return json(worker(0));
+      throw new Error(`unexpected request ${path}`);
+    }));
+    render(<CoreAnalysisView role="admin" />);
+    expect(await screen.findByText('Worker: 0')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Emergency wake' }));
+    expect(await screen.findByText('Worker: 1')).toBeInTheDocument();
+    const wake = calls.find(([path]) => path.endsWith('/api/admin/worker/emergency-wake'));
+    expect(wake).toBeDefined();
+    if (!wake?.[1]) throw new Error('wake request was not observed');
+    expect(wake[1].method).toBe('POST');
+    expect((wake[1].headers as Headers).get('X-CSRF-Token')).toBe('test-csrf');
+  });
+
+  it('hides Worker controls when the backend has no demand-lifecycle capability', async () => {
+    vi.stubGlobal('fetch', vi.fn((input: RequestInfo | URL) => {
+      const path = String(input);
+      if (path.endsWith('/api/models')) return json({ models: [] });
+      if (path.endsWith('/api/admin/worker')) return json({
+        error: { code: 'TRANSIENT_SYSTEM_ERROR', message: 'not configured', field_errors: {}, correlation_id: null, dto_version: '1' },
+      }, 503);
+      throw new Error(`unexpected request ${path}`);
+    }));
+    render(<CoreAnalysisView role="admin" />);
+    await waitFor(() => expect(screen.queryByTestId('worker-control')).not.toBeInTheDocument());
+    expect(screen.queryByRole('button', { name: 'Emergency wake' })).not.toBeInTheDocument();
   });
 });

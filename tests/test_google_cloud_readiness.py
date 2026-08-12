@@ -72,9 +72,10 @@ def test_cloud_run_secret_mounts_are_server_only_and_use_file_adapter():
     web = _text("cloud-run-web.yaml.tmpl")
     worker = _text("worker-pool.yaml.tmpl")
     job = _text("maintenance-job.yaml.tmpl")
+    controller = _text("worker-controller.yaml.tmpl")
     entrypoint = (ROOT / "deploy" / "python-entrypoint.sh").read_text(encoding="utf-8")
 
-    for manifest in (web, worker, job):
+    for manifest in (web, worker, job, controller):
         assert "SUPABASE_SECRET_KEY_FILE" in manifest
         assert "secretName: pnl-supabase-secret-key" in manifest
         assert "run.googleapis.com/secrets:" in manifest
@@ -88,8 +89,8 @@ def test_cloud_run_secret_mounts_are_server_only_and_use_file_adapter():
     ):
         assert name in web and name not in worker and name not in job
     assert "load_secret SUPABASE_SECRET_KEY" in entrypoint
-    assert "service-account.json" not in (web + worker + job).lower()
-    assert "GOOGLE_APPLICATION_CREDENTIALS" not in (web + worker + job)
+    assert "service-account.json" not in (web + worker + job + controller).lower()
+    assert "GOOGLE_APPLICATION_CREDENTIALS" not in (web + worker + job + controller)
 
 
 def test_worker_pool_is_independent_continuous_pgmq_consumer():
@@ -97,13 +98,38 @@ def test_worker_pool_is_independent_continuous_pgmq_consumer():
 
     assert "kind: WorkerPool" in worker
     assert 'run.googleapis.com/scalingMode: manual' in worker
-    assert 'run.googleapis.com/manualInstanceCount: "1"' in worker
+    assert 'run.googleapis.com/manualInstanceCount: "0"' in worker
     assert "forecast.worker_cli" in worker
     assert "--backend" in worker and "supabase" in worker
     assert 'cpu: "1"' in worker and "memory: 1Gi" in worker
     assert worker.count("sizeLimit: 256Mi") == 2
     assert "containerPort" not in worker
     assert "uvicorn" not in worker and "streamlit" not in worker.lower()
+
+
+def test_demand_only_controller_and_reconciler_contract_is_least_privilege():
+    controller = _text("worker-controller.yaml.tmpl")
+    role = _text("worker-controller-role.yaml")
+    web = _text("cloud-run-web.yaml.tmpl")
+    runbook = _text("README.md")
+
+    assert "name: pnl-worker-controller" in controller
+    assert 'autoscaling.knative.dev/minScale: "0"' in controller
+    assert 'autoscaling.knative.dev/maxScale: "1"' in controller
+    assert "forecast.worker_controller_server:create_worker_controller_from_environment" in controller
+    assert "--factory" in controller
+    assert "run.workerpools.get" in role and "run.workerpools.update" in role
+    assert "run.operations.get" in role
+    for forbidden in ("run.workerpools.create", "run.workerpools.delete", "run.admin", "roles/owner"):
+        assert forbidden not in role.lower()
+    assert "BFF_WORKER_LIFECYCLE_MODE\n              value: demand_only" in web
+    assert "BFF_WORKER_CONTROLLER_URL" in web
+    assert "*/5 * * * *" in runbook
+    assert "08:00" not in runbook and "18:00" not in runbook
+    assert "--oidc-service-account-email" in runbook
+    assert "--max-retry-attempts=3" in runbook
+    assert "iam.serviceAccounts.actAs" in runbook
+    assert "roles/cloudscheduler.serviceAgent" in runbook
 
 
 def test_maintenance_job_is_one_shot_dry_run_by_default():
@@ -128,6 +154,7 @@ def test_build_and_source_upload_contexts_exclude_sensitive_artifacts():
         ".env*",
         "deploy/local-secrets",
         "deploy/gcp/rendered",
+        ".pytest-demand-only-*",
         "**/*service-account*.json",
         "**/*credentials*.json",
     )
@@ -149,6 +176,7 @@ def test_templates_are_placeholder_only_and_renderer_requires_digest_images():
         for name in (
             "cloud-run-web.yaml.tmpl",
             "worker-pool.yaml.tmpl",
+            "worker-controller.yaml.tmpl",
             "maintenance-job.yaml.tmpl",
         )
     )
@@ -160,6 +188,7 @@ def test_templates_are_placeholder_only_and_renderer_requires_digest_images():
     assert "__WEB_IMAGE__" in combined
     assert "__SUPABASE_URL__" in combined
     assert "__CLOUD_RUN_ORIGIN__" in combined
+    assert "__WORKER_CONTROLLER_URL__" in combined
     assert "@sha256:[0-9a-f]{64}" in renderer
     assert "gcloud " not in renderer.lower()
     assert "docker " not in renderer.lower()
