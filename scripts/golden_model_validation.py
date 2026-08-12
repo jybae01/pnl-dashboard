@@ -189,6 +189,7 @@ def validate_pair(
     comparison_sales_fx: float = 1_500.0,
     tariff_adjustment: float = 13_000_000.0,
     changed_sources: list[str] | tuple[str, ...] | None = None,
+    include_formula_diagnostics: bool = True,
 ) -> dict[str, Any]:
     mapping = json.loads(mapping_path.read_text(encoding="utf-8"))
     analysis_config_path = mapping_path.with_name("analysis_v1.json")
@@ -223,10 +224,10 @@ def validate_pair(
         f"{column}{row}"
         for row in mapping["comparison"]["pnl_rows"].values()
     ]
-    base_formula_diagnostics = base.formula_diagnostics()
-    comparison_formula_diagnostics = comparison.formula_diagnostics()
-    base_pnl_full_dependencies = base.dependency_report(pnl_outputs)
-    comparison_pnl_full_dependencies = comparison.dependency_report(pnl_outputs)
+    base_formula_diagnostics: dict[str, Any] = {}
+    comparison_formula_diagnostics: dict[str, Any] = {}
+    base_pnl_full_dependencies: dict[str, Any] = {}
+    comparison_pnl_full_dependencies: dict[str, Any] = {}
     if changed_sources is None:
         input_sources = sorted(
             address
@@ -238,10 +239,17 @@ def validate_pair(
         )
     else:
         input_sources = sorted(changed_sources)
-    base_pnl_dependencies = base.dependency_report(pnl_outputs, sources=input_sources)
-    comparison_pnl_dependencies = comparison.dependency_report(
-        pnl_outputs, sources=input_sources
-    )
+    base_pnl_dependencies: dict[str, Any] = {}
+    comparison_pnl_dependencies: dict[str, Any] = {}
+    if include_formula_diagnostics:
+        base_formula_diagnostics = base.formula_diagnostics()
+        comparison_formula_diagnostics = comparison.formula_diagnostics()
+        base_pnl_full_dependencies = base.dependency_report(pnl_outputs)
+        comparison_pnl_full_dependencies = comparison.dependency_report(pnl_outputs)
+        base_pnl_dependencies = base.dependency_report(pnl_outputs, sources=input_sources)
+        comparison_pnl_dependencies = comparison.dependency_report(
+            pnl_outputs, sources=input_sources
+        )
     checks: list[dict[str, Any]] = []
 
     def check(
@@ -293,16 +301,40 @@ def validate_pair(
     material_group_specs = mapping["analysis_adapter"]["material"]["groups"]
     unit_basis = analysis_payload.get("unit_basis", {})
     raw_sales: dict[str, dict[str, float | str]] = {}
+    engine_sales_groups = {str(row["product_group"]): row for row in result.sales_groups}
     for key, spec in sales_groups.items():
         label = str(spec.get("label") or key)
         quantity_row = material_group_specs.get(key, {}).get("sales_quantity_row", spec["quantity_row"])
         q0, q1 = _value(base, column, quantity_row), _value(comparison, column, quantity_row)
+        group_q0 = _value(base, column, spec["quantity_row"])
+        group_q1 = _value(comparison, column, spec["quantity_row"])
         a0, a1 = _value(base, column, spec["amount_row"]), _value(comparison, column, spec["amount_row"])
         c0, c1 = _value(base, column, spec["cogs_row"]), _value(comparison, column, spec["cogs_row"])
         raw_sales[label] = {
             "basis": str(unit_basis.get(label, "PCS")),
             "q0": q0, "q1": q1, "a0": a0, "a1": a1, "c0": c0, "c1": c1,
         }
+        engine_group = engine_sales_groups[label]
+        for side, expected_quantity, expected_amount, expected_cogs in (
+            ("base", group_q0, a0, c0),
+            ("comparison", group_q1, a1, c1),
+        ):
+            prefix = "baseline" if side == "base" else "comparison"
+            check(
+                "Product Group", f"{label} {side} quantity",
+                f"Data!{column}{spec['quantity_row']}", expected_quantity,
+                engine_group[f"{prefix}_quantity"],
+            )
+            check(
+                "Product Group", f"{label} {side} amount",
+                f"Data!{column}{spec['amount_row']}", expected_amount,
+                engine_group[f"{prefix}_amount"],
+            )
+            check(
+                "Product Group", f"{label} {side} cogs",
+                f"Data!{column}{spec['cogs_row']}", expected_cogs,
+                engine_group[f"{prefix}_cogs"],
+            )
     quantity_effect = mix_effect = displayed_price = sales_fx_effect = 0.0
     for basis in ("PCS", "LENGTH"):
         rows = [row for row in raw_sales.values() if row["basis"] == basis]
@@ -430,16 +462,29 @@ def validate_pair(
         realization_rate, result.manufacturing_analysis["inventory_realization_rate"],
     )
     account_total = 0.0
-    for row in result.manufacturing_accounts:
-        row_number = int(row["row"])
+    engine_manufacturing_rows = {
+        int(row["row"]): row for row in result.manufacturing_accounts
+    }
+    for row_number in mapping["manufacturing_input_rows"]:
+        row = engine_manufacturing_rows[int(row_number)]
+        account = str(base.raw_value(f"D{row_number}") or "").strip()
         amount0, amount1 = _value(base, column, row_number), _value(comparison, column, row_number)
         check("제조경비", f"row {row_number} base amount", f"Data!{column}{row_number}", amount0, row["baseline_amount"])
         check("제조경비", f"row {row_number} comparison amount", f"Data!{column}{row_number}", amount1, row["comparison_amount"])
-        ratio_row = int(row["allocation_ratio_row"])
+        source_classification = str(base.raw_value(f"C{row_number}") or "").strip()
+        ratio_row = int(
+            manufacturing["front_ratio_rows"][
+                "labor"
+                if not source_classification
+                else "outsourcing"
+                if config.is_outsourcing(account)
+                else "other_variable"
+            ]
+        )
         ratio = _value(base, column, ratio_row)
-        is_variable = row["classification"] == "variable"
+        is_variable = config.is_variable_manufacturing(account)
         if is_variable:
-            is_outsourcing = config.is_outsourcing(str(row["account"]))
+            is_outsourcing = config.is_outsourcing(account)
             b0, b1 = (outsourcing_back0, outsourcing_back1) if is_outsourcing else (back0, back1)
 
             def decompose(a0: float, a1: float, q0: float, q1: float) -> tuple[float, float]:
@@ -471,18 +516,30 @@ def validate_pair(
     )
 
     sga_variable = sga_fixed = 0.0
-    for row in result.sga_accounts:
-        if row["row"] is None:
-            continue
-        source_row = int(row["row"])
+    engine_sga_rows = {
+        int(row["row"]): row
+        for row in result.sga_accounts
+        if row["row"] is not None
+    }
+    selling_transport_row = int(mapping["special_rows"]["selling_transport"])
+    for source_row in mapping["sga_input_rows"]:
+        row = engine_sga_rows[int(source_row)]
+        account = str(base.raw_value(f"C{source_row}") or "").strip()
         amount0, amount1 = _value(base, column, source_row), _value(comparison, column, source_row)
         check("판관비", f"row {source_row} base", f"Data!{column}{source_row}", amount0, row["baseline_amount"])
         check("판관비", f"row {source_row} comparison", f"Data!{column}{source_row}", amount1, row["comparison_amount"])
-        expected = 0.0 if row["classification"] in {"transport", "tariff"} else amount0 - amount1
+        classification = (
+            "transport"
+            if source_row == selling_transport_row
+            else "variable"
+            if config.is_variable_sga(account)
+            else "fixed"
+        )
+        expected = 0.0 if classification == "transport" else amount0 - amount1
         check("판관비", f"row {source_row} effect", "base-comparison; transport excluded", expected, row["profit_effect"])
-        if row["classification"] == "variable":
+        if classification == "variable":
             sga_variable += expected
-        elif row["classification"] == "fixed":
+        elif classification == "fixed":
             sga_fixed += expected
     effect_map = {row["code"]: float(row["profit_effect"] or 0.0) for row in result.effects}
     check("판관비", "variable total", "all variable SGA accounts", sga_variable, effect_map["sga_variable"])
@@ -528,6 +585,7 @@ def validate_pair(
             "comparison": comparison_preflight.as_dict(),
         },
         "formula_evaluation": {
+            "included": include_formula_diagnostics,
             "base": base_formula_diagnostics,
             "comparison": comparison_formula_diagnostics,
             "changed_input_sources": input_sources,
@@ -537,19 +595,25 @@ def validate_pair(
             "comparison_pnl_dependency": comparison_pnl_dependencies,
             "synthetic_bridge_status": (
                 "FORMULA_COMPLETE"
-                if base_pnl_full_dependencies["formula_complete"]
+                if include_formula_diagnostics
+                and base_pnl_full_dependencies["formula_complete"]
                 and comparison_pnl_full_dependencies["formula_complete"]
                 and base_pnl_dependencies["formula_complete"]
                 and comparison_pnl_dependencies["formula_complete"]
                 else "FORMULA_INCOMPLETE"
+                if include_formula_diagnostics
+                else "NOT_RUN"
             ),
             "final_reconciliation_status": (
                 "VALID"
-                if base_pnl_full_dependencies["formula_complete"]
+                if include_formula_diagnostics
+                and base_pnl_full_dependencies["formula_complete"]
                 and comparison_pnl_full_dependencies["formula_complete"]
                 and base_pnl_dependencies["formula_complete"]
                 and comparison_pnl_dependencies["formula_complete"]
                 else "SYNTHETIC BRIDGE INVALID FOR FINAL RECONCILIATION"
+                if include_formula_diagnostics
+                else "NOT_RUN"
             ),
         },
         "comparison_result": {

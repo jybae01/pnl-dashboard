@@ -25,8 +25,20 @@ def calculate_sga_effects(
     result = SgaEffects()
     months = sorted(set(base.months) & set(comparison.months))
     for month in months:
-        left = {row.account: row.amount for row in base.sga_expenses if row.year_month == month}
-        right = {row.account: row.amount for row in comparison.sga_expenses if row.year_month == month}
+        # The Golden workbook can contain the same account label in both the
+        # selling-expense and general-administration sections.  Collapsing
+        # those rows with a dict comprehension silently kept only the final
+        # occurrence.  Aggregate every source row before applying the
+        # variable/fixed classification so the canonical SG&A effect retains
+        # the complete workbook amount.
+        left: dict[str, float] = {}
+        right: dict[str, float] = {}
+        for row in base.sga_expenses:
+            if row.year_month == month:
+                left[row.account] = left.get(row.account, 0.0) + float(row.amount)
+        for row in comparison.sga_expenses:
+            if row.year_month == month:
+                right[row.account] = right.get(row.account, 0.0) + float(row.amount)
         for account in sorted(set(left) | set(right)):
             baseline_amount = float(left.get(account, 0.0))
             comparison_amount = float(right.get(account, 0.0))

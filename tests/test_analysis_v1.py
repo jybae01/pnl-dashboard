@@ -495,6 +495,25 @@ class MaterialApplicabilityTest(unittest.TestCase):
 
 
 class SgaAndEngineTest(unittest.TestCase):
+    def test_sga_aggregates_duplicate_account_labels_before_effect_calculation(self):
+        config = AnalysisConfig.load(CONFIG)
+        base = scenario("base", sga_expenses=[
+            ExpenseRecord("2026-05", "DUPLICATE_FIXED_ACCOUNT", 100, "sga"),
+            ExpenseRecord("2026-05", "DUPLICATE_FIXED_ACCOUNT", 200, "sga"),
+        ], pnl=[PnlRecord("2026-05", 0, 0, 0)])
+        comp = scenario("comp", sga_expenses=[
+            ExpenseRecord("2026-05", "DUPLICATE_FIXED_ACCOUNT", 80, "sga"),
+            ExpenseRecord("2026-05", "DUPLICATE_FIXED_ACCOUNT", 150, "sga"),
+        ], pnl=[PnlRecord("2026-05", 0, 0, 0)])
+
+        result = calculate_sga_effects(base, comp, config)
+
+        self.assertEqual(result.variable, 0.0)
+        self.assertEqual(result.fixed, 70.0)
+        self.assertEqual(len(result.details), 1)
+        self.assertEqual(result.details[0]["baseline_amount"], 300.0)
+        self.assertEqual(result.details[0]["comparison_amount"], 230.0)
+
     def test_sga_excludes_transport_and_separates_variable_accounts(self):
         config = AnalysisConfig.load(CONFIG)
         base = scenario("base", sga_expenses=[
