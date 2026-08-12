@@ -4,14 +4,14 @@ metadata:
   name: pnl-maintenance
 spec:
   template:
+    metadata:
+      annotations:
+        run.googleapis.com/execution-environment: gen2
+        run.googleapis.com/secrets: "pnl-supabase-secret-key:projects/__PROJECT_NUMBER__/secrets/pnl-supabase-secret-key"
     spec:
       taskCount: 1
       parallelism: 1
       template:
-        metadata:
-          annotations:
-            run.googleapis.com/execution-environment: gen2
-            run.googleapis.com/secrets: "pnl-supabase-secret-key:projects/__PROJECT_NUMBER__/secrets/pnl-supabase-secret-key"
         spec:
           serviceAccountName: pnl-maintenance@__PROJECT_ID__.iam.gserviceaccount.com
           maxRetries: 0
@@ -39,6 +39,8 @@ spec:
                   value: /var/tmp/pnl
                 - name: BFF_TEMP_QUOTA_BYTES
                   value: "536870912"
+                - name: PNL_VOLUME_CANARY_PATHS
+                  value: /var/tmp/pnl:/app/data
               volumeMounts:
                 - name: maintenance-temp
                   mountPath: /var/tmp/pnl

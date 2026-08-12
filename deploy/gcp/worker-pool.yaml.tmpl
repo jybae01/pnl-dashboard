@@ -37,6 +37,8 @@ spec:
               value: /var/run/pnl-secrets/supabase/supabase_secret_key
             - name: PNL_WORKER_ID
               value: gcp-worker-v1
+            - name: PNL_VOLUME_CANARY_PATHS
+              value: /tmp:/app/data
           volumeMounts:
             - name: worker-temp
               mountPath: /tmp

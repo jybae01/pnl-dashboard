@@ -1,0 +1,5 @@
+title: PNL Worker Lifecycle Operation Viewer
+description: Read only Cloud Run long-running operation status for the staging worker controller.
+stage: GA
+includedPermissions:
+  - run.operations.get

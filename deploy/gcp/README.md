@@ -250,9 +250,13 @@ current readiness goal.
 
    ```powershell
    gcloud iam roles create pnlWorkerLifecycleController --project=EXACT_PROJECT_ID --file=deploy/gcp/worker-controller-role.yaml
-   gcloud run worker-pools replace deploy/gcp/rendered/worker-pool.yaml --region=asia-southeast1
+   gcloud iam roles create pnlWorkerLifecycleOperationViewer --project=EXACT_PROJECT_ID --file=deploy/gcp/worker-operation-viewer-role.yaml
+   gcloud config set run/region asia-southeast1
+   gcloud run worker-pools replace deploy/gcp/rendered/worker-pool.yaml
    gcloud run services replace deploy/gcp/rendered/worker-controller.yaml --region=asia-southeast1
    gcloud run worker-pools add-iam-policy-binding pnl-worker --region=asia-southeast1 --member='serviceAccount:pnl-worker-controller@EXACT_PROJECT_ID.iam.gserviceaccount.com' --role='projects/EXACT_PROJECT_ID/roles/pnlWorkerLifecycleController'
+   gcloud projects add-iam-policy-binding EXACT_PROJECT_ID --member='serviceAccount:pnl-worker-controller@EXACT_PROJECT_ID.iam.gserviceaccount.com' --role='projects/EXACT_PROJECT_ID/roles/pnlWorkerLifecycleOperationViewer'
+   gcloud iam service-accounts add-iam-policy-binding pnl-worker@EXACT_PROJECT_ID.iam.gserviceaccount.com --member='serviceAccount:pnl-worker-controller@EXACT_PROJECT_ID.iam.gserviceaccount.com' --role=roles/iam.serviceAccountUser
    gcloud run services add-iam-policy-binding pnl-worker-controller --region=asia-southeast1 --member='serviceAccount:pnl-web@EXACT_PROJECT_ID.iam.gserviceaccount.com' --role=roles/run.invoker
    gcloud run services add-iam-policy-binding pnl-worker-controller --region=asia-southeast1 --member='serviceAccount:pnl-worker-reconciler@EXACT_PROJECT_ID.iam.gserviceaccount.com' --role=roles/run.invoker
    $controllerUrl = gcloud run services describe pnl-worker-controller --region=asia-southeast1 --format='value(status.url)'

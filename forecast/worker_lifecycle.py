@@ -195,7 +195,7 @@ class GoogleWorkerPoolScaler:
         region: str,
         worker_pool: str = "pnl-worker",
         client: httpx.Client | None = None,
-        operation_wait_seconds: float = 8.0,
+        operation_wait_seconds: float = 16.0,
         operation_poll_seconds: float = 0.5,
     ) -> None:
         if not re.fullmatch(r"[a-z][a-z0-9-]{4,61}[a-z0-9]", project_id):
@@ -206,7 +206,10 @@ class GoogleWorkerPoolScaler:
             raise ValueError("invalid Worker Pool name")
         if operation_wait_seconds < 0 or operation_poll_seconds <= 0:
             raise ValueError("invalid operation polling budget")
-        self._client = client or httpx.Client(timeout=4.0)
+        # A Cloud Run control-plane PATCH can exceed a generic four-second API
+        # budget. Each call stays bounded while the LRO has enough time to
+        # finish within the controller's 60-second request timeout.
+        self._client = client or httpx.Client(timeout=8.0)
         self._operation_wait_seconds = operation_wait_seconds
         self._operation_poll_seconds = operation_poll_seconds
         self._resource_parent = f"projects/{project_id}/locations/{region}"
@@ -371,7 +374,7 @@ class CloudRunWorkerControlClient:
         if not re.fullmatch(r"https://[^/]+", value):
             raise ValueError("worker controller URL must be an HTTPS origin")
         self._origin = value
-        self._client = client or httpx.Client(timeout=15.0)
+        self._client = client or httpx.Client(timeout=30.0)
 
     def ensure_after_enqueue(self) -> Mapping[str, Any]:
         return self._request("POST", "/v1/worker/reconcile")

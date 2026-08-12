@@ -110,6 +110,7 @@ def test_worker_pool_is_independent_continuous_pgmq_consumer():
 def test_demand_only_controller_and_reconciler_contract_is_least_privilege():
     controller = _text("worker-controller.yaml.tmpl")
     role = _text("worker-controller-role.yaml")
+    operation_role = _text("worker-operation-viewer-role.yaml")
     web = _text("cloud-run-web.yaml.tmpl")
     runbook = _text("README.md")
 
@@ -119,7 +120,9 @@ def test_demand_only_controller_and_reconciler_contract_is_least_privilege():
     assert "forecast.worker_controller_server:create_worker_controller_from_environment" in controller
     assert "--factory" in controller
     assert "run.workerpools.get" in role and "run.workerpools.update" in role
-    assert "run.operations.get" in role
+    assert "run.operations.get" not in role
+    assert "run.operations.get" in operation_role
+    assert "run.workerpools" not in operation_role
     for forbidden in ("run.workerpools.create", "run.workerpools.delete", "run.admin", "roles/owner"):
         assert forbidden not in role.lower()
     assert "BFF_WORKER_LIFECYCLE_MODE\n              value: demand_only" in web
@@ -129,6 +132,7 @@ def test_demand_only_controller_and_reconciler_contract_is_least_privilege():
     assert "--oidc-service-account-email" in runbook
     assert "--max-retry-attempts=3" in runbook
     assert "iam.serviceAccounts.actAs" in runbook
+    assert "pnl-worker-controller@EXACT_PROJECT_ID.iam.gserviceaccount.com' --role=roles/iam.serviceAccountUser" in runbook
     assert "roles/cloudscheduler.serviceAgent" in runbook
 
 
@@ -165,9 +169,20 @@ def test_build_and_source_upload_contexts_exclude_sensitive_artifacts():
 def test_linux_entrypoint_is_normalized_during_image_build():
     dockerfile = (ROOT / "Dockerfile").read_text(encoding="utf-8")
     attributes = (ROOT / ".gitattributes").read_text(encoding="utf-8")
+    entrypoint = (ROOT / "deploy" / "python-entrypoint.sh").read_text(encoding="utf-8")
+    web = _text("cloud-run-web.yaml.tmpl")
+    worker = _text("worker-pool.yaml.tmpl")
+    job = _text("maintenance-job.yaml.tmpl")
 
     assert "sed -i 's/\\r$//' /usr/local/bin/pnl-entrypoint" in dockerfile
     assert "deploy/*.sh text eol=lf" in attributes
+    assert "verify_writable_volumes" in entrypoint
+    assert 'mktemp "$path/.pnl-volume-canary.XXXXXX"' in entrypoint
+    assert "volume_canary=pass uid=$(id -u)" in entrypoint
+    assert "PNL_VOLUME_CANARY_PATHS" in web
+    assert "value: /var/tmp/pnl:/app/data" in web
+    assert "value: /tmp:/app/data" in worker
+    assert "value: /var/tmp/pnl:/app/data" in job
 
 
 def test_templates_are_placeholder_only_and_renderer_requires_digest_images():

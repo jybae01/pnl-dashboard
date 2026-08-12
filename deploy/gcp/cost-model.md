@@ -27,7 +27,7 @@ seconds and 728,744 GiB-seconds. This assumes the account allowance remains.
 | --- | ---: | ---: |
 | Web (min 0, request-based) | $0-$1.00 | approximately $0 |
 | Controller (min 0; Analysis + 5-minute calls) | below request/compute allowances | approximately $0 |
-| Artifact Registry (plan 1.5 GB) | $0.10 above first 0.5 GB | about $0.10 |
+| Artifact Registry (live staging: about 0.215 GiB) | $0.00 at current size | $0.00 within first 0.5 GiB |
 | Scheduler (one job) | $0.10 list price | $0 within three-job allowance |
 | Secret Manager (five active versions) | $0.30 list price plus low access | $0 within six versions/10,000 accesses |
 | Maintenance Job | a few minutes of CPU/RAM when manually run | approximately $0 |
@@ -37,8 +37,10 @@ Low internal web and controller traffic (min zero), the five-minute reconciler,
 rare maintenance, and low logs are planned inside applicable free usage. One
 Scheduler job fits the three-job account allowance. Five secret versions and
 low access fit Secret Manager's six versions and 10,000 accesses. Artifact
-Registry is free through 0.5 GB then $0.10/GB-month; up to about $0.10 is reserved
-for modest excess. Cloud Build remains unused.
+Registry is free through 0.5 GiB then $0.10/GiB-month. The live repository
+reported 230.554 MB (approximately 0.215 GiB) after the iterative staging
+builds, so current stored artifact cost is $0; a small contingency remains
+appropriate if later revisions cross the allowance. Cloud Build remains unused.
 
 `GOOGLE CLOUD COST FIT = PASS_FOR_TARGET_BUDGET`
 

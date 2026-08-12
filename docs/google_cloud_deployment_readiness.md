@@ -2,6 +2,11 @@
 
 Date: 2026-08-12
 
+This is the pre-provisioning readiness snapshot. The subsequently approved and
+executed staging deployment is recorded in `docs/google_cloud_staging_e2e.md`;
+its live verdict supersedes the `NOT_YET_EXECUTED` boundary below without
+rewriting this historical checkpoint.
+
 ## Provenance and recovery
 
 - Frozen Phase B branch: `agent/local-docker-phase-b`

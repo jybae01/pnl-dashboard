@@ -39,10 +39,13 @@ the only legal counts are zero and one, and identical patches converge.
 
 - `pnl-web` calls `pnl-worker-controller` with a metadata-server ID token. Its
   runtime account receives `roles/run.invoker` only on that private service.
-- `pnl-worker-controller` is request-based, min zero/max one. Its custom role
-  contains only `run.workerpools.get` and `run.workerpools.update`, bound to the
-  `pnl-worker` resource at the narrowest supported scope. It has Secret Accessor
-  only on the Supabase server secret.
+- `pnl-worker-controller` is request-based, min zero/max one. Its pool-scoped
+  custom role contains only `run.workerpools.get` and `run.workerpools.update`.
+  Cloud Run LROs are separate resources, so a second custom project role grants
+  only `run.operations.get`; it grants no service, job, or Worker Pool mutation.
+  Cloud Run also revalidates the pool's service identity on scaling PATCH, so
+  the controller has `iam.serviceAccounts.actAs` only on the `pnl-worker`
+  service account. It has Secret Accessor only on the Supabase server secret.
 - `pnl-worker-reconciler` is one Cloud Scheduler HTTP job (`*/5 * * * *`) using
   OIDC. Its service account has Invoker only on the controller.
 - `pnl-worker` retains the independent pgmq consumer, lease, heartbeat, retry,
@@ -66,6 +69,10 @@ than a live process counter. `actual_instance_count` is therefore reported only
 after `observedGeneration == generation`, reconciliation is false, and the
 terminal condition is ready; otherwise it is `null`/`reconciling`. Staging must
 measure wake-to-ready and wake-to-first-claim latency before any UI SLA is added.
+The Google API client permits up to eight seconds per call and polls a scaling
+LRO for up to sixteen seconds. The BFF-to-controller call permits thirty seconds,
+inside the controller's sixty-second request cap. These are bounded control-plane
+budgets, not a fixed user-facing wake SLA.
 
 ## Emergency recovery
 
