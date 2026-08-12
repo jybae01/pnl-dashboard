@@ -2,6 +2,7 @@ from pathlib import Path
 
 import pytest
 
+from forecast.bff.http import TrustedProxyPolicy
 from scripts.prepare_phase_b_secrets import prepare
 from scripts.phase_b_topology_probe import _wait_for_file, _wait_for_status
 
@@ -53,6 +54,23 @@ def test_phase_b_https_edge_load_balances_bffs_and_frontend_is_same_origin():
     assert "lb_policy round_robin" in caddy and "health_uri /health/ready" in caddy
     assert "response_header_timeout 180s" in caddy
     assert 'ARG VITE_BFF_BASE_URL=""' in frontend
+
+
+def test_phase_b_exact_edge_cidr_is_the_only_forwarded_identity_trust_boundary():
+    policy = TrustedProxyPolicy.from_cidrs(["172.30.0.10/32"])
+
+    assert policy.client_ip(
+        "172.30.0.10",
+        {"x-forwarded-for": "198.51.100.2, 172.30.0.10"},
+    ) == "198.51.100.2"
+    assert policy.client_ip(
+        "172.30.0.11",
+        {"x-forwarded-for": "198.51.100.2"},
+    ) == "172.30.0.11"
+    assert policy.client_ip(
+        "172.30.0.10",
+        {"x-forwarded-for": "garbage, 198.51.100.2"},
+    ) == "172.30.0.10"
 
 
 def test_phase_b_files_contain_no_company_workbook_or_private_key_material():

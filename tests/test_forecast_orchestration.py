@@ -142,6 +142,40 @@ def test_sync_scope_allows_six_consecutive_months_and_rejects_seven_before_reser
     assert gateway.reservations == 0
 
 
+@pytest.mark.parametrize(
+    ("start_month", "end_month", "approved"),
+    [
+        (7, 7, True),
+        (7, 12, True),
+        (6, 12, False),
+        (1, 12, False),
+    ],
+    ids=("one-month", "six-month", "seven-month", "twelve-month"),
+)
+def test_v1_sync_scope_boundary_is_explicit_for_one_six_seven_and_twelve_months(
+    start_month,
+    end_month,
+    approved,
+):
+    gateway = Gateway()
+    target, _admin_session = service(gateway, max_sync_months=6)
+    candidate = ranged_request(start_month, end_month)
+
+    if approved:
+        accepted = target._validate(candidate)
+        assert accepted.start_month == start_month
+        assert accepted.end_month == end_month
+    else:
+        with pytest.raises(BffError) as denied:
+            target._validate(candidate)
+        assert denied.value.code == ApiErrorCode.FORECAST_SCOPE_NOT_APPROVED
+        assert denied.value.error.field_errors == {
+            "period": "must not exceed 6 consecutive months"
+        }
+
+    assert gateway.reservations == 0
+
+
 def test_v1_service_composition_cannot_raise_sync_scope_above_six_months():
     with pytest.raises(ValueError, match="1-6"):
         service(Gateway(), max_sync_months=7)
