@@ -116,9 +116,9 @@ The maintenance container can process durable Supabase recovery, Storage, and
 auth-retention state. Its private tmpfs cannot sweep another container's local
 tmpfs; container removal is the ownership boundary for those artifacts.
 
-## Verification state
+## Frozen verification state
 
-The repository and local Docker checks currently establish:
+The repository and local Docker checks establish:
 
 - pinned Python, Node, and Caddy image builds;
 - Compose and both Caddy configuration validations;
@@ -128,27 +128,55 @@ The repository and local Docker checks currently establish:
 - secret-file mounts with no server secret in image layers or Compose
   environment metadata;
 - Forecast-disabled startup composition without a Forecast service or Forecast
-  runtime RPC, sync scope `1..6`, and fail-closed rejection of `7`;
-- Forecast-disabled BFF process startup and `/health/live` under a read-only
-  root using validation-only local placeholders (no remote readiness claim);
+  runtime RPC;
+- Forecast-disabled and approved synchronous-mode BFF startup under read-only
+  roots;
 - the Python regression suite and the focused deployment-policy tests.
 
-The remote Supabase server secret was not available during this verification.
-Consequently BFF A/B readiness, shared session/logout, distributed lockout,
-independent Worker processing, maintenance against durable state, and the full
-canonical journey have not yet been executed in the Docker topology. Until that
-controlled follow-up run completes, the honest topology result is
-`BLOCKED_MISSING_SUPABASE_SERVER_SECRET`, not Local Phase B PASS. No company
-workbook was copied, committed, or uploaded.
+The controlled live follow-up ran on 2026-08-12 against the dedicated
+`pnl-dashboard-staging-clean` Supabase project. The temporary server credential
+was passed only to the backend runtime and was not added to the repository,
+Compose environment metadata, an image layer, the frontend, or a tracked env
+file. The live topology established:
 
-The generated CA was trusted explicitly by the controlled HTTP client, without
-changing the host trust store. The in-app browser correctly refused that local
-CA as untrusted, so the real browser journey also remains pending. A later
-browser run requires a separately approved temporary trust method or a browser
-context configured to trust only this generated CA; no certificate warning is
-bypassed as Phase B evidence.
+- managed local HTTPS to the React production build and BFF readiness;
+- two BFF replicas with a shared server-side session, cross-replica logout, and
+  distributed lockout;
+- canonical synthetic Model upload, exact local/persisted/private-Storage SHA
+  agreement, and Model publication;
+- Analysis submission, pgmq delivery, independent Worker execution, stored
+  Result, Admin/Viewer reads, Presentation, History, Evidence XLSX, and the P&L
+  Dashboard;
+- durable BFF audit events and HTTP correlation identifiers;
+- maintenance dry-runs before and after Forecast policy probes, with no pending
+  recovery item, active Forecast permit, or visible queue message afterward.
 
-The follow-up needs only an out-of-repository `supabase_secret_key` file. Run
-the preparation command above, then the build/start, probe, and maintenance
-commands. The probe emits only safe PASS labels and identifiers; it does not
-print access codes, tokens, or workbook contents.
+The approved synchronous Forecast runtime used `mode=sync`, explicit approval
+`true`, and a maximum of six consecutive months. Valid canonical requests for
+one and six months passed the scope gate, created durable reservations, and
+entered Forecast execution. They settled as `FORECAST_GENERATION_FAILED`
+because the non-business zero fixture is not a Forecast-valid generated-Model
+fixture. Valid seven- and twelve-month requests returned
+`FORECAST_SCOPE_NOT_APPROVED` and created no durable reservation, proving that
+they were blocked before execution. This preserves the separate company-
+workbook Engine benchmark evidence (approximately 7.7 seconds for one month,
+50.7 seconds and 328.6 MiB sampled RSS for six months) without uploading that
+workbook remotely.
+
+The final cleanup removed all Phase B containers and temporary secret
+directories. Exact-value and high-risk-pattern scans of repository content,
+frontend content, container metadata, image configuration/history, and Docker
+logs passed. No company workbook was copied, committed, or uploaded.
+
+Frozen verdict:
+
+- `LOCAL PRODUCTION-LIKE PHASE B = PASS`
+- `FORECAST SYNC POLICY = APPROVED_FOR_MAX_6_CONSECUTIVE_MONTHS`
+- `FULL 12-MONTH FORECAST SYNC = DEFERRED_UNVERIFIED`
+- `REAL CLOUD DEPLOYMENT TOPOLOGY = NOT_VALIDATED`
+- `GOLDEN BUSINESS GATE = BLOCKED_NO_EXCEL_CALCULATED_PAIR`
+
+The generated CA was trusted explicitly by controlled HTTP clients without
+changing the host trust store. Cloud readiness must use the target platform's
+managed HTTPS contract instead of treating this local CA as a deployable cloud
+artifact.
