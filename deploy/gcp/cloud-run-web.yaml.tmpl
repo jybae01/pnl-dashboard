@@ -2,11 +2,19 @@ apiVersion: serving.knative.dev/v1
 kind: Service
 metadata:
   name: pnl-web
+  labels:
+    source-commit: __SOURCE_COMMIT__
+    release-stage: __RELEASE_STAGE__
+    business-gate: __BUSINESS_GATE__
   annotations:
     run.googleapis.com/ingress: all
 spec:
   template:
     metadata:
+      labels:
+        source-commit: __SOURCE_COMMIT__
+        release-stage: __RELEASE_STAGE__
+        business-gate: __BUSINESS_GATE__
       annotations:
         autoscaling.knative.dev/minScale: "0"
         autoscaling.knative.dev/maxScale: "2"

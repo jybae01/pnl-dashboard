@@ -204,7 +204,15 @@ def test_templates_are_placeholder_only_and_renderer_requires_digest_images():
     assert "__SUPABASE_URL__" in combined
     assert "__CLOUD_RUN_ORIGIN__" in combined
     assert "__WORKER_CONTROLLER_URL__" in combined
+    assert "__SOURCE_COMMIT__" in combined
+    assert "__RELEASE_STAGE__" in combined
+    assert "__BUSINESS_GATE__" in combined
+    assert combined.count("source-commit: __SOURCE_COMMIT__") == 8
+    assert combined.count("release-stage: __RELEASE_STAGE__") == 8
+    assert combined.count("business-gate: __BUSINESS_GATE__") == 8
     assert "@sha256:[0-9a-f]{64}" in renderer
+    assert "SourceCommit must be a full lowercase 40-character Git commit" in renderer
+    assert "ValidateSet('passed')" in renderer
     assert "gcloud " not in renderer.lower()
     assert "docker " not in renderer.lower()
     assert "Invoke-" not in renderer
@@ -221,6 +229,24 @@ def test_artifact_cleanup_policy_keeps_three_and_starts_as_documented_dry_run():
         item.get("mostRecentVersions", {}).get("keepCount") == 3 for item in policy
     )
     assert "--dry-run" in _text("README.md")
+
+
+def test_production_web_bootstrap_stays_private_until_exact_origin_smoke_passes():
+    runbook = _text("README.md")
+    normalized = " ".join(runbook.split())
+
+    first_replace = runbook.index(
+        "gcloud run services replace deploy/gcp/rendered/cloud-run-web.yaml"
+    )
+    exact_origin = runbook.index(
+        "Render once more with `$privateUrl` as the exact `CloudRunOrigin`"
+    )
+    public_binding = runbook.index(
+        "gcloud run services add-iam-policy-binding pnl-web"
+    )
+    assert first_replace < exact_origin < public_binding
+    assert "Do not add `allUsers` yet" in normalized
+    assert "implicit zero-traffic rollout" in normalized
 
 
 def test_readiness_record_preserves_business_and_cloud_overclaim_boundaries():

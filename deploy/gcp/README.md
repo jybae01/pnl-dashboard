@@ -151,7 +151,10 @@ Google Cloud.
   -CloudRunOrigin 'https://bootstrap.invalid' `
   -WorkerControllerUrl 'https://controller-bootstrap.invalid' `
   -WebImage 'asia-southeast1-docker.pkg.dev/exact-project-id/pnl-staging/pnl-web@sha256:<64-hex>' `
-  -RuntimeImage 'asia-southeast1-docker.pkg.dev/exact-project-id/pnl-staging/pnl-runtime@sha256:<64-hex>'
+  -RuntimeImage 'asia-southeast1-docker.pkg.dev/exact-project-id/pnl-staging/pnl-runtime@sha256:<64-hex>' `
+  -SourceCommit '1e478b68b4f73dc6b41e2681cb6238a87d1e0427' `
+  -ReleaseStage 'v1-production-pilot' `
+  -BusinessGate 'passed'
 ```
 
 Review every rendered file, confirm no unresolved token, then run the repository
@@ -161,6 +164,15 @@ contract tests. The `rendered/` directory is ignored by Git, Docker, and gcloud.
 
 The following steps create or mutate cloud resources. Do not execute them in the
 current readiness goal.
+
+Use a dedicated production gcloud configuration or pass
+`--project=EXACT_PROJECT_ID` on every write. The staging project may still be
+the operator's default, so every mutating step must first assert the production
+project ID and number. Ordinary deploy steps should impersonate the scoped
+`pnl-deployer` service account; keep project creation, billing attachment, API
+enablement, service-account creation, and Scheduler OIDC bootstrap as explicit
+human bootstrap operations. Never grant Owner, Editor, or broad Cloud Run Admin
+to a runtime or deployer account.
 
 1. Confirm the exact project ID; do not use the display name as evidence:
 
@@ -234,15 +246,25 @@ current readiness goal.
    worker-controller get only `pnl-supabase-secret-key`. The reconciler gets no
    secret. No runtime account receives broad Google API permission.
 
-7. Configure Docker and build/push from the reviewed clean worktree:
+7. Prefer exact-byte promotion of the Golden-aligned staging indexes into the
+   production repository. Grant the promotion principal temporary read access
+   to the staging repository and writer access only to the production
+   repository, then remove any newly granted staging access. Do not rebuild
+   unless exact promotion is technically unavailable:
 
    ```powershell
    gcloud auth configure-docker asia-southeast1-docker.pkg.dev
-   docker buildx build --platform linux/amd64 -f deploy/gcp/Dockerfile.web -t asia-southeast1-docker.pkg.dev/EXACT_PROJECT_ID/pnl-staging/pnl-web:COMMIT --push .
-   docker buildx build --platform linux/amd64 -f Dockerfile -t asia-southeast1-docker.pkg.dev/EXACT_PROJECT_ID/pnl-staging/pnl-runtime:COMMIT --push .
-   gcloud artifacts docker images describe asia-southeast1-docker.pkg.dev/EXACT_PROJECT_ID/pnl-staging/pnl-web:COMMIT --format='value(image_summary.digest)'
-   gcloud artifacts docker images describe asia-southeast1-docker.pkg.dev/EXACT_PROJECT_ID/pnl-staging/pnl-runtime:COMMIT --format='value(image_summary.digest)'
+   docker buildx imagetools create --prefer-index --tag asia-southeast1-docker.pkg.dev/EXACT_PROJECT_ID/pnl-production/pnl-web:v1.0.0-rc1 asia-southeast1-docker.pkg.dev/pnl-dashboard-staging/pnl-staging/pnl-web@sha256:36502f01eed08012e2c0efb5f4756212c72b1373a390b5ed9bb78e59741d8330
+   docker buildx imagetools create --prefer-index --tag asia-southeast1-docker.pkg.dev/EXACT_PROJECT_ID/pnl-production/pnl-runtime:v1.0.0-rc1 asia-southeast1-docker.pkg.dev/pnl-dashboard-staging/pnl-staging/pnl-runtime@sha256:4121d8f3fe25b555ea30355110008c4b6e5ac9cb2ecbc065f164bde2cd5ce485
+   gcloud artifacts docker images describe asia-southeast1-docker.pkg.dev/EXACT_PROJECT_ID/pnl-production/pnl-web:v1.0.0-rc1 --format='value(image_summary.digest)'
+   gcloud artifacts docker images describe asia-southeast1-docker.pkg.dev/EXACT_PROJECT_ID/pnl-production/pnl-runtime:v1.0.0-rc1 --format='value(image_summary.digest)'
+   docker buildx imagetools inspect asia-southeast1-docker.pkg.dev/EXACT_PROJECT_ID/pnl-production/pnl-web:v1.0.0-rc1
+   docker buildx imagetools inspect asia-southeast1-docker.pkg.dev/EXACT_PROJECT_ID/pnl-production/pnl-runtime:v1.0.0-rc1
    ```
+
+   The destination OCI index digests must equal the source indexes, and the
+   Linux/AMD64 child manifests must remain identical. Deploy the destination
+   digest references, never the mutable tags.
 
 8. Render with the two digests, bootstrap origins, and create the zero-instance
    Worker Pool plus private controller first. Create its exact three-permission
@@ -262,23 +284,47 @@ current readiness goal.
    $controllerUrl = gcloud run services describe pnl-worker-controller --region=asia-southeast1 --format='value(status.url)'
    ```
 
-9. Render again with `$controllerUrl`, then create the web service and only its
-   public invoker binding:
+9. Render again with `$controllerUrl`, then create the initial Web service while
+   it is still private. A brand-new service has no previous revision that can
+   retain 100% traffic, so its first revision cannot be treated as a zero-percent
+   traffic canary. Invoke that private revision with an operator identity token
+   and verify health, SPA, BFF connectivity, labels, and UID volume probes. Do
+   not add `allUsers` yet. Verify `source-commit`, `release-stage`, and
+   `business-gate` labels on the service, revision, Worker Pool, controller, and
+   maintenance Job; do not reuse the staging release-stage label.
 
    ```powershell
    gcloud run services replace deploy/gcp/rendered/cloud-run-web.yaml --region=asia-southeast1
-   gcloud run services add-iam-policy-binding pnl-web --region=asia-southeast1 --member=allUsers --role=roles/run.invoker
-   gcloud run services describe pnl-web --region=asia-southeast1 --format='value(status.url)'
+   $candidateRevision = gcloud run revisions list --service=pnl-web --region=asia-southeast1 --sort-by='~metadata.creationTimestamp' --limit=1 --format='value(metadata.name)'
+   $privateUrl = gcloud run services describe pnl-web --region=asia-southeast1 --format='value(status.url)'
+   $identityToken = gcloud auth print-identity-token --audiences=$privateUrl
+   Invoke-WebRequest -Headers @{ Authorization = "Bearer $identityToken" } -Uri "$privateUrl/health/ready"
    ```
 
-   Render once more with that exact HTTPS origin and replace the web service. Verify
-   `/health/live`, `/health/ready`, SPA fallback, and that no separate BFF URL or
-   port exists. Before claiming readiness, verify the effective non-root identity
-   and create/delete probes under `/var/tmp/pnl` and `/app/data`. Cloud Run owns
-   volume creation and the manifests cannot express an `emptyDir` UID/GID/mode;
-   a permission failure must block acceptance and trigger a documented supported
-   mount strategy, not a root-container fallback. Then test login, CSRF mutation,
-   logout, cross-replica session, and distributed lockout.
+   Render once more with `$privateUrl` as the exact `CloudRunOrigin` and replace
+   the service while it is still private. Re-run the authenticated health, SPA,
+   BFF, cookie/origin, label, and volume checks against that exact-origin
+   revision. Only after those checks pass may the operator add the public
+   invoker binding and begin the Access Code smoke. This avoids relying on
+   `gcloud run services replace` for an implicit zero-traffic rollout and keeps
+   the URL non-public until the final configuration is ready.
+
+   ```powershell
+   gcloud run services replace deploy/gcp/rendered/cloud-run-web.yaml --region=asia-southeast1
+   $candidateRevision = gcloud run revisions list --service=pnl-web --region=asia-southeast1 --sort-by='~metadata.creationTimestamp' --limit=1 --format='value(metadata.name)'
+   $identityToken = gcloud auth print-identity-token --audiences=$privateUrl
+   Invoke-WebRequest -Headers @{ Authorization = "Bearer $identityToken" } -Uri "$privateUrl/health/ready"
+   gcloud run services add-iam-policy-binding pnl-web --region=asia-southeast1 --member=allUsers --role=roles/run.invoker
+   gcloud run services describe pnl-web --region=asia-southeast1 --format='value(status.traffic,status.url)'
+   ```
+
+   Verify `/health/live`, `/health/ready`, SPA fallback, and that no separate BFF
+   URL or port exists. Before claiming readiness, verify the effective non-root
+   identity and create/delete probes under `/var/tmp/pnl` and `/app/data`. Cloud
+   Run owns volume creation and the manifests cannot express an `emptyDir`
+   UID/GID/mode; a permission failure must block acceptance and trigger a
+   documented supported mount strategy, not a root-container fallback. Then test
+   login, CSRF mutation, logout, cross-replica session, and distributed lockout.
 
 10. Create the five-minute reconciliation schedule with OIDC; it is not a warm
     schedule and has no weekday/weekend branches:

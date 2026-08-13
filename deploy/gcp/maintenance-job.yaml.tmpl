@@ -2,9 +2,17 @@ apiVersion: run.googleapis.com/v1
 kind: Job
 metadata:
   name: pnl-maintenance
+  labels:
+    source-commit: __SOURCE_COMMIT__
+    release-stage: __RELEASE_STAGE__
+    business-gate: __BUSINESS_GATE__
 spec:
   template:
     metadata:
+      labels:
+        source-commit: __SOURCE_COMMIT__
+        release-stage: __RELEASE_STAGE__
+        business-gate: __BUSINESS_GATE__
       annotations:
         run.googleapis.com/execution-environment: gen2
         run.googleapis.com/secrets: "pnl-supabase-secret-key:projects/__PROJECT_NUMBER__/secrets/pnl-supabase-secret-key"

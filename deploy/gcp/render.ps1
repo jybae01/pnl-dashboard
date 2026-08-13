@@ -8,6 +8,9 @@ param(
     [Parameter(Mandatory)] [string] $WorkerControllerUrl,
     [Parameter(Mandatory)] [string] $WebImage,
     [Parameter(Mandatory)] [string] $RuntimeImage,
+    [Parameter(Mandatory)] [string] $SourceCommit,
+    [Parameter(Mandatory)] [string] $ReleaseStage,
+    [Parameter(Mandatory)] [ValidateSet('passed')] [string] $BusinessGate,
     [string] $OutputDirectory = (Join-Path $PSScriptRoot 'rendered')
 )
 
@@ -37,6 +40,12 @@ foreach ($image in @($WebImage, $RuntimeImage)) {
         throw 'Container images must be Artifact Registry references pinned by sha256 digest.'
     }
 }
+if ($SourceCommit -notmatch '^[0-9a-f]{40}$') {
+    throw 'SourceCommit must be a full lowercase 40-character Git commit.'
+}
+if ($ReleaseStage -notmatch '^[a-z][a-z0-9-]{0,62}$') {
+    throw 'ReleaseStage must be a lowercase Google label value.'
+}
 
 $tokens = [ordered]@{
     '__PROJECT_ID__' = $ProjectId
@@ -47,6 +56,9 @@ $tokens = [ordered]@{
     '__WORKER_CONTROLLER_URL__' = $WorkerControllerUrl
     '__WEB_IMAGE__' = $WebImage
     '__RUNTIME_IMAGE__' = $RuntimeImage
+    '__SOURCE_COMMIT__' = $SourceCommit
+    '__RELEASE_STAGE__' = $ReleaseStage
+    '__BUSINESS_GATE__' = $BusinessGate
 }
 
 New-Item -ItemType Directory -Force -Path $OutputDirectory | Out-Null
