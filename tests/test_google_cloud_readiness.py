@@ -234,6 +234,8 @@ def test_production_renderer_and_target_guard_fail_closed_against_staging():
     assert "DeploymentProfile -eq 'production'" in renderer
     assert "/pnl-production/" in renderer
     assert "1e478b68b4f73dc6b41e2681cb6238a87d1e0427" in renderer
+    assert "36502f01eed08012e2c0efb5f4756212c72b1373a390b5ed9bb78e59741d8330" in renderer
+    assert "4121d8f3fe25b555ea30355110008c4b6e5ac9cb2ecbc065f164bde2cd5ce485" in renderer
     assert "v1-production-pilot" in renderer
     assert "pnl-production-*" in guard
     assert "billingEnabled" in guard
@@ -269,6 +271,9 @@ def test_v1_production_migration_chain_and_runbook_are_explicit():
     assert "Invoke-ProdGcloud" in runbook
     assert "volume_canary=pass uid=10001 path_count=2" in runbook
     assert "Production evidence snapshot" in runbook
+    assert "& $GcloudPath @args" in runbook
+    assert "--impersonate-service-account=$DeployerAccount" in runbook
+    assert "Do not add or change staging IAM for promotion" in runbook
 
 
 def test_artifact_cleanup_policy_keeps_three_and_starts_as_documented_dry_run():
@@ -289,7 +294,7 @@ def test_production_web_bootstrap_stays_private_until_exact_origin_smoke_passes(
     normalized = " ".join(runbook.split())
 
     first_replace = runbook.index(
-        "Invoke-ProdGcloud run services replace deploy/gcp/rendered/cloud-run-web.yaml"
+        "Invoke-ProdDeploy run services replace deploy/gcp/rendered/cloud-run-web.yaml"
     )
     exact_origin = runbook.index(
         "Render once more with `$privateUrl` as the exact `CloudRunOrigin`"

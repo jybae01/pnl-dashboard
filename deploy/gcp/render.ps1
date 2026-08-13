@@ -50,6 +50,8 @@ if ($ReleaseStage -notmatch '^[a-z][a-z0-9-]{0,62}$') {
 
 if ($DeploymentProfile -eq 'production') {
     $acceptedRuntimeCommit = '1e478b68b4f73dc6b41e2681cb6238a87d1e0427'
+    $acceptedWebDigest = 'sha256:36502f01eed08012e2c0efb5f4756212c72b1373a390b5ed9bb78e59741d8330'
+    $acceptedRuntimeDigest = 'sha256:4121d8f3fe25b555ea30355110008c4b6e5ac9cb2ecbc065f164bde2cd5ce485'
     $knownNonProductionProjectIds = @('pnl-dashboard-staging')
     $knownNonProductionProjectNumbers = @('498160536475')
     $knownNonProductionSupabaseRefs = @(
@@ -72,6 +74,12 @@ if ($DeploymentProfile -eq 'production') {
         if ($image -notmatch $productionImagePrefix) {
             throw 'Production images must come from the exact production project and pnl-production repository.'
         }
+    }
+    if (-not $WebImage.EndsWith("@$acceptedWebDigest", [StringComparison]::Ordinal)) {
+        throw 'Production Web image must use the Golden-accepted OCI index digest.'
+    }
+    if (-not $RuntimeImage.EndsWith("@$acceptedRuntimeDigest", [StringComparison]::Ordinal)) {
+        throw 'Production runtime image must use the Golden-accepted OCI index digest.'
     }
     if ($SourceCommit -ne $acceptedRuntimeCommit) {
         throw 'V1 production must use the Golden-accepted runtime commit.'

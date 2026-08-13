@@ -202,18 +202,26 @@ to a runtime or deployer account.
    outside the future deployer identity:
 
    ```powershell
+   $GcloudPath = "$env:LOCALAPPDATA\Google\Cloud SDK\google-cloud-sdk\bin\gcloud.cmd"
+   if (-not (Test-Path -LiteralPath $GcloudPath -PathType Leaf)) { throw 'gcloud executable not found.' }
    $ProjectId = 'EXACT_PROJECT_ID'
    $ProductionConfiguration = "pnl-production-$ProjectId"
-   gcloud config configurations create $ProductionConfiguration
-   gcloud projects create $ProjectId --name='PNL Dashboard Production' --organization=EXACT_ORGANIZATION_ID --configuration=$ProductionConfiguration
-   gcloud billing projects link $ProjectId --billing-account=EXACT_APPROVED_BILLING_ACCOUNT --configuration=$ProductionConfiguration --project=$ProjectId
-   gcloud config set project $ProjectId --configuration=$ProductionConfiguration
-   $ProjectNumber = gcloud projects describe $ProjectId --configuration=$ProductionConfiguration --project=$ProjectId --format='value(projectNumber)'
-   ./deploy/gcp/assert-production-target.ps1 -ProjectId $ProjectId -ProjectNumber $ProjectNumber -Configuration $ProductionConfiguration
+   & $GcloudPath config configurations create $ProductionConfiguration
+   & $GcloudPath projects create $ProjectId --name='PNL Dashboard Production' --organization=EXACT_ORGANIZATION_ID --configuration=$ProductionConfiguration
+   & $GcloudPath billing projects link $ProjectId --billing-account=EXACT_APPROVED_BILLING_ACCOUNT --configuration=$ProductionConfiguration --project=$ProjectId
+   & $GcloudPath config set project $ProjectId --configuration=$ProductionConfiguration
+   $ProjectNumber = & $GcloudPath projects describe $ProjectId --configuration=$ProductionConfiguration --project=$ProjectId --format='value(projectNumber)'
+   ./deploy/gcp/assert-production-target.ps1 -ProjectId $ProjectId -ProjectNumber $ProjectNumber -Configuration $ProductionConfiguration -GcloudPath $GcloudPath
 
    function Invoke-ProdGcloud {
-       & gcloud @args "--configuration=$ProductionConfiguration" "--project=$ProjectId"
+       & $GcloudPath @args "--configuration=$ProductionConfiguration" "--project=$ProjectId"
        if ($LASTEXITCODE -ne 0) { throw "Production gcloud command failed." }
+   }
+
+   $DeployerAccount = "pnl-deployer@$ProjectId.iam.gserviceaccount.com"
+   function Invoke-ProdDeploy {
+       & $GcloudPath @args "--configuration=$ProductionConfiguration" "--project=$ProjectId" "--impersonate-service-account=$DeployerAccount"
+       if ($LASTEXITCODE -ne 0) { throw "Production deployer command failed." }
    }
    ```
 
@@ -229,14 +237,11 @@ to a runtime or deployer account.
    a separately approved Cloud Run spend cap may add defense in depth; spend caps
    can still overshoot due to reporting latency.
 
-   ```powershell
-   gcloud billing budgets create --billing-account=EXACT_APPROVED_BILLING_ACCOUNT --display-name='pnl-production-monthly-15000-krw' --budget-amount=15000KRW --filter-projects="projects/$ProjectNumber" --threshold-rule=percent=0.5 --threshold-rule=percent=0.8 --threshold-rule=percent=1.0 --configuration=$ProductionConfiguration --project=$ProjectId
-   ```
-
 3. Enable only required APIs:
 
    ```powershell
-   Invoke-ProdGcloud services enable run.googleapis.com artifactregistry.googleapis.com secretmanager.googleapis.com iam.googleapis.com cloudscheduler.googleapis.com
+   Invoke-ProdGcloud services enable run.googleapis.com artifactregistry.googleapis.com secretmanager.googleapis.com iam.googleapis.com cloudscheduler.googleapis.com billingbudgets.googleapis.com
+   & $GcloudPath billing budgets create --billing-account=EXACT_APPROVED_BILLING_ACCOUNT --display-name='pnl-production-monthly-15000-krw' --budget-amount=15000KRW --filter-projects="projects/$ProjectNumber" --threshold-rule=percent=0.5 --threshold-rule=percent=0.8 --threshold-rule=percent=1.0 --configuration=$ProductionConfiguration --project=$ProjectId
    ```
 
    The human bootstrap operator must already have
@@ -266,6 +271,12 @@ to a runtime or deployer account.
    Invoke-ProdGcloud iam service-accounts create pnl-worker-controller --display-name='PNL worker lifecycle controller'
    Invoke-ProdGcloud iam service-accounts create pnl-worker-reconciler --display-name='PNL worker reconciler caller'
    Invoke-ProdGcloud iam service-accounts create pnl-deployer --display-name='PNL deployment operator'
+   Invoke-ProdGcloud projects add-iam-policy-binding $ProjectId --member="serviceAccount:$DeployerAccount" --role=roles/run.developer
+   Invoke-ProdGcloud artifacts repositories add-iam-policy-binding pnl-production --location=asia-southeast1 --member="serviceAccount:$DeployerAccount" --role=roles/artifactregistry.writer
+   foreach ($runtime in @('pnl-web','pnl-worker','pnl-maintenance','pnl-worker-controller','pnl-worker-reconciler')) {
+       Invoke-ProdGcloud iam service-accounts add-iam-policy-binding "$runtime@$ProjectId.iam.gserviceaccount.com" --member="serviceAccount:$DeployerAccount" --role=roles/iam.serviceAccountUser
+   }
+   Invoke-ProdGcloud iam service-accounts add-iam-policy-binding $DeployerAccount --member='user:BOOTSTRAP_OPERATOR_EMAIL' --role=roles/iam.serviceAccountTokenCreator
    ```
 
    Service-account creation uses the bootstrap operator permission above; it is
@@ -294,13 +305,13 @@ to a runtime or deployer account.
    secret. No runtime account receives broad Google API permission.
 
 7. Prefer exact-byte promotion of the Golden-aligned staging indexes into the
-   production repository. Grant the promotion principal temporary read access
-   to the staging repository and writer access only to the production
-   repository, then remove any newly granted staging access. Do not rebuild
+   production repository. This bootstrap step may use the already-authorized
+   human operator's existing read access to staging and exact write access to
+   Production. Do not add or change staging IAM for promotion. Do not rebuild
    unless exact promotion is technically unavailable:
 
    ```powershell
-   gcloud auth configure-docker asia-southeast1-docker.pkg.dev --configuration=$ProductionConfiguration
+   & $GcloudPath auth configure-docker asia-southeast1-docker.pkg.dev --configuration=$ProductionConfiguration
    $webTag = "asia-southeast1-docker.pkg.dev/$ProjectId/pnl-production/pnl-web:golden-1e478b68b4f7"
    $runtimeTag = "asia-southeast1-docker.pkg.dev/$ProjectId/pnl-production/pnl-runtime:golden-1e478b68b4f7"
    docker buildx imagetools create --prefer-index --tag $webTag asia-southeast1-docker.pkg.dev/pnl-dashboard-staging/pnl-staging/pnl-web@sha256:36502f01eed08012e2c0efb5f4756212c72b1373a390b5ed9bb78e59741d8330
@@ -322,20 +333,23 @@ to a runtime or deployer account.
 
 8. Render with the two digests, bootstrap origins, and create the zero-instance
    Worker Pool plus private controller first. Create its exact three-permission
-   custom role and bind it only on `pnl-worker`; do not grant `allUsers`:
+   custom role and bind it only on `pnl-worker`; do not grant `allUsers`. The
+   active account in `$ProductionConfiguration` must be the explicitly approved
+   bootstrap operator and must already be authorized to invoke private Cloud Run
+   services; never fall back to another gcloud configuration for smoke tokens:
 
    ```powershell
    Invoke-ProdGcloud iam roles create pnlWorkerLifecycleController --file=deploy/gcp/worker-controller-role.yaml
    Invoke-ProdGcloud iam roles create pnlWorkerLifecycleOperationViewer --file=deploy/gcp/worker-operation-viewer-role.yaml
-   Invoke-ProdGcloud run worker-pools replace deploy/gcp/rendered/worker-pool.yaml --region=asia-southeast1
-   Invoke-ProdGcloud run services replace deploy/gcp/rendered/worker-controller.yaml --region=asia-southeast1
+   Invoke-ProdDeploy run worker-pools replace deploy/gcp/rendered/worker-pool.yaml --region=asia-southeast1
+   Invoke-ProdDeploy run services replace deploy/gcp/rendered/worker-controller.yaml --region=asia-southeast1
    Invoke-ProdGcloud run worker-pools add-iam-policy-binding pnl-worker --region=asia-southeast1 --member='serviceAccount:pnl-worker-controller@EXACT_PROJECT_ID.iam.gserviceaccount.com' --role='projects/EXACT_PROJECT_ID/roles/pnlWorkerLifecycleController'
    Invoke-ProdGcloud projects add-iam-policy-binding $ProjectId --member='serviceAccount:pnl-worker-controller@EXACT_PROJECT_ID.iam.gserviceaccount.com' --role='projects/EXACT_PROJECT_ID/roles/pnlWorkerLifecycleOperationViewer'
    Invoke-ProdGcloud iam service-accounts add-iam-policy-binding pnl-worker@EXACT_PROJECT_ID.iam.gserviceaccount.com --member='serviceAccount:pnl-worker-controller@EXACT_PROJECT_ID.iam.gserviceaccount.com' --role=roles/iam.serviceAccountUser
    Invoke-ProdGcloud run services add-iam-policy-binding pnl-worker-controller --region=asia-southeast1 --member='serviceAccount:pnl-web@EXACT_PROJECT_ID.iam.gserviceaccount.com' --role=roles/run.invoker
    Invoke-ProdGcloud run services add-iam-policy-binding pnl-worker-controller --region=asia-southeast1 --member='serviceAccount:pnl-worker-reconciler@EXACT_PROJECT_ID.iam.gserviceaccount.com' --role=roles/run.invoker
    $controllerUrl = Invoke-ProdGcloud run services describe pnl-worker-controller --region=asia-southeast1 --format='value(status.url)'
-   $controllerToken = gcloud auth print-identity-token --audiences=$controllerUrl
+   $controllerToken = & $GcloudPath auth print-identity-token --configuration=$ProductionConfiguration --audiences=$controllerUrl
    Invoke-WebRequest -Headers @{ Authorization = "Bearer $controllerToken" } -Uri "$controllerUrl/health/live"
    Invoke-WebRequest -Headers @{ Authorization = "Bearer $controllerToken" } -Uri "$controllerUrl/health/ready"
    $controllerStatus = Invoke-RestMethod -Headers @{ Authorization = "Bearer $controllerToken" } -Uri "$controllerUrl/v1/worker/status"
@@ -353,10 +367,10 @@ to a runtime or deployer account.
    maintenance Job; do not reuse the staging release-stage label.
 
    ```powershell
-   Invoke-ProdGcloud run services replace deploy/gcp/rendered/cloud-run-web.yaml --region=asia-southeast1
+   Invoke-ProdDeploy run services replace deploy/gcp/rendered/cloud-run-web.yaml --region=asia-southeast1
    $candidateRevision = Invoke-ProdGcloud run revisions list --service=pnl-web --region=asia-southeast1 --sort-by='~metadata.creationTimestamp' --limit=1 --format='value(metadata.name)'
    $privateUrl = Invoke-ProdGcloud run services describe pnl-web --region=asia-southeast1 --format='value(status.url)'
-   $identityToken = gcloud auth print-identity-token --audiences=$privateUrl
+   $identityToken = & $GcloudPath auth print-identity-token --configuration=$ProductionConfiguration --audiences=$privateUrl
    Invoke-WebRequest -Headers @{ Authorization = "Bearer $identityToken" } -Uri "$privateUrl/health/ready"
    Invoke-WebRequest -Headers @{ Authorization = "Bearer $identityToken" } -Uri "$privateUrl/health/live"
    Invoke-WebRequest -Headers @{ Authorization = "Bearer $identityToken" } -Uri "$privateUrl/"
@@ -379,9 +393,9 @@ to a runtime or deployer account.
    the URL non-public until the final configuration is ready.
 
    ```powershell
-   Invoke-ProdGcloud run services replace deploy/gcp/rendered/cloud-run-web.yaml --region=asia-southeast1
+   Invoke-ProdDeploy run services replace deploy/gcp/rendered/cloud-run-web.yaml --region=asia-southeast1
    $candidateRevision = Invoke-ProdGcloud run revisions list --service=pnl-web --region=asia-southeast1 --sort-by='~metadata.creationTimestamp' --limit=1 --format='value(metadata.name)'
-   $identityToken = gcloud auth print-identity-token --audiences=$privateUrl
+   $identityToken = & $GcloudPath auth print-identity-token --configuration=$ProductionConfiguration --audiences=$privateUrl
    Invoke-WebRequest -Headers @{ Authorization = "Bearer $identityToken" } -Uri "$privateUrl/health/ready"
    Invoke-ProdGcloud run services add-iam-policy-binding pnl-web --region=asia-southeast1 --member=allUsers --role=roles/run.invoker
    Invoke-ProdGcloud run services describe pnl-web --region=asia-southeast1 --format='value(status.traffic,status.url)'
@@ -429,8 +443,8 @@ to a runtime or deployer account.
     report before a separately authorized apply override:
 
     ```powershell
-    Invoke-ProdGcloud run jobs replace deploy/gcp/rendered/maintenance-job.yaml --region=asia-southeast1
-    Invoke-ProdGcloud run jobs execute pnl-maintenance --region=asia-southeast1 --wait
+    Invoke-ProdDeploy run jobs replace deploy/gcp/rendered/maintenance-job.yaml --region=asia-southeast1
+    Invoke-ProdDeploy run jobs execute pnl-maintenance --region=asia-southeast1 --wait
     ```
 
     Its first dry-run must prove UID 10001 create/delete access to
