@@ -36,7 +36,7 @@ function categoryLabel(category: AnalysisWaterfallBar['category']): string {
     case 'INTERNAL': return '내부';
     case 'EXTERNAL': return '외부';
     case 'COST': return '비용';
-    case 'LAG': return '기타';
+    case 'LAG': return '';
     default: return '';
   }
 }

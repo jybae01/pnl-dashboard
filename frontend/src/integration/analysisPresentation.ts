@@ -48,7 +48,7 @@ export const CANONICAL_EFFECT_LABELS: Record<PresentationEffectCode, string> = {
 };
 
 export const RESIDUAL_CODE = 'residual' as const;
-export const RESIDUAL_LABEL = '기타/재고차이' as const;
+export const RESIDUAL_LABEL = '기타 요인' as const;
 
 export const EFFECT_CATEGORY_LABELS: Record<PresentationEffectCategory, string> = {
   INTERNAL: '내부',

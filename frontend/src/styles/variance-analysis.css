@@ -195,10 +195,6 @@
   font-size: 11px;
 }
 
-.variance-analysis__residual-summary span:last-child {
-  color: var(--text-muted, #64748b);
-}
-
 .variance-analysis__waterfall-card {
   padding: 14px 16px;
 }

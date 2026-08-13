@@ -120,7 +120,7 @@ function ExecutiveFacts({
     <section className="variance-analysis__executive" aria-labelledby="executive-facts-title">
       <div className="variance-analysis__section-header">
         <h2 id="executive-facts-title">경영진 분석 요약</h2>
-        <span>서버가 제공한 주요 요인과 기타/재고차이만 표시</span>
+        <span>서버가 제공한 주요 요인과 기타 요인만 표시</span>
       </div>
       <div className="variance-analysis__factor-grid">
         <FactorList title="긍정 요인" effects={positiveEffects} selectedEffect={selectedEffect} onSelectEffect={onSelectEffect} />
@@ -129,7 +129,6 @@ function ExecutiveFacts({
       <div className={`variance-analysis__residual-summary variance-analysis__tone--${profitEffectTone(residual.amount)}`}>
         <strong>{residual.uiLabel}</strong>
         <span>{formatCurrency(residual.amount, true)}</span>
-        <span>{residual.display_label}</span>
       </div>
     </section>
   );
@@ -224,9 +223,9 @@ function EffectTable({
                   {residual.uiLabel}
                 </button>
               </td>
-              <td>기타/재고</td>
-              <td className={`text-right tabular-nums variance-analysis__tone--${profitEffectTone(residual.amount)}`}>{formatCurrency(residual.amount, true)}</td>
-              <td>{residual.display_label}</td>
+              <td>—</td>
+              <td data-testid="effect-tone-residual" className={`text-right tabular-nums variance-analysis__tone--${profitEffectTone(residual.amount)}`}>{formatCurrency(residual.amount, true)}</td>
+              <td>—</td>
             </tr>
           </tbody>
         </table>
