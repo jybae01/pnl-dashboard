@@ -15,6 +15,7 @@ export interface ModelManagementViewProps {
   onNavigateToForecast?: () => void;
   onNavigateToAnalysis?: () => void;
   onNavigateToAnalysisResult?: (resultId: string) => void;
+  initialHistoryOpen?: boolean;
 }
 
 type PublicationAction = {
@@ -67,7 +68,7 @@ function isForbidden(value: unknown): boolean {
   return value instanceof ApiClientError && (value.status === 403 || value.code === 'FORBIDDEN');
 }
 
-export function ModelManagementView({ onNavigateToForecast, onNavigateToAnalysis, onNavigateToAnalysisResult }: ModelManagementViewProps) {
+export function ModelManagementView({ onNavigateToForecast, onNavigateToAnalysis, onNavigateToAnalysisResult, initialHistoryOpen = false }: ModelManagementViewProps) {
   const [models, setModels] = useState<AdminModelDto[]>([]);
   const [listState, setListState] = useState<ListState>('LOADING');
   const [listMessage, setListMessage] = useState<string | null>(null);
@@ -89,10 +90,14 @@ export function ModelManagementView({ onNavigateToForecast, onNavigateToAnalysis
   const [publicationMessage, setPublicationMessage] = useState<string | null>(null);
   const [publicationError, setPublicationError] = useState(false);
   const [copiedSha, setCopiedSha] = useState(false);
-  const [historyOpen, setHistoryOpen] = useState(false);
+  const [historyOpen, setHistoryOpen] = useState(initialHistoryOpen);
   const uploadSubmittingRef = useRef(false);
 
   const publicationPendingRef = useRef(false);
+
+  useEffect(() => {
+    setHistoryOpen(initialHistoryOpen);
+  }, [initialHistoryOpen]);
 
   const refresh = useCallback(async () => {
     setListState('LOADING');
@@ -259,7 +264,7 @@ export function ModelManagementView({ onNavigateToForecast, onNavigateToAnalysis
 
     {publicationMessage && <p className={`data-management__global-message ${publicationError ? 'is-error' : ''}`} role={publicationError ? 'alert' : 'status'}>{publicationMessage}</p>}
     <section className="data-management__history-card" aria-labelledby="management-history-heading">
-      <details onToggle={(event) => setHistoryOpen(event.currentTarget.open)}>
+      <details open={historyOpen} onToggle={(event) => setHistoryOpen(event.currentTarget.open)}>
         <summary id="management-history-heading">계산 이력 <ChevronDown size={15} /></summary>
         {historyOpen && <CalculationHistoryView onOpenResult={onNavigateToAnalysisResult} />}
       </details>

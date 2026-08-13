@@ -11,7 +11,6 @@ import {
   Role,
   SubmitRequest,
   ViewerState,
-  WorkerStatusDto,
 } from './types';
 import { AnalysisPresentationPanel } from './AnalysisPresentationPanel';
 import '../styles/variance-analysis-shell.css';
@@ -47,8 +46,6 @@ export function CoreAnalysisView({ role, modelRefreshKey = 0, initialResultId }:
   const [resultId, setResultId] = useState('');
   const logicalRequest = useRef<{ fingerprint: string; key: string } | null>(null);
   const viewerRequestSequence = useRef(0);
-  const [worker, setWorker] = useState<WorkerStatusDto | null>(null);
-  const [workerBusy, setWorkerBusy] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   useEffect(() => {
@@ -94,15 +91,6 @@ export function CoreAnalysisView({ role, modelRefreshKey = 0, initialResultId }:
     });
     return () => { active = false; };
   }, [role, initialResultId]);
-
-  useEffect(() => {
-    if (role !== 'admin') return;
-    let active = true;
-    bffClient.workerStatus().then((value) => {
-      if (active) setWorker(value);
-    }).catch(() => undefined);
-    return () => { active = false; };
-  }, [role, job?.status]);
 
   useEffect(() => {
     if (role !== 'admin') return;
@@ -292,22 +280,6 @@ export function CoreAnalysisView({ role, modelRefreshKey = 0, initialResultId }:
   return (
     <section className="variance-analysis-page">
       <AnalysisPageHeading role={role} />
-      {worker && <div className="card" data-testid="worker-control" style={{ padding: 14, marginBottom: 12 }}>
-        <strong>Worker: {worker?.actual_instance_count ?? 'reconciling'}</strong>
-        <span style={{ marginLeft: 10 }}>desired {worker?.desired_instance_count ?? '-'}</span>
-        <span style={{ marginLeft: 10 }}>queue {worker?.queue_depth ?? '-'}</span>
-        <span style={{ marginLeft: 10 }}>idle {worker ? Math.floor(worker.idle_seconds / 60) : '-'}m / 30m</span>
-        <button type="button" className="btn btn-secondary" disabled={workerBusy} style={{ marginLeft: 12 }} onClick={async () => {
-          setWorkerBusy(true); setError(null);
-          try { setWorker(await bffClient.emergencyWorkerWake()); } catch (value) { setError(safeMessage(value)); }
-          finally { setWorkerBusy(false); }
-        }}>Emergency wake</button>
-        <button type="button" className="btn btn-secondary" disabled={workerBusy || !!worker?.work_exists} style={{ marginLeft: 8 }} onClick={async () => {
-          setWorkerBusy(true); setError(null);
-          try { setWorker(await bffClient.safeWorkerStop()); } catch (value) { setError(safeMessage(value)); }
-          finally { setWorkerBusy(false); }
-        }}>Safe stop</button>
-      </div>}
       <form onSubmit={submit} className="variance-analysis-controls">
         <div className="variance-control-heading">
           <div><strong>분석 조건</strong><span>기준 모형과 비교 모형의 저장 결과를 생성합니다.</span></div>

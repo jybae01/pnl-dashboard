@@ -6,6 +6,7 @@ import { bffClient } from './integration/client';
 import { CoreAnalysisView } from './integration/CoreAnalysisView';
 import { LoginView } from './integration/LoginView';
 import { ModelManagementView } from './integration/ModelManagementView';
+import { AdminOperationsView } from './integration/AdminOperationsView';
 import { ApiClientError, Role, SessionDto } from './integration/types';
 import './styles/global.css';
 import './styles/tables.css';
@@ -14,15 +15,16 @@ import './styles/components.css';
 import './styles/pnl-dashboard.css';
 import './styles/forecast-workflow.css';
 import './styles/data-management.css';
+import './styles/admin-operations.css';
 
-type CoreRoute = 'pnl' | 'forecast' | 'variance' | 'management';
+type CoreRoute = 'pnl' | 'forecast' | 'variance' | 'management' | 'operations';
 
 function routeFromHash(role?: Role): CoreRoute {
   const route = window.location.hash.replace('#', '').split('?')[0] as CoreRoute;
-  if (!['pnl', 'forecast', 'variance', 'management'].includes(route)) {
+  if (!['pnl', 'forecast', 'variance', 'management', 'operations'].includes(route)) {
     return role === 'admin' ? 'management' : 'variance';
   }
-  if (role === 'viewer' && !['pnl', 'variance'].includes(route)) return 'variance';
+  if (role !== 'admin' && !['pnl', 'variance'].includes(route)) return 'variance';
   return route;
 }
 
@@ -43,6 +45,7 @@ export function App() {
 
   useEffect(() => {
     const listener = () => {
+      if (!session) return;
       const next = routeFromHash(session?.role);
       setRoute(next);
       if (next !== 'variance') setAnalysisResultId(null);
@@ -65,6 +68,13 @@ export function App() {
     setRoute('variance');
   }
 
+  function navigateToHistory() {
+    if (session?.role !== 'admin') return;
+    setAnalysisResultId(null);
+    window.location.hash = 'management?section=history';
+    setRoute('management');
+  }
+
   if (sessionState === 'LOADING') return <main role="status" className="app-content">세션 확인 중…</main>;
   if (sessionState === 'ERROR') return <main role="alert" className="app-content">서버 세션을 확인할 수 없습니다.</main>;
   if (!session) return <LoginView onAuthenticated={(value) => { setSession(value); setSessionState('READY'); navigate(value.role === 'admin' ? 'management' : 'variance'); }} />;
@@ -79,6 +89,7 @@ export function App() {
           <button className={`nav-tab-btn ${route === 'management' ? 'active' : ''}`} onClick={() => navigate('management')}>3. 데이터 관리 / 분석 실행</button>
         </>}
         <button className={`nav-tab-btn ${route === 'variance' ? 'active' : ''}`} onClick={() => navigate('variance')}>4. 손익 분석 결과</button>
+        {session.role === 'admin' && <button className={`nav-tab-btn ${route === 'operations' ? 'active' : ''}`} onClick={() => navigate('operations')}>5. 운영 관리</button>}
         <button className="nav-tab-btn" onClick={async () => {
           try {
             await bffClient.logout();
@@ -104,7 +115,9 @@ export function App() {
         onNavigateToForecast={() => navigate('forecast')}
         onNavigateToAnalysis={() => navigate('variance')}
         onNavigateToAnalysisResult={navigateToAnalysisResult}
+        initialHistoryOpen={route === 'management' && window.location.hash.includes('section=history')}
       />}
+      {route === 'operations' && session.role === 'admin' && <AdminOperationsView onNavigateToHistory={navigateToHistory} />}
       {route === 'variance' && <CoreAnalysisView role={session.role} initialResultId={analysisResultId || undefined} />}
     </main>
   </div>;

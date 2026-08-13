@@ -178,47 +178,4 @@ describe('React core vertical slice', () => {
     expect(screen.getByRole('button', { name: '새 분석' })).toBeDisabled();
   });
 
-  it('shows Admin-only demand Worker status and invokes controlled emergency wake', async () => {
-    document.cookie = 'pnl_csrf=test-csrf; path=/';
-    const calls: Array<[string, RequestInit | undefined]> = [];
-    const worker = (desired: 0 | 1) => ({
-      desired_instance_count: desired, configured_instance_count: desired,
-      actual_instance_count: desired, queue_depth: 0, claimable_count: 0,
-      pending_count: 0, processing_count: 0, active_lease_count: 0,
-      active_heartbeat_count: 0, recovery_pending_count: 0, work_exists: false,
-      idle_seconds: 0, last_worker_activity_at: '2026-08-12T00:00:00Z',
-      last_scaling_result: 'scaled', platform_reconciling: false, platform_ready: true,
-      operating_policy: 'DEMAND_ONLY', idle_policy_seconds: 1800, dto_version: '1',
-    });
-    vi.stubGlobal('fetch', vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
-      const path = String(input); calls.push([path, init]);
-      if (path.endsWith('/api/models')) return json({ models: [] });
-      if (path.endsWith('/api/admin/worker/emergency-wake')) return json(worker(1));
-      if (path.endsWith('/api/admin/worker')) return json(worker(0));
-      throw new Error(`unexpected request ${path}`);
-    }));
-    render(<CoreAnalysisView role="admin" />);
-    expect(await screen.findByText('Worker: 0')).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: 'Emergency wake' }));
-    expect(await screen.findByText('Worker: 1')).toBeInTheDocument();
-    const wake = calls.find(([path]) => path.endsWith('/api/admin/worker/emergency-wake'));
-    expect(wake).toBeDefined();
-    if (!wake?.[1]) throw new Error('wake request was not observed');
-    expect(wake[1].method).toBe('POST');
-    expect((wake[1].headers as Headers).get('X-CSRF-Token')).toBe('test-csrf');
-  });
-
-  it('hides Worker controls when the backend has no demand-lifecycle capability', async () => {
-    vi.stubGlobal('fetch', vi.fn((input: RequestInfo | URL) => {
-      const path = String(input);
-      if (path.endsWith('/api/models')) return json({ models: [] });
-      if (path.endsWith('/api/admin/worker')) return json({
-        error: { code: 'TRANSIENT_SYSTEM_ERROR', message: 'not configured', field_errors: {}, correlation_id: null, dto_version: '1' },
-      }, 503);
-      throw new Error(`unexpected request ${path}`);
-    }));
-    render(<CoreAnalysisView role="admin" />);
-    await waitFor(() => expect(screen.queryByTestId('worker-control')).not.toBeInTheDocument());
-    expect(screen.queryByRole('button', { name: 'Emergency wake' })).not.toBeInTheDocument();
-  });
 });

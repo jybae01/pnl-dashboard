@@ -1,0 +1,104 @@
+.admin-operations {
+  max-width: 1180px;
+  margin: 0 auto;
+  padding: 26px 22px 54px;
+  color: #0f172a;
+}
+
+.admin-operations *,
+.admin-operations *::before,
+.admin-operations *::after { box-sizing: border-box; }
+.admin-operations__heading,
+.admin-operations__toolbar,
+.admin-operations__actions,
+.admin-operations__history-cta,
+.admin-operations__modal-actions { display: flex; align-items: center; }
+.admin-operations__heading { justify-content: space-between; gap: 20px; margin-bottom: 24px; }
+.admin-operations__eyebrow { color: #64748b; font-size: 10px; font-weight: 900; letter-spacing: .12em; text-transform: uppercase; }
+.admin-operations h1,
+.admin-operations h2 { letter-spacing: -.04em; }
+.admin-operations h1 { margin-top: 5px; font-size: clamp(25px, 3vw, 34px); }
+.admin-operations h2 { font-size: 18px; }
+.admin-operations__heading p { margin-top: 8px; color: #64748b; font-size: 13px; }
+.admin-operations__access-badge { border-radius: 999px; padding: 7px 10px; color: #9a3412; background: #ffedd5; font-size: 10px; font-weight: 900; letter-spacing: .08em; white-space: nowrap; }
+.admin-operations__toolbar { justify-content: space-between; gap: 16px; margin-bottom: 12px; padding: 15px 17px; border: 1px solid #e2e8f0; border-radius: 12px 12px 0 0; background: #fff; }
+.admin-operations__toolbar h2 { margin-top: 4px; }
+.admin-operations__secondary,
+.admin-operations__primary,
+.admin-operations__danger { display: inline-flex; align-items: center; justify-content: center; gap: 6px; min-height: 36px; border-radius: 8px; padding: 0 12px; font: inherit; font-size: 11px; font-weight: 850; cursor: pointer; }
+.admin-operations__secondary { border: 1px solid #cbd5e1; color: #334155; background: #fff; }
+.admin-operations__primary { border: 1px solid #ea580c; color: #fff; background: #ea580c; }
+.admin-operations__warning { border-color: #fdba74; color: #c2410c; background: #fff7ed; }
+.admin-operations__danger { border: 1px solid #b91c1c; color: #fff; background: #b91c1c; }
+.admin-operations__secondary:hover:not(:disabled) { border-color: #f97316; color: #c2410c; }
+.admin-operations__primary:hover:not(:disabled) { background: #c2410c; }
+.admin-operations__danger:hover:not(:disabled) { background: #991b1b; }
+.admin-operations button:disabled { cursor: not-allowed; opacity: .55; }
+.admin-operations__status-card { display: grid; grid-template-columns: auto minmax(180px, 1fr) minmax(280px, 1.2fr); align-items: center; gap: 16px; padding: 22px; border: 1px solid #cbd5e1; border-radius: 12px; background: #fff; }
+.admin-operations__status-card--idle { border-color: #cbd5e1; }
+.admin-operations__status-card--starting { border-color: #93c5fd; background: #eff6ff; }
+.admin-operations__status-card--active { border-color: #99f6e4; background: #f0fdfa; }
+.admin-operations__status-card--stopping { border-color: #fed7aa; background: #fff7ed; }
+.admin-operations__status-card--attention { border-color: #fcd34d; background: #fffbeb; }
+.admin-operations__status-icon { display: grid; place-items: center; width: 48px; height: 48px; border-radius: 12px; color: #64748b; background: #f1f5f9; }
+.admin-operations__status-card--starting .admin-operations__status-icon { color: #1d4ed8; background: #dbeafe; }
+.admin-operations__status-card--active .admin-operations__status-icon { color: #0f766e; background: #ccfbf1; }
+.admin-operations__status-card--stopping .admin-operations__status-icon { color: #c2410c; background: #fed7aa; }
+.admin-operations__status-card--attention .admin-operations__status-icon { color: #a16207; background: #fef3c7; }
+.admin-operations__status-copy { display: grid; gap: 5px; }
+.admin-operations__status-kicker { color: #64748b; font-size: 10px; font-weight: 850; }
+.admin-operations__status-copy strong { font-size: 24px; letter-spacing: -.045em; }
+.admin-operations__status-copy p { color: #475569; font-size: 12px; }
+.admin-operations__status-facts { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; margin: 0; }
+.admin-operations__status-facts div { display: grid; gap: 4px; padding: 10px; border: 1px solid rgba(148, 163, 184, .28); border-radius: 8px; background: rgba(255,255,255,.72); }
+.admin-operations__status-facts dt { color: #64748b; font-size: 10px; }
+.admin-operations__status-facts dd { margin: 0; color: #334155; font-size: 14px; font-variant-numeric: tabular-nums; font-weight: 850; }
+.admin-operations__actions { flex-wrap: wrap; gap: 8px; margin-top: 12px; padding: 14px 16px; border: 1px solid #e2e8f0; background: #fff; }
+.admin-operations__action-note { margin-left: 4px; color: #64748b; font-size: 11px; }
+.admin-operations__message { margin: 11px 0 0; padding: 10px 12px; border-radius: 8px; font-size: 11px; }
+.admin-operations__message.is-success { color: #166534; background: #f0fdf4; }
+.admin-operations__message.is-error { color: #b91c1c; background: #fef2f2; }
+.admin-operations__notes { display: grid; gap: 5px; margin-top: 14px; padding: 14px 16px; border: 1px solid #e2e8f0; border-radius: 10px; color: #475569; background: #f8fafc; font-size: 11px; line-height: 1.5; }
+.admin-operations__notes p { margin: 0; }
+.admin-operations__technical { margin-top: 12px; padding: 11px 14px; border: 1px solid #e2e8f0; border-radius: 10px; background: #fff; }
+.admin-operations__technical summary { display: flex; align-items: center; gap: 5px; color: #475569; cursor: pointer; font-size: 11px; font-weight: 850; list-style: none; }
+.admin-operations__technical summary::-webkit-details-marker { display: none; }
+.admin-operations__technical[open] summary svg { transform: rotate(180deg); }
+.admin-operations__technical dl { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; margin: 12px 0 0; }
+.admin-operations__technical dl div { display: grid; gap: 4px; }
+.admin-operations__technical dt { color: #64748b; font-size: 10px; }
+.admin-operations__technical dd { margin: 0; color: #334155; font-size: 11px; font-variant-numeric: tabular-nums; }
+.admin-operations__history-cta { justify-content: space-between; gap: 14px; margin-top: 16px; padding: 16px; border: 1px solid #fed7aa; border-radius: 10px; background: #fffaf5; }
+.admin-operations__history-cta strong { display: block; margin-top: 5px; font-size: 13px; }
+.admin-operations__history-cta p { margin-top: 5px; color: #64748b; font-size: 11px; }
+.admin-operations__state { display: grid; justify-items: center; gap: 9px; padding: 54px 20px; border: 1px solid #e2e8f0; border-radius: 12px; color: #64748b; background: #fff; text-align: center; }
+.admin-operations__state h2 { color: #0f172a; }
+.admin-operations__state p { font-size: 12px; }
+.admin-operations__state--error { color: #b91c1c; }
+.admin-operations__state--error h2 { color: #7f1d1d; }
+.admin-operations__modal-backdrop { position: fixed; inset: 0; z-index: 20; display: grid; place-items: center; padding: 20px; background: rgba(15,23,42,.42); }
+.admin-operations__modal { width: min(430px, 100%); padding: 22px; border: 1px solid #fed7aa; border-radius: 12px; background: #fff; box-shadow: 0 18px 44px rgba(15,23,42,.2); }
+.admin-operations__modal.is-danger { border-color: #fecaca; }
+.admin-operations__modal h2 { margin-top: 7px; font-size: 20px; }
+.admin-operations__modal > p:not(.admin-operations__eyebrow):not(.admin-operations__modal-error) { margin-top: 10px; color: #475569; font-size: 12px; line-height: 1.5; }
+.admin-operations__modal-error { margin-top: 10px; color: #b91c1c; font-size: 11px; }
+.admin-operations__modal-actions { justify-content: flex-end; gap: 8px; margin-top: 20px; }
+
+@media (max-width: 900px) {
+  .admin-operations { padding: 22px 16px 42px; }
+  .admin-operations__status-card { grid-template-columns: auto minmax(0, 1fr); }
+  .admin-operations__status-facts { grid-column: 1 / -1; }
+  .admin-operations__technical dl { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
+@media (max-width: 620px) {
+  .admin-operations__heading,
+  .admin-operations__toolbar,
+  .admin-operations__history-cta { align-items: flex-start; flex-direction: column; }
+  .admin-operations__toolbar .admin-operations__secondary,
+  .admin-operations__history-cta .admin-operations__secondary { width: 100%; }
+  .admin-operations__status-card { grid-template-columns: 1fr; }
+  .admin-operations__status-facts { grid-column: auto; grid-template-columns: 1fr 1fr 1fr; }
+  .admin-operations__action-note { width: 100%; margin: 2px 0 0; }
+  .admin-operations__technical dl { grid-template-columns: 1fr 1fr; }
+}
