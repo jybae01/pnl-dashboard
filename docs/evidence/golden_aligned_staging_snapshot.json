@@ -1,0 +1,120 @@
+{
+  "schema_version": "1",
+  "captured_at_utc": "2026-08-13T00:02:00Z",
+  "project_id": "pnl-dashboard-staging",
+  "project_number": "498160536475",
+  "region": "asia-southeast1",
+  "accepted_source_commit": "1e478b68b4f73dc6b41e2681cb6238a87d1e0427",
+  "migration_delta": "NONE",
+  "images": {
+    "pnl_web": {
+      "tag": "golden-1e478b68b4f7",
+      "index_digest": "sha256:36502f01eed08012e2c0efb5f4756212c72b1373a390b5ed9bb78e59741d8330",
+      "linux_amd64_manifest": "sha256:2f2ecd574f75422451be0571a068b308c533e49653ccbe4f8db491ade292582a",
+      "compressed_bytes": 38536604
+    },
+    "pnl_runtime": {
+      "tag": "golden-1e478b68b4f7",
+      "index_digest": "sha256:4121d8f3fe25b555ea30355110008c4b6e5ac9cb2ecbc065f164bde2cd5ce485",
+      "linux_amd64_manifest": "sha256:73413f3befa22cdff1a042e5e053d37d067946315db9cd73df3563c72bb358f5",
+      "compressed_bytes": 191367294
+    }
+  },
+  "resources": [
+    {
+      "resource": "pnl-web edge",
+      "revision_or_generation": "pnl-web-golden-1e478b6",
+      "traffic_percent": 100,
+      "image_digest": "sha256:36502f01eed08012e2c0efb5f4756212c72b1373a390b5ed9bb78e59741d8330",
+      "source_commit_label": "1e478b68b4f73dc6b41e2681cb6238a87d1e0427"
+    },
+    {
+      "resource": "pnl-web BFF",
+      "revision_or_generation": "pnl-web-golden-1e478b6",
+      "traffic_percent": 100,
+      "image_digest": "sha256:4121d8f3fe25b555ea30355110008c4b6e5ac9cb2ecbc065f164bde2cd5ce485",
+      "source_commit_label": "1e478b68b4f73dc6b41e2681cb6238a87d1e0427"
+    },
+    {
+      "resource": "pnl-worker",
+      "revision_or_generation": "generation-18",
+      "image_digest": "sha256:4121d8f3fe25b555ea30355110008c4b6e5ac9cb2ecbc065f164bde2cd5ce485",
+      "source_commit_label": "1e478b68b4f73dc6b41e2681cb6238a87d1e0427"
+    },
+    {
+      "resource": "pnl-worker-controller",
+      "revision_or_generation": "pnl-worker-controller-golden-1e478b6",
+      "traffic_percent": 100,
+      "image_digest": "sha256:4121d8f3fe25b555ea30355110008c4b6e5ac9cb2ecbc065f164bde2cd5ce485",
+      "source_commit_label": "1e478b68b4f73dc6b41e2681cb6238a87d1e0427"
+    },
+    {
+      "resource": "pnl-maintenance",
+      "revision_or_generation": "generation-4",
+      "image_digest": "sha256:4121d8f3fe25b555ea30355110008c4b6e5ac9cb2ecbc065f164bde2cd5ce485",
+      "source_commit_label": "1e478b68b4f73dc6b41e2681cb6238a87d1e0427"
+    }
+  ],
+  "resource_labels": {
+    "release-stage": "golden-aligned-staging",
+    "business-gate": "passed"
+  },
+  "scheduler": {
+    "name": "pnl-worker-reconcile",
+    "state": "ENABLED",
+    "schedule": "*/5 * * * *",
+    "time_zone": "Etc/UTC",
+    "attempt_deadline_seconds": 30,
+    "retry_count": 3,
+    "max_retry_duration_seconds": 120,
+    "target": "https://pnl-worker-controller-498160536475.asia-southeast1.run.app/v1/worker/reconcile",
+    "oidc_service_account": "pnl-worker-reconciler@pnl-dashboard-staging.iam.gserviceaccount.com"
+  },
+  "secret_access_shape": {
+    "web": ["supabase", "viewer", "admin", "actor_namespace", "csrf"],
+    "worker": ["supabase"],
+    "maintenance": ["supabase"],
+    "controller": ["supabase"],
+    "runtime_owner_editor_or_run_admin_bindings": 0
+  },
+  "rollback": {
+    "web_revision": "pnl-web-00006-h64",
+    "controller_revision": "pnl-worker-controller-00003-vss",
+    "old_web_index_digest": "sha256:91d8f69c4f1e30f3036c595b1ed3c4976f10199cda311c84c07f36bd6b5eae35",
+    "old_runtime_index_digest": "sha256:3f78a0fca1a1ccba17091ffc5053c30d336efc88021129dc7e25d6c60a6b8915",
+    "preserved": true
+  },
+  "live_analysis": {
+    "job_id": "807bc45e-3bc7-44d8-a5bb-2a485fc14e9c",
+    "result_id": "2b8e2a1a-6293-46dc-badd-ec1573efc771",
+    "queue_receipt": 9,
+    "attempt": 1,
+    "result_count": 1,
+    "worker_max_instance_count": 1,
+    "enqueue_timestamp_utc": "2026-08-12T23:26:54.039946Z",
+    "wake_audit_timestamp_utc": "2026-08-12T23:26:54.250216Z",
+    "completed_timestamp_utc": "2026-08-12T23:27:13.943593Z"
+  },
+  "auto_sleep": {
+    "last_activity_utc": "2026-08-12T23:27:13.943593Z",
+    "scaling_timestamp_utc": "2026-08-13T00:00:06.345400Z",
+    "observed_zero_timestamp_utc": "2026-08-13T00:00:14Z",
+    "elapsed_seconds_to_scaling": 1972,
+    "within_30_to_35_minute_bound": true
+  },
+  "final_worker_state": {
+    "desired": 0,
+    "actual": 0,
+    "queue": 0,
+    "pending": 0,
+    "processing": 0,
+    "active_lease": 0,
+    "active_heartbeat": 0,
+    "recovery_pending": 0
+  },
+  "secret_scan": {
+    "repository_exact_value_hits": 0,
+    "image_exact_value_hits": 0,
+    "recent_log_exact_value_hits": 0
+  }
+}
