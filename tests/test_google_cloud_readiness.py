@@ -276,6 +276,22 @@ def test_v1_production_migration_chain_and_runbook_are_explicit():
     assert "Do not add or change staging IAM for promotion" in runbook
 
 
+def test_production_snapshot_is_target_guarded_and_never_reads_secret_payloads():
+    snapshot = _text("capture-production-snapshot.ps1")
+
+    assert "assert-production-target.ps1" in snapshot
+    assert "pnl-production-snapshot-v1" in snapshot
+    assert "Join-Path $PSScriptRoot 'rendered'" in snapshot
+    assert "Snapshot output must stay in the ignored" in snapshot
+    assert "enabled_version_count" in snapshot
+    assert "secrets', 'versions', 'list'" in snapshot
+    assert "secrets versions access" not in snapshot
+    assert "secret payload" not in snapshot.lower()
+    assert "ysatkswhhajicfgbrtpv" in snapshot
+    assert "sarwbkxukyexgioirpaa" in snapshot
+    assert "vfplhknqovdvsmjbvvax" in snapshot
+
+
 def test_artifact_cleanup_policy_keeps_three_and_starts_as_documented_dry_run():
     policy = json.loads(_text("cleanup-policy.json"))
     assert any(
@@ -300,7 +316,7 @@ def test_production_web_bootstrap_stays_private_until_exact_origin_smoke_passes(
         "Render once more with `$privateUrl` as the exact `CloudRunOrigin`"
     )
     public_binding = runbook.index(
-        "Invoke-ProdGcloud run services add-iam-policy-binding pnl-web"
+        "Invoke-ProdGcloud run services add-iam-policy-binding pnl-web --region=asia-southeast1 --member=allUsers"
     )
     assert first_replace < exact_origin < public_binding
     assert "Do not add `allUsers` yet" in normalized

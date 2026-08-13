@@ -214,12 +214,14 @@ to a runtime or deployer account.
    ./deploy/gcp/assert-production-target.ps1 -ProjectId $ProjectId -ProjectNumber $ProjectNumber -Configuration $ProductionConfiguration -GcloudPath $GcloudPath
 
    function Invoke-ProdGcloud {
+       ./deploy/gcp/assert-production-target.ps1 -ProjectId $ProjectId -ProjectNumber $ProjectNumber -Configuration $ProductionConfiguration -GcloudPath $GcloudPath | Out-Null
        & $GcloudPath @args "--configuration=$ProductionConfiguration" "--project=$ProjectId"
        if ($LASTEXITCODE -ne 0) { throw "Production gcloud command failed." }
    }
 
    $DeployerAccount = "pnl-deployer@$ProjectId.iam.gserviceaccount.com"
    function Invoke-ProdDeploy {
+       ./deploy/gcp/assert-production-target.ps1 -ProjectId $ProjectId -ProjectNumber $ProjectNumber -Configuration $ProductionConfiguration -GcloudPath $GcloudPath | Out-Null
        & $GcloudPath @args "--configuration=$ProductionConfiguration" "--project=$ProjectId" "--impersonate-service-account=$DeployerAccount"
        if ($LASTEXITCODE -ne 0) { throw "Production deployer command failed." }
    }
@@ -348,6 +350,7 @@ to a runtime or deployer account.
    Invoke-ProdGcloud iam service-accounts add-iam-policy-binding pnl-worker@EXACT_PROJECT_ID.iam.gserviceaccount.com --member='serviceAccount:pnl-worker-controller@EXACT_PROJECT_ID.iam.gserviceaccount.com' --role=roles/iam.serviceAccountUser
    Invoke-ProdGcloud run services add-iam-policy-binding pnl-worker-controller --region=asia-southeast1 --member='serviceAccount:pnl-web@EXACT_PROJECT_ID.iam.gserviceaccount.com' --role=roles/run.invoker
    Invoke-ProdGcloud run services add-iam-policy-binding pnl-worker-controller --region=asia-southeast1 --member='serviceAccount:pnl-worker-reconciler@EXACT_PROJECT_ID.iam.gserviceaccount.com' --role=roles/run.invoker
+   Invoke-ProdGcloud run services add-iam-policy-binding pnl-worker-controller --region=asia-southeast1 --member='user:BOOTSTRAP_OPERATOR_EMAIL' --role=roles/run.invoker
    $controllerUrl = Invoke-ProdGcloud run services describe pnl-worker-controller --region=asia-southeast1 --format='value(status.url)'
    $controllerToken = & $GcloudPath auth print-identity-token --configuration=$ProductionConfiguration --audiences=$controllerUrl
    Invoke-WebRequest -Headers @{ Authorization = "Bearer $controllerToken" } -Uri "$controllerUrl/health/live"
@@ -368,6 +371,7 @@ to a runtime or deployer account.
 
    ```powershell
    Invoke-ProdDeploy run services replace deploy/gcp/rendered/cloud-run-web.yaml --region=asia-southeast1
+   Invoke-ProdGcloud run services add-iam-policy-binding pnl-web --region=asia-southeast1 --member='user:BOOTSTRAP_OPERATOR_EMAIL' --role=roles/run.invoker
    $candidateRevision = Invoke-ProdGcloud run revisions list --service=pnl-web --region=asia-southeast1 --sort-by='~metadata.creationTimestamp' --limit=1 --format='value(metadata.name)'
    $privateUrl = Invoke-ProdGcloud run services describe pnl-web --region=asia-southeast1 --format='value(status.url)'
    $identityToken = & $GcloudPath auth print-identity-token --configuration=$ProductionConfiguration --audiences=$privateUrl
@@ -393,11 +397,20 @@ to a runtime or deployer account.
    the URL non-public until the final configuration is ready.
 
    ```powershell
+   ./deploy/gcp/render.ps1 -ProjectId $ProjectId -ProjectNumber $ProjectNumber -Region 'asia-southeast1' -SupabaseUrl 'https://PRODUCTION_REF.supabase.co' -CloudRunOrigin $privateUrl -WorkerControllerUrl $controllerUrl -WebImage $webImage -RuntimeImage $runtimeImage -SourceCommit '1e478b68b4f73dc6b41e2681cb6238a87d1e0427' -ReleaseStage 'v1-production-pilot' -BusinessGate 'passed' -DeploymentProfile 'production'
    Invoke-ProdDeploy run services replace deploy/gcp/rendered/cloud-run-web.yaml --region=asia-southeast1
    $candidateRevision = Invoke-ProdGcloud run revisions list --service=pnl-web --region=asia-southeast1 --sort-by='~metadata.creationTimestamp' --limit=1 --format='value(metadata.name)'
    $identityToken = & $GcloudPath auth print-identity-token --configuration=$ProductionConfiguration --audiences=$privateUrl
    Invoke-WebRequest -Headers @{ Authorization = "Bearer $identityToken" } -Uri "$privateUrl/health/ready"
+   Invoke-WebRequest -Headers @{ Authorization = "Bearer $identityToken" } -Uri "$privateUrl/health/live"
+   Invoke-WebRequest -Headers @{ Authorization = "Bearer $identityToken" } -Uri "$privateUrl/"
+   $latestReady = Invoke-ProdGcloud run services describe pnl-web --region=asia-southeast1 --format='value(status.latestReadyRevisionName)'
+   if ($candidateRevision -ne $latestReady) { throw 'Exact-origin candidate is not the latest Ready revision.' }
+   $volumeProof = Invoke-ProdGcloud run services logs read pnl-web --region=asia-southeast1 --limit=100
+   if (-not ($volumeProof | Select-String 'volume_canary=pass uid=10001 path_count=2')) { throw 'Exact-origin UID volume canary evidence is missing.' }
    Invoke-ProdGcloud run services add-iam-policy-binding pnl-web --region=asia-southeast1 --member=allUsers --role=roles/run.invoker
+   Invoke-ProdGcloud run services remove-iam-policy-binding pnl-web --region=asia-southeast1 --member='user:BOOTSTRAP_OPERATOR_EMAIL' --role=roles/run.invoker
+   Invoke-ProdGcloud run services remove-iam-policy-binding pnl-worker-controller --region=asia-southeast1 --member='user:BOOTSTRAP_OPERATOR_EMAIL' --role=roles/run.invoker
    Invoke-ProdGcloud run services describe pnl-web --region=asia-southeast1 --format='value(status.traffic,status.url)'
    $identityToken = $null
    ```
@@ -469,6 +482,14 @@ names, secret *references and enabled-version counts only*, IAM role names, and
 the Worker final zero state. Never export secret payloads, cookies, Access Codes,
 tokens, or synthetic Workbook bytes. Commit only the redacted evidence summary;
 keep raw CLI exports ignored and delete them after the rollback record is reduced.
+
+```powershell
+./deploy/gcp/capture-production-snapshot.ps1 -ProjectId $ProjectId -ProjectNumber $ProjectNumber -Configuration $ProductionConfiguration -SupabaseRef 'PRODUCTION_REF' -SupabaseRegion 'ap-southeast-1' -SupabasePlan 'free'
+```
+
+The helper writes only to the ignored `deploy/gcp/rendered/` directory, rejects
+known staging/legacy Supabase refs, validates the exact Production Google target,
+and records Secret Manager metadata/version counts without reading any payload.
 
 For a first deployment, rollback means removing public invocation and returning
 the new environment to its initial zero-resource/zero-worker state. Before every
