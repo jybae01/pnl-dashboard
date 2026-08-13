@@ -1,11 +1,15 @@
-import { useMemo, useState } from 'react';
-import { AlertTriangle, ArrowRight, ChevronDown, ChevronRight, ShieldCheck } from 'lucide-react';
+import { useEffect, useMemo, useState } from 'react';
+import { AlertTriangle, ArrowRight, ChevronDown, ChevronRight } from 'lucide-react';
 import { EffectWaterfallChart } from '../components/variance/EffectWaterfallChart';
-import { WaterfallBarData } from '../types/variance';
-import { AnalysisPresentationDto, AnalysisPresentationEffectDto, Role } from './types';
+import { AnalysisPresentationDto, Role } from './types';
+import {
+  MappedPresentationEffect,
+  MappedResidual,
+  mapAnalysisPresentation,
+  profitEffectTone,
+} from './analysisPresentation';
 import { EvidenceDownloadButton } from './EvidenceDownloadButton';
-
-const MILLION = 1_000_000;
+import '../styles/variance-analysis.css';
 
 export function AnalysisPresentationPanel({
   value,
@@ -16,179 +20,335 @@ export function AnalysisPresentationPanel({
   role: Role;
   onUnavailable?: () => void;
 }) {
-  const [selectedEffect, setSelectedEffect] = useState<string | undefined>(value.effects[0]?.code);
-  const bars = useMemo(() => waterfallBars(value), [value]);
-  return <article data-testid="analysis-presentation" style={{ marginTop: 12 }}>
-    <PresentationHeader value={value} role={role} onUnavailable={onUnavailable} />
-    <ExecutiveFacts value={value} />
-    <EffectWaterfallChart bars={bars} selectedEffectId={selectedEffect} onSelectEffect={setSelectedEffect} />
-    <EffectTable effects={value.effects} residual={value.residual} effectsTotal={value.kpis.effects_total}
-      selectedEffect={selectedEffect} onSelectEffect={setSelectedEffect} />
-    <ProductGroupTable value={value} />
-    <ManufacturingActivityTable value={value} />
-  </article>;
+  const mapping = useMemo(() => mapAnalysisPresentation(value), [value]);
+  const [selectedEffect, setSelectedEffect] = useState<string | undefined>(undefined);
+
+  useEffect(() => {
+    const available = new Set<string>([
+      ...mapping.effects.map((effect) => effect.code),
+      mapping.residual.code,
+    ]);
+    setSelectedEffect((previous) => previous && available.has(previous)
+      ? previous
+      : mapping.effects[0]?.code ?? mapping.residual.code);
+  }, [mapping]);
+
+  return (
+    <article className="variance-analysis" data-testid="analysis-presentation">
+      <PresentationHeader value={value} />
+      <ExecutiveFacts
+        positiveEffects={mapping.topPositiveEffects}
+        negativeEffects={mapping.topNegativeEffects}
+        residual={mapping.residual}
+        selectedEffect={selectedEffect}
+        onSelectEffect={setSelectedEffect}
+      />
+      <EffectWaterfallChart
+        bars={mapping.waterfallBars}
+        selectedEffectId={selectedEffect}
+        onSelectEffect={setSelectedEffect}
+      />
+      <EffectTable
+        effects={mapping.effects}
+        residual={mapping.residual}
+        effectsTotal={value.kpis.effects_total}
+        selectedEffect={selectedEffect}
+        onSelectEffect={setSelectedEffect}
+      />
+      <ProductGroupTable value={value} />
+      <ManufacturingActivityTable value={value} />
+      <EvidenceAccess value={value} role={role} onUnavailable={onUnavailable} />
+    </article>
+  );
 }
 
-function PresentationHeader({ value, role, onUnavailable }: {
-  value: AnalysisPresentationDto; role: Role; onUnavailable?: () => void;
-}) {
+function PresentationHeader({ value }: { value: AnalysisPresentationDto }) {
   const kpi = value.kpis;
-  const positive = kpi.operating_profit_delta >= 0;
-  return <div className="variance-hero-banner" style={{ marginBottom: 14 }}>
-    <div className="variance-hero-left">
-      <div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-          <span className="model-pill model-pill-plan">Base: {value.identity.baseline_model_name}</span>
-          <ArrowRight size={13} color="#94a3b8" />
-          <span className="model-pill model-pill-actual">Comparison: {value.identity.comparison_model_name}</span>
+  const tone = profitEffectTone(kpi.operating_profit_delta);
+  return (
+    <section className="variance-analysis__hero" aria-labelledby="variance-result-title">
+      <div className="variance-analysis__hero-main">
+        <div className="variance-analysis__model-line" id="variance-result-title">
+          <span className="variance-analysis__model-pill">기준 모형: {value.identity.baseline_model_name}</span>
+          <ArrowRight size={14} aria-hidden="true" />
+          <span className="variance-analysis__model-pill">비교 모형: {value.identity.comparison_model_name}</span>
         </div>
-        <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 5 }}>
-          {value.identity.start_month}월–{value.identity.end_month}월 · Base FX {formatNumber(value.identity.baseline_sales_fx)} · Comparison FX {formatNumber(value.identity.comparison_sales_fx)} · schema {value.identity.result_schema_version}
+        <div className="variance-analysis__identity-meta">
+          {value.identity.start_month}월–{value.identity.end_month}월 · {value.currency_unit} · 결과 스키마 {value.identity.result_schema_version}
         </div>
-      </div>
-      <div className="variance-hero-score">
-        <div>
-          <div className="score-label">영업이익 증감</div>
-          <div className="score-amount tabular-nums" style={{ color: positive ? 'var(--color-favorable)' : 'var(--color-unfavorable)' }}>
-            {formatMillion(kpi.operating_profit_delta, true)}
-          </div>
+        <div className="variance-analysis__op-summary">
+          <span className="variance-analysis__summary-label">영업이익 증감</span>
+          <strong className={`variance-analysis__summary-value variance-analysis__tone--${tone}`}>
+            {formatCurrency(kpi.operating_profit_delta, true)}
+          </strong>
         </div>
       </div>
-    </div>
-    <div style={{ display: 'grid', gap: 7, borderLeft: '1px solid var(--border-subtle)', paddingLeft: 16 }}>
-      <KpiLine label="Base 매출" value={kpi.baseline_revenue} />
-      <KpiLine label="Comparison 매출" value={kpi.comparison_revenue} />
-      <KpiLine label="매출 증감" value={kpi.revenue_delta} signed />
-      <KpiLine label="Base 영업이익" value={kpi.baseline_operating_profit} />
-      <KpiLine label="Comparison 영업이익" value={kpi.comparison_operating_profit} />
-      <div style={{ display: 'flex', alignItems: 'center', gap: 5, color: '#15803d', fontSize: 11, fontWeight: 700 }}>
-        <ShieldCheck size={13} /> Effects {formatMillion(kpi.effects_total, true)} + Residual {formatMillion(kpi.residual, true)} = OP Delta
+      <div className="variance-analysis__hero-kpis" aria-label="영업이익 요약">
+        <KpiLine label="기준 매출" value={kpi.baseline_revenue} />
+        <KpiLine label="비교 매출" value={kpi.comparison_revenue} />
+        <KpiLine label="매출 증감" value={kpi.revenue_delta} signed />
+        <KpiLine label="기준 영업이익" value={kpi.baseline_operating_profit} />
+        <KpiLine label="비교 영업이익" value={kpi.comparison_operating_profit} />
       </div>
-      <EvidenceDownloadButton resultId={value.identity.result_id} role={role} onUnavailable={onUnavailable} />
-    </div>
-  </div>;
+    </section>
+  );
 }
 
 function KpiLine({ label, value, signed = false }: { label: string; value: number; signed?: boolean }) {
-  return <div style={{ display: 'flex', justifyContent: 'space-between', gap: 14, fontSize: 11 }}>
-    <span style={{ color: 'var(--text-muted)' }}>{label}</span>
-    <strong className="tabular-nums">{formatMillion(value, signed)}</strong>
-  </div>;
+  return (
+    <div className="variance-analysis__kpi-line">
+      <span>{label}</span>
+      <strong>{formatCurrency(value, signed)}</strong>
+    </div>
+  );
 }
 
-function ExecutiveFacts({ value }: { value: AnalysisPresentationDto }) {
-  return <section className="narrative-card" aria-labelledby="executive-facts-title">
-    <div className="narrative-header">
-      <strong id="executive-facts-title">결정론적 주요 Fact</strong>
-      <span className="unit-tag">AI narrative 아님</span>
-    </div>
-    <div className="narrative-text">영업이익 증감 {formatMillion(value.executive_summary.operating_profit_delta, true)}</div>
-    <div className="factor-tags-grid">
-      <FactorList title="주요 Positive Effect" effects={value.executive_summary.top_positive_effects} />
-      <FactorList title="주요 Negative Effect" effects={value.executive_summary.top_negative_effects} />
-    </div>
-    <div style={{ marginTop: 10, fontSize: 11, color: '#475569' }}>
-      Residual: {formatMillion(value.residual.amount, true)} · {value.residual.display_label} ({value.residual.classification})
-    </div>
-  </section>;
+function ExecutiveFacts({
+  positiveEffects,
+  negativeEffects,
+  residual,
+  selectedEffect,
+  onSelectEffect,
+}: {
+  positiveEffects: MappedPresentationEffect[];
+  negativeEffects: MappedPresentationEffect[];
+  residual: MappedResidual;
+  selectedEffect?: string;
+  onSelectEffect: (code: string) => void;
+}) {
+  return (
+    <section className="variance-analysis__executive" aria-labelledby="executive-facts-title">
+      <div className="variance-analysis__section-header">
+        <h2 id="executive-facts-title">경영진 분석 요약</h2>
+        <span>서버가 제공한 주요 요인과 기타/재고차이만 표시</span>
+      </div>
+      <div className="variance-analysis__factor-grid">
+        <FactorList title="긍정 요인" effects={positiveEffects} selectedEffect={selectedEffect} onSelectEffect={onSelectEffect} />
+        <FactorList title="부정 요인" effects={negativeEffects} selectedEffect={selectedEffect} onSelectEffect={onSelectEffect} />
+      </div>
+      <div className={`variance-analysis__residual-summary variance-analysis__tone--${profitEffectTone(residual.amount)}`}>
+        <strong>{residual.uiLabel}</strong>
+        <span>{formatCurrency(residual.amount, true)}</span>
+        <span>{residual.display_label}</span>
+      </div>
+    </section>
+  );
 }
 
-function FactorList({ title, effects }: { title: string; effects: AnalysisPresentationEffectDto[] }) {
-  return <div><div className="factor-col-title">{title}</div>{effects.length
-    ? effects.map((effect) => <div className="factor-item" key={effect.code}>{effect.label}: {formatMillion(effect.profit_effect, true)}</div>)
-    : <div className="factor-item">해당 Effect 없음</div>}</div>;
+function FactorList({
+  title,
+  effects,
+  selectedEffect,
+  onSelectEffect,
+}: {
+  title: string;
+  effects: MappedPresentationEffect[];
+  selectedEffect?: string;
+  onSelectEffect: (code: string) => void;
+}) {
+  return (
+    <div>
+      <h3 className="variance-analysis__factor-title">{title}</h3>
+      {effects.length ? effects.map((effect) => {
+        const tone = profitEffectTone(effect.profit_effect);
+        return (
+          <button
+            key={effect.code}
+            type="button"
+            className={`variance-analysis__factor-item variance-analysis__tone--${tone} ${selectedEffect === effect.code ? 'is-selected' : ''}`}
+            aria-pressed={selectedEffect === effect.code}
+            onClick={() => onSelectEffect(effect.code)}
+          >
+            <span>{effect.uiLabel}</span>
+            <strong>{formatCurrency(effect.profit_effect, true)}</strong>
+          </button>
+        );
+      }) : <div className="variance-analysis__factor-empty">해당 Effect 없음</div>}
+    </div>
+  );
 }
 
-function EffectTable({ effects, residual, effectsTotal, selectedEffect, onSelectEffect }: {
-  effects: AnalysisPresentationEffectDto[];
-  residual: AnalysisPresentationDto['residual'];
+function EffectTable({
+  effects,
+  residual,
+  effectsTotal,
+  selectedEffect,
+  onSelectEffect,
+}: {
+  effects: MappedPresentationEffect[];
+  residual: MappedResidual;
   effectsTotal: number;
   selectedEffect?: string;
   onSelectEffect: (code: string) => void;
 }) {
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
-  return <section className="financial-table-container" style={{ marginBottom: 16 }}>
-    <div style={{ padding: '10px 14px', fontWeight: 700 }}>Canonical Effect 상세</div>
-    <table className="financial-table"><thead><tr>
-      <th>Effect</th><th>분류</th><th className="text-right">손익 영향</th><th>근거</th>
-    </tr></thead><tbody>
-      {effects.map((effect) => {
-        const open = Boolean(expanded[effect.code]);
-        return <FragmentRow key={effect.code} effect={effect} open={open} selected={selectedEffect === effect.code}
-          onSelect={() => onSelectEffect(effect.code)} onToggle={() => setExpanded((state) => ({ ...state, [effect.code]: !open }))} />;
-      })}
-      <tr className="row-total"><td colSpan={2}>Effects 합계</td><td className="text-right tabular-nums">{formatMillion(effectsTotal, true)}</td><td>Backend canonical total</td></tr>
-      <tr><td>Residual</td><td>{residual.classification}</td><td className="text-right tabular-nums">{formatMillion(residual.amount, true)}</td><td>{residual.display_label}</td></tr>
-    </tbody></table>
-  </section>;
+  return (
+    <section className="variance-analysis__effect-section" data-testid="effect-table">
+      <div className="variance-analysis__section-header">
+        <h2>Effect 상세 / Drilldown</h2>
+        <span>금액 단위: {`KRW`} · 상세 값은 서버 DTO 그대로 표시</span>
+      </div>
+      <div className="variance-analysis__table-scroll">
+        <table className="financial-table variance-analysis__effect-table">
+          <thead><tr>
+            <th>Effect</th><th>분류</th><th className="text-right">손익 영향</th><th>근거</th>
+          </tr></thead>
+          <tbody>
+            {effects.map((effect) => {
+              const open = Boolean(expanded[effect.code]);
+              return (
+                <EffectRow
+                  key={effect.code}
+                  effect={effect}
+                  open={open}
+                  selected={selectedEffect === effect.code}
+                  onSelect={() => onSelectEffect(effect.code)}
+                  onToggle={() => setExpanded((state) => ({ ...state, [effect.code]: !open }))}
+                />
+              );
+            })}
+            <tr className="row-total">
+              <td colSpan={2}>Effect 총액 (서버)</td>
+              <td className="text-right tabular-nums">{formatCurrency(effectsTotal, true)}</td>
+              <td>서버 제공 effects_total</td>
+            </tr>
+            <tr data-testid="effect-row-residual" className={selectedEffect === residual.code ? 'row-active' : ''}>
+              <td>
+                <button
+                  type="button"
+                  className="variance-analysis__effect-select"
+                  data-testid="effect-select-residual"
+                  aria-pressed={selectedEffect === residual.code}
+                  onClick={() => onSelectEffect(residual.code)}
+                >
+                  {residual.uiLabel}
+                </button>
+              </td>
+              <td>기타/재고</td>
+              <td className={`text-right tabular-nums variance-analysis__tone--${profitEffectTone(residual.amount)}`}>{formatCurrency(residual.amount, true)}</td>
+              <td>{residual.display_label}</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+  );
 }
 
-function FragmentRow({ effect, open, selected, onSelect, onToggle }: {
-  effect: AnalysisPresentationEffectDto; open: boolean; selected: boolean; onSelect: () => void; onToggle: () => void;
+function EffectRow({
+  effect,
+  open,
+  selected,
+  onSelect,
+  onToggle,
+}: {
+  effect: MappedPresentationEffect;
+  open: boolean;
+  selected: boolean;
+  onSelect: () => void;
+  onToggle: () => void;
 }) {
-  return <>
-    <tr className={selected ? 'row-active' : ''}>
-      <td><button type="button" className="expand-toggle-btn" disabled={!effect.drilldown.available} onClick={onToggle}>
-        {effect.drilldown.available ? (open ? <ChevronDown size={13} /> : <ChevronRight size={13} />) : <AlertTriangle size={13} />}
-      </button><button type="button" className="btn-link" onClick={onSelect}>{effect.label}</button></td>
-      <td>{effect.category}</td>
-      <td className={`text-right tabular-nums ${effect.profit_effect >= 0 ? 'val-favorable' : 'val-unfavorable'}`}>{formatMillion(effect.profit_effect, true)}</td>
-      <td>{effect.drilldown.available ? effect.description : effect.drilldown.unavailable_reason}</td>
-    </tr>
-    {open && effect.drilldown.available && <tr><td colSpan={4} style={{ padding: 0 }}><table className="drilldown-table"><thead><tr>
-      <th>근거 항목</th><th>단위</th><th className="text-right">Base</th><th className="text-right">Comparison</th><th className="text-right">Delta</th><th className="text-right">Effect</th><th>비고</th>
-    </tr></thead><tbody>{effect.drilldown.rows.map((row) => <tr key={row.row_id}>
-      <td>{row.label}</td><td>{row.unit}</td><td className="text-right">{displayNullable(row.baseline, row.unit)}</td>
-      <td className="text-right">{displayNullable(row.comparison, row.unit)}</td><td className="text-right">{displayNullable(row.delta, row.unit)}</td>
-      <td className="text-right">{row.profit_effect === null ? '—' : formatMillion(row.profit_effect, true)}</td><td>{row.note}</td>
-    </tr>)}</tbody></table></td></tr>}
-  </>;
+  const available = effect.drilldown.available;
+  const tone = profitEffectTone(effect.profit_effect);
+  return (
+    <>
+      <tr data-testid={`effect-row-${effect.code}`} className={`${selected ? 'row-active' : ''} variance-analysis__effect-row--${tone}`}>
+        <td>
+          <button
+            type="button"
+            className="expand-toggle-btn"
+            disabled={!available}
+            aria-label={`${effect.uiLabel} ${available ? (open ? '상세 접기' : '상세 펼치기') : '상세 근거 없음'}`}
+            onClick={onToggle}
+          >
+            {available ? (open ? <ChevronDown size={13} aria-hidden="true" /> : <ChevronRight size={13} aria-hidden="true" />) : <AlertTriangle size={13} aria-hidden="true" />}
+          </button>
+          <button
+            type="button"
+            className="variance-analysis__effect-select"
+            data-testid={`effect-select-${effect.code}`}
+            aria-pressed={selected}
+            onClick={onSelect}
+          >
+            {effect.uiLabel}
+          </button>
+        </td>
+        <td>{effect.uiCategoryLabel}</td>
+        <td data-testid={`effect-tone-${effect.code}`} className={`text-right tabular-nums variance-analysis__tone--${tone}`}>{formatCurrency(effect.profit_effect, true)}</td>
+        <td>{available ? effect.description : effect.drilldown.unavailable_reason}</td>
+      </tr>
+      {open && available && (
+        <tr>
+          <td colSpan={4} className="variance-analysis__drilldown-cell">
+            <table className="drilldown-table variance-analysis__drilldown-table">
+              <thead><tr>
+                <th>근거 항목</th><th>단위</th><th className="text-right">기준</th><th className="text-right">비교</th><th className="text-right">증감</th><th className="text-right">손익 영향</th><th>비고</th>
+              </tr></thead>
+              <tbody>{effect.drilldown.rows.map((row) => (
+                <tr key={row.row_id}>
+                  <td>{row.label}</td>
+                  <td>{row.unit}</td>
+                  <td className="text-right">{displayNullable(row.baseline)}</td>
+                  <td className="text-right">{displayNullable(row.comparison)}</td>
+                  <td className="text-right">{displayNullable(row.delta, true)}</td>
+                  <td className={`text-right ${row.profit_effect === null ? '' : `variance-analysis__tone--${profitEffectTone(row.profit_effect)}`}`}>{row.profit_effect === null ? '—' : formatCurrency(row.profit_effect, true)}</td>
+                  <td>{row.note}</td>
+                </tr>
+              ))}</tbody>
+            </table>
+          </td>
+        </tr>
+      )}
+    </>
+  );
 }
 
 function ProductGroupTable({ value }: { value: AnalysisPresentationDto }) {
   if (!value.product_groups.length) return null;
-  return <section className="financial-table-container" style={{ marginBottom: 16 }}><div style={{ padding: '10px 14px', fontWeight: 700 }}>제품군</div>
-    <table className="financial-table"><thead><tr><th>제품군</th><th>수량 단위</th><th className="text-right">Base 수량</th><th className="text-right">Comparison 수량</th><th className="text-right">Base 매출</th><th className="text-right">Comparison 매출</th></tr></thead>
-      <tbody>{value.product_groups.map((row) => <tr key={row.code}><td>{row.display_name}</td><td>{row.quantity_unit}</td><td className="text-right">{formatNumber(row.baseline_quantity)}</td><td className="text-right">{formatNumber(row.comparison_quantity)}</td><td className="text-right">{formatMillion(row.baseline_revenue)}</td><td className="text-right">{formatMillion(row.comparison_revenue)}</td></tr>)}</tbody>
-    </table></section>;
+  return (
+    <section className="variance-analysis__evidence-table" aria-labelledby="product-groups-title">
+      <div className="variance-analysis__section-header"><h2 id="product-groups-title">제품군 근거</h2><span>수량 단위는 DTO 값 유지</span></div>
+      <div className="variance-analysis__table-scroll"><table className="financial-table"><thead><tr>
+        <th>제품군</th><th>수량 단위</th><th className="text-right">기준 수량</th><th className="text-right">비교 수량</th><th className="text-right">기준 매출</th><th className="text-right">비교 매출</th>
+      </tr></thead><tbody>{value.product_groups.map((row) => (
+        <tr key={row.code}><td>{row.display_name}</td><td>{row.quantity_unit}</td><td className="text-right">{formatNumber(row.baseline_quantity)}</td><td className="text-right">{formatNumber(row.comparison_quantity)}</td><td className="text-right">{formatCurrency(row.baseline_revenue)}</td><td className="text-right">{formatCurrency(row.comparison_revenue)}</td></tr>
+      ))}</tbody></table></div>
+    </section>
+  );
 }
 
 function ManufacturingActivityTable({ value }: { value: AnalysisPresentationDto }) {
   if (!value.manufacturing_activities.length) return null;
-  return <section className="financial-table-container"><div style={{ padding: '10px 14px', fontWeight: 700 }}>제조 조업도 Basis</div>
-    <table className="financial-table"><thead><tr><th>공정</th><th>Basis</th><th>단위</th><th className="text-right">Base</th><th className="text-right">Comparison</th><th className="text-right">Delta</th></tr></thead>
-      <tbody>{value.manufacturing_activities.map((row) => <tr key={`${row.process}:${row.production_basis}`}><td>{row.process}</td><td>{row.production_basis}</td><td>{row.unit}</td><td className="text-right">{formatNumber(row.baseline)}</td><td className="text-right">{formatNumber(row.comparison)}</td><td className="text-right">{formatNumber(row.delta, true)}</td></tr>)}</tbody>
-    </table></section>;
+  return (
+    <section className="variance-analysis__evidence-table" aria-labelledby="manufacturing-activity-title">
+      <div className="variance-analysis__section-header"><h2 id="manufacturing-activity-title">제조 조업도 근거</h2><span>PCS / m 단위는 DTO 값 유지</span></div>
+      <div className="variance-analysis__table-scroll"><table className="financial-table"><thead><tr>
+        <th>공정</th><th>Basis</th><th>단위</th><th className="text-right">기준</th><th className="text-right">비교</th><th className="text-right">증감</th>
+      </tr></thead><tbody>{value.manufacturing_activities.map((row) => (
+        <tr key={`${row.process}:${row.production_basis}`}><td>{row.process}</td><td>{row.production_basis}</td><td>{row.unit}</td><td className="text-right">{formatNumber(row.baseline)}</td><td className="text-right">{formatNumber(row.comparison)}</td><td className="text-right">{formatNumber(row.delta, true)}</td></tr>
+      ))}</tbody></table></div>
+    </section>
+  );
 }
 
-function waterfallBars(value: AnalysisPresentationDto): WaterfallBarData[] {
-  let running = value.kpis.baseline_operating_profit / MILLION;
-  const bars: WaterfallBarData[] = [{ id: 'baseline', name: 'Base OP', category: 'START_TOTAL', startValue: 0, endValue: running, delta: running, isTotal: true, isStart: true, isEnd: false, colorType: 'start' }];
-  for (const effect of value.effects) {
-    const delta = effect.profit_effect / MILLION;
-    const startValue = running;
-    running += delta;
-    bars.push({ id: effect.code, name: effect.label, category: effect.category, startValue, endValue: running, delta, isTotal: false, isStart: false, isEnd: false, colorType: delta >= 0 ? 'favorable' : 'unfavorable' });
-  }
-  const residualDelta = value.residual.amount / MILLION;
-  const residualStart = running;
-  running += residualDelta;
-  bars.push({ id: 'residual', name: 'Residual', category: 'LAG', startValue: residualStart, endValue: running, delta: residualDelta, isTotal: false, isStart: false, isEnd: false, colorType: residualDelta === 0 ? 'neutral' : residualDelta > 0 ? 'favorable' : 'unfavorable' });
-  bars.push({ id: 'comparison', name: 'Comparison OP', category: 'END_TOTAL', startValue: 0, endValue: value.kpis.comparison_operating_profit / MILLION, delta: value.kpis.comparison_operating_profit / MILLION, isTotal: true, isStart: false, isEnd: true, colorType: 'end' });
-  return bars;
+function EvidenceAccess({ value, role, onUnavailable }: { value: AnalysisPresentationDto; role: Role; onUnavailable?: () => void }) {
+  return (
+    <section className="variance-analysis__evidence-access" aria-labelledby="evidence-access-title">
+      <div><h2 id="evidence-access-title">분석 근거 접근</h2><p>현재 결과에 연결된 Backend 증빙을 내려받습니다.</p></div>
+      <EvidenceDownloadButton resultId={value.identity.result_id} role={role} onUnavailable={onUnavailable} />
+    </section>
+  );
 }
 
-function formatMillion(value: number, signed = false): string {
-  const number = value / MILLION;
-  const formatted = number.toLocaleString('ko-KR', { maximumFractionDigits: 1 });
-  return `${signed && number > 0 ? '+' : ''}${formatted} 백만원`;
+function formatCurrency(value: number, signed = false): string {
+  const number = value.toLocaleString('ko-KR', { maximumFractionDigits: 2 });
+  return `${signed && value > 0 ? '+' : ''}${number} KRW`;
 }
 
 function formatNumber(value: number, signed = false): string {
   return `${signed && value > 0 ? '+' : ''}${value.toLocaleString('ko-KR', { maximumFractionDigits: 2 })}`;
 }
 
-function displayNullable(value: number | null, unit: string): string {
-  if (value === null) return '—';
-  return unit === 'KRW' ? formatMillion(value) : formatNumber(value);
+function displayNullable(value: number | null, signed = false): string {
+  return value === null ? '—' : formatNumber(value, signed);
 }

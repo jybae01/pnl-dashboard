@@ -1,4 +1,7 @@
 import React, { FormEvent, useEffect, useMemo, useRef, useState } from 'react';
+import { Play, RefreshCw, Search } from 'lucide-react';
+import { EmptyState } from '../components/common/EmptyState';
+import { LoadingSpinner } from '../components/common/LoadingSpinner';
 import { bffClient } from './client';
 import {
   AnalysisModelDto,
@@ -10,8 +13,8 @@ import {
   ViewerState,
   WorkerStatusDto,
 } from './types';
-import { EvidenceDownloadButton } from './EvidenceDownloadButton';
 import { AnalysisPresentationPanel } from './AnalysisPresentationPanel';
+import '../styles/variance-analysis-shell.css';
 
 type FormState = Omit<SubmitRequest, 'idempotency_key'>;
 
@@ -22,6 +25,16 @@ const INITIAL_FORM: FormState = {
   end_month: 12,
   baseline_sales_fx: 1450,
   comparison_sales_fx: 1450,
+};
+
+const ACTIVE_JOB_STORAGE_KEY = 'pnl.active-analysis-job-id';
+
+const EXECUTION_STATE_LABELS: Record<JobStatusDto['execution_state'], string> = {
+  QUEUED: '분석 요청 접수',
+  STARTING_WORKER: '분석 엔진 준비 중',
+  PROCESSING: '손익 분석 중',
+  COMPLETED: '분석 완료',
+  FAILED: '분석 실패',
 };
 
 export function CoreAnalysisView({ role, modelRefreshKey = 0 }: { role: Role; modelRefreshKey?: number }) {
@@ -36,6 +49,29 @@ export function CoreAnalysisView({ role, modelRefreshKey = 0 }: { role: Role; mo
   const viewerRequestSequence = useRef(0);
   const [worker, setWorker] = useState<WorkerStatusDto | null>(null);
   const [workerBusy, setWorkerBusy] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
+  useEffect(() => {
+    if (role !== 'admin') return;
+    const activeJobId = window.sessionStorage.getItem(ACTIVE_JOB_STORAGE_KEY);
+    if (!activeJobId) return;
+    let active = true;
+    bffClient.job(activeJobId).then((storedJob) => {
+      if (!active) return;
+      setJob(storedJob);
+      if (storedJob.status === 'FAILED') {
+        setViewerState('ERROR');
+        setError(storedJob.error_message || '분석 Job이 실패했습니다.');
+      } else {
+        setViewerState('LOADING');
+      }
+    }).catch((value) => {
+      if (!active) return;
+      setViewerState(errorState(value));
+      setError(safeMessage(value));
+    });
+    return () => { active = false; };
+  }, [role]);
 
   useEffect(() => {
     if (role !== 'admin') return;
@@ -61,7 +97,10 @@ export function CoreAnalysisView({ role, modelRefreshKey = 0 }: { role: Role; mo
         }));
       }
     }).catch((value) => {
-      if (active) setError(safeMessage(value));
+      if (active) {
+        setViewerState(errorState(value));
+        setError(safeMessage(value));
+      }
     });
     return () => { active = false; };
   }, [role, modelRefreshKey]);
@@ -100,7 +139,7 @@ export function CoreAnalysisView({ role, modelRefreshKey = 0 }: { role: Role; mo
           setResult(null); setViewerState('INVALID_PAYLOAD'); setError(value.message); return;
         }
         if (value instanceof ApiClientError && value.code !== 'TRANSIENT_SYSTEM_ERROR') {
-          setResult(null); setViewerState('ERROR'); setError(value.message); return;
+          setResult(null); setViewerState(errorState(value)); setError(value.message); return;
         }
         setError(safeMessage(value));
         delay = Math.min(Math.round(delay * 2), 5000);
@@ -128,7 +167,7 @@ export function CoreAnalysisView({ role, modelRefreshKey = 0 }: { role: Role; mo
       setResult(stored); setResultId(stored.identity.result_id); setViewerState('READY');
     }).catch((value) => {
       if (!active) return;
-      setViewerState(value instanceof ApiClientError && value.code === 'INPUT_INTEGRITY_MISMATCH' ? 'INVALID_PAYLOAD' : 'ERROR');
+      setViewerState(errorState(value));
       setError(safeMessage(value));
     });
     return () => { active = false; };
@@ -142,7 +181,8 @@ export function CoreAnalysisView({ role, modelRefreshKey = 0 }: { role: Role; mo
 
   async function submit(event: FormEvent) {
     event.preventDefault();
-    if (!formValid) return;
+    if (!formValid || isSubmitting || isJobActive(job)) return;
+    setIsSubmitting(true);
     setError(null);
     setResult(null);
     setViewerState('LOADING');
@@ -151,6 +191,7 @@ export function CoreAnalysisView({ role, modelRefreshKey = 0 }: { role: Role; mo
     }
     try {
       const response = await bffClient.submit({ ...form, idempotency_key: logicalRequest.current.key });
+      window.sessionStorage.setItem(ACTIVE_JOB_STORAGE_KEY, response.job_id);
       setJob({
         job_id: response.job_id,
         status: response.status,
@@ -164,8 +205,10 @@ export function CoreAnalysisView({ role, modelRefreshKey = 0 }: { role: Role; mo
         error_code: null, error_message: null, execution_state: response.execution_state, dto_version: '1',
       });
     } catch (value) {
-      setViewerState('ERROR');
+      setViewerState(errorState(value));
       setError(safeMessage(value));
+    } finally {
+      setIsSubmitting(false);
     }
   }
 
@@ -190,11 +233,8 @@ export function CoreAnalysisView({ role, modelRefreshKey = 0 }: { role: Role; mo
       if (value instanceof ApiClientError && value.code === 'RESULT_NOT_AVAILABLE') {
         setViewerState('EMPTY');
         setError(null);
-      } else if (value instanceof ApiClientError && value.code === 'INPUT_INTEGRITY_MISMATCH') {
-        setViewerState('INVALID_PAYLOAD');
-        setError(value.message);
       } else {
-        setViewerState('ERROR');
+        setViewerState(errorState(value));
         setError(safeMessage(value));
       }
     }
@@ -202,12 +242,15 @@ export function CoreAnalysisView({ role, modelRefreshKey = 0 }: { role: Role; mo
 
   if (role === 'viewer') {
     return (
-      <section>
-        <div className="view-header-bar"><strong>게시된 손익 분석 결과</strong></div>
-        <form onSubmit={readViewerResult} className="card" style={{ padding: 16, display: 'flex', gap: 8 }}>
-          <input aria-label="Result ID" className="filter-select" style={{ flex: 1 }} value={resultId}
-            onChange={(event) => setResultId(event.target.value)} placeholder="Result ID" />
-          <button className="btn btn-primary">조회</button>
+      <section className="variance-analysis-page">
+        <AnalysisPageHeading role={role} />
+        <form onSubmit={readViewerResult} className="variance-query-card">
+          <label className="variance-result-query">
+            <span className="filter-label">공개 결과 ID</span>
+            <input aria-label="Result ID" className="filter-select" value={resultId}
+              onChange={(event) => setResultId(event.target.value)} placeholder="Result ID를 입력하세요" />
+          </label>
+          <button className="btn btn-primary"><Search size={14} />조회</button>
         </form>
         <ResultState state={viewerState} error={error} result={result} role={role}
           onUnavailable={() => { setResult(null); setViewerState('EMPTY'); setError(null); }} />
@@ -216,7 +259,8 @@ export function CoreAnalysisView({ role, modelRefreshKey = 0 }: { role: Role; mo
   }
 
   return (
-    <section>
+    <section className="variance-analysis-page">
+      <AnalysisPageHeading role={role} />
       {worker && <div className="card" data-testid="worker-control" style={{ padding: 14, marginBottom: 12 }}>
         <strong>Worker: {worker?.actual_instance_count ?? 'reconciling'}</strong>
         <span style={{ marginLeft: 10 }}>desired {worker?.desired_instance_count ?? '-'}</span>
@@ -233,57 +277,90 @@ export function CoreAnalysisView({ role, modelRefreshKey = 0 }: { role: Role; mo
           finally { setWorkerBusy(false); }
         }}>Safe stop</button>
       </div>}
-      <div className="view-header-bar"><strong>Base / Comparison 분석 실행</strong><span className="unit-tag">실제 Job 상태만 표시</span></div>
-      <form onSubmit={submit} className="card" style={{ padding: 18 }}>
-        <div className="grid-2col" style={{ gap: 12 }}>
-          <ModelSelect label="Base Model" value={form.baseline_model_id} models={models}
-            onChange={(value) => setForm({ ...form, baseline_model_id: value })} />
-          <ModelSelect label="Comparison Model" value={form.comparison_model_id} models={models}
-            onChange={(value) => setForm({ ...form, comparison_model_id: value })} />
-          <NumberInput label="시작 월" value={form.start_month} onChange={(value) => setForm({ ...form, start_month: value })} />
-          <NumberInput label="종료 월" value={form.end_month} onChange={(value) => setForm({ ...form, end_month: value })} />
-          <NumberInput label="Base 매출환율" value={form.baseline_sales_fx} onChange={(value) => setForm({ ...form, baseline_sales_fx: value })} />
-          <NumberInput label="Comparison 매출환율" value={form.comparison_sales_fx} onChange={(value) => setForm({ ...form, comparison_sales_fx: value })} />
+      <form onSubmit={submit} className="variance-analysis-controls">
+        <div className="variance-control-heading">
+          <div><strong>분석 조건</strong><span>기준 모형과 비교 모형의 저장 결과를 생성합니다.</span></div>
+          <span className="unit-tag">실제 Job 상태만 표시</span>
         </div>
-        <button className="btn btn-primary" disabled={!formValid || job?.status === 'PENDING' || job?.status === 'PROCESSING'} style={{ marginTop: 14 }}>
-          분석 실행
-        </button>
-        <button type="button" className="btn btn-secondary" style={{ marginTop: 14, marginLeft: 8 }} onClick={() => {
-          logicalRequest.current = null; setJob(null); setResult(null); setViewerState('EMPTY'); setError(null);
-        }}>새 분석</button>
+        <div className="variance-control-grid">
+          <ModelSelect label="기준 모형" value={form.baseline_model_id} models={models} disabled={isSubmitting || isJobActive(job)}
+            onChange={(value) => setForm({ ...form, baseline_model_id: value })} />
+          <ModelSelect label="비교 모형" value={form.comparison_model_id} models={models} disabled={isSubmitting || isJobActive(job)}
+            onChange={(value) => setForm({ ...form, comparison_model_id: value })} />
+          <NumberInput label="시작 월" value={form.start_month} disabled={isSubmitting || isJobActive(job)} onChange={(value) => setForm({ ...form, start_month: value })} />
+          <NumberInput label="종료 월" value={form.end_month} disabled={isSubmitting || isJobActive(job)} onChange={(value) => setForm({ ...form, end_month: value })} />
+          <NumberInput label="기준 매출환율 (KRW/USD)" value={form.baseline_sales_fx} disabled={isSubmitting || isJobActive(job)} onChange={(value) => setForm({ ...form, baseline_sales_fx: value })} />
+          <NumberInput label="비교 매출환율 (KRW/USD)" value={form.comparison_sales_fx} disabled={isSubmitting || isJobActive(job)} onChange={(value) => setForm({ ...form, comparison_sales_fx: value })} />
+        </div>
+        <div className="variance-control-actions">
+          <button className="btn btn-primary" disabled={!formValid || isSubmitting || isJobActive(job)}><Play size={14} />{isSubmitting ? '요청 중…' : '분석 실행'}</button>
+          <button type="button" className="btn btn-secondary" disabled={isSubmitting || isJobActive(job)} onClick={() => {
+            window.sessionStorage.removeItem(ACTIVE_JOB_STORAGE_KEY);
+            logicalRequest.current = null; setJob(null); setResult(null); setViewerState('EMPTY'); setError(null);
+          }}><RefreshCw size={14} />새 분석</button>
+        </div>
       </form>
-      {error && viewerState !== 'ERROR' && viewerState !== 'INVALID_PAYLOAD' && <div role="alert" style={{ color: '#b91c1c', marginTop: 10 }}>{error}</div>}
-      {job && <div className="card" data-testid="job-status" style={{ padding: 14, marginTop: 12 }}>
-        <strong>{job.execution_state}</strong> · attempt {job.attempt}/{job.max_attempts || '-'} · Job {job.job_id}
-        {job.status === 'COMPLETED' && job.result_id && viewerState === 'READY' && result?.identity.result_id === job.result_id && <div style={{ marginTop: 10 }}>
-          <EvidenceDownloadButton resultId={job.result_id} role="admin" />
-        </div>}
+      {error && !['ERROR', 'FORBIDDEN', 'INVALID_PAYLOAD'].includes(viewerState) && <div role="alert" style={{ color: '#b91c1c', marginTop: 10 }}>{error}</div>}
+      {job && <div className={`variance-job-status variance-job-status-${job.status.toLowerCase()}`} data-testid="job-status">
+        <div>
+          <span className="variance-job-eyebrow">분석 진행상태</span>
+          <strong>{EXECUTION_STATE_LABELS[job.execution_state]}</strong>
+        </div>
+        <div className="variance-job-meta tabular-nums">시도 {job.attempt}/{job.max_attempts || '-'} · Job {job.job_id}</div>
       </div>}
       <ResultState state={viewerState} error={error} result={result} role={role} />
     </section>
   );
 }
 
-function ModelSelect({ label, value, models, onChange }: { label: string; value: string; models: AnalysisModelDto[]; onChange: (value: string) => void }) {
-  return <label><span className="filter-label">{label}</span><select className="filter-select" style={{ width: '100%' }} value={value} onChange={(event) => onChange(event.target.value)}>
+function AnalysisPageHeading({ role }: { role: Role }) {
+  return <header className="variance-page-heading">
+    <div><span className="variance-page-kicker">PROFIT ANALYSIS</span><h1>손익 분석</h1>
+      <p>기준 모형과 비교 모형의 영업이익 변동을 Effect와 근거 항목으로 확인합니다.</p></div>
+    <span className="variance-access-badge">{role === 'admin' ? 'ADMIN · 분석 실행 및 결과 조회' : 'VIEWER · 결과 조회 전용'}</span>
+  </header>;
+}
+
+function ModelSelect({ label, value, models, disabled, onChange }: { label: string; value: string; models: AnalysisModelDto[]; disabled: boolean; onChange: (value: string) => void }) {
+  return <label><span className="filter-label">{label}</span><select className="filter-select" style={{ width: '100%' }} value={value} disabled={disabled} onChange={(event) => onChange(event.target.value)}>
     <option value="">선택</option>{models.map((model) => <option key={model.model_id} value={model.model_id}>[{model.model_type}] {model.display_name} ({model.model_year})</option>)}
   </select></label>;
 }
 
-function NumberInput({ label, value, onChange }: { label: string; value: number; onChange: (value: number) => void }) {
-  return <label><span className="filter-label">{label}</span><input className="filter-select" style={{ width: '100%' }} type="number" value={value} onChange={(event) => onChange(Number(event.target.value))} /></label>;
+function NumberInput({ label, value, disabled, onChange }: { label: string; value: number; disabled: boolean; onChange: (value: number) => void }) {
+  return <label><span className="filter-label">{label}</span><input className="filter-select" style={{ width: '100%' }} type="number" value={value} disabled={disabled} onChange={(event) => onChange(Number(event.target.value))} /></label>;
 }
 
 function ResultState({ state, error, result, role, onUnavailable }: {
   state: ViewerState; error: string | null; result: AnalysisPresentationDto | null; role: Role; onUnavailable?: () => void;
 }) {
-  if (state === 'LOADING') return <div role="status" className="card" style={{ padding: 18, marginTop: 12 }}>불러오는 중…</div>;
-  if (state === 'ERROR') return <div role="alert" className="card" style={{ padding: 18, marginTop: 12, color: '#b91c1c' }}>{error || '결과 조회 오류'}</div>;
-  if (state === 'INVALID_PAYLOAD') return <div role="alert" className="card" style={{ padding: 18, marginTop: 12, color: '#b45309' }}>{error || '결과 계약이 올바르지 않습니다.'}</div>;
-  if (state === 'EMPTY' || !result) return <div className="card" data-testid="viewer-empty" style={{ padding: 18, marginTop: 12 }}>표시할 Result가 없습니다.</div>;
-  return <div className="card" data-testid="stored-result" style={{ padding: 18, marginTop: 12 }}>
+  if (state === 'LOADING') return <div className="variance-state-card"><LoadingSpinner message="손익 분석 결과를 불러오는 중입니다…" /></div>;
+  if (state === 'ERROR') return <StateMessage kind="error" title="분석 결과를 불러오지 못했습니다." description={error || '잠시 후 다시 시도하거나 관리자에게 문의하세요.'} />;
+  if (state === 'FORBIDDEN') return <StateMessage kind="forbidden" title="이 분석 결과를 볼 권한이 없습니다." description="현재 계정의 Viewer/Admin 권한을 확인해 주세요." />;
+  if (state === 'INVALID_PAYLOAD') return <StateMessage kind="integrity" title="분석 결과의 무결성을 확인할 수 없습니다." description={error || '서버가 제공한 결과 계약이 올바르지 않습니다.'} />;
+  if (state === 'EMPTY' || !result) return <div className="variance-state-card" data-testid="viewer-empty"><EmptyState
+    title={role === 'viewer' ? '아직 공개된 분석 결과가 없습니다.' : '아직 생성된 분석 결과가 없습니다.'}
+    description={role === 'viewer' ? '비교할 수 있는 분석 결과가 공개되면 이 화면에서 확인할 수 있습니다.' : '분석 조건을 선택하고 실행하면 결과가 이 화면에 표시됩니다.'}
+  /></div>;
+  return <div data-testid="stored-result">
     <AnalysisPresentationPanel value={result} role={role} onUnavailable={onUnavailable} />
   </div>;
+}
+
+function StateMessage({ kind, title, description }: { kind: 'error' | 'forbidden' | 'integrity'; title: string; description: string }) {
+  return <div role="alert" className={`variance-state-message variance-state-message-${kind}`}>
+    <strong>{title}</strong><span>{description}</span>
+  </div>;
+}
+
+function isJobActive(job: JobStatusDto | null): boolean {
+  return job?.status === 'PENDING' || job?.status === 'PROCESSING';
+}
+
+function errorState(value: unknown): ViewerState {
+  if (value instanceof ApiClientError && (value.status === 403 || value.code === 'FORBIDDEN')) return 'FORBIDDEN';
+  if (value instanceof ApiClientError && value.code === 'INPUT_INTEGRITY_MISMATCH') return 'INVALID_PAYLOAD';
+  return 'ERROR';
 }
 
 function safeMessage(value: unknown): string {

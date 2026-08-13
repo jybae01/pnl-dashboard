@@ -50,10 +50,10 @@ describe('React core vertical slice', () => {
     expect(await screen.findByText('손익 데이터 모니터링')).toBeInTheDocument();
     fireEvent.change(screen.getByLabelText('Access Code'), { target: { value: 'admin-code' } });
     fireEvent.click(screen.getByRole('button', { name: '접속' }));
-    expect(await screen.findByText('Base / Comparison 분석 실행')).toBeInTheDocument();
+    expect(await screen.findByText('분석 조건')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: '분석 실행' }));
     expect(await screen.findByTestId('stored-result', {}, { timeout: 3500 })).toHaveTextContent('영업이익 증감');
-    expect(screen.getAllByRole('button', { name: '분석 근거 엑셀 내려받기' })).toHaveLength(2);
+    expect(screen.getAllByRole('button', { name: '분석 근거 엑셀 내려받기' })).toHaveLength(1);
     expect(calls.some((value) => value.includes(`/api/jobs/${JOB}`))).toBe(true);
     expect(calls.some((value) => value.includes(`/api/admin/results/${RESULT}/presentation`))).toBe(true);
     const submitCall = fetchMock.mock.calls.find((value) => String(value[0]).endsWith('/api/analyses'));
@@ -104,12 +104,15 @@ describe('React core vertical slice', () => {
       throw new Error(`unexpected request ${path}`);
     }));
     render(<CoreAnalysisView role="admin" />);
-    expect(await screen.findByText('Base / Comparison 분석 실행')).toBeInTheDocument();
+    expect(await screen.findByText('분석 조건')).toBeInTheDocument();
     const run = screen.getByRole('button', { name: '분석 실행' });
     fireEvent.click(run);
     expect(await screen.findByText('서버에 연결할 수 없습니다.')).toBeInTheDocument();
     fireEvent.click(run);
-    expect(await screen.findByText(/QUEUED/)).toBeInTheDocument();
+    expect(await screen.findByText('분석 요청 접수')).toBeInTheDocument();
+    expect(screen.queryByText('QUEUED')).not.toBeInTheDocument();
+    expect(screen.getByLabelText('기준 모형')).toBeDisabled();
+    expect(screen.getByLabelText('비교 모형')).toBeDisabled();
     expect(keys).toHaveLength(2);
     expect(keys[0]).toBe(keys[1]);
   });
@@ -121,6 +124,56 @@ describe('React core vertical slice', () => {
     fireEvent.click(screen.getByRole('button', { name: '조회' }));
     expect(await screen.findByText('서버 응답 형식이 올바르지 않습니다.')).toBeInTheDocument();
     expect(screen.queryByTestId('stored-result')).not.toBeInTheDocument();
+  });
+
+  it('keeps EMPTY, ERROR and FORBIDDEN presentation states distinct', async () => {
+    let response: 'empty' | 'error' | 'forbidden' = 'empty';
+    vi.stubGlobal('fetch', vi.fn(() => {
+      if (response === 'empty') return json({ error: { code: 'RESULT_NOT_AVAILABLE', message: 'Result not available' } }, 404);
+      if (response === 'forbidden') return json({ error: { code: 'FORBIDDEN', message: 'Forbidden' } }, 403);
+      return json({ error: { code: 'TRANSIENT_SYSTEM_ERROR', message: 'temporary' } }, 503);
+    }));
+    const view = render(<CoreAnalysisView role="viewer" />);
+    const input = screen.getByLabelText('Result ID');
+    fireEvent.change(input, { target: { value: RESULT } });
+    fireEvent.click(screen.getByRole('button', { name: '조회' }));
+    expect(await screen.findByText('아직 공개된 분석 결과가 없습니다.')).toBeInTheDocument();
+
+    response = 'error';
+    fireEvent.click(screen.getByRole('button', { name: '조회' }));
+    expect(await screen.findByText('분석 결과를 불러오지 못했습니다.')).toBeInTheDocument();
+    expect(screen.queryByTestId('viewer-empty')).not.toBeInTheDocument();
+
+    response = 'forbidden';
+    fireEvent.click(screen.getByRole('button', { name: '조회' }));
+    expect(await screen.findByText('이 분석 결과를 볼 권한이 없습니다.')).toBeInTheDocument();
+    expect(screen.queryByText('분석 결과를 불러오지 못했습니다.')).not.toBeInTheDocument();
+    view.unmount();
+  });
+
+  it('restores an actual in-flight Job from session storage without inventing progress', async () => {
+    window.sessionStorage.setItem('pnl.active-analysis-job-id', JOB);
+    vi.stubGlobal('fetch', vi.fn((input: RequestInfo | URL) => {
+      const path = String(input);
+      if (path.endsWith('/api/models')) return json({ models: [
+        { model_id: BASE, display_name: 'Base', model_type: 'PLAN', model_year: 2026, start_month: 1, end_month: 12, is_published: true, is_default: true, dto_version: '1' },
+        { model_id: COMP, display_name: 'Comparison', model_type: 'ACTUAL', model_year: 2026, start_month: 1, end_month: 12, is_published: true, is_default: false, dto_version: '1' },
+      ] });
+      if (path.endsWith('/api/admin/worker')) return json({ error: { code: 'TRANSIENT_SYSTEM_ERROR', message: 'not configured' } }, 503);
+      if (path.endsWith(`/api/jobs/${JOB}`)) return json({
+        job_id: JOB, status: 'PROCESSING', baseline_model_id: BASE, comparison_model_id: COMP,
+        start_month: 1, end_month: 12, attempt: 1, max_attempts: 3,
+        created_at: '2026-08-11T00:00:00Z', heartbeat_at: '2026-08-11T00:00:01Z',
+        completed_at: null, result_id: null, error_code: null, error_message: null,
+        execution_state: 'PROCESSING', dto_version: '1',
+      });
+      throw new Error(`unexpected request ${path}`);
+    }));
+    render(<CoreAnalysisView role="admin" />);
+    expect(await screen.findByText('손익 분석 중')).toBeInTheDocument();
+    expect(screen.queryByText('PROCESSING')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '분석 실행' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: '새 분석' })).toBeDisabled();
   });
 
   it('shows Admin-only demand Worker status and invokes controlled emergency wake', async () => {
