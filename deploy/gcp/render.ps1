@@ -11,6 +11,7 @@ param(
     [Parameter(Mandatory)] [string] $SourceCommit,
     [Parameter(Mandatory)] [string] $ReleaseStage,
     [Parameter(Mandatory)] [ValidateSet('passed')] [string] $BusinessGate,
+    [ValidateSet('staging', 'production')] [string] $DeploymentProfile = 'staging',
     [string] $OutputDirectory = (Join-Path $PSScriptRoot 'rendered')
 )
 
@@ -45,6 +46,39 @@ if ($SourceCommit -notmatch '^[0-9a-f]{40}$') {
 }
 if ($ReleaseStage -notmatch '^[a-z][a-z0-9-]{0,62}$') {
     throw 'ReleaseStage must be a lowercase Google label value.'
+}
+
+if ($DeploymentProfile -eq 'production') {
+    $acceptedRuntimeCommit = '1e478b68b4f73dc6b41e2681cb6238a87d1e0427'
+    $knownNonProductionProjectIds = @('pnl-dashboard-staging')
+    $knownNonProductionProjectNumbers = @('498160536475')
+    $knownNonProductionSupabaseRefs = @(
+        'ysatkswhhajicfgbrtpv',
+        'sarwbkxukyexgioirpaa',
+        'vfplhknqovdvsmjbvvax'
+    )
+    if ($ProjectId -in $knownNonProductionProjectIds) {
+        throw 'Production rendering refuses the staging Google Cloud project.'
+    }
+    if ($ProjectNumber -in $knownNonProductionProjectNumbers) {
+        throw 'Production rendering refuses the staging Google Cloud project number.'
+    }
+    if ($SupabaseUrl -match '^https://(?<ref>[a-z0-9]+)\.supabase\.co/?$' -and
+        $Matches.ref -in $knownNonProductionSupabaseRefs) {
+        throw 'Production rendering refuses a staging or legacy Supabase project.'
+    }
+    $productionImagePrefix = "^$([regex]::Escape($Region))-docker\.pkg\.dev/$([regex]::Escape($ProjectId))/pnl-production/"
+    foreach ($image in @($WebImage, $RuntimeImage)) {
+        if ($image -notmatch $productionImagePrefix) {
+            throw 'Production images must come from the exact production project and pnl-production repository.'
+        }
+    }
+    if ($SourceCommit -ne $acceptedRuntimeCommit) {
+        throw 'V1 production must use the Golden-accepted runtime commit.'
+    }
+    if ($ReleaseStage -ne 'v1-production-pilot') {
+        throw 'Production ReleaseStage must be v1-production-pilot.'
+    }
 }
 
 $tokens = [ordered]@{

@@ -1,4 +1,4 @@
-# Google Cloud staging deployment runbook
+# Google Cloud staging and isolated Production deployment runbook
 
 This directory prepares but does not create Google Cloud resources. All commands
 under **Provisioning (next approved goal only)** are intentionally deferred.
@@ -10,7 +10,7 @@ Browser (one managed HTTPS origin)
   -> Cloud Run service `pnl-web` (min 0, max 2, concurrency 4, timeout 180s)
        -> ingress `edge`: Caddy HTTP :$PORT, React static, /api reverse proxy
        -> sidecar `bff`: FastAPI localhost:8000, 1 vCPU/2 GiB
-  -> external Supabase staging: Database, Auth state, private Storage, pgmq
+  -> external Supabase environment: Database, Auth state, private Storage, pgmq
 
 Cloud Run Worker Pool `pnl-worker` (demand-only 0/1, 1 vCPU/1 GiB)
   -> pgmq claim/lease/heartbeat/retry -> unpublished Result
@@ -87,12 +87,12 @@ not a claim that Cloud Run makes the whole root filesystem read-only.
 
 ## Proxy and auth trust contract
 
-The initial staging service uses `BFF_PROXY_MODE=direct` and no trusted proxy
+The Cloud Run service uses `BFF_PROXY_MODE=direct` and no trusted proxy
 CIDRs. The BFF sees only its localhost edge peer and ignores `Forwarded`,
 `X-Forwarded-For`, and `X-Real-IP`. The edge removes inbound values for those
 headers as defense in depth; proxy-generated forwarding metadata, if any, is
 still ignored by the BFF.
-This yields one conservative, shared Supabase lockout bucket across all staging
+This yields one conservative, shared Supabase lockout bucket across all
 clients. It cannot be bypassed by spoofed forwarding headers, but one abusive
 client can lock out all users for the configured window. Per-client IP lockout
 requires a later approved external load balancer/trusted identity design; it is
@@ -150,20 +150,42 @@ Google Cloud.
   -SupabaseUrl 'https://project-ref.supabase.co' `
   -CloudRunOrigin 'https://bootstrap.invalid' `
   -WorkerControllerUrl 'https://controller-bootstrap.invalid' `
-  -WebImage 'asia-southeast1-docker.pkg.dev/exact-project-id/pnl-staging/pnl-web@sha256:<64-hex>' `
-  -RuntimeImage 'asia-southeast1-docker.pkg.dev/exact-project-id/pnl-staging/pnl-runtime@sha256:<64-hex>' `
+  -WebImage 'asia-southeast1-docker.pkg.dev/exact-project-id/pnl-production/pnl-web@sha256:<64-hex>' `
+  -RuntimeImage 'asia-southeast1-docker.pkg.dev/exact-project-id/pnl-production/pnl-runtime@sha256:<64-hex>' `
   -SourceCommit '1e478b68b4f73dc6b41e2681cb6238a87d1e0427' `
   -ReleaseStage 'v1-production-pilot' `
-  -BusinessGate 'passed'
+  -BusinessGate 'passed' `
+  -DeploymentProfile 'production'
 ```
 
 Review every rendered file, confirm no unresolved token, then run the repository
 contract tests. The `rendered/` directory is ignored by Git, Docker, and gcloud.
 
-## Provisioning (next approved goal only)
+## Isolated Production Supabase gate
 
-The following steps create or mutate cloud resources. Do not execute them in the
-current readiness goal.
+Do not render or create Google runtime resources until a separately authenticated
+Free Production organization/project exists and its ref differs from staging and
+both legacy refs. Before applying SQL, pin the exact V1 chain:
+
+```powershell
+./deploy/gcp/verify-v1-migrations.ps1
+```
+
+The verifier requires all 18 files in lexical order and their frozen SHA-256
+digests, including `202608120001_demand_only_worker_lifecycle.sql`. Apply that
+exact chain once to the new empty Production project through the authenticated
+Supabase management channel. Do not use a staging dump, skip a file, edit a
+migration, or apply manual SQL. Before any Google deployment, capture remote
+migration history proving 18/18 with no gap or duplicate, then verify RLS/ACL,
+SECURITY DEFINER search paths, pgmq, private `pnl-models`, shared sessions and
+lockout, publication, audit, and Worker lifecycle catalogs. A Security Advisor
+warning or remote-history mismatch blocks provisioning.
+
+## Provisioning
+
+The following steps create or mutate cloud resources. Execute them only in an
+explicitly approved provisioning goal and only after the isolated Supabase
+Production identity exists.
 
 Use a dedicated production gcloud configuration or pass
 `--project=EXACT_PROJECT_ID` on every write. The staging project may still be
@@ -174,24 +196,47 @@ enablement, service-account creation, and Scheduler OIDC bootstrap as explicit
 human bootstrap operations. Never grant Owner, Editor, or broad Cloud Run Admin
 to a runtime or deployer account.
 
-1. Confirm the exact project ID; do not use the display name as evidence:
+1. Create the project only after the user selects the exact globally unique
+   project ID, parent organization/folder, and billing account. The display name
+   is not an ID. The commands below deliberately keep creation and billing link
+   outside the future deployer identity:
 
    ```powershell
-   gcloud projects list
-   gcloud config set project EXACT_PROJECT_ID
-   gcloud config get-value project
-   gcloud projects describe EXACT_PROJECT_ID --format='value(projectNumber)'
+   $ProjectId = 'EXACT_PROJECT_ID'
+   $ProductionConfiguration = "pnl-production-$ProjectId"
+   gcloud config configurations create $ProductionConfiguration
+   gcloud projects create $ProjectId --name='PNL Dashboard Production' --organization=EXACT_ORGANIZATION_ID --configuration=$ProductionConfiguration
+   gcloud billing projects link $ProjectId --billing-account=EXACT_APPROVED_BILLING_ACCOUNT --configuration=$ProductionConfiguration --project=$ProjectId
+   gcloud config set project $ProjectId --configuration=$ProductionConfiguration
+   $ProjectNumber = gcloud projects describe $ProjectId --configuration=$ProductionConfiguration --project=$ProjectId --format='value(projectNumber)'
+   ./deploy/gcp/assert-production-target.ps1 -ProjectId $ProjectId -ProjectNumber $ProjectNumber -Configuration $ProductionConfiguration
+
+   function Invoke-ProdGcloud {
+       & gcloud @args "--configuration=$ProductionConfiguration" "--project=$ProjectId"
+       if ($LASTEXITCODE -ne 0) { throw "Production gcloud command failed." }
+   }
    ```
 
+   Use `--folder=EXACT_FOLDER_ID` instead of `--organization` only when the user
+   explicitly selects that parent. Never infer a parent or billing account. Run
+   the assertion again immediately before every mutating phase. Do not use raw
+   `gcloud` for ordinary Production resource writes after this point.
+
 2. Obtain explicit approval for `asia-southeast1`, resource creation, and the
-   project-specific Pricing Calculator result. Create billing alerts and, if the
-   billing account is eligible for the Preview, a Cloud Run spend-cap budget
-   below the absolute monthly limit. Spend caps can overshoot due to latency.
+   project-specific Pricing Calculator result. Create the approved monthly
+   15,000 KRW project-filtered budget with 50%, 80%, and 100% alerts. A budget is
+   an alert, not a hard cap. If the billing account is eligible for the Preview,
+   a separately approved Cloud Run spend cap may add defense in depth; spend caps
+   can still overshoot due to reporting latency.
+
+   ```powershell
+   gcloud billing budgets create --billing-account=EXACT_APPROVED_BILLING_ACCOUNT --display-name='pnl-production-monthly-15000-krw' --budget-amount=15000KRW --filter-projects="projects/$ProjectNumber" --threshold-rule=percent=0.5 --threshold-rule=percent=0.8 --threshold-rule=percent=1.0 --configuration=$ProductionConfiguration --project=$ProjectId
+   ```
 
 3. Enable only required APIs:
 
    ```powershell
-   gcloud services enable run.googleapis.com artifactregistry.googleapis.com secretmanager.googleapis.com iam.googleapis.com cloudscheduler.googleapis.com
+   Invoke-ProdGcloud services enable run.googleapis.com artifactregistry.googleapis.com secretmanager.googleapis.com iam.googleapis.com cloudscheduler.googleapis.com
    ```
 
    The human bootstrap operator must already have
@@ -202,8 +247,8 @@ to a runtime or deployer account.
    dry-run mode:
 
    ```powershell
-   gcloud artifacts repositories create pnl-staging --repository-format=docker --location=asia-southeast1
-   gcloud artifacts repositories set-cleanup-policies pnl-staging --location=asia-southeast1 --policy=deploy/gcp/cleanup-policy.json --dry-run
+   Invoke-ProdGcloud artifacts repositories create pnl-production --repository-format=docker --location=asia-southeast1
+   Invoke-ProdGcloud artifacts repositories set-cleanup-policies pnl-production --location=asia-southeast1 --policy=deploy/gcp/cleanup-policy.json --dry-run
    ```
 
    Inspect dry-run audit results for at least one policy cycle before using
@@ -215,12 +260,12 @@ to a runtime or deployer account.
    grant it. Runtime accounts receive no project role:
 
    ```powershell
-   gcloud iam service-accounts create pnl-web --display-name='PNL web runtime'
-   gcloud iam service-accounts create pnl-worker --display-name='PNL worker runtime'
-   gcloud iam service-accounts create pnl-maintenance --display-name='PNL maintenance runtime'
-   gcloud iam service-accounts create pnl-worker-controller --display-name='PNL worker lifecycle controller'
-   gcloud iam service-accounts create pnl-worker-reconciler --display-name='PNL worker reconciler caller'
-   gcloud iam service-accounts create pnl-deployer --display-name='PNL deployment operator'
+   Invoke-ProdGcloud iam service-accounts create pnl-web --display-name='PNL web runtime'
+   Invoke-ProdGcloud iam service-accounts create pnl-worker --display-name='PNL worker runtime'
+   Invoke-ProdGcloud iam service-accounts create pnl-maintenance --display-name='PNL maintenance runtime'
+   Invoke-ProdGcloud iam service-accounts create pnl-worker-controller --display-name='PNL worker lifecycle controller'
+   Invoke-ProdGcloud iam service-accounts create pnl-worker-reconciler --display-name='PNL worker reconciler caller'
+   Invoke-ProdGcloud iam service-accounts create pnl-deployer --display-name='PNL deployment operator'
    ```
 
    Service-account creation uses the bootstrap operator permission above; it is
@@ -228,18 +273,20 @@ to a runtime or deployer account.
    `roles/run.developer` only for application deployment and narrow it after
    creation if supported resource-level permissions still cover updates. Grant
    `roles/artifactregistry.writer` only on
-   `pnl-staging`, and
+   `pnl-production`, and
    `roles/iam.serviceAccountUser` on the runtime accounts. Apply those
    grants at the narrowest supported resource scope; do not grant Owner, Editor,
    or service-agent roles. Do not create service-account keys.
 
-6. Create the five secrets named in `secret-contract.md`. Add values only via
-   interactive stdin, one at a time:
+6. Create the five empty secret containers named in `secret-contract.md`, then
+   run the Production-only no-echo helper. It checks the exact project ID and
+   number, rejects the staging project, refuses an already-enabled version, and
+   sends each value to gcloud only through redirected stdin:
 
    ```powershell
-   gcloud secrets create SECRET_NAME --replication-policy=automatic
-   gcloud secrets versions add SECRET_NAME --data-file=-
-   gcloud secrets add-iam-policy-binding SECRET_NAME --member='serviceAccount:RUNTIME_ACCOUNT@EXACT_PROJECT_ID.iam.gserviceaccount.com' --role='roles/secretmanager.secretAccessor'
+   Invoke-ProdGcloud secrets create SECRET_NAME --replication-policy=automatic
+   ./deploy/gcp/register-production-secrets.ps1 -ProjectId $ProjectId -ProjectNumber $ProjectNumber -Configuration $ProductionConfiguration
+   Invoke-ProdGcloud secrets add-iam-policy-binding SECRET_NAME --member='serviceAccount:RUNTIME_ACCOUNT@EXACT_PROJECT_ID.iam.gserviceaccount.com' --role='roles/secretmanager.secretAccessor'
    ```
 
    Grant Secret Accessor per secret: web gets all five; worker, maintenance, and
@@ -253,16 +300,23 @@ to a runtime or deployer account.
    unless exact promotion is technically unavailable:
 
    ```powershell
-   gcloud auth configure-docker asia-southeast1-docker.pkg.dev
-   docker buildx imagetools create --prefer-index --tag asia-southeast1-docker.pkg.dev/EXACT_PROJECT_ID/pnl-production/pnl-web:v1.0.0-rc1 asia-southeast1-docker.pkg.dev/pnl-dashboard-staging/pnl-staging/pnl-web@sha256:36502f01eed08012e2c0efb5f4756212c72b1373a390b5ed9bb78e59741d8330
-   docker buildx imagetools create --prefer-index --tag asia-southeast1-docker.pkg.dev/EXACT_PROJECT_ID/pnl-production/pnl-runtime:v1.0.0-rc1 asia-southeast1-docker.pkg.dev/pnl-dashboard-staging/pnl-staging/pnl-runtime@sha256:4121d8f3fe25b555ea30355110008c4b6e5ac9cb2ecbc065f164bde2cd5ce485
-   gcloud artifacts docker images describe asia-southeast1-docker.pkg.dev/EXACT_PROJECT_ID/pnl-production/pnl-web:v1.0.0-rc1 --format='value(image_summary.digest)'
-   gcloud artifacts docker images describe asia-southeast1-docker.pkg.dev/EXACT_PROJECT_ID/pnl-production/pnl-runtime:v1.0.0-rc1 --format='value(image_summary.digest)'
-   docker buildx imagetools inspect asia-southeast1-docker.pkg.dev/EXACT_PROJECT_ID/pnl-production/pnl-web:v1.0.0-rc1
-   docker buildx imagetools inspect asia-southeast1-docker.pkg.dev/EXACT_PROJECT_ID/pnl-production/pnl-runtime:v1.0.0-rc1
+   gcloud auth configure-docker asia-southeast1-docker.pkg.dev --configuration=$ProductionConfiguration
+   $webTag = "asia-southeast1-docker.pkg.dev/$ProjectId/pnl-production/pnl-web:golden-1e478b68b4f7"
+   $runtimeTag = "asia-southeast1-docker.pkg.dev/$ProjectId/pnl-production/pnl-runtime:golden-1e478b68b4f7"
+   docker buildx imagetools create --prefer-index --tag $webTag asia-southeast1-docker.pkg.dev/pnl-dashboard-staging/pnl-staging/pnl-web@sha256:36502f01eed08012e2c0efb5f4756212c72b1373a390b5ed9bb78e59741d8330
+   docker buildx imagetools create --prefer-index --tag $runtimeTag asia-southeast1-docker.pkg.dev/pnl-dashboard-staging/pnl-staging/pnl-runtime@sha256:4121d8f3fe25b555ea30355110008c4b6e5ac9cb2ecbc065f164bde2cd5ce485
+   $webDigest = Invoke-ProdGcloud artifacts docker images describe $webTag --format='value(image_summary.digest)'
+   $runtimeDigest = Invoke-ProdGcloud artifacts docker images describe $runtimeTag --format='value(image_summary.digest)'
+   if ($webDigest -ne 'sha256:36502f01eed08012e2c0efb5f4756212c72b1373a390b5ed9bb78e59741d8330') { throw 'Web index digest changed during promotion.' }
+   if ($runtimeDigest -ne 'sha256:4121d8f3fe25b555ea30355110008c4b6e5ac9cb2ecbc065f164bde2cd5ce485') { throw 'Runtime index digest changed during promotion.' }
+   docker buildx imagetools inspect "$webTag"
+   docker buildx imagetools inspect "$runtimeTag"
+   $webImage = "$($webTag.Split(':')[0])@$webDigest"
+   $runtimeImage = "$($runtimeTag.Split(':')[0])@$runtimeDigest"
    ```
 
-   The destination OCI index digests must equal the source indexes, and the
+   The commit-derived tag is audit metadata, not the deployment reference. The
+   destination OCI index digests must equal the source indexes, and the
    Linux/AMD64 child manifests must remain identical. Deploy the destination
    digest references, never the mutable tags.
 
@@ -271,17 +325,22 @@ to a runtime or deployer account.
    custom role and bind it only on `pnl-worker`; do not grant `allUsers`:
 
    ```powershell
-   gcloud iam roles create pnlWorkerLifecycleController --project=EXACT_PROJECT_ID --file=deploy/gcp/worker-controller-role.yaml
-   gcloud iam roles create pnlWorkerLifecycleOperationViewer --project=EXACT_PROJECT_ID --file=deploy/gcp/worker-operation-viewer-role.yaml
-   gcloud config set run/region asia-southeast1
-   gcloud run worker-pools replace deploy/gcp/rendered/worker-pool.yaml
-   gcloud run services replace deploy/gcp/rendered/worker-controller.yaml --region=asia-southeast1
-   gcloud run worker-pools add-iam-policy-binding pnl-worker --region=asia-southeast1 --member='serviceAccount:pnl-worker-controller@EXACT_PROJECT_ID.iam.gserviceaccount.com' --role='projects/EXACT_PROJECT_ID/roles/pnlWorkerLifecycleController'
-   gcloud projects add-iam-policy-binding EXACT_PROJECT_ID --member='serviceAccount:pnl-worker-controller@EXACT_PROJECT_ID.iam.gserviceaccount.com' --role='projects/EXACT_PROJECT_ID/roles/pnlWorkerLifecycleOperationViewer'
-   gcloud iam service-accounts add-iam-policy-binding pnl-worker@EXACT_PROJECT_ID.iam.gserviceaccount.com --member='serviceAccount:pnl-worker-controller@EXACT_PROJECT_ID.iam.gserviceaccount.com' --role=roles/iam.serviceAccountUser
-   gcloud run services add-iam-policy-binding pnl-worker-controller --region=asia-southeast1 --member='serviceAccount:pnl-web@EXACT_PROJECT_ID.iam.gserviceaccount.com' --role=roles/run.invoker
-   gcloud run services add-iam-policy-binding pnl-worker-controller --region=asia-southeast1 --member='serviceAccount:pnl-worker-reconciler@EXACT_PROJECT_ID.iam.gserviceaccount.com' --role=roles/run.invoker
-   $controllerUrl = gcloud run services describe pnl-worker-controller --region=asia-southeast1 --format='value(status.url)'
+   Invoke-ProdGcloud iam roles create pnlWorkerLifecycleController --file=deploy/gcp/worker-controller-role.yaml
+   Invoke-ProdGcloud iam roles create pnlWorkerLifecycleOperationViewer --file=deploy/gcp/worker-operation-viewer-role.yaml
+   Invoke-ProdGcloud run worker-pools replace deploy/gcp/rendered/worker-pool.yaml --region=asia-southeast1
+   Invoke-ProdGcloud run services replace deploy/gcp/rendered/worker-controller.yaml --region=asia-southeast1
+   Invoke-ProdGcloud run worker-pools add-iam-policy-binding pnl-worker --region=asia-southeast1 --member='serviceAccount:pnl-worker-controller@EXACT_PROJECT_ID.iam.gserviceaccount.com' --role='projects/EXACT_PROJECT_ID/roles/pnlWorkerLifecycleController'
+   Invoke-ProdGcloud projects add-iam-policy-binding $ProjectId --member='serviceAccount:pnl-worker-controller@EXACT_PROJECT_ID.iam.gserviceaccount.com' --role='projects/EXACT_PROJECT_ID/roles/pnlWorkerLifecycleOperationViewer'
+   Invoke-ProdGcloud iam service-accounts add-iam-policy-binding pnl-worker@EXACT_PROJECT_ID.iam.gserviceaccount.com --member='serviceAccount:pnl-worker-controller@EXACT_PROJECT_ID.iam.gserviceaccount.com' --role=roles/iam.serviceAccountUser
+   Invoke-ProdGcloud run services add-iam-policy-binding pnl-worker-controller --region=asia-southeast1 --member='serviceAccount:pnl-web@EXACT_PROJECT_ID.iam.gserviceaccount.com' --role=roles/run.invoker
+   Invoke-ProdGcloud run services add-iam-policy-binding pnl-worker-controller --region=asia-southeast1 --member='serviceAccount:pnl-worker-reconciler@EXACT_PROJECT_ID.iam.gserviceaccount.com' --role=roles/run.invoker
+   $controllerUrl = Invoke-ProdGcloud run services describe pnl-worker-controller --region=asia-southeast1 --format='value(status.url)'
+   $controllerToken = gcloud auth print-identity-token --audiences=$controllerUrl
+   Invoke-WebRequest -Headers @{ Authorization = "Bearer $controllerToken" } -Uri "$controllerUrl/health/live"
+   Invoke-WebRequest -Headers @{ Authorization = "Bearer $controllerToken" } -Uri "$controllerUrl/health/ready"
+   $controllerStatus = Invoke-RestMethod -Headers @{ Authorization = "Bearer $controllerToken" } -Uri "$controllerUrl/v1/worker/status"
+   if ($controllerStatus.desired_instance_count -ne 0 -or $controllerStatus.actual_instance_count -ne 0) { throw 'Controller bootstrap is not at zero.' }
+   $controllerToken = $null
    ```
 
 9. Render again with `$controllerUrl`, then create the initial Web service while
@@ -294,11 +353,21 @@ to a runtime or deployer account.
    maintenance Job; do not reuse the staging release-stage label.
 
    ```powershell
-   gcloud run services replace deploy/gcp/rendered/cloud-run-web.yaml --region=asia-southeast1
-   $candidateRevision = gcloud run revisions list --service=pnl-web --region=asia-southeast1 --sort-by='~metadata.creationTimestamp' --limit=1 --format='value(metadata.name)'
-   $privateUrl = gcloud run services describe pnl-web --region=asia-southeast1 --format='value(status.url)'
+   Invoke-ProdGcloud run services replace deploy/gcp/rendered/cloud-run-web.yaml --region=asia-southeast1
+   $candidateRevision = Invoke-ProdGcloud run revisions list --service=pnl-web --region=asia-southeast1 --sort-by='~metadata.creationTimestamp' --limit=1 --format='value(metadata.name)'
+   $privateUrl = Invoke-ProdGcloud run services describe pnl-web --region=asia-southeast1 --format='value(status.url)'
    $identityToken = gcloud auth print-identity-token --audiences=$privateUrl
    Invoke-WebRequest -Headers @{ Authorization = "Bearer $identityToken" } -Uri "$privateUrl/health/ready"
+   Invoke-WebRequest -Headers @{ Authorization = "Bearer $identityToken" } -Uri "$privateUrl/health/live"
+   Invoke-WebRequest -Headers @{ Authorization = "Bearer $identityToken" } -Uri "$privateUrl/"
+   $sessionStatus = try { (Invoke-WebRequest -Headers @{ Authorization = "Bearer $identityToken" } -Uri "$privateUrl/api/session").StatusCode } catch { [int]$_.Exception.Response.StatusCode }
+   if ($sessionStatus -ne 401) { throw 'Unauthenticated application session contract failed.' }
+   $latestReady = Invoke-ProdGcloud run services describe pnl-web --region=asia-southeast1 --format='value(status.latestReadyRevisionName)'
+   if ($candidateRevision -ne $latestReady) { throw 'Private candidate is not the latest Ready revision.' }
+   Invoke-ProdGcloud run services describe pnl-web --region=asia-southeast1 --format='yaml(metadata.labels,status.latestReadyRevisionName,status.traffic,spec.template.metadata.labels,spec.template.spec.containers.image)'
+   $volumeProof = Invoke-ProdGcloud run services logs read pnl-web --region=asia-southeast1 --limit=100
+   if (-not ($volumeProof | Select-String 'volume_canary=pass uid=10001 path_count=2')) { throw 'UID volume canary evidence is missing.' }
+   $identityToken = $null
    ```
 
    Render once more with `$privateUrl` as the exact `CloudRunOrigin` and replace
@@ -310,12 +379,13 @@ to a runtime or deployer account.
    the URL non-public until the final configuration is ready.
 
    ```powershell
-   gcloud run services replace deploy/gcp/rendered/cloud-run-web.yaml --region=asia-southeast1
-   $candidateRevision = gcloud run revisions list --service=pnl-web --region=asia-southeast1 --sort-by='~metadata.creationTimestamp' --limit=1 --format='value(metadata.name)'
+   Invoke-ProdGcloud run services replace deploy/gcp/rendered/cloud-run-web.yaml --region=asia-southeast1
+   $candidateRevision = Invoke-ProdGcloud run revisions list --service=pnl-web --region=asia-southeast1 --sort-by='~metadata.creationTimestamp' --limit=1 --format='value(metadata.name)'
    $identityToken = gcloud auth print-identity-token --audiences=$privateUrl
    Invoke-WebRequest -Headers @{ Authorization = "Bearer $identityToken" } -Uri "$privateUrl/health/ready"
-   gcloud run services add-iam-policy-binding pnl-web --region=asia-southeast1 --member=allUsers --role=roles/run.invoker
-   gcloud run services describe pnl-web --region=asia-southeast1 --format='value(status.traffic,status.url)'
+   Invoke-ProdGcloud run services add-iam-policy-binding pnl-web --region=asia-southeast1 --member=allUsers --role=roles/run.invoker
+   Invoke-ProdGcloud run services describe pnl-web --region=asia-southeast1 --format='value(status.traffic,status.url)'
+   $identityToken = $null
    ```
 
    Verify `/health/live`, `/health/ready`, SPA fallback, and that no separate BFF
@@ -337,10 +407,10 @@ to a runtime or deployer account.
     a human or runtime account.
 
     ```powershell
-    gcloud iam service-accounts add-iam-policy-binding pnl-worker-reconciler@EXACT_PROJECT_ID.iam.gserviceaccount.com --member='user:BOOTSTRAP_OPERATOR_EMAIL' --role=roles/iam.serviceAccountUser
-    gcloud scheduler jobs create http pnl-worker-reconcile --location=asia-southeast1 --schedule='*/5 * * * *' --time-zone=Etc/UTC --http-method=POST --uri="$controllerUrl/v1/worker/reconcile" --oidc-service-account-email='pnl-worker-reconciler@EXACT_PROJECT_ID.iam.gserviceaccount.com' --oidc-token-audience="$controllerUrl" --attempt-deadline=30s --max-retry-attempts=3 --max-retry-duration=2m --min-backoff=5s --max-backoff=30s --max-doublings=2
-    gcloud run worker-pools describe pnl-worker --region=asia-southeast1
-    gcloud run worker-pools logs read pnl-worker --region=asia-southeast1 --limit=100
+    Invoke-ProdGcloud iam service-accounts add-iam-policy-binding pnl-worker-reconciler@EXACT_PROJECT_ID.iam.gserviceaccount.com --member='user:BOOTSTRAP_OPERATOR_EMAIL' --role=roles/iam.serviceAccountUser
+    Invoke-ProdGcloud scheduler jobs create http pnl-worker-reconcile --location=asia-southeast1 --schedule='*/5 * * * *' --time-zone=Etc/UTC --http-method=POST --uri="$controllerUrl/v1/worker/reconcile" --oidc-service-account-email='pnl-worker-reconciler@EXACT_PROJECT_ID.iam.gserviceaccount.com' --oidc-token-audience="$controllerUrl" --attempt-deadline=30s --max-retry-attempts=3 --max-retry-duration=2m --min-backoff=5s --max-backoff=30s --max-doublings=2
+    Invoke-ProdGcloud run worker-pools describe pnl-worker --region=asia-southeast1
+    Invoke-ProdGcloud run worker-pools logs read pnl-worker --region=asia-southeast1 --limit=100
     ```
 
     Confirm zero at rest. Submit one synthetic Analysis and observe durable pgmq
@@ -359,15 +429,14 @@ to a runtime or deployer account.
     report before a separately authorized apply override:
 
     ```powershell
-    gcloud run jobs replace deploy/gcp/rendered/maintenance-job.yaml --region=asia-southeast1
-    gcloud run jobs execute pnl-maintenance --region=asia-southeast1 --wait
-    gcloud run jobs execute pnl-maintenance --region=asia-southeast1 --args=python,-m,forecast.maintenance,cleanup,--apply --wait
+    Invoke-ProdGcloud run jobs replace deploy/gcp/rendered/maintenance-job.yaml --region=asia-southeast1
+    Invoke-ProdGcloud run jobs execute pnl-maintenance --region=asia-southeast1 --wait
     ```
 
     Its first dry-run must prove UID 10001 create/delete access to
     `/var/tmp/pnl` and `/app/data`; otherwise stop before controlled apply.
 
-12. Run the complete staging acceptance path: managed HTTPS, React/BFF, remote
+12. Run the complete Production acceptance path: managed HTTPS, React/BFF, remote
     readiness, login/logout, lockout, synthetic Model upload/private Storage SHA,
     publication, Analysis/pgmq/independent Worker/Result/Admin/Viewer,
     Presentation/History/Evidence XLSX/P&L, audit/correlation, and maintenance.
@@ -375,6 +444,23 @@ to a runtime or deployer account.
     reservation. Never upload a company workbook.
 
 ## Health, operations, rollback, and rotation
+
+Before public binding and again after final smoke, capture a secret-free
+Production evidence snapshot outside `deploy/gcp/rendered/`. Record project ID
+and number, Supabase ref/region/plan, migration filenames and digests, Artifact
+Registry index plus Linux/AMD64 child digests, Cloud Run revision names/traffic/
+labels/image digests, Worker Pool generation/manual count/Ready, controller and
+Job generations, Scheduler target/schedule/retry policy, runtime service-account
+names, secret *references and enabled-version counts only*, IAM role names, and
+the Worker final zero state. Never export secret payloads, cookies, Access Codes,
+tokens, or synthetic Workbook bytes. Commit only the redacted evidence summary;
+keep raw CLI exports ignored and delete them after the rollback record is reduced.
+
+For a first deployment, rollback means removing public invocation and returning
+the new environment to its initial zero-resource/zero-worker state. Before every
+later replace, capture the current serving revision, exact digest, traffic map,
+Worker generation/count, controller revision, Job generation, and Scheduler
+configuration as the immutable rollback target.
 
 - Web readiness is `/health/ready`; liveness is `/health/live`. A 200 readiness
   response includes the remote Supabase dependency check.

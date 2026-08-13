@@ -218,6 +218,59 @@ def test_templates_are_placeholder_only_and_renderer_requires_digest_images():
     assert "Invoke-" not in renderer
 
 
+def test_production_renderer_and_target_guard_fail_closed_against_staging():
+    renderer = _text("render.ps1")
+    guard = _text("assert-production-target.ps1")
+    env_example = _text("env.example")
+
+    for forbidden_identity in (
+        "pnl-dashboard-staging",
+        "498160536475",
+        "ysatkswhhajicfgbrtpv",
+        "sarwbkxukyexgioirpaa",
+        "vfplhknqovdvsmjbvvax",
+    ):
+        assert forbidden_identity in renderer or forbidden_identity in guard
+    assert "DeploymentProfile -eq 'production'" in renderer
+    assert "/pnl-production/" in renderer
+    assert "1e478b68b4f73dc6b41e2681cb6238a87d1e0427" in renderer
+    assert "v1-production-pilot" in renderer
+    assert "pnl-production-*" in guard
+    assert "billingEnabled" in guard
+    assert "GOOGLE_ARTIFACT_REPOSITORY=pnl-production" in env_example
+    assert "DEPLOYMENT_PROFILE=production" in env_example
+
+
+def test_production_secret_bootstrap_is_no_echo_and_single_version():
+    helper = _text("register-production-secrets.ps1")
+
+    assert "assert-production-target.ps1" in helper
+    assert helper.count("Read-Host") == 5
+    assert helper.count("-AsSecureString") == 5
+    assert "RedirectStandardInput = $true" in helper
+    assert "--data-file=-" in helper
+    assert "Refusing to add a second enabled version" in helper
+    assert "New-RandomSecureString 48" in helper
+    assert "pnl-dashboard-staging" not in helper
+
+
+def test_v1_production_migration_chain_and_runbook_are_explicit():
+    verifier = _text("verify-v1-migrations.ps1")
+    runbook = _text("README.md")
+    normalized = " ".join(runbook.split())
+
+    assert verifier.count(".sql' = '") == 18
+    assert "202608090001_phase1_foundation.sql" in verifier
+    assert "202608120001_demand_only_worker_lifecycle.sql" in verifier
+    assert "Migration order mismatch" in verifier
+    assert "remote migration history proving 18/18" in normalized
+    assert "Security Advisor" in runbook
+    assert "pnl-production --repository-format=docker" in runbook
+    assert "Invoke-ProdGcloud" in runbook
+    assert "volume_canary=pass uid=10001 path_count=2" in runbook
+    assert "Production evidence snapshot" in runbook
+
+
 def test_artifact_cleanup_policy_keeps_three_and_starts_as_documented_dry_run():
     policy = json.loads(_text("cleanup-policy.json"))
     assert any(
@@ -236,13 +289,13 @@ def test_production_web_bootstrap_stays_private_until_exact_origin_smoke_passes(
     normalized = " ".join(runbook.split())
 
     first_replace = runbook.index(
-        "gcloud run services replace deploy/gcp/rendered/cloud-run-web.yaml"
+        "Invoke-ProdGcloud run services replace deploy/gcp/rendered/cloud-run-web.yaml"
     )
     exact_origin = runbook.index(
         "Render once more with `$privateUrl` as the exact `CloudRunOrigin`"
     )
     public_binding = runbook.index(
-        "gcloud run services add-iam-policy-binding pnl-web"
+        "Invoke-ProdGcloud run services add-iam-policy-binding pnl-web"
     )
     assert first_replace < exact_origin < public_binding
     assert "Do not add `allUsers` yet" in normalized
