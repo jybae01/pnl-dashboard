@@ -30,6 +30,7 @@ export function App() {
   const [session, setSession] = useState<SessionDto | null>(null);
   const [sessionState, setSessionState] = useState<'LOADING' | 'READY' | 'ANONYMOUS' | 'ERROR'>('LOADING');
   const [route, setRoute] = useState<CoreRoute>('variance');
+  const [analysisResultId, setAnalysisResultId] = useState<string | null>(null);
 
   useEffect(() => {
     bffClient.session().then((value) => {
@@ -41,15 +42,27 @@ export function App() {
   }, []);
 
   useEffect(() => {
-    const listener = () => setRoute(routeFromHash(session?.role));
+    const listener = () => {
+      const next = routeFromHash(session?.role);
+      setRoute(next);
+      if (next !== 'variance') setAnalysisResultId(null);
+    };
     window.addEventListener('hashchange', listener);
     return () => window.removeEventListener('hashchange', listener);
   }, [session?.role]);
 
   function navigate(next: CoreRoute) {
     if (session?.role === 'viewer' && !['pnl', 'variance'].includes(next)) return;
+    setAnalysisResultId(null);
     window.location.hash = next;
     setRoute(next);
+  }
+
+  function navigateToAnalysisResult(resultId: string) {
+    if (session?.role !== 'admin' || !resultId) return;
+    setAnalysisResultId(resultId);
+    window.location.hash = 'variance';
+    setRoute('variance');
   }
 
   if (sessionState === 'LOADING') return <main role="status" className="app-content">세션 확인 중…</main>;
@@ -90,8 +103,9 @@ export function App() {
       {route === 'management' && session.role === 'admin' && <ModelManagementView
         onNavigateToForecast={() => navigate('forecast')}
         onNavigateToAnalysis={() => navigate('variance')}
+        onNavigateToAnalysisResult={navigateToAnalysisResult}
       />}
-      {route === 'variance' && <CoreAnalysisView role={session.role} />}
+      {route === 'variance' && <CoreAnalysisView role={session.role} initialResultId={analysisResultId || undefined} />}
     </main>
   </div>;
 }

@@ -14,6 +14,7 @@ const MAX_BYTES = 50 * 1024 * 1024;
 export interface ModelManagementViewProps {
   onNavigateToForecast?: () => void;
   onNavigateToAnalysis?: () => void;
+  onNavigateToAnalysisResult?: (resultId: string) => void;
 }
 
 type PublicationAction = {
@@ -66,7 +67,7 @@ function isForbidden(value: unknown): boolean {
   return value instanceof ApiClientError && (value.status === 403 || value.code === 'FORBIDDEN');
 }
 
-export function ModelManagementView({ onNavigateToForecast, onNavigateToAnalysis }: ModelManagementViewProps) {
+export function ModelManagementView({ onNavigateToForecast, onNavigateToAnalysis, onNavigateToAnalysisResult }: ModelManagementViewProps) {
   const [models, setModels] = useState<AdminModelDto[]>([]);
   const [listState, setListState] = useState<ListState>('LOADING');
   const [listMessage, setListMessage] = useState<string | null>(null);
@@ -260,7 +261,7 @@ export function ModelManagementView({ onNavigateToForecast, onNavigateToAnalysis
     <section className="data-management__history-card" aria-labelledby="management-history-heading">
       <details onToggle={(event) => setHistoryOpen(event.currentTarget.open)}>
         <summary id="management-history-heading">계산 이력 <ChevronDown size={15} /></summary>
-        {historyOpen && <CalculationHistoryView />}
+        {historyOpen && <CalculationHistoryView onOpenResult={onNavigateToAnalysisResult} />}
       </details>
     </section>
     {pendingPublication && <div className="data-management__modal-backdrop" role="presentation"><section className="data-management__modal" role="dialog" aria-modal="true" aria-labelledby="publication-confirm-heading"><p className="data-management__eyebrow">PUBLICATION CONFIRMATION</p><h2 id="publication-confirm-heading">{pendingPublication.label}</h2><p><strong>{pendingPublication.model.display_name}</strong><br />{periodLabel(pendingPublication.model)}</p><p className="data-management__modal-copy">{pendingPublication.is_published ? (pendingPublication.is_default ? '이 모형을 공개하고 기본 모형으로 지정합니다.' : '이 모형을 공개합니다.') : '이 모형의 공개를 해제하고 기본 모형 지정도 함께 해제합니다.'}</p><div className="data-management__modal-actions"><button type="button" className="data-management__secondary" disabled={publicationPending} onClick={() => setPendingPublication(null)}>취소</button><button type="button" className={pendingPublication.is_published ? 'data-management__primary' : 'data-management__danger'} disabled={publicationPending} onClick={() => void confirmPublication()}>{publicationPending ? '처리 중…' : '확인'}</button></div></section></div>}

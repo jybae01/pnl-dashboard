@@ -37,7 +37,7 @@ const EXECUTION_STATE_LABELS: Record<JobStatusDto['execution_state'], string> = 
   FAILED: '분석 실패',
 };
 
-export function CoreAnalysisView({ role, modelRefreshKey = 0 }: { role: Role; modelRefreshKey?: number }) {
+export function CoreAnalysisView({ role, modelRefreshKey = 0, initialResultId }: { role: Role; modelRefreshKey?: number; initialResultId?: string }) {
   const [models, setModels] = useState<AnalysisModelDto[]>([]);
   const [form, setForm] = useState<FormState>(INITIAL_FORM);
   const [job, setJob] = useState<JobStatusDto | null>(null);
@@ -52,7 +52,7 @@ export function CoreAnalysisView({ role, modelRefreshKey = 0 }: { role: Role; mo
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   useEffect(() => {
-    if (role !== 'admin') return;
+    if (role !== 'admin' || initialResultId) return;
     const activeJobId = window.sessionStorage.getItem(ACTIVE_JOB_STORAGE_KEY);
     if (!activeJobId) return;
     let active = true;
@@ -71,7 +71,29 @@ export function CoreAnalysisView({ role, modelRefreshKey = 0 }: { role: Role; mo
       setError(safeMessage(value));
     });
     return () => { active = false; };
-  }, [role]);
+  }, [role, initialResultId]);
+
+  useEffect(() => {
+    if (role !== 'admin' || !initialResultId) return;
+    let active = true;
+    setJob(null);
+    setResult(null);
+    setResultId(initialResultId);
+    setViewerState('LOADING');
+    setError(null);
+    bffClient.adminPresentation(initialResultId).then((stored) => {
+      if (!active) return;
+      setResult(stored);
+      setResultId(stored.identity.result_id);
+      setViewerState('READY');
+    }).catch((value) => {
+      if (!active) return;
+      setResult(null);
+      setViewerState(errorState(value));
+      setError(safeMessage(value));
+    });
+    return () => { active = false; };
+  }, [role, initialResultId]);
 
   useEffect(() => {
     if (role !== 'admin') return;
@@ -97,16 +119,16 @@ export function CoreAnalysisView({ role, modelRefreshKey = 0 }: { role: Role; mo
         }));
       }
     }).catch((value) => {
-      if (active) {
+      if (active && !initialResultId) {
         setViewerState(errorState(value));
         setError(safeMessage(value));
       }
     });
     return () => { active = false; };
-  }, [role, modelRefreshKey]);
+  }, [role, modelRefreshKey, initialResultId]);
 
   useEffect(() => {
-    if (!job || !['PENDING', 'PROCESSING'].includes(job.status)) return;
+    if (initialResultId || !job || !['PENDING', 'PROCESSING'].includes(job.status)) return;
     let active = true;
     let timeoutId: number | undefined;
     let delay = 1000;
@@ -152,10 +174,10 @@ export function CoreAnalysisView({ role, modelRefreshKey = 0 }: { role: Role; mo
       if (timeoutId) window.clearTimeout(timeoutId);
       controller?.abort();
     };
-  }, [job?.job_id, job?.status]);
+  }, [initialResultId, job?.job_id, job?.status]);
 
   useEffect(() => {
-    if (job?.status !== 'COMPLETED') return;
+    if (initialResultId || job?.status !== 'COMPLETED') return;
     if (!job.result_id) {
       setResult(null); setViewerState('INVALID_PAYLOAD'); setError('완료 Job에 Result 식별자가 없습니다.');
       return;
@@ -171,7 +193,16 @@ export function CoreAnalysisView({ role, modelRefreshKey = 0 }: { role: Role; mo
       setError(safeMessage(value));
     });
     return () => { active = false; };
-  }, [job?.status, job?.result_id]);
+  }, [initialResultId, job?.status, job?.result_id]);
+
+  useEffect(() => {
+    if (initialResultId) return;
+    setJob(null);
+    setResult(null);
+    setResultId('');
+    setViewerState('EMPTY');
+    setError(null);
+  }, [initialResultId]);
 
   const fingerprint = useMemo(() => JSON.stringify(form), [form]);
   const formValid = form.baseline_model_id && form.comparison_model_id &&
