@@ -13,6 +13,7 @@ import './styles/charts.css';
 import './styles/components.css';
 import './styles/pnl-dashboard.css';
 import './styles/forecast-workflow.css';
+import './styles/data-management.css';
 
 type CoreRoute = 'pnl' | 'forecast' | 'variance' | 'management';
 
@@ -86,7 +87,10 @@ export function App() {
         onNavigateToAnalysis={() => navigate('variance')}
         onNavigateToManagement={() => navigate('management')}
       />}
-      {route === 'management' && session.role === 'admin' && <ModelManagementView />}
+      {route === 'management' && session.role === 'admin' && <ModelManagementView
+        onNavigateToForecast={() => navigate('forecast')}
+        onNavigateToAnalysis={() => navigate('variance')}
+      />}
       {route === 'variance' && <CoreAnalysisView role={session.role} />}
     </main>
   </div>;

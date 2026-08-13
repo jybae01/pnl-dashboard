@@ -90,9 +90,11 @@ export const bffClient = {
     body.set('file', input.file, input.file.name);
     return validateModelUpload(await request<unknown>('/api/admin/models', { method: 'POST', body }));
   },
-  publishModel: async (modelId: string, isDefault = false) => validateAdminModelResponse(
+  publishModel: async (modelId: string, publication: boolean | { is_published: boolean; is_default: boolean } = false) => validateAdminModelResponse(
     await request<unknown>(`/api/admin/models/${modelId}/publication`, {
-      method: 'POST', body: JSON.stringify({ is_published: true, is_default: isDefault }),
+      method: 'POST', body: JSON.stringify(typeof publication === 'boolean'
+        ? { is_published: true, is_default: publication }
+        : publication),
     }),
   ),
   submit: async (body: SubmitRequest) => validateSubmit(await request<unknown>('/api/analyses', {
