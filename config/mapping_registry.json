@@ -1,13 +1,13 @@
 {
   "schema_version": "1",
   "config_key": "model_mapping",
-  "active_version": "analysis-v1.1.0",
+  "active_version": "analysis-v1.2.0",
   "versions": [
     {
-      "version": "analysis-v1.1.0",
+      "version": "analysis-v1.2.0",
       "status": "published",
       "file": "model_mapping.json",
-      "content_hash": "58cb31c35dae07b91b1d34ac4f9ed6361f1e02918a05622ace5a2df5cd0854e8",
+      "content_hash": "38af747400d688ac2a15fa043d2219b36749471399755490ee73e6e70f70fd0f",
       "is_default": true,
       "validated_at": "2026-08-15T00:00:00+09:00",
       "published_at": "2026-08-15T00:00:00+09:00"

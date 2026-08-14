@@ -14,7 +14,8 @@
 
 No Slice 2 forecast product-cost boundary was changed.
 
-The published mapping identity is bumped to `analysis-v1.1.0`. Existing stored
+The Slice 1A mapping identity was published as `analysis-v1.1.0`; Slice 1B
+supersedes it with `analysis-v1.2.0`. Existing stored
 Results retain their pinned mapping version/hash and are not silently treated
 as current under the new ten-effect contract; the result schema remains the
 existing JSON envelope because the additive inventory payload is carried

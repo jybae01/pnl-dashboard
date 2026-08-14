@@ -347,6 +347,7 @@ def _write_manufacturing_detail(ws, result: dict[str, Any]) -> None:
         "기준 금액", "비교 금액", "증감", "조업도 효과", "원단위 효과",
         "고정비 효과", "발생효과", "재고실현율(참고)", "최종 손익효과", "발생효과 엑셀합계", "검증", "계산상태",
     ]
+    headers.append("당기제조원가 구성")
     _write_headers(ws, header_row, headers)
     for item in result.get("manufacturing_accounts", []):
         row_no = ws.max_row + 1
@@ -359,6 +360,7 @@ def _write_manufacturing_detail(ws, result: dict[str, Any]) -> None:
             item.get("activity_effect"), item.get("unit_effect"), item.get("fixed_effect"),
             item.get("occurrence_effect"), item.get("inventory_realization_rate"),
             item.get("final_profit_effect"), None, None, item.get("calculation_status"),
+            item.get("current_cost_component"),
         ])
         ws.cell(row_no, 15, f"=SUM(I{row_no}:K{row_no})").fill = _FORMULA_FILL
         ws.cell(row_no, 16, _formula_check(f"O{row_no}", f"L{row_no}")).fill = _CHECK_FILL
@@ -516,6 +518,153 @@ def _write_inventory_timing(ws, result: dict[str, Any]) -> None:
     ws.freeze_panes = "A5"
 
 
+def _write_current_cost_basis(ws, result: dict[str, Any]) -> None:
+    inventory = result.get("inventory_analysis") or {}
+    basis = inventory.get("current_cost_basis_analysis") or {}
+    _write_title(
+        ws,
+        "당기제조원가 Basis Gap 검증",
+        "row 325 직접 금액차이와 기존 Raw Material + Manufacturing Driver Effect의 Basis 차이를 Source 기준으로 설명합니다. Effect·Residual·Plug는 생성하거나 수정하지 않습니다.",
+    )
+    _write_headers(
+        ws,
+        4,
+        ["Metric", "Engine Value", "Excel Formula", "Validation", "Formula Basis", "Status", "Source Reference"],
+    )
+    material_count = len((result.get("material_analysis") or {}).get("product_groups") or [])
+    material_last = 4 + material_count
+    manufacturing_count = len(result.get("manufacturing_accounts") or [])
+    manufacturing_last = 4 + manufacturing_count
+    material_formula = f"=SUM('원부재료_검증'!H5:H{material_last})" if material_count else "=0"
+    activity_formula = f"=SUM('생산제조경비_검증'!I5:I{manufacturing_last})" if manufacturing_count else "=0"
+    unit_formula = f"=SUM('생산제조경비_검증'!J5:J{manufacturing_last})" if manufacturing_count else "=0"
+    fixed_formula = f"=SUM('생산제조경비_검증'!K5:K{manufacturing_last})" if manufacturing_count else "=0"
+    component_rows = list(basis.get("component_details") or [])
+    current_total_row = 16 + len(component_rows) + 4
+    summary_rows = [
+        ("Current Manufacturing Cost Effect", basis.get("current_manufacturing_cost_effect"), f"=D{current_total_row}", "Base row 325 - Comparison row 325", basis.get("status"), "Data!K:M325"),
+        ("Existing Raw Material Effect", basis.get("raw_material_effect"), material_formula, "Canonical unit-cost driver × Comparison sales/applicable basis", "UNCHANGED_FORMULA", "원부재료_검증"),
+        ("Manufacturing Volume Effect", basis.get("manufacturing_activity_effect"), activity_formula, "Existing Activity formula", "UNCHANGED_FORMULA", "생산제조경비_검증"),
+        ("Manufacturing Unit Cost Effect", basis.get("manufacturing_unit_effect"), unit_formula, "Existing Unit Cost formula", "UNCHANGED_FORMULA", "생산제조경비_검증"),
+        ("Manufacturing Fixed Effect", basis.get("manufacturing_fixed_effect"), fixed_formula, "Existing Fixed formula", "UNCHANGED_FORMULA", "생산제조경비_검증"),
+        ("Existing Manufacturing Effect", basis.get("manufacturing_effect"), "=SUM(C7:C9)", "Activity + Unit Cost + Fixed", "PASS_DIRECT_TIE", "생산제조경비_검증"),
+        ("Existing Current Cost Driver subtotal", basis.get("existing_current_cost_driver_subtotal"), "=C6+C10", "Raw Material + Manufacturing", basis.get("status"), "Canonical drivers"),
+        ("Basis Gap", basis.get("basis_gap"), "=C5-C11", "Current Manufacturing Cost Effect - Existing Driver subtotal", basis.get("status"), "No residual/plug backsolve"),
+    ]
+    for row_no, row in enumerate(summary_rows, 5):
+        metric, engine_value, formula, formula_basis, status, source_ref = row
+        ws.append([metric, _number(engine_value), None, None, formula_basis, status, source_ref])
+        ws.cell(row_no, 3, formula).fill = _FORMULA_FILL
+        ws.cell(row_no, 4, _formula_check(f"C{row_no}", f"B{row_no}")).fill = _CHECK_FILL
+
+    _write_headers(
+        ws,
+        15,
+        [
+            "Component", "Base", "Comparison", "Direct Difference", "Existing Effect",
+            "Gap", "Engine Gap", "Formula Validation", "Business Status", "Reason",
+            "Formula Basis", "Source Coverage", "Base Source", "Comparison Source",
+            "Base Source Formula", "Comparison Source Formula",
+        ],
+    )
+    component_start = 16
+    for offset, item in enumerate(component_rows):
+        row_no = component_start + offset
+        code = str(item.get("component_code") or "")
+        if code == "raw_material_production_issue":
+            existing_formula = "=C6"
+        elif code in {"raw_material_tariff_refund", "paid_supply"}:
+            existing_formula = "=0"
+        elif manufacturing_count:
+            existing_formula = (
+                f'=SUMIF(\'생산제조경비_검증\'!$R$5:$R${manufacturing_last},'
+                f'"{code}",\'생산제조경비_검증\'!$L$5:$L${manufacturing_last})'
+            )
+        else:
+            existing_formula = "=0"
+        ws.append([
+            item.get("business_source"), _number(item.get("base")), _number(item.get("comparison")),
+            None, None, None, _number(item.get("gap")), None, item.get("validation_status"),
+            item.get("reason"), item.get("formula_basis"), item.get("source_coverage"),
+            item.get("base_source_reference"), item.get("comparison_source_reference"),
+            item.get("base_source_formula"), item.get("comparison_source_formula"),
+        ])
+        ws.cell(row_no, 4, f"=B{row_no}-C{row_no}").fill = _FORMULA_FILL
+        ws.cell(row_no, 5, existing_formula).fill = _FORMULA_FILL
+        ws.cell(row_no, 6, f"=D{row_no}-E{row_no}").fill = _FORMULA_FILL
+        ws.cell(row_no, 8, _formula_check(f"F{row_no}", f"G{row_no}")).fill = _CHECK_FILL
+
+    aggregate_header = component_start + len(component_rows) + 1
+    _write_headers(
+        ws,
+        aggregate_header,
+        ["Aggregate", "Base", "Comparison", "Direct Difference", "Existing Effect", "Basis Gap", "Engine Gap", "Validation"],
+    )
+    aggregate_rows = list(basis.get("aggregate_details") or [])
+    aggregate_start = aggregate_header + 1
+    member_ranges = {
+        "raw_material_total": (component_start, component_start + 2),
+        "manufacturing_processing_total": (component_start + 3, component_start + 4),
+        "current_manufacturing_cost": (component_start, component_start + 4),
+    }
+    for offset, item in enumerate(aggregate_rows):
+        row_no = aggregate_start + offset
+        first, last = member_ranges[str(item.get("component_code"))]
+        ws.append([item.get("business_source"), None, None, None, None, None, _number(item.get("gap")), None])
+        for col in (2, 3, 4, 5, 6):
+            source_col = get_column_letter(col)
+            ws.cell(row_no, col, f"=SUM({source_col}{first}:{source_col}{last})").fill = _FORMULA_FILL
+        ws.cell(row_no, 8, _formula_check(f"F{row_no}", f"G{row_no}")).fill = _CHECK_FILL
+
+    driver_header = aggregate_start + len(aggregate_rows) + 2
+    _write_headers(
+        ws,
+        driver_header,
+        ["Manufacturing Component", "Base", "Comparison", "Direct Difference", "Activity", "Unit", "Fixed", "Existing Effect", "Gap", "Validation", "Reason"],
+    )
+    for item in basis.get("manufacturing_driver_details") or []:
+        row_no = ws.max_row + 1
+        ws.append([
+            item.get("business_source"), _number(item.get("base")), _number(item.get("comparison")),
+            None, _number(item.get("activity_effect")), _number(item.get("unit_effect")),
+            _number(item.get("fixed_effect")), None, None, None, item.get("reason"),
+        ])
+        ws.cell(row_no, 4, f"=B{row_no}-C{row_no}").fill = _FORMULA_FILL
+        ws.cell(row_no, 8, f"=SUM(E{row_no}:G{row_no})").fill = _FORMULA_FILL
+        ws.cell(row_no, 9, f"=D{row_no}-H{row_no}").fill = _FORMULA_FILL
+        ws.cell(row_no, 10, f'=IF(ABS(I{row_no})<=1,"PASS","CHECK")').fill = _CHECK_FILL
+
+    classification_header = ws.max_row + 3
+    _write_headers(ws, classification_header, ["Gap Classification", "Business Source", "Amount", "Source Coverage", "Reason"])
+    for item in basis.get("gap_classification") or []:
+        ws.append([
+            item.get("classification"), item.get("business_source"), _number(item.get("amount")),
+            item.get("source_coverage"), item.get("reason"),
+        ])
+
+    residual_header = ws.max_row + 3
+    _write_headers(ws, residual_header, ["Residual Analysis", "Value", "Excel Formula", "Validation / Policy"])
+    residual_start = residual_header + 1
+    ws.append(["Current Residual", _number(basis.get("residual")), f"=B{residual_start}", "UNCHANGED"])
+    ws.append(["Basis Gap mathematically linked", _number(basis.get("residual_basis_gap_link")), "=C12", "DISCLOSURE_ONLY"])
+    ws.append(["Residual remainder", _number(basis.get("residual_remainder")), f"=B{residual_start}-B{residual_start + 1}", "NO_PLUG"])
+    ws.append(["Plug created", bool(basis.get("plug_created")), "=FALSE", "PASS"])
+    ws.append(["Architecture Decision", basis.get("architecture_decision"), None, basis.get("architecture_rationale")])
+
+    for row in ws.iter_rows():
+        for cell in row:
+            cell.alignment = Alignment(vertical="top", wrap_text=True)
+            if isinstance(cell.value, (int, float)) and not isinstance(cell.value, bool):
+                cell.number_format = '#,##0.000;[Red](#,##0.000);-'
+    for column, width in {
+        "A": 34, "B": 20, "C": 20, "D": 20, "E": 22, "F": 20,
+        "G": 20, "H": 20, "I": 22, "J": 54, "K": 48, "L": 34,
+        "M": 40, "N": 40, "O": 58, "P": 58,
+    }.items():
+        ws.column_dimensions[column].width = width
+    ws.freeze_panes = "A5"
+
+
 def _write_sga_detail(ws, result: dict[str, Any]) -> None:
     header_row = _write_title(
         ws,
@@ -554,6 +703,8 @@ def _write_formula_catalog(ws) -> None:
         ("재고시차", "Manufactured COGS Effect", "Base Manufactured COGS-Comparison Manufactured COGS", "제품+반제품 COGS", "forecast/analysis/inventory_effects.py"),
         ("재고시차", "Current Manufacturing Cost Effect", "Base Current Manufacturing Cost-Comparison Current Manufacturing Cost", "당기투입제조원가", "forecast/analysis/inventory_effects.py"),
         ("재고시차", "Inventory Timing Effect", "Manufactured COGS Effect-Current Manufacturing Cost Effect", "개선 + / 악화 -", "forecast/analysis/inventory_effects.py"),
+        ("당기제조원가 Basis", "Existing Driver subtotal", "Raw Material Effect+Manufacturing Activity+Unit+Fixed", "기존 공식 불변", "forecast/analysis/current_cost_basis.py"),
+        ("당기제조원가 Basis", "Basis Gap", "Current Manufacturing Cost Effect-Existing Driver subtotal", "설명 Evidence only; Effect/Residual/Plug 아님", "forecast/analysis/current_cost_basis.py"),
         ("손익 브리지", "비용 효과", "기준 비용-비교 비용", "비용 감소는 손익 개선 +", "forecast/comparison.py"),
         ("정합성", "잔여차이", "영업이익 증감-세부효과 합계", "허용오차 이내 PASS", "forecast/comparison.py"),
     ]
@@ -624,6 +775,26 @@ def _analysis_source_specs(payload: dict[str, Any]) -> list[tuple[str, str, str,
             output.append((
                 "재고시차", key, source.get("business_source", key), source["row"]
             ))
+    for key, source in inventory.get(
+        "current_manufacturing_cost_components", {}
+    ).items():
+        if source.get("row"):
+            output.append((
+                "당기제조원가 Basis",
+                key,
+                source.get("business_source", key),
+                source["row"],
+            ))
+    for key, source in inventory.get(
+        "current_manufacturing_cost_formula_relationships", {}
+    ).items():
+        if source.get("row"):
+            output.append((
+                "당기제조원가 Basis",
+                f"formula_{key}",
+                key,
+                source["row"],
+            ))
     for group, source in inventory.get("opening_inventory_units", {}).items():
         output.append((
             "재고시차 기초재고", f"{group}.quantity", f"{group} 기초재고 수량",
@@ -667,9 +838,11 @@ def _write_source_trace(
             for row_number, sign, rule in _expand_spec(spec):
                 for month in months:
                     cell_ref = f"{MONTH_COLUMNS[int(month)]}{row_number}"
+                    source_formula = workbook.formulas.get(cell_ref, "")
                     ws.append([
                         side, domain, code, label, f"{month}월", "Data", cell_ref, sign, rule,
-                        workbook.formulas.get(cell_ref, ""), _number(workbook.value(cell_ref)),
+                        f"'{source_formula}" if source_formula else "",
+                        _number(workbook.value(cell_ref)),
                     ])
     _style_data_sheet(ws, header_row, money_columns=(11,))
 
@@ -730,6 +903,7 @@ def build_comparison_audit_workbook(
     _write_material_detail(workbook.create_sheet("원부재료_검증"), result)
     _write_manufacturing_detail(workbook.create_sheet("생산제조경비_검증"), result)
     _write_inventory_timing(workbook.create_sheet("재고시차_검증"), result)
+    _write_current_cost_basis(workbook.create_sheet("당기제조원가_기준차이"), result)
     _write_sga_detail(workbook.create_sheet("판관비_검증"), result)
     _write_formula_catalog(workbook.create_sheet("수식_정의"))
     months = tuple(int(month) for month in result.get("period", {}).get("months", ()))
@@ -741,7 +915,8 @@ def build_comparison_audit_workbook(
 
     required = {
         "README", "손익_정합성", "판매효과_검증", "원부재료_검증",
-        "생산제조경비_검증", "재고시차_검증", "판관비_검증", "수식_정의", "원천셀_추적",
+        "생산제조경비_검증", "재고시차_검증", "당기제조원가_기준차이",
+        "판관비_검증", "수식_정의", "원천셀_추적",
     }
     missing = required.difference(workbook.sheetnames)
     if missing:

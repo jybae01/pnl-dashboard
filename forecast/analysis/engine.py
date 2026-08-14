@@ -4,6 +4,10 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
 from .configuration import AnalysisConfig
+from .current_cost_basis import (
+    CurrentCostBasisAnalysis,
+    calculate_current_cost_basis_analysis,
+)
 from .inventory_effects import InventoryTimingEffects, calculate_inventory_timing_effects
 from .manufacturing_effects import ManufacturingEffects, calculate_manufacturing_effects
 from .material_effects import MaterialEffects, calculate_material_effects
@@ -25,6 +29,7 @@ class AnalysisResult:
     material: MaterialEffects
     manufacturing: ManufacturingEffects
     inventory: InventoryTimingEffects
+    current_cost_basis: CurrentCostBasisAnalysis
     sga: SgaEffects
     reconciliation: ReconciliationResult
     narrative: str
@@ -79,6 +84,16 @@ class AnalysisEngine:
                 confidence="LOW",
                 explanation_rule="RULE_NO_PRIMARY:SOURCE_VALIDATION_FAIL",
             )
+        current_cost_basis = calculate_current_cost_basis_analysis(
+            left,
+            right,
+            current_manufacturing_cost_effect=(
+                inventory.current_manufacturing_cost_effect
+            ),
+            material=material,
+            manufacturing=manufacturing,
+            config=self.config,
+        )
 
         effects: list[dict[str, float | str]] = [
             {"code": "sales_quantity", "label": "판매수량 효과", "profit_effect": sales.quantity},
@@ -101,6 +116,11 @@ class AnalysisEngine:
             absolute_tolerance=self.config.absolute_tolerance,
             relative_tolerance=self.config.relative_tolerance,
         )
+        current_cost_basis.residual = check.residual
+        current_cost_basis.residual_basis_gap_link = current_cost_basis.basis_gap
+        current_cost_basis.residual_remainder = (
+            check.residual - current_cost_basis.basis_gap
+        )
         issues = [
             *(f"기준 모형: {item}" for item in validate_scenario(left, self.config)),
             *(f"비교 모형: {item}" for item in validate_scenario(right, self.config)),
@@ -118,6 +138,7 @@ class AnalysisEngine:
             material=material,
             manufacturing=manufacturing,
             inventory=inventory,
+            current_cost_basis=current_cost_basis,
             sga=sga,
             reconciliation=check,
             narrative=narrative,

@@ -37,6 +37,10 @@ def _workbook(path: Path) -> None:
         "semi_finished_goods_cogs",
     ):
         sheet.cell(inventory[code]["row"], 2, inventory[code]["expected_label"])
+    for code, source in inventory[
+        "current_manufacturing_cost_components"
+    ].items():
+        sheet.cell(source["row"], 4, source["expected_label"])
 
     validator = ExcelPreflightValidator(MAPPING)
     for spec in validator.numeric_rows:
@@ -75,6 +79,11 @@ def test_anchor_and_hierarchical_block_preflight_passes(tmp_path):
         "inventory_current_manufacturing_cost": 325,
         "inventory_finished_goods_cogs": 1269,
         "inventory_semi_finished_goods_cogs": 1280,
+        "current_cost_component_raw_material_production_issue": 321,
+        "current_cost_component_raw_material_tariff_refund": 322,
+        "current_cost_component_paid_supply": 323,
+        "current_cost_component_labor": 289,
+        "current_cost_component_manufacturing_expense": 296,
     }
 
 

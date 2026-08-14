@@ -57,6 +57,18 @@ def test_build_comparison_audit_workbook(monkeypatch, tmp_path):
             },
             "inventory_timing": {
                 "current_manufacturing_cost": {"row": 325, "business_source": "당기투입제조원가"},
+                "current_manufacturing_cost_components": {
+                    "raw_material_production_issue": {"row": 321, "business_source": "원부재료비(생산출고)"},
+                    "raw_material_tariff_refund": {"row": 322, "business_source": "원재료 관세환급액"},
+                    "paid_supply": {"row": 323, "business_source": "유상사급"},
+                    "labor": {"row": 289, "business_source": "노무비"},
+                    "manufacturing_expense": {"row": 296, "business_source": "제조경비"},
+                },
+                "current_manufacturing_cost_formula_relationships": {
+                    "manufacturing_processing_total": {"row": 319},
+                    "raw_material_total": {"row": 324},
+                    "current_manufacturing_cost": {"row": 325},
+                },
                 "finished_goods_cogs": {"row": 1269, "business_source": "제품 매출원가"},
                 "semi_finished_goods_cogs": {"row": 1280, "business_source": "반제품 매출원가"},
                 "opening_inventory_units": {
@@ -104,6 +116,7 @@ def test_build_comparison_audit_workbook(monkeypatch, tmp_path):
             "occurrence_effect": 10, "inventory_realization_rate": 1.1,
             "inventory_realization_reference_only": True,
             "final_profit_effect": 10, "calculation_status": "완료",
+            "current_cost_component": "labor",
         }],
         "inventory_analysis": {
             "manufactured_cogs_effect": 100,
@@ -147,6 +160,46 @@ def test_build_comparison_audit_workbook(monkeypatch, tmp_path):
             "comparison_amount": 20, "delta": 10, "profit_effect": 0,
             "bridge_position": "판매효과",
         }],
+    }
+    result["inventory_analysis"]["current_cost_basis_analysis"] = {
+        "current_manufacturing_cost_effect": 40,
+        "raw_material_effect": -200,
+        "manufacturing_activity_effect": 4,
+        "manufacturing_unit_effect": 6,
+        "manufacturing_fixed_effect": 0,
+        "manufacturing_effect": 10,
+        "existing_current_cost_driver_subtotal": -190,
+        "basis_gap": 230,
+        "raw_material_basis_gap": 230,
+        "manufacturing_basis_gap": 0,
+        "status": "CHECK_SCOPE_GAP",
+        "architecture_decision": "OPTION_C",
+        "architecture_rationale": "Manufacturing direct tie; raw-material driver basis differs.",
+        "component_details": [
+            {"component_code": "raw_material_production_issue", "business_source": "원부재료비(생산출고)", "base": 100, "comparison": 70, "gap": 230, "validation_status": "CHECK_SCOPE_GAP", "reason": "Driver basis differs", "formula_basis": "unit cost x comparison sales", "source_coverage": "AGGREGATE_DRIVER_ONLY", "base_source_reference": "Data!E321", "comparison_source_reference": "Data!E321", "base_source_formula": "=E211+E699", "comparison_source_formula": "=E211+E699"},
+            {"component_code": "raw_material_tariff_refund", "business_source": "원재료 관세환급액", "base": 0, "comparison": 0, "gap": 0, "validation_status": "PASS", "reason": "Excluded adjustment", "formula_basis": "excluded", "source_coverage": "FULL_DIRECT_SOURCE_EXCLUDED_FROM_DRIVER", "base_source_reference": "Data!E322", "comparison_source_reference": "Data!E322"},
+            {"component_code": "paid_supply", "business_source": "유상사급", "base": 0, "comparison": 0, "gap": 0, "validation_status": "PASS", "reason": "No direct driver mapping", "formula_basis": "excluded", "source_coverage": "FULL_DIRECT_SOURCE_EXCLUDED_FROM_DRIVER", "base_source_reference": "Data!E323", "comparison_source_reference": "Data!E323"},
+            {"component_code": "labor", "business_source": "노무비", "base": 100, "comparison": 90, "gap": 0, "validation_status": "PASS", "reason": "Direct tie", "formula_basis": "activity+unit+fixed", "source_coverage": "FULL", "base_source_reference": "Data!E289", "comparison_source_reference": "Data!E289"},
+            {"component_code": "manufacturing_expense", "business_source": "제조경비", "base": 0, "comparison": 0, "gap": 0, "validation_status": "PASS", "reason": "Direct tie", "formula_basis": "activity+unit+fixed", "source_coverage": "FULL", "base_source_reference": "Data!E296", "comparison_source_reference": "Data!E296"},
+        ],
+        "aggregate_details": [
+            {"component_code": "raw_material_total", "business_source": "원재료비 계", "gap": 230},
+            {"component_code": "manufacturing_processing_total", "business_source": "제조 가공비 합계", "gap": 0},
+            {"component_code": "current_manufacturing_cost", "business_source": "당기투입제조원가", "gap": 230},
+        ],
+        "manufacturing_driver_details": [
+            {"business_source": "노무비", "base": 100, "comparison": 90, "activity_effect": 4, "unit_effect": 6, "fixed_effect": 0, "reason": "Direct tie"},
+            {"business_source": "외주가공비", "base": 0, "comparison": 0, "activity_effect": 0, "unit_effect": 0, "fixed_effect": 0, "reason": "Direct tie"},
+            {"business_source": "기타 제조경비", "base": 0, "comparison": 0, "activity_effect": 0, "unit_effect": 0, "fixed_effect": 0, "reason": "Direct tie"},
+        ],
+        "gap_classification": [
+            {"classification": "formula_scope_difference", "business_source": "원부재료비", "amount": 230, "source_coverage": "AGGREGATE_DRIVER_ONLY", "reason": "Driver basis differs"},
+            {"classification": "UNEXPLAINED", "business_source": "Unmapped remainder", "amount": 0, "source_coverage": "NOT_APPLICABLE", "reason": "No remainder"},
+        ],
+        "residual": -60,
+        "residual_basis_gap_link": 230,
+        "residual_remainder": -290,
+        "plug_created": False,
     }
     result["evidence_provenance"] = {
         "result_id": "44444444-4444-4444-8444-444444444444",
@@ -198,7 +251,11 @@ def test_build_comparison_audit_workbook(monkeypatch, tmp_path):
         for cell in row
         if isinstance(cell.value, str) and cell.value.startswith("E")
     }
-    assert {"E9", "E205", "E211", "E325", "E1269", "E1280", "E684", "E699", "E289", "E319", "E345", "E347"} <= trace_cells
+    assert {"E9", "E205", "E211", "E289", "E296", "E319", "E321", "E322", "E323", "E324", "E325", "E1269", "E1280", "E684", "E699", "E345", "E347"} <= trace_cells
+    assert all(
+        not (isinstance(cell.value, str) and cell.value.startswith("="))
+        for cell in workbook["원천셀_추적"]["J"]
+    )
     assert workbook["README"]["B15"].value == "PASS"
     assert "44444444-4444-4444-8444-444444444444" in {
         cell.value for row in workbook["README"].iter_rows() for cell in row
@@ -210,6 +267,15 @@ def test_build_comparison_audit_workbook(monkeypatch, tmp_path):
     assert workbook["원부재료_검증"]["I5"].value == "=SUM(E5:G5)"
     assert workbook["생산제조경비_검증"]["O5"].value == "=SUM(I5:K5)"
     assert workbook["생산제조경비_검증"]["D5"].value == 347
+    assert workbook["생산제조경비_검증"]["R5"].value == "labor"
+    basis_sheet = workbook["당기제조원가_기준차이"]
+    assert basis_sheet["C5"].value == "=D25"
+    assert "원부재료_검증" in basis_sheet["C6"].value
+    assert basis_sheet["C12"].value == "=C5-C11"
+    assert basis_sheet["D16"].value == "=B16-C16"
+    assert basis_sheet["E16"].value == "=C6"
+    assert basis_sheet["F16"].value == "=D16-E16"
+    assert "SUMIF" in basis_sheet["E19"].value
     inventory_sheet = workbook["재고시차_검증"]
     assert inventory_sheet["B7"].value == "=B5+B6"
     assert inventory_sheet["C7"].value == "=C5+C6"

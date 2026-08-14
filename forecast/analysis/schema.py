@@ -81,6 +81,7 @@ class ExpenseRecord:
     category: str
     front_ratio: float = 0.0
     back_ratio: float = 0.0
+    current_cost_component: str = ""
 
 
 @dataclass(frozen=True)
@@ -123,6 +124,25 @@ class InventoryCostRecord:
 
 
 @dataclass(frozen=True)
+class CurrentCostComponentRecord:
+    """Canonical source component of current manufacturing cost.
+
+    Golden row numbers stay in the source map.  The engine receives only the
+    business component, amount, formula text, and auditable cell reference.
+    """
+
+    year_month: str
+    component_code: str
+    business_source: str
+    category: str
+    existing_effect_basis: str
+    amount: float
+    source_reference: str
+    source_formula: str = ""
+    source_validation_status: str = "UNVALIDATED"
+
+
+@dataclass(frozen=True)
 class OpeningInventoryUnitRecord:
     """Product-family opening inventory unit cost used as evidence only."""
 
@@ -162,6 +182,7 @@ class AnalysisScenario:
     sga_expenses: list[ExpenseRecord] = field(default_factory=list)
     activities: list[ActivityRecord] = field(default_factory=list)
     inventory_costs: list[InventoryCostRecord] = field(default_factory=list)
+    current_cost_components: list[CurrentCostComponentRecord] = field(default_factory=list)
     opening_inventory_units: list[OpeningInventoryUnitRecord] = field(default_factory=list)
     pnl: list[PnlRecord] = field(default_factory=list)
     direct_effects: list[DirectEffectRecord] = field(default_factory=list)
@@ -174,6 +195,7 @@ class AnalysisScenario:
             self.sga_expenses,
             self.activities,
             self.inventory_costs,
+            self.current_cost_components,
             self.opening_inventory_units,
             self.pnl,
             self.direct_effects,
@@ -189,6 +211,9 @@ class AnalysisScenario:
             sga_expenses=[row for row in self.sga_expenses if row.year_month in selected],
             activities=[row for row in self.activities if row.year_month in selected],
             inventory_costs=[row for row in self.inventory_costs if row.year_month in selected],
+            current_cost_components=[
+                row for row in self.current_cost_components if row.year_month in selected
+            ],
             opening_inventory_units=[
                 row for row in self.opening_inventory_units if row.year_month in selected
             ],
@@ -227,6 +252,7 @@ class AnalysisScenario:
             ],
             "activities": rows(self.activities),
             "inventory_costs": rows(self.inventory_costs),
+            "current_cost_components": rows(self.current_cost_components),
             "opening_inventory_units": rows(self.opening_inventory_units),
             "pnl": rows(self.pnl),
             "direct_effects": rows(self.direct_effects),

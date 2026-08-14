@@ -9,6 +9,7 @@ from .material_effects import calculate_material_effects
 from .schema import (
     ActivityRecord,
     AnalysisScenario,
+    CurrentCostComponentRecord,
     ExpenseRecord,
     InventoryCostRecord,
     OpeningInventoryUnitRecord,
@@ -112,6 +113,9 @@ class GoldenAnalysisAdapter:
                     "account": account,
                     "source_classification": classification,
                     "ratio_key": ratio_key,
+                    "current_cost_component": (
+                        "labor" if labor_section else "manufacturing_expense"
+                    ),
                 })
         return rows
 
@@ -240,6 +244,47 @@ class GoldenAnalysisAdapter:
                             issues.append(
                                 f"{product_group}.{kind}: non-numeric source at Data!{column}{int(row)}"
                             )
+        for code, source in mapping.get(
+            "current_manufacturing_cost_components", {}
+        ).items():
+            row = int(source.get("row") or 0)
+            expected = str(source.get("expected_label") or "").strip()
+            actual = self._label(workbook, row)
+            if not row or not expected or expected not in actual:
+                issues.append(
+                    f"current_cost_component.{code}: expected {expected!r}, "
+                    f"found {actual!r} at row {row}"
+                )
+            for month in months:
+                column = self.MONTH_COLUMNS[month]
+                value = workbook.value(f"{column}{row}") if row else None
+                if value is not None and (
+                    isinstance(value, bool) or not isinstance(value, (int, float))
+                ):
+                    issues.append(
+                        f"current_cost_component.{code}: non-numeric source "
+                        f"at Data!{column}{row}"
+                    )
+        for code, relationship in mapping.get(
+            "current_manufacturing_cost_formula_relationships", {}
+        ).items():
+            row = int(relationship.get("row") or 0)
+            component_rows = tuple(
+                int(item) for item in relationship.get("component_rows", ())
+            )
+            for month in months:
+                column = self.MONTH_COLUMNS[month]
+                address = f"{column}{row}"
+                expected_precedents = {
+                    f"{column}{component_row}" for component_row in component_rows
+                }
+                actual_precedents = set(workbook.formula_precedents(address))
+                if not expected_precedents or actual_precedents != expected_precedents:
+                    issues.append(
+                        f"current_cost_formula.{code}: expected precedents "
+                        f"{sorted(expected_precedents)}, found "
+                        f"{sorted(actual_precedents)} at Data!{address}"
+                    )
         return ("PASS" if not issues else "FAIL"), issues
 
     @staticmethod
@@ -380,6 +425,7 @@ class GoldenAnalysisAdapter:
         sga_expenses: list[ExpenseRecord] = []
         activities: list[ActivityRecord] = []
         inventory_costs: list[InventoryCostRecord] = []
+        current_cost_components: list[CurrentCostComponentRecord] = []
         opening_inventory_units: list[OpeningInventoryUnitRecord] = []
         pnl: list[PnlRecord] = []
         manufacturing = self.adapter["manufacturing"]
@@ -426,6 +472,9 @@ class GoldenAnalysisAdapter:
                     category="manufacturing",
                     front_ratio=front_ratio,
                     back_ratio=1.0 - front_ratio,
+                    current_cost_component=str(
+                        source.get("current_cost_component") or ""
+                    ),
                 ))
             current_source = inventory_mapping.get("current_manufacturing_cost", {})
             finished_source = inventory_mapping.get("finished_goods_cogs", {})
@@ -472,6 +521,32 @@ class GoldenAnalysisAdapter:
                 scope_validation_status=scope_validation_status,
                 scope_notes=scope_notes,
             ))
+            for component_code, component_source in inventory_mapping.get(
+                "current_manufacturing_cost_components", {}
+            ).items():
+                component_row = int(component_source.get("row") or 0)
+                component_address = f"{column}{component_row}"
+                current_cost_components.append(CurrentCostComponentRecord(
+                    year_month=year_month,
+                    component_code=str(component_code),
+                    business_source=str(
+                        component_source.get("business_source") or component_code
+                    ),
+                    category=str(component_source.get("category") or ""),
+                    existing_effect_basis=str(
+                        component_source.get("existing_effect_basis") or ""
+                    ),
+                    amount=self._number(
+                        workbook.value(component_address) if component_row else 0.0
+                    ),
+                    source_reference=(
+                        f"Data!{component_address}" if component_row else "UNMAPPED"
+                    ),
+                    source_formula=str(
+                        workbook.formulas.get(component_address, "")
+                    ),
+                    source_validation_status=source_validation_status,
+                ))
             for product_group in ("FS", "SW", "BW", "LC"):
                 unit_source = inventory_mapping.get("opening_inventory_units", {}).get(
                     product_group, {}
@@ -542,6 +617,7 @@ class GoldenAnalysisAdapter:
             sga_expenses=sga_expenses,
             activities=activities,
             inventory_costs=inventory_costs,
+            current_cost_components=current_cost_components,
             opening_inventory_units=opening_inventory_units,
             pnl=pnl,
         )
@@ -614,6 +690,7 @@ class GoldenAnalysisAdapter:
                 ),
                 "account": account,
                 "classification": detail["classification"],
+                "current_cost_component": detail.get("current_cost_component", ""),
                 "baseline_amount": 0.0,
                 "comparison_amount": 0.0,
                 "delta": 0.0,

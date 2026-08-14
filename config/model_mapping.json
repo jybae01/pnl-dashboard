@@ -364,6 +364,57 @@
         "expected_label": "제조원가",
         "business_source": "당기투입제조원가"
       },
+      "current_manufacturing_cost_components": {
+        "raw_material_production_issue": {
+          "row": 321,
+          "expected_label": "원부재료비(생산출고)",
+          "business_source": "원부재료비(생산출고)",
+          "category": "raw_material",
+          "existing_effect_basis": "AGGREGATE_RAW_MATERIAL_DRIVER_COMPARISON_BASIS"
+        },
+        "raw_material_tariff_refund": {
+          "row": 322,
+          "expected_label": "원재료 관세환급액",
+          "business_source": "원재료 관세환급액",
+          "category": "raw_material_adjustment",
+          "existing_effect_basis": "EXCLUDED_FROM_RAW_MATERIAL_DRIVER"
+        },
+        "paid_supply": {
+          "row": 323,
+          "expected_label": "유상사급",
+          "business_source": "유상사급",
+          "category": "raw_material",
+          "existing_effect_basis": "EXCLUDED_FROM_RAW_MATERIAL_DRIVER_DIRECT_BASIS"
+        },
+        "labor": {
+          "row": 289,
+          "expected_label": "노무비",
+          "business_source": "노무비",
+          "category": "manufacturing",
+          "existing_effect_basis": "MANUFACTURING_DRIVER_LABOR"
+        },
+        "manufacturing_expense": {
+          "row": 296,
+          "expected_label": "제조경비",
+          "business_source": "제조경비",
+          "category": "manufacturing",
+          "existing_effect_basis": "MANUFACTURING_DRIVER_EXPENSE"
+        }
+      },
+      "current_manufacturing_cost_formula_relationships": {
+        "manufacturing_processing_total": {
+          "row": 319,
+          "component_rows": [289, 296]
+        },
+        "raw_material_total": {
+          "row": 324,
+          "component_rows": [321, 322, 323]
+        },
+        "current_manufacturing_cost": {
+          "row": 325,
+          "component_rows": [324, 319]
+        }
+      },
       "finished_goods_cogs": {
         "row": 1269,
         "expected_label": "제품 매출원가",

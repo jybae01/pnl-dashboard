@@ -165,6 +165,9 @@ def calculate_manufacturing_effects(
                 "month": month,
                 "account": account,
                 "classification": "variable" if config.is_variable_manufacturing(account) else "fixed",
+                "current_cost_component": (
+                    (lrow or rrow).current_cost_component if (lrow or rrow) else ""
+                ),
                 "baseline_amount": amount0,
                 "comparison_amount": amount1,
                 "delta": amount1 - amount0,

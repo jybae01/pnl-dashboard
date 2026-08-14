@@ -8,6 +8,7 @@ from typing import Any
 from .storage import ModelMeta
 from .workbook import GoldenWorkbook
 from .analysis.configuration import AnalysisConfig
+from .analysis.current_cost_basis import calculate_current_cost_basis_analysis
 from .analysis.golden_adapter import AdaptedGoldenScenario, GoldenAnalysisAdapter
 from .analysis.inventory_effects import calculate_inventory_timing_effects
 from .analysis.manufacturing_effects import calculate_manufacturing_effects
@@ -211,6 +212,16 @@ class GenericComparisonEngine:
                     + calculated_analysis_manufacturing.occurrence_total
                 ),
             )
+            calculated_current_cost_basis = calculate_current_cost_basis_analysis(
+                base_scenario,
+                comparison_scenario,
+                current_manufacturing_cost_effect=(
+                    calculated_inventory.current_manufacturing_cost_effect
+                ),
+                material=calculated_analysis_material,
+                manufacturing=calculated_analysis_manufacturing,
+                config=self.analysis_config,
+            )
             # Keep the legacy group rows for the sales tab, but make their
             # aggregate totals come from the same normalized records used by
             # the bridge. This brings mix, transport and the direct tariff
@@ -343,6 +354,7 @@ class GenericComparisonEngine:
             )
             inventory_analysis = asdict(calculated_inventory)
         else:
+            calculated_current_cost_basis = None
             effects.append({
                 "code": "inventory_timing",
                 "factor": "재고·원가 반영시차 효과",
@@ -387,6 +399,17 @@ class GenericComparisonEngine:
         residual = op_delta - effects_total
         tolerance = max(1.0, abs(op_delta) * 1e-9)
         narrative = self._narrative(op_delta, effects, residual)
+        if calculated_current_cost_basis is not None:
+            calculated_current_cost_basis.residual = residual
+            calculated_current_cost_basis.residual_basis_gap_link = (
+                calculated_current_cost_basis.basis_gap
+            )
+            calculated_current_cost_basis.residual_remainder = (
+                residual - calculated_current_cost_basis.basis_gap
+            )
+            inventory_analysis["current_cost_basis_analysis"] = asdict(
+                calculated_current_cost_basis
+            )
         sga_accounts = self._sga_account_rows(
             baseline.get("sga_accounts", []),
             target.get("sga_accounts", []),

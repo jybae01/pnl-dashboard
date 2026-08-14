@@ -157,6 +157,18 @@ class ExcelPreflightValidator:
             )
             if inventory.get(code, {}).get("row")
         )
+        default_anchors += tuple(
+            AnchorSpec(
+                f"current_cost_component_{code}",
+                (str(spec.get("expected_label") or code),),
+                int(spec.get("row") or 0),
+                tolerance=0,
+            )
+            for code, spec in inventory.get(
+                "current_manufacturing_cost_components", {}
+            ).items()
+            if spec.get("row")
+        )
         self.anchors = tuple(anchors or default_anchors)
         by_code = {item.code: item for item in self.anchors}
         default_blocks: tuple[AnchorBlockSpec, ...] = ()
@@ -215,6 +227,27 @@ class ExcelPreflightValidator:
                 )
                 if inventory.get(code, {}).get("row")
             ), require_all_months=True),
+            NumericRowSpec("current_cost_component_sources", tuple(sorted({
+                int(inventory["current_manufacturing_cost_components"][code]["row"])
+                for code in (
+                    "raw_material_production_issue", "labor", "manufacturing_expense"
+                )
+                if inventory.get("current_manufacturing_cost_components", {})
+                .get(code, {}).get("row")
+            })), require_all_months=True),
+            NumericRowSpec("current_cost_adjustment_sources", tuple(sorted({
+                int(inventory["current_manufacturing_cost_components"][code]["row"])
+                for code in ("raw_material_tariff_refund", "paid_supply")
+                if inventory.get("current_manufacturing_cost_components", {})
+                .get(code, {}).get("row")
+            })), require_all_months=False, allow_blank=True),
+            NumericRowSpec("current_cost_formula_relationships", tuple(sorted({
+                int(spec["row"])
+                for spec in inventory.get(
+                    "current_manufacturing_cost_formula_relationships", {}
+                ).values()
+                if spec.get("row")
+            })), require_all_months=True),
             NumericRowSpec("opening_inventory_unit_sources", tuple(sorted({
                 int(row)
                 for spec in inventory.get("opening_inventory_units", {}).values()
