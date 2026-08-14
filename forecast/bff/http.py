@@ -12,7 +12,7 @@ from urllib.parse import urlsplit
 from collections import defaultdict, deque
 from dataclasses import asdict, dataclass
 from pathlib import Path
-from typing import Annotated, Callable, Protocol
+from typing import Annotated, Callable, Mapping, Protocol
 
 from fastapi import Cookie, Depends, FastAPI, File, Form, Header, Query, Request, Response, UploadFile
 from fastapi.exceptions import RequestValidationError
@@ -71,7 +71,8 @@ class ForecastQuantityBody(BaseModel):
 
 class ForecastAdjustmentBody(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    row: StrictInt
+    row: StrictInt | None = None
+    adjustment_key: StrictStr | None = Field(default=None, max_length=32)
     amount: StrictFloat | StrictInt
     reason: StrictStr = Field(default="", max_length=500)
 
@@ -606,13 +607,40 @@ def create_http_bff(
                 ApiErrorCode.FORECAST_SCOPE_NOT_APPROVED,
                 "Synchronous Forecast is disabled",
             )
+        def adjustments(entries, category: str):
+            keys: list[str] = []
+            for entry in entries:
+                if (entry.row is None) == (entry.adjustment_key is None):
+                    raise BffError(
+                        ApiErrorCode.VALIDATION_ERROR,
+                        "Forecast adjustment identity is invalid",
+                        field_errors={"adjustment": "provide one adjustment identity"},
+                    )
+                if entry.adjustment_key is not None:
+                    keys.append(entry.adjustment_key)
+            resolved: Mapping[str, int] = {}
+            if keys:
+                if application.forecast_input_metadata is None:
+                    raise BffError(
+                        ApiErrorCode.TRANSIENT_SYSTEM_ERROR,
+                        "Forecast input metadata capability is not configured",
+                    )
+                resolved = application.forecast_input_metadata.resolve_adjustment_keys(
+                    value, body.base_model_id, category, tuple(keys),
+                )
+            return tuple(ForecastAdjustmentInput(
+                row=(entry.row if entry.row is not None else resolved[str(entry.adjustment_key)]),
+                amount=entry.amount,
+                reason=entry.reason,
+            ) for entry in entries)
+
         months = tuple(ForecastMonthInput(
             month=item.month,
             sales=tuple(ForecastSalesInput(**entry.model_dump()) for entry in item.sales),
             production=tuple(ForecastQuantityInput(**entry.model_dump()) for entry in item.production),
             mcm=tuple(ForecastQuantityInput(**entry.model_dump()) for entry in item.mcm),
-            manufacturing_adjustments=tuple(ForecastAdjustmentInput(**entry.model_dump()) for entry in item.manufacturing_adjustments),
-            sga_adjustments=tuple(ForecastAdjustmentInput(**entry.model_dump()) for entry in item.sga_adjustments),
+            manufacturing_adjustments=adjustments(item.manufacturing_adjustments, "manufacturing"),
+            sga_adjustments=adjustments(item.sga_adjustments, "sga"),
             **item.model_dump(exclude={"month", "sales", "production", "mcm", "manufacturing_adjustments", "sga_adjustments"}),
         ) for item in body.months)
         forecast_request = ForecastGenerateRequest(
@@ -623,6 +651,18 @@ def create_http_bff(
         generation_id = result.get("generation_id") if isinstance(result, dict) else result.generation_id
         _operation_audit(audit, application, value, http_request, "forecast_generation", generation_id)
         return result
+
+    @app.get("/api/admin/forecasts/input-metadata")
+    def forecast_input_metadata(
+        base_model_id: Annotated[str, Query(min_length=36, max_length=36)],
+        value: str = Depends(admin_session),
+    ):
+        if application.forecast_input_metadata is None:
+            raise BffError(
+                ApiErrorCode.TRANSIENT_SYSTEM_ERROR,
+                "Forecast input metadata capability is not configured",
+            )
+        return application.forecast_input_metadata.get(value, base_model_id)
 
     @app.get("/api/jobs/{job_id}")
     def get_job(job_id: str, value: str = Depends(admin_session)):

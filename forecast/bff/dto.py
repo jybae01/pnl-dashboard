@@ -94,6 +94,24 @@ class ResultPublicationResponse:
 
 
 @dataclass(frozen=True)
+class ForecastAdjustmentMetadataResponse:
+    adjustment_key: str
+    display_name: str
+    category: str
+    section: str | None
+    unit: str = "KRW"
+
+
+@dataclass(frozen=True)
+class ForecastInputMetadataResponse:
+    base_model_id: str
+    manufacturing: tuple[ForecastAdjustmentMetadataResponse, ...]
+    sga: tuple[ForecastAdjustmentMetadataResponse, ...]
+    reason_max_length: int = 500
+    dto_version: str = "1"
+
+
+@dataclass(frozen=True)
 class AnalysisSubmitRequest:
     baseline_model_id: str
     comparison_model_id: str

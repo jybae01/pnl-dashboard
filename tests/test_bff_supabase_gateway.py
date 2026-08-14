@@ -99,6 +99,24 @@ def test_factory_defaults_to_disabled_and_keeps_non_forecast_capabilities():
     assert app.model_publication is not None
     assert app.result_publication is not None
     assert app.forecast_generation is None
+    assert app.forecast_input_metadata is None
+
+
+def test_factory_enables_forecast_metadata_with_forecast_capability():
+    mapping = json.loads(Path("config/model_mapping.json").read_text(encoding="utf-8"))
+    app = create_supabase_bff_application(
+        supabase_client=FakeClient(),
+        viewer_code="viewer-secret",
+        admin_code="admin-secret",
+        actor_namespace_secret="stable-server-only-actor-namespace",
+        provenance=ResultProvenance("engine", "mapping", "a" * 64, "1"),
+        model_repository=object(),
+        model_mapping=mapping,
+        mapping_path="config/model_mapping.json",
+        forecast_enabled=True,
+    )
+    assert app.forecast_generation is not None
+    assert app.forecast_input_metadata is not None
 
 
 def test_idempotency_conflict_is_mapped_without_raw_database_error():

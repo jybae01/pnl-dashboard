@@ -482,6 +482,7 @@ class TrustedBffApplication:
         forecast_generation: Any | None = None,
         worker_administration: Any | None = None,
         result_publication: ResultPublicationService | None = None,
+        forecast_input_metadata: Any | None = None,
     ) -> None:
         self.sessions = sessions
         self.submissions = submissions
@@ -492,6 +493,7 @@ class TrustedBffApplication:
         self.model_ingestion = model_ingestion
         self.model_publication = model_publication
         self.result_publication = result_publication
+        self.forecast_input_metadata = forecast_input_metadata
         self.evidence = evidence
         self.history = history
         self.presentation = presentation

@@ -25,6 +25,7 @@ from forecast.bff.gateway import (
     GatewayValidationError,
     SubmissionRecord,
 )
+from forecast.bff.errors import ApiErrorCode, BffError
 from forecast.bff.http import HttpBffSettings, InMemoryLoginRateLimiter, create_http_bff
 from forecast.bff.production import AuditSink
 from forecast.bff.evidence_history import EvidenceArtifact
@@ -101,6 +102,8 @@ def result_row(**overrides):
 class Fixture:
     client: TestClient
     gateway: Gateway
+    forecast: object
+    forecast_metadata: object
 
     def login(self, code="admin-code"):
         response = self.client.post("/api/session/login", json={"access_code": code})
@@ -127,6 +130,8 @@ def make_fixture(*, limiter=None, clock=None, worker_control=None, audit_sink=No
                         start_month=1, end_month=12, is_published=True,
                         is_default=False, workbook_sha256="c" * 64),
     ])
+    forecast = FakeForecast()
+    forecast_metadata = FakeForecastMetadata()
     app_service = TrustedBffApplication(
         sessions,
         AnalysisSubmissionService(sessions, gateway, PROVENANCE),
@@ -137,7 +142,8 @@ def make_fixture(*, limiter=None, clock=None, worker_control=None, audit_sink=No
         history=FakeHistory(),
         presentation=FakePresentation(),
         pnl_dashboard=FakePnlDashboard(),
-        forecast_generation=FakeForecast(),
+        forecast_generation=forecast,
+        forecast_input_metadata=forecast_metadata,
         worker_administration=(
             WorkerAdministrationService(sessions, worker_control)
             if worker_control is not None else None
@@ -149,7 +155,7 @@ def make_fixture(*, limiter=None, clock=None, worker_control=None, audit_sink=No
         rate_limiter=limiter,
         audit_sink=audit_sink,
     )
-    return Fixture(TestClient(app), gateway)
+    return Fixture(TestClient(app), gateway, forecast, forecast_metadata)
 
 
 class FakeEvidence:
@@ -177,7 +183,11 @@ class FakePnlDashboard:
 
 
 class FakeForecast:
+    def __init__(self):
+        self.last_request = None
+
     def generate(self, _session, request):
+        self.last_request = request
         return {
             "generation_id": JOB, "model_id": COMP, "display_name": request.name,
             "model_year": request.model_year, "start_month": request.start_month,
@@ -185,6 +195,30 @@ class FakeForecast:
             "workbook_sha256": "d" * 64, "idempotency_replayed": False,
             "execution_mode": "SYNCHRONOUS", "dto_version": "1",
         }
+
+
+class FakeForecastMetadata:
+    def get(self, _session, base_model_id):
+        return {
+            "base_model_id": base_model_id,
+            "manufacturing": [{
+                "adjustment_key": "manufacturing:000", "display_name": "노무비",
+                "category": "manufacturing", "section": None, "unit": "KRW",
+            }],
+            "sga": [{
+                "adjustment_key": "sga:000", "display_name": "운반비",
+                "category": "sga", "section": "selling", "unit": "KRW",
+            }],
+            "reason_max_length": 500,
+            "dto_version": "1",
+        }
+
+    def resolve_adjustment_keys(self, _session, _base_model_id, category, keys):
+        expected = {"manufacturing": "manufacturing:000", "sga": "sga:000"}[category]
+        if any(key != expected for key in keys):
+            raise BffError(ApiErrorCode.VALIDATION_ERROR, "invalid key")
+        row = {"manufacturing": 290, "sga": 1168}[category]
+        return {key: row for key in keys}
 
 
 class FakeHistory:
@@ -441,6 +475,52 @@ def test_forecast_http_is_admin_csrf_protected_and_returns_only_safe_draft_dto()
     assert response.json()["is_published"] is False
     assert response.json()["is_default"] is False
     assert "workbook_path" not in response.text and "service_role" not in response.text
+
+
+def test_forecast_metadata_and_opaque_adjustment_keys_preserve_admin_boundary():
+    anonymous = make_fixture()
+    assert anonymous.client.get(
+        f"/api/admin/forecasts/input-metadata?base_model_id={BASE}"
+    ).status_code == 401
+    viewer = make_fixture(); viewer.login("viewer-code")
+    assert viewer.client.get(
+        f"/api/admin/forecasts/input-metadata?base_model_id={BASE}"
+    ).status_code == 403
+
+    admin = make_fixture(); admin.login()
+    metadata = admin.client.get(
+        f"/api/admin/forecasts/input-metadata?base_model_id={BASE}"
+    )
+    assert metadata.status_code == 200
+    assert metadata.json()["manufacturing"][0]["adjustment_key"] == "manufacturing:000"
+    assert "row" not in metadata.text and "Data!" not in metadata.text
+
+    body = {
+        "base_model_id": BASE, "name": "Advanced Forecast", "model_year": 2026,
+        "version": "V1", "start_month": 7, "end_month": 7,
+        "months": [{
+            "month": 7, "sales": [], "production": [],
+            "manufacturing_adjustments": [{
+                "adjustment_key": "manufacturing:000", "amount": -150000000,
+                "reason": "비가동 조정",
+            }],
+            "sga_adjustments": [{
+                "adjustment_key": "sga:000", "amount": 25000000,
+                "reason": "운반비 조정",
+            }],
+        }],
+        "idempotency_key": "forecast-advanced",
+    }
+    response = admin.client.post(
+        "/api/admin/forecasts", json=body,
+        headers={"X-CSRF-Token": admin.csrf},
+    )
+    assert response.status_code == 200
+    month = admin.forecast.last_request.months[0]
+    assert month.manufacturing_adjustments[0].row == 290
+    assert month.manufacturing_adjustments[0].amount == -150000000
+    assert month.manufacturing_adjustments[0].reason == "비가동 조정"
+    assert month.sga_adjustments[0].row == 1168
 
 
 def test_forecast_disabled_mode_is_admin_authenticated_and_fails_closed():
