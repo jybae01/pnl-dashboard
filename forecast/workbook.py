@@ -229,6 +229,50 @@ def serialize_xml(
     return ("<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>\r\n" + text).encode("utf-8")
 
 
+def _remove_calculation_chain(entries: dict[str, bytes]) -> None:
+    """Remove the optional calculation chain from a generated workbook.
+
+    Forecast inputs may replace formula cells with authoritative values.  A
+    copied calcChain then contains stale references that older desktop Excel
+    versions repair on open.  Excel rebuilds this optional cache from the
+    preserved formulas because ``calcPr`` requests a full recalculation.
+    """
+    entries.pop("xl/calcChain.xml", None)
+
+    relationships_name = "xl/_rels/workbook.xml.rels"
+    relationships = ET.fromstring(entries[relationships_name])
+    calc_chain_type = f"{OFFICE_REL_NS}/calcChain"
+    relationship_removed = False
+    for relationship in list(relationships):
+        if (
+            relationship.tag == f"{{{REL_NS}}}Relationship"
+            and relationship.attrib.get("Type") == calc_chain_type
+        ):
+            relationships.remove(relationship)
+            relationship_removed = True
+    if relationship_removed:
+        entries[relationships_name] = serialize_xml(
+            relationships,
+            default_namespace=REL_NS,
+        )
+
+    content_types_name = "[Content_Types].xml"
+    content_types = ET.fromstring(entries[content_types_name])
+    content_type_removed = False
+    for override in list(content_types):
+        if (
+            override.tag == f"{{{CONTENT_TYPES_NS}}}Override"
+            and override.attrib.get("PartName") == "/xl/calcChain.xml"
+        ):
+            content_types.remove(override)
+            content_type_removed = True
+    if content_type_removed:
+        entries[content_types_name] = serialize_xml(
+            content_types,
+            default_namespace=CONTENT_TYPES_NS,
+        )
+
+
 @dataclass
 class ChangeLog:
     cell: str
@@ -971,6 +1015,7 @@ class GoldenWorkbook:
         if calc is None: calc = ET.SubElement(wb, Q("calcPr"))
         calc.attrib.update({"calcMode": "auto", "fullCalcOnLoad": "1", "forceFullCalc": "1"})
         entries[workbook_name] = serialize_xml(wb, ("x15", "xr", "xr6", "xr10", "xr2"))
+        _remove_calculation_chain(entries)
         with zipfile.ZipFile(destination, "w", zipfile.ZIP_DEFLATED) as archive:
             for name, data in entries.items(): archive.writestr(name, data)
         return destination

@@ -12,7 +12,13 @@ from forecast.baseline import inspect_baseline_workbook
 from forecast.engine import CostAdjustment, ForecastEngine, ForecastInput, SalesInput
 from forecast.sales_comparison import calculate_sales_effect_rows, sales_effect_totals
 from forecast.storage import BaselineStore, ModelMeta, ModelRegistry
-from forecast.workbook import GoldenWorkbook
+from forecast.workbook import (
+    CONTENT_TYPES_NS,
+    OFFICE_REL_NS,
+    REL_NS,
+    GoldenWorkbook,
+    _remove_calculation_chain,
+)
 
 ROOT = Path(__file__).resolve().parents[1]
 PRIVATE_GOLDEN = ROOT / "models" / "golden_model.xlsx"
@@ -21,6 +27,68 @@ PRIVATE_GOLDEN = ROOT / "models" / "golden_model.xlsx"
 requires_private_golden = unittest.skipUnless(
     PRIVATE_GOLDEN.is_file(), "BLOCKED_NO_PRIVATE_GOLDEN"
 )
+
+
+class WorkbookOoxmlCompatibilityTests(unittest.TestCase):
+    def test_stale_calculation_chain_is_removed_without_touching_other_parts(self):
+        relationships = ET.Element(f"{{{REL_NS}}}Relationships")
+        ET.SubElement(
+            relationships,
+            f"{{{REL_NS}}}Relationship",
+            {
+                "Id": "rId1",
+                "Type": f"{OFFICE_REL_NS}/worksheet",
+                "Target": "worksheets/sheet1.xml",
+            },
+        )
+        ET.SubElement(
+            relationships,
+            f"{{{REL_NS}}}Relationship",
+            {
+                "Id": "rId2",
+                "Type": f"{OFFICE_REL_NS}/calcChain",
+                "Target": "calcChain.xml",
+            },
+        )
+        content_types = ET.Element(f"{{{CONTENT_TYPES_NS}}}Types")
+        ET.SubElement(
+            content_types,
+            f"{{{CONTENT_TYPES_NS}}}Override",
+            {
+                "PartName": "/xl/worksheets/sheet1.xml",
+                "ContentType": "application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml",
+            },
+        )
+        ET.SubElement(
+            content_types,
+            f"{{{CONTENT_TYPES_NS}}}Override",
+            {
+                "PartName": "/xl/calcChain.xml",
+                "ContentType": "application/vnd.openxmlformats-officedocument.spreadsheetml.calcChain+xml",
+            },
+        )
+        worksheet = b"<worksheet/>"
+        entries = {
+            "xl/calcChain.xml": b"<calcChain/>",
+            "xl/worksheets/sheet1.xml": worksheet,
+            "xl/_rels/workbook.xml.rels": ET.tostring(relationships),
+            "[Content_Types].xml": ET.tostring(content_types),
+        }
+
+        _remove_calculation_chain(entries)
+
+        self.assertNotIn("xl/calcChain.xml", entries)
+        self.assertEqual(entries["xl/worksheets/sheet1.xml"], worksheet)
+        saved_relationships = ET.fromstring(entries["xl/_rels/workbook.xml.rels"])
+        self.assertEqual(
+            [node.attrib["Id"] for node in saved_relationships],
+            ["rId1"],
+        )
+        saved_content_types = ET.fromstring(entries["[Content_Types].xml"])
+        self.assertEqual(
+            [node.attrib["PartName"] for node in saved_content_types],
+            ["/xl/worksheets/sheet1.xml"],
+        )
 
 
 class SalesFxUnitTests(unittest.TestCase):
@@ -79,10 +147,31 @@ class GoldenModelTests(unittest.TestCase):
                 namespace = {"m": "http://schemas.openxmlformats.org/spreadsheetml/2006/main"}
                 styles_xml = archive.read("xl/styles.xml")
                 self.assertIn(b'xmlns:x16r2=', styles_xml)
+                self.assertNotIn("xl/calcChain.xml", archive.namelist())
                 workbook_xml = ET.fromstring(archive.read("xl/workbook.xml"))
+                calc = workbook_xml.find("m:calcPr", namespace)
+                self.assertEqual(calc.attrib.get("calcMode"), "auto")
+                self.assertEqual(calc.attrib.get("fullCalcOnLoad"), "1")
+                self.assertEqual(calc.attrib.get("forceFullCalc"), "1")
                 sheets = workbook_xml.find("m:sheets", namespace)
                 sheet_names = [item.attrib["name"] for item in sheets]
                 self.assertEqual(sheet_names[sheet_names.index("Data") + 1], "입력반영내역")
+                workbook_relationships = ET.fromstring(
+                    archive.read("xl/_rels/workbook.xml.rels")
+                )
+                self.assertFalse(
+                    any(
+                        item.attrib.get("Type", "").endswith("/calcChain")
+                        for item in workbook_relationships
+                    )
+                )
+                content_types = ET.fromstring(archive.read("[Content_Types].xml"))
+                self.assertFalse(
+                    any(
+                        item.attrib.get("PartName") == "/xl/calcChain.xml"
+                        for item in content_types
+                    )
+                )
                 audit_sheet = ET.fromstring(archive.read("xl/worksheets/sheet2.xml"))
                 locations = {
                     item.attrib.get("location")
