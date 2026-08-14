@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import hmac
+import math
 import secrets
 import tempfile
 import threading
@@ -32,6 +33,7 @@ from .forecast_orchestration import (
 )
 from .forecast_download import content_disposition
 from .production import AuditSink, TrustedProxyPolicy
+from .production_allocation import BusinessProductionInput, CANONICAL_PRODUCTION_CODES
 from ..temp_artifacts import temp_artifact_policy, temp_artifacts_configured
 
 
@@ -70,6 +72,14 @@ class ForecastQuantityBody(BaseModel):
     quantity: StrictFloat | StrictInt
 
 
+class ForecastBusinessProductionBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    process: StrictStr
+    product_group: StrictStr
+    quantity: StrictFloat | StrictInt
+    unit: StrictStr
+
+
 class ForecastAdjustmentBody(BaseModel):
     model_config = ConfigDict(extra="forbid")
     row: StrictInt | None = None
@@ -82,7 +92,16 @@ class ForecastMonthBody(BaseModel):
     model_config = ConfigDict(extra="forbid")
     month: StrictInt
     sales: list[ForecastSalesBody] = Field(max_length=100)
-    production: list[ForecastQuantityBody] = Field(max_length=100)
+    # ``production`` is the legacy canonical input.  It is optional at the
+    # transport layer so a request can select the additive business input;
+    # the endpoint enforces that exactly one of the two fields is present.
+    production: list[ForecastQuantityBody] | None = Field(default=None, max_length=100)
+    # Business production is intentionally a fixed six-row surface (three
+    # front-process groups and three back-process groups).  Process/group/unit
+    # validity remains authoritative in ForecastProductionAllocationService.
+    business_production: list[ForecastBusinessProductionBody] | None = Field(
+        default=None, min_length=6, max_length=6,
+    )
     mcm: list[ForecastQuantityBody] = Field(default_factory=list, max_length=100)
     manufacturing_adjustments: list[ForecastAdjustmentBody] = Field(default_factory=list, max_length=500)
     sga_adjustments: list[ForecastAdjustmentBody] = Field(default_factory=list, max_length=500)
@@ -119,6 +138,70 @@ class ForecastGenerateBody(BaseModel):
     end_month: StrictInt
     months: list[ForecastMonthBody] = Field(min_length=1, max_length=12)
     idempotency_key: StrictStr
+
+
+def _business_allocation_error(message: str = "Production allocation response is invalid") -> BffError:
+    """Return the stable integrity error for a malformed allocation contract."""
+
+    return BffError(ApiErrorCode.INPUT_INTEGRITY_MISMATCH, message)
+
+
+def _business_allocation_results(value: object, expected_months: tuple[int, ...]) -> dict[int, tuple[ForecastQuantityInput, ...]]:
+    """Validate and adapt allocation output for the existing forecast DTO.
+
+    ``ForecastProductionAllocationService`` returns a single
+    ``ProductionAllocationResult`` for one month and a
+    ``ProductionAllocationBatch`` for multiple months.  Keep this transport
+    adapter deliberately narrow: every requested business month must have one
+    result containing the exact eight canonical products in canonical order.
+    """
+
+    try:
+        raw_results = getattr(value, "results", None)
+        if raw_results is None and isinstance(value, (list, tuple)):
+            results = tuple(value)
+        elif raw_results is None:
+            results = (value,)
+        else:
+            results = tuple(raw_results)
+    except Exception as exc:
+        raise _business_allocation_error() from exc
+    if len(results) != len(expected_months):
+        raise _business_allocation_error()
+
+    output: dict[int, tuple[ForecastQuantityInput, ...]] = {}
+    for result in results:
+        month = getattr(result, "month", None)
+        if isinstance(month, bool) or not isinstance(month, int) or month not in expected_months or month in output:
+            raise _business_allocation_error()
+        try:
+            canonical = tuple(getattr(result, "canonical_quantities"))
+        except Exception as exc:
+            raise _business_allocation_error() from exc
+        if len(canonical) != len(CANONICAL_PRODUCTION_CODES):
+            raise _business_allocation_error()
+        codes = tuple(getattr(item, "product_code", None) for item in canonical)
+        if codes != CANONICAL_PRODUCTION_CODES:
+            raise _business_allocation_error()
+        converted: list[ForecastQuantityInput] = []
+        for item in canonical:
+            quantity = getattr(item, "quantity", None)
+            if isinstance(quantity, bool):
+                raise _business_allocation_error()
+            try:
+                quantity_float = float(quantity)
+            except (TypeError, ValueError, OverflowError) as exc:
+                raise _business_allocation_error() from exc
+            if not math.isfinite(quantity_float) or quantity_float < 0:
+                raise _business_allocation_error()
+            converted.append(ForecastQuantityInput(
+                product_code=getattr(item, "product_code"),
+                quantity=quantity_float,
+            ))
+        output[month] = tuple(converted)
+    if set(output) != set(expected_months):
+        raise _business_allocation_error()
+    return output
 
 
 @dataclass(frozen=True)
@@ -635,14 +718,81 @@ def create_http_bff(
                 reason=entry.reason,
             ) for entry in entries)
 
+        # Validate the input mode per month before invoking either forecast
+        # service.  ``None`` means the field was omitted; an empty legacy list
+        # remains a valid (and unchanged) canonical input.  Both modes are
+        # rejected rather than silently merging or giving one precedence.
+        business_inputs: list[BusinessProductionInput] = []
+        business_months: list[int] = []
+        for index, item in enumerate(body.months):
+            has_legacy = item.production is not None
+            has_business = item.business_production is not None
+            if has_legacy == has_business:
+                raise BffError(
+                    ApiErrorCode.VALIDATION_ERROR,
+                    "Forecast production input must select exactly one mode",
+                    field_errors={
+                        f"months.{index}.production": "provide exactly one of production or business_production",
+                        f"months.{index}.business_production": "provide exactly one of production or business_production",
+                    },
+                )
+            if has_business:
+                business_months.append(item.month)
+                business_inputs.extend(
+                    BusinessProductionInput(
+                        month=item.month,
+                        process=entry.process,
+                        product_group=entry.product_group,
+                        quantity=entry.quantity,
+                        unit=entry.unit,
+                    )
+                    for entry in item.business_production
+                )
+
+        # A production allocation batch is keyed by month and therefore
+        # collapses duplicate enclosing months.  Reject that malformed HTTP
+        # shape before calling it so the request retains the canonical
+        # validation taxonomy instead of looking like a malformed allocation
+        # response.
+        if len(set(business_months)) != len(business_months):
+            raise BffError(
+                ApiErrorCode.VALIDATION_ERROR,
+                "Forecast months must be unique",
+                field_errors={"months": "must contain each selected month exactly once"},
+            )
+
+        allocated_by_month: dict[int, tuple[ForecastQuantityInput, ...]] = {}
+        if business_inputs:
+            if application.forecast_production_allocation is None:
+                raise BffError(
+                    ApiErrorCode.TRANSIENT_SYSTEM_ERROR,
+                    "Forecast production allocation capability is not configured",
+                )
+            # One allocation call covers all business months.  The application
+            # service owns dimension, unit, duplicate, base-model and ratio
+            # validation; BffError is intentionally propagated unchanged.
+            allocation = application.forecast_production_allocation.allocate(
+                value,
+                body.base_model_id,
+                tuple(business_inputs),
+            )
+            allocated_by_month = _business_allocation_results(
+                allocation,
+                tuple(business_months),
+            )
+
         months = tuple(ForecastMonthInput(
             month=item.month,
             sales=tuple(ForecastSalesInput(**entry.model_dump()) for entry in item.sales),
-            production=tuple(ForecastQuantityInput(**entry.model_dump()) for entry in item.production),
+            production=(
+                tuple(ForecastQuantityInput(**entry.model_dump()) for entry in item.production)
+                if item.production is not None
+                else allocated_by_month[item.month]
+            ),
             mcm=tuple(ForecastQuantityInput(**entry.model_dump()) for entry in item.mcm),
             manufacturing_adjustments=adjustments(item.manufacturing_adjustments, "manufacturing"),
             sga_adjustments=adjustments(item.sga_adjustments, "sga"),
-            **item.model_dump(exclude={"month", "sales", "production", "mcm", "manufacturing_adjustments", "sga_adjustments"}),
+            **item.model_dump(exclude={"month", "sales", "production", "business_production", "mcm", "manufacturing_adjustments", "sga_adjustments"}),
         ) for item in body.months)
         forecast_request = ForecastGenerateRequest(
             months=months,
