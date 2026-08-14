@@ -285,7 +285,47 @@ class SupabaseBffApplicationGateway:
             raise GatewayTransientError("history RPC failed") from exc
         if not isinstance(value, list):
             raise GatewayTransientError("history RPC returned an invalid shape")
-        return [dict(row) for row in value]
+        rows = [dict(row) for row in value]
+        result_ids = [str(row["result_id"]) for row in rows if row.get("result_id")]
+        if not result_ids:
+            return rows
+
+        # The history RPC intentionally exposes only the publication flag.  A
+        # single narrow table read enriches completed rows with the independent
+        # default/timestamp metadata, avoiding an N+1 result-preview sequence.
+        try:
+            publication_rows = _data(
+                self._client.table("calculation_results")
+                .select("id,is_default,published_at")
+                .in_("id", result_ids)
+                .execute()
+            )
+        except Exception as exc:
+            raise GatewayTransientError("result publication lookup failed") from exc
+        if not isinstance(publication_rows, list):
+            raise GatewayTransientError("result publication lookup returned an invalid shape")
+        by_id: dict[str, Mapping[str, Any]] = {}
+        for row in publication_rows:
+            if isinstance(row, Mapping) and row.get("id"):
+                by_id[str(row["id"])] = row
+        for row in rows:
+            result_id = row.get("result_id")
+            metadata = by_id.get(str(result_id)) if result_id else None
+            if metadata is None:
+                # A completed history row's result must still exist: silently
+                # defaulting publication metadata would misrepresent the
+                # Dashboard eligibility state.  Fail closed instead.
+                raise GatewayTransientError("result publication lookup missing result")
+            if not isinstance(metadata.get("is_default"), bool):
+                raise GatewayTransientError("result publication lookup returned invalid flags")
+            if metadata["is_default"] and row.get("is_published") is not True:
+                raise GatewayTransientError("result publication lookup returned inconsistent flags")
+            published_at = metadata.get("published_at")
+            if published_at is not None and not isinstance(published_at, (str,)):
+                published_at = str(published_at)
+            row["is_default"] = metadata["is_default"]
+            row["published_at"] = published_at
+        return rows
 
     def download_model_source(self, bucket: str, path: str) -> bytes:
         try:

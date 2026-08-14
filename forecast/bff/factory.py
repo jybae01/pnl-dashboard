@@ -7,6 +7,7 @@ from .application import (
     AnalysisModelListService,
     AnalysisSubmissionService,
     JobQueryService,
+    ResultPublicationService,
     ResultQueryService,
     TrustedBffApplication,
     WorkerAdministrationService,
@@ -23,6 +24,7 @@ from .model_ingestion import (
     ModelManagementService,
     ModelPublicationService,
 )
+from ..persistence.supabase import SupabaseResultPublicationRepository
 
 
 def create_supabase_bff_application(
@@ -102,6 +104,10 @@ def create_supabase_bff_application(
         model_publication=(
             ModelPublicationService(sessions, model_repository, ingestion_gateway)
             if model_capabilities else None
+        ),
+        result_publication=ResultPublicationService(
+            sessions,
+            SupabaseResultPublicationRepository(supabase_client),
         ),
         evidence=(
             EvidenceDeliveryService(

@@ -311,6 +311,8 @@ def _history_item(row: Mapping[str, Any]) -> CalculationHistoryItem:
             error_code=str(row["error_code"]) if row.get("error_code") else None,
             error_message=str(row["error_message"]) if row.get("error_message") else None,
             is_published=bool(row["is_published"]),
+            is_default=bool(row.get("is_default", False)),
+            published_at=str(row["published_at"]) if row.get("published_at") else None,
         )
     except (KeyError, TypeError, ValueError) as exc:
         raise _integrity_failure() from exc

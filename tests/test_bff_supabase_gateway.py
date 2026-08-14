@@ -97,6 +97,7 @@ def test_factory_defaults_to_disabled_and_keeps_non_forecast_capabilities():
     assert app.model_management is not None
     assert app.model_ingestion is not None
     assert app.model_publication is not None
+    assert app.result_publication is not None
     assert app.forecast_generation is None
 
 

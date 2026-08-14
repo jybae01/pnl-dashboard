@@ -79,6 +79,21 @@ class ModelPublicationResponse:
 
 
 @dataclass(frozen=True)
+class ResultPublicationResponse:
+    """Narrow Admin result-publication response.
+
+    Publication is metadata-only; the stored result payload and provenance are
+    intentionally not returned by this mutation endpoint.
+    """
+
+    result_id: str
+    is_published: bool
+    is_default: bool
+    published_at: str | None
+    dto_version: str = "1"
+
+
+@dataclass(frozen=True)
 class AnalysisSubmitRequest:
     baseline_model_id: str
     comparison_model_id: str
@@ -302,6 +317,8 @@ class CalculationHistoryItem:
     error_code: str | None
     error_message: str | None
     is_published: bool
+    is_default: bool = False
+    published_at: str | None = None
 
 
 @dataclass(frozen=True)

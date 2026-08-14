@@ -547,6 +547,27 @@ def create_http_bff(
         _operation_audit(audit, application, value, request, "model_publication", model_id)
         return result
 
+    @app.post("/api/admin/results/{result_id}/publication", dependencies=[Depends(csrf_guard)])
+    def set_result_publication(
+        request: Request,
+        result_id: str,
+        body: ModelPublicationBody,
+        value: str = Depends(admin_session),
+    ):
+        if application.result_publication is None:
+            raise BffError(
+                ApiErrorCode.TRANSIENT_SYSTEM_ERROR,
+                "Result publication capability is not configured",
+            )
+        result = application.result_publication.set_publication(
+            value,
+            result_id,
+            is_published=body.is_published,
+            is_default=body.is_default,
+        )
+        _operation_audit(audit, application, value, request, "result_publication", result_id)
+        return result
+
     @app.post("/api/analyses", dependencies=[Depends(csrf_guard)])
     def submit_analysis(request: Request, body: SubmitBody, value: str = Depends(admin_session)):
         result = application.submissions.submit(value, AnalysisSubmitRequest(**body.model_dump()))

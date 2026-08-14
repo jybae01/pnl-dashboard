@@ -16,6 +16,7 @@ from .dto import (
     AnalysisSubmitRequest,
     AnalysisSubmitResponse,
     JobStatusResponse,
+    ResultPublicationResponse,
     ResultProvenanceResponse,
     SessionResponse,
     SessionTicket,
@@ -369,6 +370,98 @@ class ResultQueryService:
         return response
 
 
+class ResultPublicationService:
+    """Admin-only metadata publication over the existing trusted repository.
+
+    The repository is server-side only and delegates to the narrow
+    ``set_calculation_result_publication`` RPC.  This service performs the
+    session check and shapes the RPC row into a minimal DTO before it crosses
+    the HTTP boundary.
+    """
+
+    def __init__(self, sessions: AccessCodeSessionService, repository: Any) -> None:
+        self._sessions = sessions
+        self._repository = repository
+
+    def set_publication(
+        self,
+        session_id: str,
+        result_id: str,
+        *,
+        is_published: bool,
+        is_default: bool = False,
+    ) -> ResultPublicationResponse:
+        self._sessions.require_admin(session_id)
+        normalized_id = _uuid(result_id, "result_id")
+        if not isinstance(is_published, bool) or not isinstance(is_default, bool):
+            raise BffError(
+                ApiErrorCode.VALIDATION_ERROR,
+                "Result publication request is invalid",
+                field_errors={"publication": "boolean flags are required"},
+            )
+        if is_default and not is_published:
+            raise BffError(
+                ApiErrorCode.VALIDATION_ERROR,
+                "Result publication request is invalid",
+                field_errors={"is_default": "requires_published"},
+            )
+        try:
+            row = self._repository.set_publication(
+                normalized_id,
+                is_published=bool(is_published),
+                is_default=bool(is_default),
+            )
+        except ValueError as exc:
+            raise BffError(
+                ApiErrorCode.VALIDATION_ERROR,
+                "Result publication request is invalid",
+            ) from exc
+        except KeyError as exc:
+            raise BffError(ApiErrorCode.RESULT_NOT_FOUND, "Result not found") from exc
+        except Exception as exc:
+            # Do not leak provider/SQL diagnostics.  The RPC validates the
+            # completed-result provenance and published-model prerequisites;
+            # expose only the established safe integrity taxonomy.
+            raise BffError(
+                ApiErrorCode.INPUT_INTEGRITY_MISMATCH,
+                "Result publication prerequisites are not satisfied",
+            ) from exc
+
+        try:
+            if not isinstance(row, Mapping):
+                raise TypeError("publication response is not an object")
+            returned_id = _uuid(row.get("id") or row.get("result_id"), "result_id")
+            published = row.get("is_published")
+            default = row.get("is_default")
+            if not isinstance(published, bool) or not isinstance(default, bool):
+                raise TypeError("publication flags are invalid")
+            published_at = row.get("published_at")
+            if published_at is not None:
+                published_at = str(published_at)
+            if (
+                returned_id != normalized_id
+                or (default and not published)
+                or published != is_published
+                or default != is_default
+                or (published and published_at is None)
+                or (not published and published_at is not None)
+            ):
+                raise ValueError("publication response does not match request")
+            return ResultPublicationResponse(
+                result_id=returned_id,
+                is_published=published,
+                is_default=default,
+                published_at=published_at,
+            )
+        except BffError:
+            raise
+        except (KeyError, TypeError, ValueError) as exc:
+            raise BffError(
+                ApiErrorCode.INPUT_INTEGRITY_MISMATCH,
+                "Result publication response is invalid",
+            ) from exc
+
+
 class TrustedBffApplication:
     """Framework-neutral boundary for a later HTTP/cookie transport adapter."""
 
@@ -388,6 +481,7 @@ class TrustedBffApplication:
         pnl_dashboard: Any | None = None,
         forecast_generation: Any | None = None,
         worker_administration: Any | None = None,
+        result_publication: ResultPublicationService | None = None,
     ) -> None:
         self.sessions = sessions
         self.submissions = submissions
@@ -397,6 +491,7 @@ class TrustedBffApplication:
         self.model_management = model_management
         self.model_ingestion = model_ingestion
         self.model_publication = model_publication
+        self.result_publication = result_publication
         self.evidence = evidence
         self.history = history
         self.presentation = presentation
