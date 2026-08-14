@@ -22,6 +22,7 @@ CANONICAL_EFFECTS = (
     "sales_fx",
     "material_total",
     "manufacturing_realized",
+    "inventory_timing",
     "sga_variable",
     "sga_fixed",
     "tariff",
@@ -143,16 +144,17 @@ def _scope_report(
     cogs_gap = sum(float(reports[m]["residual_analysis"]["cogs_gap"]) for m in months)
     bridge = _comparison(op_delta, effects_total + residual)
     residual_gap = _comparison(residual, commercial_gap + cogs_gap)
-    inventory_realization_observed = any(
-        abs(float(reports[m]["comparison_result"]["manufacturing_realization_rate"]) - 1.0)
-        > RELATIVE_TOLERANCE
+    current_cost_scope_gap_observed = any(
+        reports[m]["comparison_result"]["inventory_analysis"].get(
+            "additive_bridge_status"
+        ) == "CHECK_CURRENT_COST_SCOPE_GAP"
         for m in months
     )
     commercial_classification_valid = (
         abs(commercial_gap) <= _tolerance(0.0) or same_group_composition_changed
     )
     inventory_classification_valid = (
-        abs(cogs_gap) <= _tolerance(0.0) or inventory_realization_observed
+        abs(cogs_gap) <= _tolerance(0.0) or current_cost_scope_gap_observed
     )
     residual_classification = {
         "status": "PASS" if residual_gap["status"] == "PASS"
@@ -172,11 +174,11 @@ def _scope_report(
             {
                 "amount": cogs_gap,
                 "classification": "INVENTORY_TIMING",
-                "evidence_observed": inventory_realization_observed,
+                "evidence_observed": current_cost_scope_gap_observed,
                 "evidence": (
-                    "Workbook COGS is realized through inventory while material and manufacturing "
-                    "effects use production-issue/current-input costs and an uncapped comparison "
-                    "inventory-realization rate."
+                    "Inventory Timing is independently sourced. The remaining COGS gap is the "
+                    "explicit difference between Current Manufacturing Cost Effect and the "
+                    "existing material/manufacturing driver subtotal; no plug is created."
                 ),
             },
         ],

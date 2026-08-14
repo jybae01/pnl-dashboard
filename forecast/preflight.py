@@ -41,6 +41,7 @@ class NumericRowSpec:
     code: str
     rows: tuple[int, ...]
     allow_blank: bool = False
+    require_all_months: bool = False
 
 
 @dataclass(frozen=True)
@@ -98,7 +99,9 @@ class ExcelPreflightValidator:
         numeric_rows: Iterable[NumericRowSpec] | None = None,
     ):
         self.mapping = dict(mapping)
-        discovery = self.mapping.get("analysis_adapter", {}).get("account_discovery", {})
+        analysis_adapter = self.mapping.get("analysis_adapter", {})
+        discovery = analysis_adapter.get("account_discovery", {})
+        inventory = analysis_adapter.get("inventory_timing", {})
         default_anchors = (
             AnchorSpec(
                 "front_raw_material_total",
@@ -140,6 +143,20 @@ class ExcelPreflightValidator:
             ),
             AnchorSpec("operating_profit", ("영업이익",), 1306, tolerance=0),
         )
+        default_anchors += tuple(
+            AnchorSpec(
+                f"inventory_{code}",
+                (str(inventory.get(code, {}).get("expected_label") or code),),
+                int(inventory.get(code, {}).get("row") or 0),
+                tolerance=0,
+            )
+            for code in (
+                "current_manufacturing_cost",
+                "finished_goods_cogs",
+                "semi_finished_goods_cogs",
+            )
+            if inventory.get(code, {}).get("row")
+        )
         self.anchors = tuple(anchors or default_anchors)
         by_code = {item.code: item for item in self.anchors}
         default_blocks: tuple[AnchorBlockSpec, ...] = ()
@@ -158,7 +175,7 @@ class ExcelPreflightValidator:
                 tuple(int(row) for row in self.mapping.get("sga_input_rows", ())),
             ),)
         self.blocks = tuple(blocks or default_blocks)
-        adapter = self.mapping.get("analysis_adapter", {})
+        adapter = analysis_adapter
         material = adapter.get("material", {})
         manufacturing = adapter.get("manufacturing", {})
         comparison = self.mapping.get("comparison", {})
@@ -189,6 +206,21 @@ class ExcelPreflightValidator:
             NumericRowSpec("pnl_sources", tuple(sorted(
                 int(row) for row in pnl_rows.values()
             ))),
+            NumericRowSpec("inventory_cost_sources", tuple(
+                int(inventory[code]["row"])
+                for code in (
+                    "current_manufacturing_cost",
+                    "finished_goods_cogs",
+                    "semi_finished_goods_cogs",
+                )
+                if inventory.get(code, {}).get("row")
+            ), require_all_months=True),
+            NumericRowSpec("opening_inventory_unit_sources", tuple(sorted({
+                int(row)
+                for spec in inventory.get("opening_inventory_units", {}).values()
+                for key in ("quantity_rows", "amount_rows")
+                for row in spec.get(key, ())
+            })), require_all_months=True),
         )
         self.numeric_rows = tuple(numeric_rows or default_numeric_rows)
 
@@ -373,6 +405,8 @@ class ExcelPreflightValidator:
                     cell = sheet.cell(row, column_index)
                     value = cell.value
                     if value in (None, ""):
+                        if spec.require_all_months:
+                            invalid.append(cell.coordinate)
                         continue
                     is_formula = isinstance(value, str) and value.startswith("=")
                     is_number = isinstance(value, Real) and not isinstance(value, bool)

@@ -21,7 +21,15 @@
     "exclude_from_back_activity": [],
     "allocation_ratio_keys": ["노무비", "외주가공비", "기타경비"],
     "inventory_realization_formula": "cogs/current_period_manufacturing_input",
-    "inventory_realization_cap": null
+    "inventory_realization_cap": null,
+    "inventory_realization_usage": "reference_only"
+  },
+  "inventory_timing": {
+    "materiality": {
+      "status": "UNCONFIGURED",
+      "absolute_amount": null,
+      "op_delta_ratio": null
+    }
   },
   "sga": {
     "variable_accounts": ["브랜드사용료", "포장비"],

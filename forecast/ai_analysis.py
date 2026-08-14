@@ -306,6 +306,8 @@ def build_fact_pack(
             for row in manufacturing_accounts
             if row.get("inventory_realization_rate") is not None
         }),
+        "realization_rates_reference_only": True,
+        "realization_multiplier_applied": False,
         "major_accounts": sorted([{
             "account": row.get("account"),
             "classification": row.get("classification"),

@@ -29,6 +29,7 @@ def presentation_row() -> dict:
         "sales_fx": 4.0,
         "material_total": -5.0,
         "manufacturing_realized": 6.0,
+        "inventory_timing": 2.0,
         "sga_variable": 3.0,
         "sga_fixed": 4.0,
         "tariff": -1.0,
@@ -46,8 +47,8 @@ def presentation_row() -> dict:
             for code, value in effects.items()
         ],
         "operating_profit_delta": 35.0,
-        "effects_total": 27.0,
-        "residual": 8.0,
+        "effects_total": 29.0,
+        "residual": 6.0,
         "reconciled": False,
         "sales_analysis": {
             "baseline_fx_krw_per_usd": 1400.0,
@@ -97,6 +98,17 @@ def presentation_row() -> dict:
             "nonwoven_jpy": -1.0,
             "materials_ex_nonwoven": -2.0,
             "product_groups": [],
+        },
+        "inventory_analysis": {
+            "source_validation_status": "PASS",
+            "scope_validation_status": "PASS",
+            "base_manufactured_cogs": 100.0,
+            "comparison_manufactured_cogs": 88.0,
+            "manufactured_cogs_effect": 12.0,
+            "base_current_manufacturing_cost": 90.0,
+            "comparison_current_manufacturing_cost": 80.0,
+            "current_manufacturing_cost_effect": 10.0,
+            "inventory_timing_effect": 2.0,
         },
         "manufacturing_accounts": [
             {
@@ -211,7 +223,7 @@ def test_product_and_activity_units_never_mix_and_lc_is_four_inch():
     }
 
 
-@pytest.mark.parametrize("mutation", ["effects_total", "transport_quantity", "transport_duplicate", "fx_snapshot", "payload_schema"])
+@pytest.mark.parametrize("mutation", ["effects_total", "transport_quantity", "transport_duplicate", "fx_snapshot", "inventory_source", "payload_schema"])
 def test_mismatch_payload_is_rejected_not_repaired(mutation):
     row = presentation_row()
     result = row["result_payload"]["comparison_result"]
@@ -224,6 +236,8 @@ def test_mismatch_payload_is_rejected_not_repaired(mutation):
             result["sga_accounts"][0]["profit_effect"] = 3.0
         elif mutation == "fx_snapshot":
             result["sales_analysis"]["baseline_fx_krw_per_usd"] = 999.0
+        elif mutation == "inventory_source":
+            result["inventory_analysis"]["source_validation_status"] = "FAIL"
         else:
             row["result_payload"]["payload_schema_version"] = "unsupported"
     with pytest.raises(BffError) as caught:

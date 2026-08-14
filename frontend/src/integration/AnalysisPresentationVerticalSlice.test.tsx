@@ -45,10 +45,10 @@ describe('analysis presentation vertical slice', () => {
     const mapping = mapAnalysisPresentation(value);
     expect(mapping.effects.map((effect) => effect.code)).toEqual([...CANONICAL_EFFECT_ORDER]);
     expect(mapping.effects.map((effect) => effect.uiLabel)).toEqual([
-      '판매수량', '제품 Mix', '판가', '매출환율', '원재료', '제조', '변동 판매관리비', '고정 판매관리비', '관세',
+      '판매수량', '제품 Mix', '판가', '매출환율', '원재료', '제조', '재고·원가 반영시차', '변동 판매관리비', '고정 판매관리비', '관세',
     ]);
     expect(mapping.effects.map((effect) => effect.uiCategoryLabel)).toEqual([
-      '내부', '내부', '내부', '외부', '비용', '비용', '비용', '비용', '외부',
+      '내부', '내부', '내부', '외부', '비용', '비용', '비용', '비용', '비용', '외부',
     ]);
     expect(mapping.residual.uiLabel).toBe('기타 요인');
     expect(mapping.residual.amount).toBe(value.residual.amount);

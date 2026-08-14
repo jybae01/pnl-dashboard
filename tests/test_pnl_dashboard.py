@@ -36,6 +36,8 @@ def comparison(months=(1, 2), scale=1.0):
                          line("manufacturing_expense", "제조경비", 10, 12)],
         "material_analysis": {"nonwoven_price_ex_fx": -1, "nonwoven_jpy": -2,
                               "materials_ex_nonwoven": -3, "total": -6},
+        "inventory_analysis": {"inventory_timing_effect": 0, "persistence": "MIXED",
+                               "coverage": "LIMITED", "materiality_status": "UNCONFIGURED"},
         "manufacturing_accounts": [
             {"account": "변동 제조경비", "classification": "variable", "baseline_amount": 6,
              "comparison_amount": 7, "delta": 1, "final_profit_effect": -1,
@@ -63,7 +65,7 @@ def comparison(months=(1, 2), scale=1.0):
             for code, amount in {
                 "sales_quantity": 2, "sales_mix": 0, "sales_price": 1, "sales_fx": 0,
                 "tariff": -1, "material_total": -2, "manufacturing_realized": -2,
-                "sga_variable": 2, "sga_fixed": -2,
+                "inventory_timing": 0, "sga_variable": 2, "sga_fixed": -2,
             }.items()
         ],
         "effects_total": -2, "residual": 9, "operating_profit_delta": 7, "reconciled": False,

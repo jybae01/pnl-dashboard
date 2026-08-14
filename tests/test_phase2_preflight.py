@@ -30,6 +30,13 @@ def _workbook(path: Path) -> None:
     sheet["B1166"] = discovery["sga_start_marker"]
     sheet["B1244"] = discovery["sga_stop_marker"]
     sheet["B1306"] = "영업이익"
+    inventory = MAPPING["analysis_adapter"]["inventory_timing"]
+    for code in (
+        "current_manufacturing_cost",
+        "finished_goods_cogs",
+        "semi_finished_goods_cogs",
+    ):
+        sheet.cell(inventory[code]["row"], 2, inventory[code]["expected_label"])
 
     validator = ExcelPreflightValidator(MAPPING)
     for spec in validator.numeric_rows:
@@ -65,6 +72,9 @@ def test_anchor_and_hierarchical_block_preflight_passes(tmp_path):
         "sga_start": 1166,
         "sga_stop": 1244,
         "operating_profit": 1306,
+        "inventory_current_manufacturing_cost": 325,
+        "inventory_finished_goods_cogs": 1269,
+        "inventory_semi_finished_goods_cogs": 1280,
     }
 
 
@@ -115,6 +125,11 @@ def test_irrelevant_stp_defined_name_merge_and_hidden_row_do_not_fail(tmp_path):
         (
             "numeric source",
             lambda book: setattr(book["Data"]["E9"], "value", "JPY 없음"),
+            "source_cell_not_numeric",
+        ),
+        (
+            "inventory source",
+            lambda book: setattr(book["Data"]["E325"], "value", None),
             "source_cell_not_numeric",
         ),
         (

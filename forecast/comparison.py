@@ -8,7 +8,8 @@ from typing import Any
 from .storage import ModelMeta
 from .workbook import GoldenWorkbook
 from .analysis.configuration import AnalysisConfig
-from .analysis.golden_adapter import GoldenAnalysisAdapter
+from .analysis.golden_adapter import AdaptedGoldenScenario, GoldenAnalysisAdapter
+from .analysis.inventory_effects import calculate_inventory_timing_effects
 from .analysis.manufacturing_effects import calculate_manufacturing_effects
 from .analysis.material_effects import calculate_material_effects
 from .analysis.sales_effects import calculate_sales_effects
@@ -48,6 +49,7 @@ class ComparisonResult:
     sga_accounts: list[dict[str, Any]] = field(default_factory=list)
     material_analysis: dict[str, Any] = field(default_factory=dict)
     manufacturing_analysis: dict[str, Any] = field(default_factory=dict)
+    inventory_analysis: dict[str, Any] = field(default_factory=dict)
     sales_analysis: dict[str, Any] = field(default_factory=dict)
 
 
@@ -114,13 +116,17 @@ class GenericComparisonEngine:
         common = set(self.common_months(baseline_meta, comparison_meta))
         if not period.months or not set(period.months).issubset(common):
             raise ValueError("두 모형의 공통기간에 포함되지 않는 비교기간입니다.")
+        rolling_history = tuple(
+            month for month in sorted(common) if month <= max(period.months)
+        )[-3:]
+        analysis_months = tuple(sorted(set(period.months) | set(rolling_history)))
         baseline = self._extract(
             GoldenWorkbook(baseline_path), baseline_meta, period.months,
-            sales_fx=baseline_sales_fx,
+            sales_fx=baseline_sales_fx, analysis_months=analysis_months,
         )
         target = self._extract(
             GoldenWorkbook(comparison_path), comparison_meta, period.months,
-            sales_fx=comparison_sales_fx,
+            sales_fx=comparison_sales_fx, analysis_months=analysis_months,
         )
 
         pnl = self._rows(self.mapping["pnl_labels"], baseline["pnl"], target["pnl"])
@@ -175,8 +181,13 @@ class GenericComparisonEngine:
         tolerance = max(1.0, abs(op_delta) * 1e-9)
         narrative = self._narrative(op_delta, effects, residual)
         if baseline.get("adapted") is not None and target.get("adapted") is not None:
-            base_scenario = baseline["adapted"].scenario
-            comparison_scenario = target["adapted"].scenario
+            full_base_scenario = baseline["adapted"].scenario
+            full_comparison_scenario = target["adapted"].scenario
+            selected_year_months = tuple(
+                f"{int(baseline_meta.year):04d}-{month:02d}" for month in period.months
+            )
+            base_scenario = full_base_scenario.select(selected_year_months)
+            comparison_scenario = full_comparison_scenario.select(selected_year_months)
             calculated_analysis_sales = calculate_sales_effects(
                 base_scenario, comparison_scenario, self.analysis_config
             )
@@ -188,6 +199,17 @@ class GenericComparisonEngine:
             )
             calculated_analysis_sga = calculate_sga_effects(
                 base_scenario, comparison_scenario, self.analysis_config
+            )
+            calculated_inventory = calculate_inventory_timing_effects(
+                full_base_scenario,
+                full_comparison_scenario,
+                selected_year_months,
+                self.analysis_config,
+                operating_profit_delta=op_delta,
+                current_cost_related_effects=(
+                    calculated_analysis_material.total
+                    + calculated_analysis_manufacturing.occurrence_total
+                ),
             )
             # Keep the legacy group rows for the sales tab, but make their
             # aggregate totals come from the same normalized records used by
@@ -265,11 +287,22 @@ class GenericComparisonEngine:
                 },
                 {
                     "code": "manufacturing_realized",
-                    "factor": "제조경비 재고실현 효과",
+                    "factor": "제조경비 효과",
                     "baseline": None,
                     "comparison": None,
                     "delta": None,
                     "profit_effect": calculated_analysis_manufacturing.realized_total,
+                },
+                {
+                    "code": "inventory_timing",
+                    "factor": "재고·원가 반영시차 효과",
+                    "baseline": calculated_inventory.base_manufactured_cogs,
+                    "comparison": calculated_inventory.comparison_manufactured_cogs,
+                    "delta": (
+                        calculated_inventory.comparison_manufactured_cogs
+                        - calculated_inventory.base_manufactured_cogs
+                    ),
+                    "profit_effect": calculated_inventory.inventory_timing_effect,
                 },
                 {
                     "code": "sga_variable",
@@ -288,15 +321,36 @@ class GenericComparisonEngine:
                     "profit_effect": calculated_analysis_sga.fixed,
                 },
             ]
+            selected_baseline = AdaptedGoldenScenario(
+                base_scenario,
+                baseline["adapted"].manufacturing_source_rows,
+                baseline["adapted"].manufacturing_ratio_rows,
+                baseline["adapted"].sga_source_rows,
+            )
+            selected_target = AdaptedGoldenScenario(
+                comparison_scenario,
+                target["adapted"].manufacturing_source_rows,
+                target["adapted"].manufacturing_ratio_rows,
+                target["adapted"].sga_source_rows,
+            )
             material_analysis = self.analysis_adapter.material_analysis(
-                baseline["adapted"], target["adapted"]
+                selected_baseline, selected_target
             )
             manufacturing_accounts, manufacturing_analysis = (
                 self.analysis_adapter.manufacturing_accounts(
-                    baseline["adapted"], target["adapted"]
+                    selected_baseline, selected_target
                 )
             )
+            inventory_analysis = asdict(calculated_inventory)
         else:
+            effects.append({
+                "code": "inventory_timing",
+                "factor": "재고·원가 반영시차 효과",
+                "baseline": None,
+                "comparison": None,
+                "delta": None,
+                "profit_effect": 0.0,
+            })
             material_analysis = {}
             manufacturing_accounts = self._manufacturing_account_rows(
                 baseline.get("manufacturing_accounts", []),
@@ -305,6 +359,21 @@ class GenericComparisonEngine:
                 target.get("cost_summary", {}),
             )
             manufacturing_analysis = {}
+            inventory_analysis = {
+                "source_validation_status": "FAIL",
+                "scope_validation_status": "FAIL",
+                "source_coverage": "NONE",
+                "base_manufactured_cogs": 0.0,
+                "comparison_manufactured_cogs": 0.0,
+                "manufactured_cogs_effect": 0.0,
+                "base_current_manufacturing_cost": 0.0,
+                "comparison_current_manufacturing_cost": 0.0,
+                "current_manufacturing_cost_effect": 0.0,
+                "inventory_timing_effect": 0.0,
+                "primary": "NO_PRIMARY",
+                "confidence": "LOW",
+                "explanation_rule": "RULE_NO_PRIMARY:SOURCE_VALIDATION_FAIL",
+            }
         fx_total = float(sales_analysis.get("totals", {}).get("sales_fx_effect") or 0.0) + float(
             material_analysis.get("nonwoven_jpy") or 0.0
         )
@@ -338,6 +407,7 @@ class GenericComparisonEngine:
             sga_accounts=sga_accounts,
             material_analysis=material_analysis,
             manufacturing_analysis=manufacturing_analysis,
+            inventory_analysis=inventory_analysis,
             sales_analysis=sales_analysis,
         )
 
@@ -385,13 +455,12 @@ class GenericComparisonEngine:
                 "fixed_effect": 0.0 if is_variable else occurrence_effect,
                 "occurrence_effect": occurrence_effect,
                 "inventory_realization_rate": realization_rate,
-                "final_profit_effect": (
-                    occurrence_effect * realization_rate if realization_rate is not None else None
-                ),
+                "inventory_realization_reference_only": True,
+                "final_profit_effect": occurrence_effect,
                 "calculation_status": (
-                    "발생효과·실현효과 계산 완료 / 조업도·원단위 분해는 전후공정 배부율 매핑 필요"
+                    "발생효과 계산 완료 / 재고실현율 참고지표(Effect multiplier 미적용) / 조업도·원단위 분해는 전후공정 배부율 매핑 필요"
                     if is_variable else
-                    "고정비 기준-비교 및 비교 모형 재고실현율 적용 완료"
+                    "고정비 기준-비교 완료 / 재고실현율 참고지표(Effect multiplier 미적용)"
                 ),
             })
         return output
@@ -508,6 +577,7 @@ class GenericComparisonEngine:
         months: tuple[int, ...],
         *,
         sales_fx: float = 1.0,
+        analysis_months: tuple[int, ...] | None = None,
     ) -> dict[str, Any]:
         def total(row: int) -> float:
             return sum(float(workbook.value(f"{self.MONTH_COLUMNS[month]}{row}") or 0) for month in months)
@@ -549,7 +619,7 @@ class GenericComparisonEngine:
         if hasattr(workbook, "cells"):
             try:
                 adapted = self.analysis_adapter.build(
-                    workbook, meta, months, sales_fx=sales_fx
+                    workbook, meta, analysis_months or months, sales_fx=sales_fx
                 )
             except (KeyError, ValueError) as exc:
                 # A legacy or partially uploaded workbook can still be

@@ -476,7 +476,7 @@ function validateResultPublication(value: unknown): ResultPublicationDto {
 
 const PRESENTATION_EFFECT_ORDER = [
   'sales_quantity', 'sales_mix', 'sales_price', 'sales_fx', 'material_total',
-  'manufacturing_realized', 'sga_variable', 'sga_fixed', 'tariff',
+  'manufacturing_realized', 'inventory_timing', 'sga_variable', 'sga_fixed', 'tariff',
 ] as const;
 const RESIDUAL_CLASSIFICATIONS = new Set([
   'VALIDATION_ARTIFACT', 'FORMULA_EVALUATOR_GAP', 'MAPPING_GAP', 'ENGINE_BUG',
@@ -491,7 +491,7 @@ function validatePresentationEffect(value: unknown): AnalysisPresentationEffectD
     || typeof value.description !== 'string'
     || !finite(value.profit_effect)
     || !isRecord(value.drilldown)
-    || !['sales', 'material', 'manufacturing', 'sga', 'tariff', 'unavailable'].includes(String(value.drilldown.kind))
+    || !['sales', 'material', 'manufacturing', 'inventory', 'sga', 'tariff', 'unavailable'].includes(String(value.drilldown.kind))
     || typeof value.drilldown.available !== 'boolean'
     || !Array.isArray(value.drilldown.rows)) invalidPayload();
   for (const row of value.drilldown.rows) {
@@ -701,7 +701,7 @@ function validatePnlDashboard(value: unknown): PnlDashboardDto {
   const facts = value.key_facts;
   const dashboardEffectCodes = new Set([
     'sales_quantity', 'sales_mix', 'sales_price', 'sales_fx', 'tariff',
-    'material_total', 'manufacturing_realized', 'sga_variable', 'sga_fixed',
+    'material_total', 'manufacturing_realized', 'inventory_timing', 'sga_variable', 'sga_fixed',
   ]);
   if (!Array.isArray(facts.effects) || !finite(facts.effects_total) || !finite(facts.residual)
     || !finite(facts.operating_profit_delta) || typeof facts.reconciled !== 'boolean'

@@ -50,6 +50,9 @@ def _build_workbook(path, *, comparison: bool = False) -> None:
         sheet.cell(row, 2, "고정비")
         sheet.cell(row, 3, account)
     sheet["B1244"] = "★손익계산서"
+    sheet["C325"] = "제조원가"
+    sheet["C1269"] = "1. 제품 매출원가(천원)"
+    sheet["C1280"] = "2. 반제품 매출원가(천원)"
 
     column = 5
     def put(row: int, base: float, target: float | None = None):
@@ -126,6 +129,9 @@ def _build_workbook(path, *, comparison: bool = False) -> None:
 
     # Comparison realization rate = COGS / current-period manufacturing input = 1.
     put(1268, 200)
+    put(325, 200)
+    put(1269, 200)
+    put(1280, 0)
     put(1248, 300)
     put(1306, 25)
     put(1276, 100)
@@ -178,6 +184,19 @@ def test_adapter_calculates_material_three_part_identity_from_golden_cells(tmp_p
     assert result["jpy_fx_unit"] == "KRW/JPY"
     assert "mcm" not in str(result).lower()
     assert "yield" not in str(result).lower()
+
+
+def test_adapter_marks_blank_inventory_source_as_validation_failure(tmp_path):
+    path = tmp_path / "blank-inventory-source.xlsx"
+    _build_workbook(path)
+    workbook = load_workbook(path)
+    workbook["Data"]["E325"] = None
+    workbook.save(path)
+
+    adapted = _adapter().build(GoldenWorkbook(path), _meta("base"), (1,))
+
+    assert adapted.scenario.inventory_costs[0].source_validation_status == "FAIL"
+    assert adapted.scenario.inventory_costs[0].scope_validation_status == "FAIL"
 
 
 def test_material_uses_direct_input_total_rows_211_and_699(tmp_path):

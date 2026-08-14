@@ -4,6 +4,7 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
 from .configuration import AnalysisConfig
+from .inventory_effects import InventoryTimingEffects, calculate_inventory_timing_effects
 from .manufacturing_effects import ManufacturingEffects, calculate_manufacturing_effects
 from .material_effects import MaterialEffects, calculate_material_effects
 from .narratives import build_narrative
@@ -23,6 +24,7 @@ class AnalysisResult:
     sales: SalesEffects
     material: MaterialEffects
     manufacturing: ManufacturingEffects
+    inventory: InventoryTimingEffects
     sga: SgaEffects
     reconciliation: ReconciliationResult
     narrative: str
@@ -56,6 +58,27 @@ class AnalysisEngine:
         manufacturing = calculate_manufacturing_effects(left, right, self.config)
         sga = calculate_sga_effects(left, right, self.config)
         direct = self._direct_effects(left, right)
+        op_delta = sum(row.operating_profit for row in right.pnl) - sum(
+            row.operating_profit for row in left.pnl
+        )
+        if left.inventory_costs and right.inventory_costs:
+            inventory = calculate_inventory_timing_effects(
+                base,
+                comparison,
+                selected,
+                self.config,
+                operating_profit_delta=op_delta,
+                current_cost_related_effects=material.total + manufacturing.occurrence_total,
+            )
+        else:
+            inventory = InventoryTimingEffects(
+                source_validation_status="FAIL",
+                scope_validation_status="FAIL",
+                source_coverage="NONE",
+                primary="NO_PRIMARY",
+                confidence="LOW",
+                explanation_rule="RULE_NO_PRIMARY:SOURCE_VALIDATION_FAIL",
+            )
 
         effects: list[dict[str, float | str]] = [
             {"code": "sales_quantity", "label": "판매수량 효과", "profit_effect": sales.quantity},
@@ -66,12 +89,12 @@ class AnalysisEngine:
             {"code": "nonwoven_price_ex_fx", "label": "부직포 단가효과(환율 제외)", "profit_effect": material.nonwoven_price_ex_fx},
             {"code": "nonwoven_jpy", "label": "부직포 엔화 효과", "profit_effect": material.nonwoven_jpy},
             {"code": "materials_ex_nonwoven", "label": "부직포 제외 원재료 효과", "profit_effect": material.materials_ex_nonwoven},
-            {"code": "manufacturing_realized", "label": "노무비·제조경비 손익실현 효과", "profit_effect": manufacturing.realized_total},
+            {"code": "manufacturing_realized", "label": "노무비·제조경비 효과", "profit_effect": manufacturing.realized_total},
+            {"code": "inventory_timing", "label": "재고·원가 반영시차 효과", "profit_effect": inventory.inventory_timing_effect},
             {"code": "sga_variable", "label": "변동 판관비 효과", "profit_effect": sga.variable},
             {"code": "sga_fixed", "label": "고정 판관비 효과", "profit_effect": sga.fixed},
             *direct,
         ]
-        op_delta = sum(row.operating_profit for row in right.pnl) - sum(row.operating_profit for row in left.pnl)
         check = reconcile(
             op_delta,
             effects,
@@ -94,6 +117,7 @@ class AnalysisEngine:
             sales=sales,
             material=material,
             manufacturing=manufacturing,
+            inventory=inventory,
             sga=sga,
             reconciliation=check,
             narrative=narrative,

@@ -178,7 +178,7 @@ def _render_manufacturing(view: dict[str, Any]) -> None:
     st.caption("전공정 Driver는 FS 길이(m), 후공정 Driver는 SW+BW+LC 생산입고 PCS 합계입니다. MCM은 외주가공비 조업도에서 제외합니다.")
 
     st.markdown("#### B. 제조경비 계정별 상세")
-    st.caption("단위: 금액 백만원 / 재고실현율 %")
+    st.caption("단위: 금액 백만원 / 재고실현율(참고) %")
     account_rows = [{
         "계정과목": row.get("account"),
         "구분": "변동" if row.get("classification") == "variable" else "고정",
@@ -188,8 +188,8 @@ def _render_manufacturing(view: dict[str, Any]) -> None:
         "조업도 효과": format_million(row.get("activity_effect"), suffix=False, signed=True),
         "원단위 효과": format_million(row.get("unit_effect"), suffix=False, signed=True),
         "고정비 효과": format_million(row.get("fixed_effect"), suffix=False, signed=True),
-        "실현 전 효과": format_million(row.get("occurrence_effect"), suffix=False, signed=True),
-        "재고실현율": (
+        "발생효과": format_million(row.get("occurrence_effect"), suffix=False, signed=True),
+        "재고실현율(참고)": (
             "미산출" if row.get("inventory_realization_rate") is None
             else f"{float(row['inventory_realization_rate']):.1%}"
         ),
@@ -208,11 +208,11 @@ def _render_manufacturing(view: dict[str, Any]) -> None:
             "계산상태": row.get("calculation_status"),
         } for row in manufacturing["accounts"]]), width="stretch", hide_index=True)
     if manufacturing["has_uncomputed_accounts"]:
-        st.warning("일부 제조경비는 Golden Model 전후공정 배부율 또는 재고실현율 분모 매핑이 없어 미산출입니다.")
+        st.warning("일부 제조경비는 Golden Model 전후공정 배부율 매핑이 없어 미산출입니다.")
     st.caption(
         "Golden Model 289~319행 계정을 개별 표시하고, 기준 모형 345~347행 전공정 가공비 "
         "투입비율을 기준·비교 양쪽에 동일 적용합니다. 상세 탭에서 ‘기타 제조경비’로 합치지 "
-        "않으며 재고실현율은 비교 모형 기준으로 100% 상한을 두지 않습니다."
+        "않으며 재고실현율은 참고지표로만 표시하고 최종 손익효과 multiplier로 사용하지 않습니다."
     )
 
 

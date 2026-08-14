@@ -31,6 +31,7 @@ function fixture(): PnlDashboardDto {
     { code: 'sales_mix', label: '제품 Mix', profit_effect: 0 },
     { code: 'sales_fx', label: '매출환율', profit_effect: 0 },
     { code: 'manufacturing_realized', label: '제조', profit_effect: -2 },
+    { code: 'inventory_timing', label: '재고·원가 반영시차', profit_effect: 0 },
     { code: 'sga_variable', label: '변동 판매관리비', profit_effect: 2 },
     { code: 'sga_fixed', label: '고정 판매관리비', profit_effect: -2 },
     { code: 'tariff', label: '관세', profit_effect: -1 },
@@ -122,8 +123,8 @@ describe('P&L Dashboard seven-source vertical slice', () => {
     const onNavigate = vi.fn();
     render(<PnlStatusView onNavigateToVariance={onNavigate} />);
     await screen.findByRole('heading', { name: '손익 현황' });
-    const labels = screen.getAllByText(/^(판가|원재료|판매수량|제품 Mix|매출환율|제조|변동 판매관리비|고정 판매관리비|관세)$/).map((node) => node.textContent);
-    expect(labels.slice(-9)).toEqual(['판가', '원재료', '판매수량', '제품 Mix', '매출환율', '제조', '변동 판매관리비', '고정 판매관리비', '관세']);
+    const labels = screen.getAllByText(/^(판가|원재료|판매수량|제품 Mix|매출환율|제조|재고·원가 반영시차|변동 판매관리비|고정 판매관리비|관세)$/).map((node) => node.textContent);
+    expect(labels.slice(-10)).toEqual(['판가', '원재료', '판매수량', '제품 Mix', '매출환율', '제조', '재고·원가 반영시차', '변동 판매관리비', '고정 판매관리비', '관세']);
     expect(screen.queryByText(/Top|주요 긍정|주요 부정/)).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: '손익분석 상세 보기' }));
     expect(onNavigate).toHaveBeenCalledTimes(1);

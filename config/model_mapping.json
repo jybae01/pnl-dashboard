@@ -357,6 +357,56 @@
         "outsourcing": 346,
         "other_variable": 347
       }
+    },
+    "inventory_timing": {
+      "current_manufacturing_cost": {
+        "row": 325,
+        "expected_label": "제조원가",
+        "business_source": "당기투입제조원가"
+      },
+      "finished_goods_cogs": {
+        "row": 1269,
+        "expected_label": "제품 매출원가",
+        "business_source": "제품 매출원가"
+      },
+      "semi_finished_goods_cogs": {
+        "row": 1280,
+        "expected_label": "반제품 매출원가",
+        "business_source": "반제품 매출원가"
+      },
+      "scope": {
+        "included_rows": [1269, 1280],
+        "excluded_non_manufactured_cogs_rows": [1289, 1291, 1295],
+        "finished_goods_adjustment_rows": [1270, 1271, 1272, 1273, 1274],
+        "semi_finished_goods_adjustment_rows": [1281, 1282, 1283],
+        "validation_status": "PASS"
+      },
+      "opening_inventory_units": {
+        "FS": {
+          "unit_basis": "LENGTH",
+          "specification": "FS",
+          "quantity_rows": [529],
+          "amount_rows": [530]
+        },
+        "SW": {
+          "unit_basis": "PCS",
+          "specification": "SW400+SW440",
+          "quantity_rows": [1022, 1047],
+          "amount_rows": [1023, 1048]
+        },
+        "BW": {
+          "unit_basis": "PCS",
+          "specification": "BW400+BW440",
+          "quantity_rows": [1072, 1097],
+          "amount_rows": [1073, 1098]
+        },
+        "LC": {
+          "unit_basis": "PCS",
+          "specification": "4-inch",
+          "quantity_rows": [1122],
+          "amount_rows": [1123]
+        }
+      }
     }
   },
   "comparison": {

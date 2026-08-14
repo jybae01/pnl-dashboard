@@ -12,7 +12,7 @@ MANUFACTURING_COST_CODES = (
 PRODUCT_ORDER = ("SW", "BW", "LC", "FS", "신사업")
 EFFECT_CODES = {
     "sales_quantity", "sales_mix", "sales_price", "sales_fx", "tariff",
-    "material_total", "manufacturing_realized", "sga_variable", "sga_fixed",
+    "material_total", "manufacturing_realized", "inventory_timing", "sga_variable", "sga_fixed",
 }
 
 
@@ -90,7 +90,7 @@ def build_pnl_dashboard_snapshot(
 
     effects = tuple(_effect_row(row) for row in _rows(result.get("effects"), "effects"))
     if len(effects) != len(EFFECT_CODES) or {row["code"] for row in effects} != EFFECT_CODES:
-        raise ValueError("dashboard requires the exact canonical nine-effect taxonomy")
+        raise ValueError("dashboard requires the exact canonical ten-effect taxonomy")
     ranked = tuple(sorted(effects, key=lambda row: (-abs(row["profit_effect"]), row["code"])))
     residual = _number(result.get("residual"), "residual")
     effects_total = _number(result.get("effects_total"), "effects_total")
@@ -147,6 +147,7 @@ def build_pnl_dashboard_snapshot(
                 "manufacturing_effect_includes_variable_and_fixed": True,
                 "fixed_manufacturing_is_not_a_separate_top_level_effect": True,
             },
+            "inventory_timing": dict(_mapping(result.get("inventory_analysis"), "inventory analysis")),
         },
         "sga": {
             "accounts": list(sga_accounts),

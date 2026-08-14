@@ -255,20 +255,24 @@ def calculate_manufacturing_effects(
         else:
             realization_rate = 0.0
             source = "zero_denominator"
-            if occurrence_month:
-                result.issues.append(f"{month}: 당기투입제조원가가 0이라 제조경비 손익실현 효과를 0으로 처리함")
-        realized = occurrence_month * realization_rate
+        # Inventory realization remains a reference metric only.  The
+        # manufacturing activity/unit/fixed formulas already explain current
+        # manufacturing-cost occurrence and must not be multiplied again.
+        final_effect = occurrence_month
         for detail in month_details:
             detail["inventory_realization_rate"] = realization_rate
-            detail["realized_effect"] = detail["occurrence_effect"] * realization_rate
+            detail["inventory_realization_reference_only"] = True
+            detail["realized_effect"] = detail["occurrence_effect"]
+            detail["final_profit_effect"] = detail["occurrence_effect"]
         result.occurrence_total += occurrence_month
-        result.realized_total += realized
+        result.realized_total += final_effect
         result.realization_details.append({
             "month": month,
             "rate": realization_rate,
             "source": source,
+            "reference_only": True,
             "occurrence_effect": occurrence_month,
-            "realized_effect": realized,
+            "realized_effect": final_effect,
         })
 
     return result

@@ -81,6 +81,13 @@ def _formula_check(formula_cell: str, engine_cell: str, tolerance: float = 1.0) 
     return f'=IF(ABS({formula_cell}-{engine_cell})<={tolerance},"PASS","CHECK")'
 
 
+def _bridge_identity_passes(result: dict[str, Any]) -> bool:
+    operating_profit_delta = _number(result.get("operating_profit_delta"))
+    bridge_total = _number(result.get("effects_total")) + _number(result.get("residual"))
+    tolerance = max(1.0, abs(operating_profit_delta) * 1e-9)
+    return abs(bridge_total - operating_profit_delta) <= tolerance
+
+
 def _write_readme(ws, result: dict[str, Any], baseline_fx: float, comparison_fx: float) -> None:
     _write_title(ws, "손익분석 검증 엑셀", "웹 손익분석에서 사용한 입력값, 원천 셀, 계산식과 결과를 추적하기 위한 파일입니다.")
     base = result.get("baseline", {})
@@ -98,7 +105,8 @@ def _write_readme(ws, result: dict[str, Any], baseline_fx: float, comparison_fx:
         ("영업이익 증감", result.get("operating_profit_delta", 0)),
         ("세부 효과 합계", result.get("effects_total", 0)),
         ("잔여차이", result.get("residual", 0)),
-        ("정합성", "PASS" if result.get("reconciled") else "CHECK"),
+        ("브리지 항등식", "PASS" if _bridge_identity_passes(result) else "CHECK"),
+        ("잔차 허용오차 정합성", "PASS" if result.get("reconciled") else "CHECK"),
     ]
     evidence = result.get("evidence_provenance", {})
     if isinstance(evidence, dict):
@@ -140,6 +148,7 @@ def _write_pnl_and_reconciliation(ws, result: dict[str, Any]) -> None:
         ws.cell(row_no, 8, _formula_check(f"G{row_no}", f"F{row_no}")).fill = _CHECK_FILL
         row_no += 1
 
+    ws.append([])
     row_no += 1
     effect_start = row_no
     for item in result.get("effects", []):
@@ -148,7 +157,13 @@ def _write_pnl_and_reconciliation(ws, result: dict[str, Any]) -> None:
             _number(item.get("baseline")), _number(item.get("comparison")),
             _number(item.get("profit_effect")), None, None,
         ])
-        if item.get("code") == "revenue":
+        if item.get("code") == "inventory_timing":
+            formula = "='재고시차_검증'!D12"
+        elif item.get("baseline") is None or item.get("comparison") is None:
+            # Detailed evidence sheets reproduce these calculations. This bridge
+            # row links their engine result without synthetic source amounts.
+            formula = f"=F{row_no}"
+        elif item.get("code") == "revenue":
             formula = f"=E{row_no}-D{row_no}"
         else:
             formula = f"=D{row_no}-E{row_no}"
@@ -157,6 +172,7 @@ def _write_pnl_and_reconciliation(ws, result: dict[str, Any]) -> None:
         row_no += 1
     effect_end = row_no - 1
 
+    ws.append([])
     row_no += 1
     ws.cell(row_no, 3, "영업이익 증감 엔진값").font = _BOLD
     ws.cell(row_no, 6, _number(result.get("operating_profit_delta")))
@@ -173,8 +189,19 @@ def _write_pnl_and_reconciliation(ws, result: dict[str, Any]) -> None:
     ws.cell(row_no, 7, f"=F{op_row}-G{total_row}").fill = _FORMULA_FILL
     ws.cell(row_no, 8, _formula_check(f"G{row_no}", f"F{row_no}")).fill = _CHECK_FILL
     row_no += 1
-    ws.cell(row_no, 3, "최종 정합성").font = _BOLD
-    ws.cell(row_no, 8, f'=IF(ABS(G{row_no-1})<=MAX(1,ABS(F{op_row})*1E-9),"PASS","CHECK")').fill = _CHECK_FILL
+    ws.cell(row_no, 3, "브리지 항등식").font = _BOLD
+    ws.cell(
+        row_no,
+        8,
+        f'=IF(ABS(F{op_row}-(G{total_row}+F{row_no-1}))<=MAX(1,ABS(F{op_row})*1E-9),"PASS","CHECK")',
+    ).fill = _CHECK_FILL
+    row_no += 1
+    ws.cell(row_no, 3, "잔차 허용오차 정합성").font = _BOLD
+    ws.cell(
+        row_no,
+        8,
+        f'=IF(ABS(F{row_no-2})<=MAX(1,ABS(F{op_row})*1E-9),"PASS","CHECK")',
+    ).fill = _CHECK_FILL
     _style_data_sheet(ws, header_row, money_columns=(4, 5, 6, 7))
 
 
@@ -313,12 +340,12 @@ def _write_manufacturing_detail(ws, result: dict[str, Any]) -> None:
     header_row = _write_title(
         ws,
         "생산·제조경비 효과 검증",
-        "Golden Model 289~319행 계정 총액에 기준 모형 345~347행 전공정 가공비 투입비율을 적용한 엔진 Result입니다.",
+        "Golden Model 제조경비 계정과 기준 전공정 배부율로 산출하며, 재고실현율은 참고지표이고 최종 Effect multiplier로 사용하지 않습니다.",
     )
     headers = [
         "원천 행", "계정과목", "구분", "배부율 원천 행", "기준 전공정 배부율",
         "기준 금액", "비교 금액", "증감", "조업도 효과", "원단위 효과",
-        "고정비 효과", "실현 전 효과", "재고실현율", "최종 손익효과", "발생효과 엑셀합계", "검증", "계산상태",
+        "고정비 효과", "발생효과", "재고실현율(참고)", "최종 손익효과", "발생효과 엑셀합계", "검증", "계산상태",
     ]
     _write_headers(ws, header_row, headers)
     for item in result.get("manufacturing_accounts", []):
@@ -340,6 +367,153 @@ def _write_manufacturing_detail(ws, result: dict[str, Any]) -> None:
         money_columns=(6, 7, 8, 9, 10, 11, 12, 14, 15),
         percent_columns=(5, 13),
     )
+
+
+def _write_inventory_timing(ws, result: dict[str, Any]) -> None:
+    inventory = result.get("inventory_analysis") or {}
+    _write_title(
+        ws,
+        "재고·원가 반영시차 검증",
+        "공식 Effect, Rolling 3M, 제품군 기초재고 단가와 Explanation Policy를 한 시트에서 추적합니다.",
+    )
+    _write_headers(
+        ws,
+        4,
+        ["공식 계산", "Base", "Comparison", "Excel Formula", "Engine Value", "Validation", "Source Reference"],
+    )
+    source_details = list(inventory.get("source_details") or [])
+
+    def refs(side: str, canonical: str) -> str:
+        return ", ".join(
+            str(row.get("source_reference") or "")
+            for row in source_details
+            if row.get("side") == side and row.get("canonical_field") == canonical
+        )
+
+    # The aggregate fields do not retain the two COGS components separately;
+    # recover them from the canonical source detail rows for transparent input cells.
+    def source_total(side: str, canonical: str) -> float:
+        return sum(
+            _number(row.get("value"))
+            for row in source_details
+            if row.get("side") == side and row.get("canonical_field") == canonical
+        )
+
+    ws.append([
+        "Finished Goods COGS",
+        source_total("BASE", "finished_goods_cogs"),
+        source_total("COMPARISON", "finished_goods_cogs"),
+        None, None, inventory.get("source_validation_status"),
+        f"Base: {refs('BASE', 'finished_goods_cogs')} / Comparison: {refs('COMPARISON', 'finished_goods_cogs')}",
+    ])
+    ws.append([
+        "Semi-finished Goods COGS",
+        source_total("BASE", "semi_finished_goods_cogs"),
+        source_total("COMPARISON", "semi_finished_goods_cogs"),
+        None, None, inventory.get("source_validation_status"),
+        f"Base: {refs('BASE', 'semi_finished_goods_cogs')} / Comparison: {refs('COMPARISON', 'semi_finished_goods_cogs')}",
+    ])
+    ws.append(["Manufactured COGS", None, None, "B7 = B5+B6; C7 = C5+C6", None, None, "제품+반제품만 포함"])
+    ws["B7"] = "=B5+B6"; ws["C7"] = "=C5+C6"
+    ws["B7"].fill = _FORMULA_FILL; ws["C7"].fill = _FORMULA_FILL
+    ws.append([
+        "Current Manufacturing Cost",
+        source_total("BASE", "current_manufacturing_cost"),
+        source_total("COMPARISON", "current_manufacturing_cost"),
+        None, None, inventory.get("source_validation_status"),
+        f"Base: {refs('BASE', 'current_manufacturing_cost')} / Comparison: {refs('COMPARISON', 'current_manufacturing_cost')}",
+    ])
+    ws.append([])
+    ws.append([
+        "Manufactured COGS Effect", None, None, "=B7-C7",
+        _number(inventory.get("manufactured_cogs_effect")), None,
+        "Base Manufactured COGS - Comparison Manufactured COGS",
+    ])
+    ws["D10"] = "=B7-C7"; ws["D10"].fill = _FORMULA_FILL
+    ws["F10"] = _formula_check("D10", "E10"); ws["F10"].fill = _CHECK_FILL
+    ws.append([
+        "Current Manufacturing Cost Effect", None, None, "=B8-C8",
+        _number(inventory.get("current_manufacturing_cost_effect")), None,
+        "Base Current Manufacturing Cost - Comparison Current Manufacturing Cost",
+    ])
+    ws["D11"] = "=B8-C8"; ws["D11"].fill = _FORMULA_FILL
+    ws["F11"] = _formula_check("D11", "E11"); ws["F11"].fill = _CHECK_FILL
+    ws.append([
+        "Inventory Timing Effect", None, None, "=D10-D11",
+        _number(inventory.get("inventory_timing_effect")), None,
+        "Manufactured COGS Effect - Current Manufacturing Cost Effect",
+    ])
+    ws["D12"] = "=D10-D11"; ws["D12"].fill = _FORMULA_FILL
+    ws["F12"] = _formula_check("D12", "E12"); ws["F12"].fill = _CHECK_FILL
+
+    row_no = 15
+    _write_headers(
+        ws, row_no,
+        ["Business Source", "Canonical Field", "Base/Comparison", "Period", "Unit", "Source Reference", "Used Value", "Calculation", "Validation"],
+    )
+    for source in source_details:
+        ws.append([
+            source.get("business_source"), source.get("canonical_field"),
+            source.get("side"), source.get("period"), source.get("unit"),
+            source.get("source_reference"), source.get("value"),
+            "Source value (no residual/OP backsolve)", source.get("validation_status"),
+        ])
+
+    row_no = ws.max_row + 3
+    _write_headers(
+        ws,
+        row_no,
+        ["Rolling 3M Period", "Inventory Timing Effect", "Direction", "Persistence", "Source Reference"],
+    )
+    rolling = list(inventory.get("monthly_details") or [])
+    for item in rolling:
+        ws.append([
+            item.get("period"), item.get("inventory_timing_effect"),
+            item.get("direction"), inventory.get("persistence"),
+            item.get("source_reference"),
+        ])
+
+    row_no = ws.max_row + 3
+    _write_headers(
+        ws, row_no,
+        ["Product Group", "Unit", "Specification", "Base Opening Unit Cost", "Comparison Opening Unit Cost", "Delta Formula", "Direction", "Aligned", "Coverage", "Base Source", "Comparison Source"],
+    )
+    for item in inventory.get("opening_inventory_units") or []:
+        current_row = ws.max_row + 1
+        ws.append([
+            item.get("product_group"),
+            "m" if item.get("unit_basis") == "LENGTH" else "PCS",
+            item.get("specification"), item.get("base_unit_cost"),
+            item.get("comparison_unit_cost"), None, item.get("evidence_direction"),
+            item.get("direction_aligned"), item.get("coverage"),
+            item.get("base_source_reference"), item.get("comparison_source_reference"),
+        ])
+        ws.cell(current_row, 6, f"=E{current_row}-D{current_row}").fill = _FORMULA_FILL
+
+    row_no = ws.max_row + 3
+    _write_headers(ws, row_no, ["Explanation Metadata", "Value", "Applied Rule / Notes"])
+    metadata = (
+        ("Primary", inventory.get("primary"), inventory.get("fallback_narrative")),
+        ("Supporting", ", ".join(inventory.get("supporting") or []), "방향 일치·Rolling 3M evidence"),
+        ("Reference", ", ".join(inventory.get("reference") or []), "Limited coverage evidence"),
+        ("Confidence", inventory.get("confidence"), None),
+        ("Persistence", inventory.get("persistence"), None),
+        ("Coverage", inventory.get("product_unit_coverage"), None),
+        ("Materiality", inventory.get("materiality_status"), "production threshold 미설정 시 보수적으로 No Primary"),
+        ("Double-counting Gate", inventory.get("additive_bridge_status"), f"Current-cost explanation gap: {_number(inventory.get('current_cost_explanation_gap')):,.0f}"),
+        ("Rule", inventory.get("explanation_rule"), "; ".join(inventory.get("scope_notes") or [])),
+    )
+    for item in metadata:
+        ws.append(list(item))
+
+    for row in ws.iter_rows():
+        for cell in row:
+            cell.alignment = Alignment(vertical="top", wrap_text=True)
+            if cell.column in {2, 3, 4, 5, 7} and isinstance(cell.value, (int, float)):
+                cell.number_format = '#,##0'
+    for column, width in {"A": 32, "B": 22, "C": 24, "D": 24, "E": 22, "F": 26, "G": 54, "H": 38, "I": 22, "J": 52, "K": 52}.items():
+        ws.column_dimensions[column].width = width
+    ws.freeze_panes = "A5"
 
 
 def _write_sga_detail(ws, result: dict[str, Any]) -> None:
@@ -376,6 +550,10 @@ def _write_formula_catalog(ws) -> None:
         ("원부재료", "분해 원칙", "부직포 단가(환율 제외)+부직포 엔화+부직포 제외 원재료", "MCM·수율/사용량 독립효과 금지", "forecast/analysis/material_effects.py"),
         ("생산", "조업도 기준", "SAP 수불부 생산입고", "MES는 정합성 확인 보조", "분석 설정"),
         ("제조경비", "외주가공비 수량", "일반 외주가공 대상 수량", "MCM 관련 수량 제외", "분석 설정"),
+        ("제조경비", "최종 제조경비 Effect", "조업도+원단위+고정비 발생효과", "재고실현율은 참고지표이며 multiplier 미적용", "forecast/analysis/manufacturing_effects.py"),
+        ("재고시차", "Manufactured COGS Effect", "Base Manufactured COGS-Comparison Manufactured COGS", "제품+반제품 COGS", "forecast/analysis/inventory_effects.py"),
+        ("재고시차", "Current Manufacturing Cost Effect", "Base Current Manufacturing Cost-Comparison Current Manufacturing Cost", "당기투입제조원가", "forecast/analysis/inventory_effects.py"),
+        ("재고시차", "Inventory Timing Effect", "Manufactured COGS Effect-Current Manufacturing Cost Effect", "개선 + / 악화 -", "forecast/analysis/inventory_effects.py"),
         ("손익 브리지", "비용 효과", "기준 비용-비교 비용", "비용 감소는 손익 개선 +", "forecast/comparison.py"),
         ("정합성", "잔여차이", "영업이익 증감-세부효과 합계", "허용오차 이내 PASS", "forecast/comparison.py"),
     ]
@@ -428,12 +606,33 @@ def _analysis_source_specs(payload: dict[str, Any]) -> list[tuple[str, str, str,
     if back.get("source_start_row") and back.get("source_end_row"):
         for row in range(int(back["source_start_row"]), int(back["source_end_row"]) + 1):
             output.append(("원부재료", f"back_process_{row}", f"후공정 원재료 생산출고 {row}행", row))
-    account_discovery = adapter.get("account_discovery", {})
-    if account_discovery.get("manufacturing_start_marker"):
-        for row in range(289, 320):
-            output.append(("제조경비", f"manufacturing_{row}", f"제조경비 명세 {row}행", row))
+    for row in payload.get("manufacturing_input_rows", ()):
+        output.append((
+            "제조경비",
+            f"manufacturing_{int(row)}",
+            f"제조경비 명세 {int(row)}행",
+            int(row),
+        ))
     for key, row in adapter.get("manufacturing", {}).get("front_ratio_rows", {}).items():
         output.append(("제조경비", f"front_ratio_{key}", f"전공정 가공비 투입비율({key})", row))
+    inventory = adapter.get("inventory_timing", {})
+    for key in (
+        "current_manufacturing_cost", "finished_goods_cogs", "semi_finished_goods_cogs"
+    ):
+        source = inventory.get(key, {})
+        if source.get("row"):
+            output.append((
+                "재고시차", key, source.get("business_source", key), source["row"]
+            ))
+    for group, source in inventory.get("opening_inventory_units", {}).items():
+        output.append((
+            "재고시차 기초재고", f"{group}.quantity", f"{group} 기초재고 수량",
+            list(source.get("quantity_rows", ())),
+        ))
+        output.append((
+            "재고시차 기초재고", f"{group}.amount", f"{group} 기초재고 금액",
+            list(source.get("amount_rows", ())),
+        ))
     return output
 
 
@@ -530,6 +729,7 @@ def build_comparison_audit_workbook(
 
     _write_material_detail(workbook.create_sheet("원부재료_검증"), result)
     _write_manufacturing_detail(workbook.create_sheet("생산제조경비_검증"), result)
+    _write_inventory_timing(workbook.create_sheet("재고시차_검증"), result)
     _write_sga_detail(workbook.create_sheet("판관비_검증"), result)
     _write_formula_catalog(workbook.create_sheet("수식_정의"))
     months = tuple(int(month) for month in result.get("period", {}).get("months", ()))
@@ -541,7 +741,7 @@ def build_comparison_audit_workbook(
 
     required = {
         "README", "손익_정합성", "판매효과_검증", "원부재료_검증",
-        "생산제조경비_검증", "판관비_검증", "수식_정의", "원천셀_추적",
+        "생산제조경비_검증", "재고시차_검증", "판관비_검증", "수식_정의", "원천셀_추적",
     }
     missing = required.difference(workbook.sheetnames)
     if missing:

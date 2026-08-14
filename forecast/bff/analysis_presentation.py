@@ -29,6 +29,7 @@ EFFECT_ORDER = (
     "sales_fx",
     "material_total",
     "manufacturing_realized",
+    "inventory_timing",
     "sga_variable",
     "sga_fixed",
     "tariff",
@@ -40,7 +41,8 @@ EFFECT_METADATA = {
     "sales_price": ("판매단가", "INTERNAL", "표시 판매단가와 고객배송 운반비 효과를 정확히 한 번 포함"),
     "sales_fx": ("매출환율", "EXTERNAL", "KRW/USD 매출환율 효과"),
     "material_total": ("원재료", "COST", "부직포 가격·JPY 환율·기타 원부재료의 결정론적 합계"),
-    "manufacturing_realized": ("제조경비 손익실현", "COST", "전공정/후공정 제조경비와 재고실현 반영"),
+    "manufacturing_realized": ("제조경비", "COST", "전공정/후공정 제조경비 발생효과; 재고실현율 multiplier 미적용"),
+    "inventory_timing": ("재고·원가 반영시차", "COST", "제조품 COGS Effect - 당기투입제조원가 Effect"),
     "sga_variable": ("변동 판관비", "COST", "고객배송 운반비와 관세를 제외한 변동 판관비"),
     "sga_fixed": ("고정 판관비", "COST", "고객배송 운반비와 관세를 제외한 고정 판관비"),
     "tariff": ("관세", "EXTERNAL", "별도 관세 효과"),
@@ -205,9 +207,17 @@ def build_analysis_presentation(
         raise _integrity()
     _validate_sales_effects(amounts, sales_totals)
     material = _mapping(result.get("material_analysis"))
+    inventory = _mapping(result.get("inventory_analysis"))
+    if (
+        inventory.get("source_validation_status") != "PASS"
+        or inventory.get("scope_validation_status") != "PASS"
+    ):
+        raise _integrity()
     manufacturing_accounts = _sequence_of_mappings(result.get("manufacturing_accounts"))
     sga_accounts = _sequence_of_mappings(result.get("sga_accounts"))
-    _validate_cost_effects(amounts, material, manufacturing_accounts, sga_accounts)
+    _validate_cost_effects(
+        amounts, material, inventory, manufacturing_accounts, sga_accounts
+    )
 
     effects = tuple(
         _effect_response(
@@ -216,6 +226,7 @@ def build_analysis_presentation(
             sales_rows=sales_rows,
             sales_totals=sales_totals,
             material=material,
+            inventory=inventory,
             manufacturing_accounts=manufacturing_accounts,
             sga_accounts=sga_accounts,
         )
@@ -333,6 +344,7 @@ def _effect_response(
     sales_rows: tuple[Mapping[str, Any], ...],
     sales_totals: Mapping[str, Any],
     material: Mapping[str, Any],
+    inventory: Mapping[str, Any],
     manufacturing_accounts: tuple[Mapping[str, Any], ...],
     sga_accounts: tuple[Mapping[str, Any], ...],
 ) -> AnalysisPresentationEffectResponse:
@@ -342,6 +354,7 @@ def _effect_response(
         sales_rows=sales_rows,
         sales_totals=sales_totals,
         material=material,
+        inventory=inventory,
         manufacturing_accounts=manufacturing_accounts,
         sga_accounts=sga_accounts,
     )
@@ -354,6 +367,7 @@ def _drilldown(
     sales_rows: tuple[Mapping[str, Any], ...],
     sales_totals: Mapping[str, Any],
     material: Mapping[str, Any],
+    inventory: Mapping[str, Any],
     manufacturing_accounts: tuple[Mapping[str, Any], ...],
     sga_accounts: tuple[Mapping[str, Any], ...],
 ) -> AnalysisDrilldownResponse:
@@ -421,6 +435,36 @@ def _drilldown(
     if code == "manufacturing_realized":
         rows = tuple(_account_row("manufacturing", source, "final_profit_effect") for source in manufacturing_accounts)
         return AnalysisDrilldownResponse("manufacturing", bool(rows), rows, None if rows else "제조경비 계정 세부 payload 없음")
+    if code == "inventory_timing":
+        rows = (
+            AnalysisDrilldownRowResponse(
+                "inventory:manufactured_cogs",
+                "제조품 매출원가 Effect",
+                "KRW",
+                _number(inventory.get("base_manufactured_cogs")),
+                _number(inventory.get("comparison_manufactured_cogs")),
+                (
+                    _number(inventory.get("comparison_manufactured_cogs"))
+                    - _number(inventory.get("base_manufactured_cogs"))
+                ),
+                _number(inventory.get("manufactured_cogs_effect")),
+                "Base Manufactured COGS - Comparison Manufactured COGS",
+            ),
+            AnalysisDrilldownRowResponse(
+                "inventory:current_manufacturing_cost",
+                "당기투입제조원가 Effect",
+                "KRW",
+                _number(inventory.get("base_current_manufacturing_cost")),
+                _number(inventory.get("comparison_current_manufacturing_cost")),
+                (
+                    _number(inventory.get("comparison_current_manufacturing_cost"))
+                    - _number(inventory.get("base_current_manufacturing_cost"))
+                ),
+                _number(inventory.get("current_manufacturing_cost_effect")),
+                "Base Current Manufacturing Cost - Comparison Current Manufacturing Cost",
+            ),
+        )
+        return AnalysisDrilldownResponse("inventory", True, rows)
     if code in {"sga_variable", "sga_fixed"}:
         classification = "variable" if code == "sga_variable" else "fixed"
         rows = tuple(
@@ -534,6 +578,7 @@ def _validate_sales_effects(amounts: Mapping[str, float], totals: Mapping[str, A
 def _validate_cost_effects(
     amounts: Mapping[str, float],
     material: Mapping[str, Any],
+    inventory: Mapping[str, Any],
     manufacturing_accounts: tuple[Mapping[str, Any], ...],
     sga_accounts: tuple[Mapping[str, Any], ...],
 ) -> None:
@@ -551,6 +596,17 @@ def _validate_cost_effects(
     ) and not _close(
         sum(_number(row.get("final_profit_effect")) for row in manufacturing_accounts),
         amounts["manufacturing_realized"],
+    ):
+        raise _integrity()
+    if not _close(
+        _number(inventory.get("inventory_timing_effect")),
+        amounts["inventory_timing"],
+    ):
+        raise _integrity()
+    if not _close(
+        _number(inventory.get("manufactured_cogs_effect"))
+        - _number(inventory.get("current_manufacturing_cost_effect")),
+        amounts["inventory_timing"],
     ):
         raise _integrity()
     for classification, code in (("variable", "sga_variable"), ("fixed", "sga_fixed")):

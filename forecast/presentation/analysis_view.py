@@ -257,6 +257,7 @@ def _summary_view(
         *currency_and_material,
         ("변동 제조경비", manufacturing["variable_effect"]),
         ("고정 제조경비", manufacturing["fixed_effect"]),
+        ("재고·원가 반영시차", effects.get("inventory_timing", 0.0)),
         ("변동 판관비", sga["variable_effect"]),
         ("고정 판관비", sga["fixed_effect"]),
         ("관세", tariff_effect),
@@ -332,5 +333,6 @@ def build_analysis_view(
         "sales": sales,
         "material": material,
         "manufacturing": manufacturing,
+        "inventory_timing": dict(result.get("inventory_analysis") or {}),
         "sga": sga,
     }

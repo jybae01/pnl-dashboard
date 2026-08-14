@@ -304,14 +304,15 @@ class ManufacturingEffectsTest(unittest.TestCase):
         self.assertAlmostEqual(result.back_unit, 150.0)
         self.assertAlmostEqual(result.front_fixed + result.back_fixed, -50.0)
         self.assertAlmostEqual(result.occurrence_total, 50.0)
-        self.assertAlmostEqual(result.realized_total, 40.0)
+        self.assertAlmostEqual(result.realized_total, 50.0)
         detail = next(row for row in result.details if row["account"] == "수도광열비")
         self.assertEqual(detail["baseline_amount"], 1000)
         self.assertEqual(detail["comparison_amount"], 900)
         self.assertAlmostEqual(detail["activity_effect"], 0.0)
         self.assertAlmostEqual(detail["unit_effect"], 100.0)
         self.assertAlmostEqual(detail["inventory_realization_rate"], 0.8)
-        self.assertAlmostEqual(detail["realized_effect"], 80.0)
+        self.assertAlmostEqual(detail["realized_effect"], 100.0)
+        self.assertTrue(detail["inventory_realization_reference_only"])
 
     def test_realization_rate_above_one_is_not_capped(self):
         config = AnalysisConfig.load(CONFIG)
@@ -329,7 +330,9 @@ class ManufacturingEffectsTest(unittest.TestCase):
         )
         result = calculate_manufacturing_effects(base, comp, config)
         self.assertAlmostEqual(result.occurrence_total, 100.0)
-        self.assertAlmostEqual(result.realized_total, 150.0)
+        self.assertAlmostEqual(result.realized_total, 100.0)
+        self.assertAlmostEqual(result.details[0]["inventory_realization_rate"], 1.5)
+        self.assertTrue(result.details[0]["inventory_realization_reference_only"])
 
     def test_reference_workbook_variable_manufacturing_row(self):
         """Reproduce 제조경비 row 15 (수도광열비) effect columns Y:AF."""
@@ -359,7 +362,7 @@ class ManufacturingEffectsTest(unittest.TestCase):
         self.assertAlmostEqual(result.back_activity, 162646438.46980467, places=4)
         self.assertAlmostEqual(result.back_unit, -196363132.255559, places=4)
         self.assertAlmostEqual(result.occurrence_total, -59152094.360972434, places=4)
-        self.assertAlmostEqual(result.realized_total, -45311037.227244176, places=4)
+        self.assertAlmostEqual(result.realized_total, -59152094.360972434, places=4)
 
     def test_sap_activity_is_used_and_mcm_is_excluded_from_outsourcing_denominator(self):
         config = AnalysisConfig.load(CONFIG)

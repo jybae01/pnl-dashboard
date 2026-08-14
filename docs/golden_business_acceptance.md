@@ -48,7 +48,7 @@ Revenue, COGS, Gross Profit, or Operating Profit outputs.
 - Primary and secondary Base, Comparison, and Delta P&L reconciliations passed.
 - Primary and secondary product-group reconciliations passed for every mapped
   canonical group, including SW, BW, LC, FS, and New Business.
-- All nine current canonical Effect totals passed against the audit-only
+- All ten current canonical Effect totals passed against the audit-only
   independent reference.
 - The independent reference reads the configured raw source rows and applies
   the confirmed V1 formulas locally. It does not import a production Effect
@@ -57,8 +57,9 @@ Revenue, COGS, Gross Profit, or Operating Profit outputs.
   and both aggregate periods.
 - Residual was not used as a plug. Its evidenced components are
   `INTENTIONAL_SCOPE_GAP` for same-group SKU composition excluded from V1 Mix,
-  and `INVENTORY_TIMING` for the difference between realized workbook COGS and
-  production-issue/current-input effect timing.
+  and `INVENTORY_TIMING` for the evidenced COGS/current-cost timing scope.
+  The realization rate is reference-only and is not a manufacturing Effect
+  multiplier.
 - Excel provides canonical P&L reference values but no Effect bridge oracle.
   Therefore `EXCEL EFFECT ORACLE = NOT_PRESENT` remains unchanged.
 

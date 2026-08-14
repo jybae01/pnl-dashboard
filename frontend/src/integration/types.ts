@@ -224,7 +224,7 @@ export interface StoredResultDto {
 
 export type PresentationEffectCode =
   | 'sales_quantity' | 'sales_mix' | 'sales_price' | 'sales_fx' | 'material_total'
-  | 'manufacturing_realized' | 'sga_variable' | 'sga_fixed' | 'tariff';
+  | 'manufacturing_realized' | 'inventory_timing' | 'sga_variable' | 'sga_fixed' | 'tariff';
 export type PresentationEffectCategory = 'INTERNAL' | 'EXTERNAL' | 'COST';
 export type ResidualClassification =
   | 'VALIDATION_ARTIFACT' | 'FORMULA_EVALUATOR_GAP' | 'MAPPING_GAP' | 'ENGINE_BUG'
@@ -242,7 +242,7 @@ export interface AnalysisDrilldownRowDto {
 }
 
 export interface AnalysisDrilldownDto {
-  kind: 'sales' | 'material' | 'manufacturing' | 'sga' | 'tariff' | 'unavailable';
+  kind: 'sales' | 'material' | 'manufacturing' | 'inventory' | 'sga' | 'tariff' | 'unavailable';
   available: boolean;
   rows: AnalysisDrilldownRowDto[];
   unavailable_reason: string | null;

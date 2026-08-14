@@ -114,7 +114,7 @@ and overlaying only non-empty text markers/account labels from the existing
 analysis fixture. No company workbook was read, no business number was copied,
 and no new business formula was introduced. Base and Comparison both pass XLSX
 package validation, 2026/12-month preflight, the canonical analysis engine,
-all nine effect codes, reconciliation, analysis view, fact pack, and the
+all ten effect codes, reconciliation, analysis view, fact pack, and the
 seven-block P&L Dashboard mapper. They live only in a workspace sibling
 staging-artifact directory and are not part of Git. Each is 8,145 bytes and
 has SHA-256
@@ -422,10 +422,12 @@ The canonical engine and presentation tests reconfirm:
   same-product-group SKU composition is distinct from V1 Mix, and MCM does not
   create a separate generic raw-material effect;
 - the canonical presentation order is Quantity, Mix, Price, Sales FX,
-  Material, Manufacturing, Variable SG&A, Fixed SG&A, Tariff, then Residual;
-- `manufacturing_realized` already includes variable and fixed manufacturing
-  occurrence after inventory realization, so no separate Fixed Manufacturing
-  effect is introduced.
+  Material, Manufacturing, Inventory Timing, Variable SG&A, Fixed SG&A,
+  Tariff, then Residual;
+- `manufacturing_realized` includes variable and fixed manufacturing occurrence
+  without a realization multiplier; the realization rate is reference-only.
+  `inventory_timing` is independently sourced and no separate Fixed
+  Manufacturing effect is introduced.
 
 Admin/Viewer presentation and Dashboard paths map stored Result payloads only.
 Evidence writes a bounded workbook from the stored Result and pinned provenance;

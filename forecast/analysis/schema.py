@@ -99,6 +99,46 @@ class ActivityRecord:
 
 
 @dataclass(frozen=True)
+class InventoryCostRecord:
+    """Canonical manufactured-cost sources for one month.
+
+    Source row numbers are resolved by the Golden adapter.  The engine only
+    receives business values plus human-readable audit references.
+    """
+
+    year_month: str
+    current_manufacturing_cost: float
+    finished_goods_cogs: float
+    semi_finished_goods_cogs: float
+    current_manufacturing_cost_source: str = ""
+    finished_goods_cogs_source: str = ""
+    semi_finished_goods_cogs_source: str = ""
+    source_validation_status: str = "UNVALIDATED"
+    scope_validation_status: str = "UNVALIDATED"
+    scope_notes: tuple[str, ...] = ()
+
+    @property
+    def manufactured_cogs(self) -> float:
+        return self.finished_goods_cogs + self.semi_finished_goods_cogs
+
+
+@dataclass(frozen=True)
+class OpeningInventoryUnitRecord:
+    """Product-family opening inventory unit cost used as evidence only."""
+
+    year_month: str
+    product_group: str
+    unit_basis: str
+    specification: str
+    quantity: float
+    amount: float
+    unit_cost: float | None
+    quantity_source: str
+    amount_source: str
+    coverage: str = "LIMITED"
+
+
+@dataclass(frozen=True)
 class PnlRecord:
     year_month: str
     revenue: float
@@ -121,6 +161,8 @@ class AnalysisScenario:
     manufacturing_expenses: list[ExpenseRecord] = field(default_factory=list)
     sga_expenses: list[ExpenseRecord] = field(default_factory=list)
     activities: list[ActivityRecord] = field(default_factory=list)
+    inventory_costs: list[InventoryCostRecord] = field(default_factory=list)
+    opening_inventory_units: list[OpeningInventoryUnitRecord] = field(default_factory=list)
     pnl: list[PnlRecord] = field(default_factory=list)
     direct_effects: list[DirectEffectRecord] = field(default_factory=list)
 
@@ -131,6 +173,8 @@ class AnalysisScenario:
             self.manufacturing_expenses,
             self.sga_expenses,
             self.activities,
+            self.inventory_costs,
+            self.opening_inventory_units,
             self.pnl,
             self.direct_effects,
         )
@@ -144,6 +188,10 @@ class AnalysisScenario:
             manufacturing_expenses=[row for row in self.manufacturing_expenses if row.year_month in selected],
             sga_expenses=[row for row in self.sga_expenses if row.year_month in selected],
             activities=[row for row in self.activities if row.year_month in selected],
+            inventory_costs=[row for row in self.inventory_costs if row.year_month in selected],
+            opening_inventory_units=[
+                row for row in self.opening_inventory_units if row.year_month in selected
+            ],
             pnl=[row for row in self.pnl if row.year_month in selected],
             direct_effects=[row for row in self.direct_effects if row.year_month in selected],
         )
@@ -178,6 +226,8 @@ class AnalysisScenario:
                 for item in self.sga_expenses
             ],
             "activities": rows(self.activities),
+            "inventory_costs": rows(self.inventory_costs),
+            "opening_inventory_units": rows(self.opening_inventory_units),
             "pnl": rows(self.pnl),
             "direct_effects": rows(self.direct_effects),
         }

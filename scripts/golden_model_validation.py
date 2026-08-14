@@ -451,10 +451,11 @@ def validate_pair(
         and row.outsourcing_eligible_flag
         and not row.mcm_flag
     )
-    manufacturing_input = sum(
-        _mapped(comparison, column, mapping["comparison"]["cost_rows"][code])
-        for code in ("raw_material", "labor", "outsourcing", "other_processing")
-    )
+    inventory_mapping = mapping["analysis_adapter"]["inventory_timing"]
+    current_cost_row = int(inventory_mapping["current_manufacturing_cost"]["row"])
+    finished_cogs_row = int(inventory_mapping["finished_goods_cogs"]["row"])
+    semi_cogs_row = int(inventory_mapping["semi_finished_goods_cogs"]["row"])
+    manufacturing_input = _value(comparison, column, current_cost_row)
     comparison_cogs = _value(comparison, column, mapping["comparison"]["pnl_rows"]["cogs"])
     realization_rate = comparison_cogs / manufacturing_input if manufacturing_input else 0.0
     check(
@@ -504,9 +505,9 @@ def validate_pair(
         check("제조경비", f"row {row_number} unit", f"base ratio Data!{column}{ratio_row}", unit, row["unit_effect"])
         check("제조경비", f"row {row_number} fixed", f"base ratio Data!{column}{ratio_row}", fixed, row["fixed_effect"])
         check("제조경비", f"row {row_number} occurrence identity", "activity + unit + fixed", occurrence, row["occurrence_effect"])
-        check("제조경비", f"row {row_number} realized", "occurrence * uncapped realization rate", occurrence * realization_rate, row["final_profit_effect"])
+        check("제조경비", f"row {row_number} final", "occurrence; realization rate is reference only", occurrence, row["final_profit_effect"])
     check("제조경비", "occurrence total", "all manufacturing accounts", account_total, result.manufacturing_analysis["occurrence_effect"])
-    check("제조경비", "final total", "occurrence total * realization rate", account_total * realization_rate, result.manufacturing_analysis["final_effect"])
+    check("제조경비", "final total", "occurrence total; no realization multiplier", account_total, result.manufacturing_analysis["final_effect"])
     check(
         "MCM",
         "outsourcing denominator excludes MCM",
@@ -542,6 +543,24 @@ def validate_pair(
         elif classification == "fixed":
             sga_fixed += expected
     effect_map = {row["code"]: float(row["profit_effect"] or 0.0) for row in result.effects}
+    base_manufactured_cogs = (
+        _value(base, column, finished_cogs_row) + _value(base, column, semi_cogs_row)
+    )
+    comparison_manufactured_cogs = (
+        _value(comparison, column, finished_cogs_row)
+        + _value(comparison, column, semi_cogs_row)
+    )
+    manufactured_cogs_effect = base_manufactured_cogs - comparison_manufactured_cogs
+    current_manufacturing_cost_effect = (
+        _value(base, column, current_cost_row)
+        - _value(comparison, column, current_cost_row)
+    )
+    inventory_timing_effect = (
+        manufactured_cogs_effect - current_manufacturing_cost_effect
+    )
+    check("재고시차", "Manufactured COGS Effect", "Base (product+semi COGS) - Comparison", manufactured_cogs_effect, result.inventory_analysis["manufactured_cogs_effect"])
+    check("재고시차", "Current Manufacturing Cost Effect", "Base current manufacturing cost - Comparison", current_manufacturing_cost_effect, result.inventory_analysis["current_manufacturing_cost_effect"])
+    check("재고시차", "Inventory Timing Effect", "Manufactured COGS Effect - Current Manufacturing Cost Effect", inventory_timing_effect, effect_map["inventory_timing"])
     check("판관비", "variable total", "all variable SGA accounts", sga_variable, effect_map["sga_variable"])
     check("판관비", "fixed total", "all fixed SGA accounts", sga_fixed, effect_map["sga_fixed"])
     check("판관비", "tariff exactly once", "external direct input", -tariff_adjustment, effect_map["tariff"])
@@ -560,7 +579,11 @@ def validate_pair(
         "sales_quantity", "sales_mix", "sales_price", "sales_fx", "tariff", "sga_variable", "sga_fixed"
     ))
     cost_source = -pnl_delta["cogs"]
-    cost_engine = effect_map["material_total"] + effect_map["manufacturing_realized"]
+    cost_engine = (
+        effect_map["material_total"]
+        + effect_map["manufacturing_realized"]
+        + effect_map["inventory_timing"]
+    )
     residual_analysis = {
         "amount": result.residual,
         "ratio_to_operating_profit_delta": (
@@ -625,6 +648,7 @@ def validate_pair(
             "raw_material_excl_fx": result.raw_material_excl_fx,
             "effects": result.effects,
             "manufacturing_realization_rate": result.manufacturing_analysis.get("inventory_realization_rate"),
+            "inventory_analysis": result.inventory_analysis,
         },
         "policy_assertions": {
             "jpy_unit": result.material_analysis.get("jpy_fx_unit"),
@@ -633,6 +657,10 @@ def validate_pair(
             "mcm_independent_effect_absent": not any("mcm" in code for code in effect_map),
             "mcm_outsourcing_denominator_excludes_mcm": True,
             "realization_rate_uncapped": realization_rate,
+            "realization_rate_reference_only": True,
+            "manufacturing_multiplier_absent": abs(
+                result.manufacturing_analysis["final_effect"] - account_total
+            ) <= max(1.0, abs(account_total) * 1e-9),
             "fx_reclassification_not_added": abs(sum(effect_map.values()) - result.effects_total) <= 1.0,
         },
         "mixed_unit_audit": {
@@ -653,7 +681,8 @@ def validate_pair(
             "material_ex_nonwoven": materials_ex_nonwoven,
             "material_total": material_total,
             "manufacturing_occurrence": account_total,
-            "manufacturing_realized": account_total * realization_rate,
+            "manufacturing_realized": account_total,
+            "inventory_timing": inventory_timing_effect,
             "sga_variable": sga_variable,
             "sga_fixed": sga_fixed,
             "tariff": -tariff_adjustment,
@@ -806,7 +835,7 @@ def validate_single_driver_scenarios(
 
     actual_effect_codes = {
         "sales_quantity", "sales_mix", "sales_price", "sales_fx",
-        "material_total", "manufacturing_realized", "sga_variable",
+        "material_total", "manufacturing_realized", "inventory_timing", "sga_variable",
         "sga_fixed", "tariff",
     }
     records: list[dict[str, Any]] = []
@@ -846,7 +875,7 @@ def validate_single_driver_scenarios(
             independent[code]
             for code in (
                 "sales_quantity", "sales_mix", "sales_price", "sales_fx",
-                "material_total", "manufacturing_realized", "sga_variable",
+                "material_total", "manufacturing_realized", "inventory_timing", "sga_variable",
                 "sga_fixed", "tariff",
             )
         )

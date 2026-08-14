@@ -315,7 +315,7 @@ def test_generic_comparison_direction_reverses_all_deltas(monkeypatch):
     payloads = {"base": extracted(10.0, 10.0), "comparison": extracted(15.0, 15.0)}
     extracted_fx = []
 
-    def fake_extract(path, meta, months, *, sales_fx=1.0):
+    def fake_extract(path, meta, months, *, sales_fx=1.0, analysis_months=None):
         extracted_fx.append((path, sales_fx))
         return payloads[path]
 
@@ -336,6 +336,8 @@ def test_generic_comparison_direction_reverses_all_deltas(monkeypatch):
     assert forward.effects_total == -reverse.effects_total == 5.0
     assert forward.effects[0]["delta"] == -reverse.effects[0]["delta"]
     assert forward.effects[0]["profit_effect"] == -reverse.effects[0]["profit_effect"]
+    assert [row["code"] for row in forward.effects].count("inventory_timing") == 1
+    assert forward.inventory_analysis["source_validation_status"] == "FAIL"
     assert forward.sales_analysis["baseline_fx_krw_per_usd"] == 1400
     assert forward.sales_analysis["comparison_fx_krw_per_usd"] == 1500
     assert extracted_fx == [

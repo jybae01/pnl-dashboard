@@ -19,10 +19,13 @@ class AnalysisConfig:
     labor_accounts: frozenset[str]
     absolute_tolerance: float = 1.0
     relative_tolerance: float = 1e-9
+    inventory_materiality_absolute: float | None = None
+    inventory_materiality_op_delta_ratio: float | None = None
 
     @classmethod
     def load(cls, path: str | Path) -> "AnalysisConfig":
         payload = json.loads(Path(path).read_text(encoding="utf-8"))
+        materiality = payload.get("inventory_timing", {}).get("materiality", {})
         return cls(
             product_groups=tuple(payload["product_groups"]),
             variable_manufacturing_accounts=frozenset(
@@ -42,6 +45,14 @@ class AnalysisConfig:
             ),
             absolute_tolerance=float(payload["reconciliation"]["absolute_tolerance"]),
             relative_tolerance=float(payload["reconciliation"]["relative_tolerance"]),
+            inventory_materiality_absolute=(
+                float(materiality["absolute_amount"])
+                if materiality.get("absolute_amount") is not None else None
+            ),
+            inventory_materiality_op_delta_ratio=(
+                float(materiality["op_delta_ratio"])
+                if materiality.get("op_delta_ratio") is not None else None
+            ),
         )
 
     def is_variable_manufacturing(self, account: str) -> bool:

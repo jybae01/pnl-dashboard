@@ -14,7 +14,7 @@ PNL_REQUIRED_CODES = {"revenue", "cogs", "gross_profit", "operating_profit"}
 PRODUCT_CODES = {"SW", "BW", "LC", "FS", "신사업"}
 EFFECT_CODES = {
     "sales_quantity", "sales_mix", "sales_price", "sales_fx", "tariff",
-    "material_total", "manufacturing_realized", "sga_variable", "sga_fixed",
+    "material_total", "manufacturing_realized", "inventory_timing", "sga_variable", "sga_fixed",
 }
 
 

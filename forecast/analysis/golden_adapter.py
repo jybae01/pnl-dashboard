@@ -10,6 +10,8 @@ from .schema import (
     ActivityRecord,
     AnalysisScenario,
     ExpenseRecord,
+    InventoryCostRecord,
+    OpeningInventoryUnitRecord,
     PnlRecord,
     ProductRecord,
     ScenarioMeta,
@@ -202,6 +204,45 @@ class GoldenAnalysisAdapter:
         return total
 
     @staticmethod
+    def _source_reference(column: str, rows: list[int]) -> str:
+        return "+".join(f"Data!{column}{int(row)}" for row in rows)
+
+    def _inventory_source_validation(
+        self,
+        workbook: Any,
+        months: tuple[int, ...],
+    ) -> tuple[str, list[str]]:
+        mapping = self.adapter.get("inventory_timing", {})
+        issues: list[str] = []
+        for code in (
+            "current_manufacturing_cost",
+            "finished_goods_cogs",
+            "semi_finished_goods_cogs",
+        ):
+            source = mapping.get(code, {})
+            row = int(source.get("row") or 0)
+            expected = str(source.get("expected_label") or "").strip()
+            actual = self._label(workbook, row)
+            if not row or not expected or expected not in actual:
+                issues.append(f"{code}: expected {expected!r}, found {actual!r} at row {row}")
+            for month in months:
+                column = self.MONTH_COLUMNS[month]
+                value = workbook.value(f"{column}{row}") if row else None
+                if isinstance(value, bool) or not isinstance(value, (int, float)):
+                    issues.append(f"{code}: non-numeric source at Data!{column}{row}")
+        for product_group, source in mapping.get("opening_inventory_units", {}).items():
+            for kind in ("quantity_rows", "amount_rows"):
+                for row in source.get(kind, ()):
+                    for month in months:
+                        column = self.MONTH_COLUMNS[month]
+                        value = workbook.value(f"{column}{int(row)}")
+                        if isinstance(value, bool) or not isinstance(value, (int, float)):
+                            issues.append(
+                                f"{product_group}.{kind}: non-numeric source at Data!{column}{int(row)}"
+                            )
+        return ("PASS" if not issues else "FAIL"), issues
+
+    @staticmethod
     def _monthly_tariff(meta: Any, month: int) -> float:
         """Return the direct tariff input for one Golden Model month."""
         monthly = getattr(meta, "tariff_adjustment_monthly", {}) or {}
@@ -338,6 +379,8 @@ class GoldenAnalysisAdapter:
         manufacturing_expenses: list[ExpenseRecord] = []
         sga_expenses: list[ExpenseRecord] = []
         activities: list[ActivityRecord] = []
+        inventory_costs: list[InventoryCostRecord] = []
+        opening_inventory_units: list[OpeningInventoryUnitRecord] = []
         pnl: list[PnlRecord] = []
         manufacturing = self.adapter["manufacturing"]
         ratio_rows = manufacturing["front_ratio_rows"]
@@ -345,8 +388,24 @@ class GoldenAnalysisAdapter:
             item["account"]: int(ratio_rows[item["ratio_key"]])
             for item in manufacturing_accounts
         }
-        cost_rows = self.comparison["cost_rows"]
         pnl_rows = self.comparison["pnl_rows"]
+        inventory_mapping = self.adapter.get("inventory_timing", {})
+        source_validation_status, source_validation_issues = (
+            self._inventory_source_validation(workbook, months)
+        )
+        scope_mapping = inventory_mapping.get("scope", {})
+        scope_validation_status = (
+            "PASS"
+            if source_validation_status == "PASS"
+            and scope_mapping.get("validation_status") == "PASS"
+            else "FAIL"
+        )
+        scope_notes = (
+            "Manufactured COGS includes only product and semi-finished product COGS.",
+            "Goods COGS, other COGS, and inventory valuation loss are excluded.",
+            "Product/semi-finished adjustment rows remain explicit within their P&L COGS sources.",
+            *source_validation_issues,
+        )
         for month in months:
             column = self.MONTH_COLUMNS[month]
             year_month = f"{int(meta.year):04d}-{month:02d}"
@@ -368,9 +427,14 @@ class GoldenAnalysisAdapter:
                     front_ratio=front_ratio,
                     back_ratio=1.0 - front_ratio,
                 ))
-            manufacturing_input = sum(
-                self._mapped_value(workbook, column, cost_rows[code])
-                for code in ("raw_material", "labor", "outsourcing", "other_processing")
+            current_source = inventory_mapping.get("current_manufacturing_cost", {})
+            finished_source = inventory_mapping.get("finished_goods_cogs", {})
+            semi_source = inventory_mapping.get("semi_finished_goods_cogs", {})
+            current_row = int(current_source.get("row") or 0)
+            finished_row = int(finished_source.get("row") or 0)
+            semi_row = int(semi_source.get("row") or 0)
+            manufacturing_input = self._number(
+                workbook.value(f"{column}{current_row}") if current_row else 0.0
             )
             activities.append(ActivityRecord(
                 year_month=year_month,
@@ -386,6 +450,54 @@ class GoldenAnalysisAdapter:
                 tariff_input=self._monthly_tariff(meta, month),
                 tariff_in_transport=bool(getattr(meta, "tariff_in_workbook", False)),
             ))
+            inventory_costs.append(InventoryCostRecord(
+                year_month=year_month,
+                current_manufacturing_cost=manufacturing_input,
+                finished_goods_cogs=self._number(
+                    workbook.value(f"{column}{finished_row}") if finished_row else 0.0
+                ),
+                semi_finished_goods_cogs=self._number(
+                    workbook.value(f"{column}{semi_row}") if semi_row else 0.0
+                ),
+                current_manufacturing_cost_source=(
+                    f"Data!{column}{current_row}" if current_row else "UNMAPPED"
+                ),
+                finished_goods_cogs_source=(
+                    f"Data!{column}{finished_row}" if finished_row else "UNMAPPED"
+                ),
+                semi_finished_goods_cogs_source=(
+                    f"Data!{column}{semi_row}" if semi_row else "UNMAPPED"
+                ),
+                source_validation_status=source_validation_status,
+                scope_validation_status=scope_validation_status,
+                scope_notes=scope_notes,
+            ))
+            for product_group in ("FS", "SW", "BW", "LC"):
+                unit_source = inventory_mapping.get("opening_inventory_units", {}).get(
+                    product_group, {}
+                )
+                quantity_rows = [int(row) for row in unit_source.get("quantity_rows", ())]
+                amount_rows = [int(row) for row in unit_source.get("amount_rows", ())]
+                quantity = sum(
+                    self._number(workbook.value(f"{column}{row}"))
+                    for row in quantity_rows
+                )
+                amount = sum(
+                    self._number(workbook.value(f"{column}{row}"))
+                    for row in amount_rows
+                )
+                opening_inventory_units.append(OpeningInventoryUnitRecord(
+                    year_month=year_month,
+                    product_group=product_group,
+                    unit_basis=str(unit_source.get("unit_basis") or ""),
+                    specification=str(unit_source.get("specification") or ""),
+                    quantity=quantity,
+                    amount=amount,
+                    unit_cost=(amount / quantity if quantity else None),
+                    quantity_source=self._source_reference(column, quantity_rows),
+                    amount_source=self._source_reference(column, amount_rows),
+                    coverage="LIMITED",
+                ))
             for source in sga_rows:
                 account = str(source["account"])
                 section = str(source.get("section") or "")
@@ -429,6 +541,8 @@ class GoldenAnalysisAdapter:
             manufacturing_expenses=manufacturing_expenses,
             sga_expenses=sga_expenses,
             activities=activities,
+            inventory_costs=inventory_costs,
+            opening_inventory_units=opening_inventory_units,
             pnl=pnl,
         )
         return AdaptedGoldenScenario(
@@ -536,14 +650,11 @@ class GoldenAnalysisAdapter:
                 account, baseline.manufacturing_ratio_rows.get(account)
             )
             row["inventory_realization_rate"] = realization_rate
-            row["final_profit_effect"] = (
-                row["occurrence_effect"] * realization_rate
-                if realization_rate is not None else None
-            )
+            row["inventory_realization_reference_only"] = True
+            row["final_profit_effect"] = row["occurrence_effect"]
             row["calculation_status"] = (
                 " / ".join(sorted(statuses))
-                if realization_rate is not None
-                else "CHECK: 당기투입 제조원가 분모 0"
+                + " / 재고실현율 참고지표(Effect multiplier 미적용)"
             )
             output.append(row)
         analysis = {
@@ -552,6 +663,7 @@ class GoldenAnalysisAdapter:
             "fixed_effect": sum(row["fixed_effect"] for row in output),
             "occurrence_effect": sum(row["occurrence_effect"] for row in output),
             "inventory_realization_rate": realization_rate,
+            "inventory_realization_reference_only": True,
             "final_effect": sum(
                 self._number(row["final_profit_effect"]) for row in output
             ),
