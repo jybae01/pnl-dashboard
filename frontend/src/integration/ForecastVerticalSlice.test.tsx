@@ -85,7 +85,8 @@ describe('Forecast React vertical slice', () => {
     expect(body.end_month).toBe(7);
     expect(body.months[0].month).toBe(7);
     expect(body.months[0].sales).toHaveLength(11);
-    expect(body.months[0].production).toHaveLength(8);
+    expect(body.months[0].production).toBeUndefined();
+    expect(body.months[0].business_production).toHaveLength(6);
     expect(body.months[0].mcm).toHaveLength(4);
     expect(body.idempotency_key).toBeTruthy();
     expect(screen.getByText('비공개')).toBeInTheDocument();
@@ -220,16 +221,21 @@ describe('Forecast React vertical slice', () => {
     await waitForForecastReady();
 
     fireEvent.change(screen.getByLabelText('7월 LC 판매수량'), { target: { value: '70' } });
+    fireEvent.change(screen.getByLabelText('7월 후공정 SW 생산수량'), { target: { value: '10000' } });
     fireEvent.click(screen.getByRole('tab', { name: '08월' }));
     fireEvent.change(screen.getByLabelText('8월 LC 판매수량'), { target: { value: '80' } });
+    fireEvent.change(screen.getByLabelText('8월 후공정 SW 생산수량'), { target: { value: '12000' } });
     fireEvent.click(screen.getByRole('tab', { name: '07월' }));
     expect(screen.getByLabelText('7월 LC 판매수량')).toHaveValue('70');
+    expect(screen.getByLabelText('7월 후공정 SW 생산수량')).toHaveValue('10000');
 
     fireEvent.click(screen.getByRole('button', { name: '추정 모형 생성' }));
     await screen.findByText('추정 모형 생성 완료');
     const body = JSON.parse(String((fetchMock.mock.calls[2][1] as RequestInit).body));
     expect(body.months[0].sales.find((row: { product_code: string }) => row.product_code === 'LC').quantity).toBe(70);
     expect(body.months[1].sales.find((row: { product_code: string }) => row.product_code === 'LC').quantity).toBe(80);
+    expect(body.months[0].business_production.find((row: { process: string; product_group: string }) => row.process === '후공정' && row.product_group === 'SW').quantity).toBe(10000);
+    expect(body.months[1].business_production.find((row: { process: string; product_group: string }) => row.process === '후공정' && row.product_group === 'SW').quantity).toBe(12000);
   });
 
   it('keeps month editing text-backed, selects on first focus, and normalizes on blur', async () => {
@@ -389,7 +395,7 @@ describe('Forecast React vertical slice', () => {
     expect(onNavigateToManagement).toHaveBeenCalledTimes(1);
   });
 
-  it('edits direct sales, production, and MCM rows and serializes the canonical DTO', async () => {
+  it('edits sales, business production, and MCM rows without frontend allocation', async () => {
     const fetchMock = vi.fn()
       .mockResolvedValueOnce(response(modelPayload()))
       .mockResolvedValueOnce(response(metadataPayload()))
@@ -401,18 +407,27 @@ describe('Forecast React vertical slice', () => {
 
     fireEvent.change(screen.getByLabelText('7월 SW400 판매수량'), { target: { value: '125.5' } });
     fireEvent.change(screen.getByLabelText('7월 SW400 매출액'), { target: { value: '987654' } });
-    fireEvent.change(screen.getByLabelText('7월 SW400 생산수량'), { target: { value: '88' } });
+    fireEvent.change(screen.getByLabelText('7월 후공정 SW 생산수량'), { target: { value: '88' } });
     fireEvent.change(screen.getByLabelText('7월 SW400 MCM 수량'), { target: { value: '7' } });
     fireEvent.click(screen.getByRole('button', { name: '추정 모형 생성' }));
     await screen.findByText('추정 모형 생성 완료');
 
     const body = JSON.parse(String((fetchMock.mock.calls[2][1] as RequestInit).body));
     expect(body.months[0].sales[0]).toEqual({ product_code: 'SW400', quantity: 125.5, amount: 987654 });
-    expect(body.months[0].production[0]).toEqual({ product_code: 'SW400', quantity: 88 });
+    expect(body.months[0].production).toBeUndefined();
+    expect(body.months[0].business_production).toEqual([
+      { process: '전공정', product_group: 'SW', quantity: 0, unit: 'm' },
+      { process: '전공정', product_group: 'BW', quantity: 0, unit: 'm' },
+      { process: '전공정', product_group: 'TW', quantity: 0, unit: 'm' },
+      { process: '후공정', product_group: 'SW', quantity: 88, unit: 'PCS' },
+      { process: '후공정', product_group: 'BW', quantity: 0, unit: 'PCS' },
+      { process: '후공정', product_group: 'LC', quantity: 0, unit: 'PCS' },
+    ]);
     expect(body.months[0].mcm[0]).toEqual({ product_code: 'SW400', quantity: 7 });
     expect(body.months[0].sales.map((row: { product_code: string }) => row.product_code)).toEqual([
       'SW400', 'SW440', 'BW400', 'BW440', 'LC', 'FS_SW', 'FS_BW', 'FS_TW', 'UF_MBR', 'IX', 'OTHER',
     ]);
+    expect(JSON.stringify(body.months[0].business_production)).not.toMatch(/SW400|SW440|BW400|BW440|FS_SW|FS_BW|FS_TW/);
   });
 
   it('serializes advanced opaque adjustments and keeps values isolated by month', async () => {
@@ -479,6 +494,14 @@ describe('Forecast React vertical slice', () => {
     expect(screen.queryByText(/16인치|대사/)).not.toBeInTheDocument();
     expect(screen.getByRole('heading', { name: '판매계획' })).toBeInTheDocument();
     expect(screen.getByRole('heading', { name: '생산계획' })).toBeInTheDocument();
+    expect(screen.getByLabelText('7월 전공정 SW 생산수량')).toBeInTheDocument();
+    expect(screen.getByLabelText('7월 전공정 BW 생산수량')).toBeInTheDocument();
+    expect(screen.getByLabelText('7월 전공정 TW 생산수량')).toBeInTheDocument();
+    expect(screen.getByLabelText('7월 후공정 SW 생산수량')).toBeInTheDocument();
+    expect(screen.getByLabelText('7월 후공정 BW 생산수량')).toBeInTheDocument();
+    expect(screen.getByLabelText('7월 후공정 LC 생산수량')).toBeInTheDocument();
+    expect(screen.queryByLabelText('7월 SW400 생산수량')).not.toBeInTheDocument();
+    expect(screen.getByText(/동일 월 400\/440 생산구성비로 서버에서 자동 배부/)).toBeInTheDocument();
     expect(screen.getByRole('heading', { name: 'MCM 유상사급' })).toBeInTheDocument();
     expect(screen.queryByText('월별 입력 JSON')).not.toBeInTheDocument();
   });

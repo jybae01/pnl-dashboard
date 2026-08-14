@@ -1,10 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import {
   adaptForecastInput,
+  BUSINESS_PRODUCTION_ROWS,
   createForecastMonthFormState,
   ensureForecastMonths,
   MCM_PRODUCTS,
-  PRODUCTION_PRODUCTS,
   SALES_PRODUCTS,
 } from './forecastInputState';
 
@@ -17,18 +17,22 @@ describe('forecast direct-input adapter', () => {
     dto_version: '1' as const,
   };
 
-  it('creates every canonical row exactly once without calculating financial values', () => {
+  it('creates six business production rows without allocating canonical products', () => {
     const month = createForecastMonthFormState(7);
     month.sales.SW400.quantity = '12.5';
     month.sales.SW400.amount = '1000';
-    month.production.SW400.quantity = '8';
+    month.production['back:SW'].quantity = '8';
     month.mcm.SW400.quantity = '3';
 
     const adapted = adaptForecastInput([7], { 7: month });
     expect(adapted.error).toBe('');
     expect(adapted.value).toHaveLength(1);
     expect(adapted.value?.[0].sales).toHaveLength(SALES_PRODUCTS.length);
-    expect(adapted.value?.[0].production).toHaveLength(PRODUCTION_PRODUCTS.length);
+    expect(adapted.value?.[0].production).toBeUndefined();
+    expect(adapted.value?.[0].business_production).toHaveLength(BUSINESS_PRODUCTION_ROWS.length);
+    expect(adapted.value?.[0].business_production?.[3]).toEqual({
+      process: '후공정', product_group: 'SW', quantity: 8, unit: 'PCS',
+    });
     expect(adapted.value?.[0].mcm).toHaveLength(MCM_PRODUCTS.length);
     expect(adapted.value?.[0].sales[0]).toEqual({ product_code: 'SW400', quantity: 12.5, amount: 1000 });
     expect(adapted.value?.[0].manufacturing_adjustments).toEqual([]);
@@ -40,8 +44,12 @@ describe('forecast direct-input adapter', () => {
     blank.sales.SW400.quantity = '';
     expect(adaptForecastInput([7], { 7: blank })).toMatchObject({ value: null });
 
+    const blankProduction = createForecastMonthFormState(7);
+    blankProduction.production['front:SW'].quantity = '';
+    expect(adaptForecastInput([7], { 7: blankProduction })).toMatchObject({ value: null });
+
     const negative = createForecastMonthFormState(7);
-    negative.production.SW400.quantity = '-1';
+    negative.production['front:SW'].quantity = '-1';
     expect(adaptForecastInput([7], { 7: negative })).toMatchObject({ value: null });
 
     const infinite = createForecastMonthFormState(7);
@@ -52,12 +60,15 @@ describe('forecast direct-input adapter', () => {
   it('adds newly selected months without replacing edits in an existing month', () => {
     const july = createForecastMonthFormState(7);
     july.sales.LC.quantity = '44';
+    july.production['back:SW'].quantity = '12000';
     const current = { 7: july };
     const next = ensureForecastMonths(current, [7, 8]);
 
     expect(next[7].sales.LC.quantity).toBe('44');
+    expect(next[7].production['back:SW'].quantity).toBe('12000');
     expect(next[8].month).toBe(8);
     expect(next[8].sales.LC.quantity).toBe('0');
+    expect(next[8].production['back:SW'].quantity).toBe('0');
   });
 
   it('round-trips opaque adjustment keys and scalar advanced fields without deriving amounts', () => {

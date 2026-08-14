@@ -12,6 +12,14 @@ export interface ForecastProductDefinition {
   unit: 'PCS' | 'm' | 'L' | '—';
 }
 
+export interface ForecastBusinessProductionDefinition {
+  key: string;
+  process: '전공정' | '후공정';
+  productGroup: 'SW' | 'BW' | 'TW' | 'LC';
+  label: string;
+  unit: 'PCS' | 'm';
+}
+
 export const SALES_PRODUCTS: readonly ForecastProductDefinition[] = [
   { code: 'SW400', label: 'SW400', unit: 'PCS' },
   { code: 'SW440', label: 'SW440', unit: 'PCS' },
@@ -26,7 +34,18 @@ export const SALES_PRODUCTS: readonly ForecastProductDefinition[] = [
   { code: 'OTHER', label: '기타매출', unit: '—' },
 ] as const;
 
+// Legacy canonical product export retained for non-UI consumers. The Forecast
+// form submits BUSINESS_PRODUCTION_ROWS and the backend performs allocation.
 export const PRODUCTION_PRODUCTS: readonly ForecastProductDefinition[] = SALES_PRODUCTS.slice(0, 8);
+
+export const BUSINESS_PRODUCTION_ROWS: readonly ForecastBusinessProductionDefinition[] = [
+  { key: 'front:SW', process: '전공정', productGroup: 'SW', label: 'SW', unit: 'm' },
+  { key: 'front:BW', process: '전공정', productGroup: 'BW', label: 'BW', unit: 'm' },
+  { key: 'front:TW', process: '전공정', productGroup: 'TW', label: 'TW', unit: 'm' },
+  { key: 'back:SW', process: '후공정', productGroup: 'SW', label: 'SW', unit: 'PCS' },
+  { key: 'back:BW', process: '후공정', productGroup: 'BW', label: 'BW', unit: 'PCS' },
+  { key: 'back:LC', process: '후공정', productGroup: 'LC', label: 'LC (4인치)', unit: 'PCS' },
+] as const;
 export const MCM_PRODUCTS: readonly ForecastProductDefinition[] = SALES_PRODUCTS.slice(0, 4);
 
 export interface ForecastAdjustmentFormValue {
@@ -87,8 +106,12 @@ const salesValues = () => Object.fromEntries(
   SALES_PRODUCTS.map(({ code }) => [code, { quantity: '0', amount: '0' }]),
 );
 
-const quantityValues = (products: readonly ForecastProductDefinition[]) => Object.fromEntries(
+const quantityValues = (products: readonly { code: string }[]) => Object.fromEntries(
   products.map(({ code }) => [code, { quantity: '0' }]),
+);
+
+const businessProductionValues = () => Object.fromEntries(
+  BUSINESS_PRODUCTION_ROWS.map(({ key }) => [key, { quantity: '0' }]),
 );
 
 const adjustmentValues = (items: readonly ForecastAdjustmentMetadataDto[]) => Object.fromEntries(
@@ -130,7 +153,7 @@ export function createForecastMonthFormState(
   return {
     month,
     sales: salesValues(),
-    production: quantityValues(PRODUCTION_PRODUCTS),
+    production: businessProductionValues(),
     mcm: quantityValues(MCM_PRODUCTS),
     ...advancedValues(metadata),
   };
@@ -230,11 +253,16 @@ export function adaptForecastInput(
       sales.push({ product_code: product.code, quantity: quantity.value, amount: amount.value });
     }
 
-    const production: ForecastMonthInputDto['production'] = [];
-    for (const product of PRODUCTION_PRODUCTS) {
-      const quantity = parseRequiredNumber(form.production[product.code]?.quantity, '생산수량');
-      if ('error' in quantity) return invalidMessage(month, product.label, quantity.error);
-      production.push({ product_code: product.code, quantity: quantity.value });
+    const businessProduction: NonNullable<ForecastMonthInputDto['business_production']> = [];
+    for (const row of BUSINESS_PRODUCTION_ROWS) {
+      const quantity = parseRequiredNumber(form.production[row.key]?.quantity, '생산수량');
+      if ('error' in quantity) return invalidMessage(month, `${row.process} ${row.label}`, quantity.error);
+      businessProduction.push({
+        process: row.process,
+        product_group: row.productGroup,
+        quantity: quantity.value,
+        unit: row.unit,
+      });
     }
 
     const mcm: ForecastMonthInputDto['mcm'] = [];
@@ -315,7 +343,7 @@ export function adaptForecastInput(
     result.push({
       month,
       sales,
-      production,
+      business_production: businessProduction,
       mcm,
       manufacturing_adjustments: manufacturingAdjustments,
       sga_adjustments: sgaAdjustments,

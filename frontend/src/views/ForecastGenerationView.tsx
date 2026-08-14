@@ -14,10 +14,10 @@ import {
 } from '../integration/EditableNumericInput';
 import {
   adaptForecastInput,
+  BUSINESS_PRODUCTION_ROWS,
   createForecastMonthFormState,
   ensureForecastMonths,
   MCM_PRODUCTS,
-  PRODUCTION_PRODUCTS,
   SALES_PRODUCTS,
   type ForecastInputSection,
   type ForecastInputState,
@@ -526,16 +526,18 @@ export const ForecastGenerationView: React.FC<ForecastGenerationViewProps> = ({
 
           <div className="forecast-workflow__production-grid">
             <section className="forecast-workflow__input-section" aria-labelledby="forecast-production-title">
-              <div className="forecast-workflow__input-heading"><div><h3 id="forecast-production-title">생산계획</h3><p>제품별 예상 생산수량을 입력합니다.</p></div><span>{PRODUCTION_PRODUCTS.length}개 품목</span></div>
+              <div className="forecast-workflow__input-heading"><div><h3 id="forecast-production-title">생산계획</h3><p>공정과 제품군별 예상 생산수량을 입력합니다.</p></div><span>{BUSINESS_PRODUCTION_ROWS.length}개 업무행</span></div>
               <div className="forecast-workflow__table-scroll">
                 <table className="forecast-workflow__input-table forecast-workflow__input-table--compact">
-                  <thead><tr><th scope="col">제품코드</th><th scope="col">단위</th><th scope="col">생산수량</th></tr></thead>
-                  <tbody>{PRODUCTION_PRODUCTS.map((product) => <tr key={product.code}>
-                    <th scope="row">{product.code}</th><td><span className={`forecast-workflow__unit forecast-workflow__unit--${product.unit === 'm' ? 'length' : 'quantity'}`}>{product.unit}</span></td>
-                    <td><EditableNumericInput mode="decimal" disabled={controlsDisabled} aria-label={`${activeInputMonth}월 ${product.code} 생산수량`} value={activeMonthInput.production[product.code]?.quantity ?? ''} onChange={(value) => updateInput(activeInputMonth, 'production', product.code, 'quantity', value)} /></td>
+                  <thead><tr><th scope="col">공정</th><th scope="col">제품군</th><th scope="col">생산수량</th><th scope="col">단위</th></tr></thead>
+                  <tbody>{BUSINESS_PRODUCTION_ROWS.map((row) => <tr key={row.key}>
+                    <th scope="row">{row.process}</th><td>{row.label}</td>
+                    <td><EditableNumericInput mode="decimal" disabled={controlsDisabled} aria-label={`${activeInputMonth}월 ${row.process} ${row.productGroup} 생산수량`} value={activeMonthInput.production[row.key]?.quantity ?? ''} onChange={(value) => updateInput(activeInputMonth, 'production', row.key, 'quantity', value)} /></td>
+                    <td><span className={`forecast-workflow__unit forecast-workflow__unit--${row.unit === 'm' ? 'length' : 'quantity'}`}>{row.unit}</span></td>
                   </tr>)}</tbody>
                 </table>
               </div>
+              <p className="forecast-workflow__boundary-note">후공정 SW/BW 생산량은 기준모형의 동일 월 400/440 생산구성비로 서버에서 자동 배부됩니다.</p>
             </section>
 
             <section className="forecast-workflow__input-section" aria-labelledby="forecast-mcm-title">
@@ -645,7 +647,7 @@ export const ForecastGenerationView: React.FC<ForecastGenerationViewProps> = ({
     <section className="forecast-workflow__selection-summary" aria-label="추정 산출 요약">
       <div><span>산출 기간</span><strong>{hasOrderedRange ? `${startMonth}~${endMonth}월 · ${selectedMonthCount}개월` : '기간을 선택하세요'}</strong></div>
       <div><span>기준 모형</span><strong>{selectedBaseModel ? `${selectedBaseModel.display_name} · ${selectedBaseModel.model_year}년` : '모형을 선택하세요'}</strong></div>
-      <div><span>직접입력 범위</span><strong>판매 {SALES_PRODUCTS.length} · 생산 {PRODUCTION_PRODUCTS.length} · MCM {MCM_PRODUCTS.length}</strong></div>
+      <div><span>직접입력 범위</span><strong>판매 {SALES_PRODUCTS.length} · 생산 전공정 3 / 후공정 3 · MCM {MCM_PRODUCTS.length}</strong></div>
       <div><span>{String(activeInputMonth).padStart(2, '0')}월 고급 입력</span><strong>{advancedEnteredCount ? `${advancedEnteredCount}개 변경` : '변경 없음'}</strong></div>
       <div><span>결과 유형</span><strong>추정 모형</strong></div>
     </section>

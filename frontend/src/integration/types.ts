@@ -57,7 +57,14 @@ export interface ModelUploadResponse {
 export interface ForecastMonthInputDto {
   month: number;
   sales: Array<{ product_code: string; quantity: number; amount: number }>;
-  production: Array<{ product_code: string; quantity: number }>;
+  /** Legacy canonical input. New user workflows send business_production instead. */
+  production?: Array<{ product_code: string; quantity: number }>;
+  business_production?: Array<{
+    process: '전공정' | '후공정';
+    product_group: 'SW' | 'BW' | 'TW' | 'LC';
+    quantity: number;
+    unit: 'PCS' | 'm';
+  }>;
   mcm: Array<{ product_code: string; quantity: number }>;
   manufacturing_adjustments: Array<{ adjustment_key: string; amount: number; reason: string }>;
   sga_adjustments: Array<{ adjustment_key: string; amount: number; reason: string }>;
