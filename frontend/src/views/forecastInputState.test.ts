@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   adaptForecastInput,
+  applyForecastExcelPreview,
   BUSINESS_PRODUCTION_ROWS,
   createForecastMonthFormState,
   ensureForecastMonths,
@@ -139,5 +140,45 @@ describe('forecast direct-input adapter', () => {
     const invalid = createForecastMonthFormState(7, metadata);
     invalid.tariffRate = 'not-a-number';
     expect(adaptForecastInput([7], { 7: invalid }, metadata)).toMatchObject({ value: null });
+  });
+
+  it('applies only sales and business production while preserving MCM and every advanced field', () => {
+    const july = createForecastMonthFormState(7, metadata);
+    july.sales.SW400.quantity = '99';
+    july.production['back:SW'].quantity = '88';
+    july.mcm.SW400.quantity = '77';
+    july.manufacturingAdjustments['mfg-energy'] = { amount: '-66', reason: '제조 유지' };
+    july.sgaAdjustments['sga-selling'] = { amount: '55', reason: '판관비 유지' };
+    july.disposalAdjustment = '44';
+    july.newBusinessGoodsCogs = '33';
+    july.naSaSales = '22';
+    july.rawMaterialAdjustment = '11';
+
+    const preview = {
+      source_filename: 'forecast_input.xlsx', valid: true, blocking: false,
+      sales_rows: [{
+        month: 7, product_code: 'SW400', product_name: 'SW400', product_group: 'SW',
+        quantity: 123, amount: 456, source_sheet: '판매계획' as const, source_row: 2,
+      }],
+      business_production_rows: [{
+        month: 7, process: '후공정' as const, product_group: 'SW' as const,
+        quantity: 1000, unit: 'PCS' as const, source_sheet: '생산계획' as const, source_row: 2,
+      }],
+      issues: [], sales_summary: [{ unit: 'PCS' as const, row_count: 1, quantity_total: 123 }],
+      production_summary: [{ unit: 'PCS' as const, row_count: 1, quantity_total: 1000 }], dto_version: '1' as const,
+    };
+    const applied = applyForecastExcelPreview({ 7: july }, [7], preview, metadata);
+
+    expect(applied[7].sales.SW400).toEqual({ quantity: '123', amount: '456' });
+    expect(applied[7].sales.SW440).toEqual({ quantity: '0', amount: '0' });
+    expect(applied[7].production['back:SW']).toEqual({ quantity: '1000' });
+    expect(applied[7].production['front:SW']).toEqual({ quantity: '0' });
+    expect(applied[7].mcm.SW400.quantity).toBe('77');
+    expect(applied[7].manufacturingAdjustments['mfg-energy']).toEqual({ amount: '-66', reason: '제조 유지' });
+    expect(applied[7].sgaAdjustments['sga-selling']).toEqual({ amount: '55', reason: '판관비 유지' });
+    expect(applied[7].disposalAdjustment).toBe('44');
+    expect(applied[7].newBusinessGoodsCogs).toBe('33');
+    expect(applied[7].naSaSales).toBe('22');
+    expect(applied[7].rawMaterialAdjustment).toBe('11');
   });
 });

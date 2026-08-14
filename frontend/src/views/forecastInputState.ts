@@ -1,5 +1,6 @@
 import type {
   ForecastAdjustmentMetadataDto,
+  ForecastExcelPreviewDto,
   ForecastInputMetadataDto,
   ForecastMonthInputDto,
 } from '../integration/types';
@@ -192,6 +193,50 @@ export function ensureForecastMonths(
     }
   });
   return changed ? next : current;
+}
+
+export function applyForecastExcelPreview(
+  current: ForecastInputState,
+  months: readonly number[],
+  preview: ForecastExcelPreviewDto,
+  metadata?: ForecastInputMetadataDto,
+): ForecastInputState {
+  if (!preview.valid || preview.blocking || preview.issues.some((issue) => issue.blocking)) {
+    throw new Error('Blocking Excel preview cannot be applied');
+  }
+  const next = ensureForecastMonths(current, months, metadata);
+  const monthSet = new Set(months);
+  const salesCodes = new Set(SALES_PRODUCTS.map(({ code }) => code));
+  const businessKeys = new Map(
+    BUSINESS_PRODUCTION_ROWS.map((row) => [`${row.process}:${row.productGroup}:${row.unit}`, row.key]),
+  );
+  const replacement = Object.fromEntries(months.map((month) => [month, {
+    sales: salesValues(),
+    production: businessProductionValues(),
+  }]));
+
+  for (const row of preview.sales_rows) {
+    if (!monthSet.has(row.month) || !salesCodes.has(row.product_code)) {
+      throw new Error('Invalid sales preview row');
+    }
+    replacement[row.month].sales[row.product_code] = {
+      quantity: String(row.quantity),
+      amount: String(row.amount),
+    };
+  }
+  for (const row of preview.business_production_rows) {
+    const key = businessKeys.get(`${row.process}:${row.product_group}:${row.unit}`);
+    if (!monthSet.has(row.month) || !key) {
+      throw new Error('Invalid business production preview row');
+    }
+    replacement[row.month].production[key] = { quantity: String(row.quantity) };
+  }
+
+  return Object.fromEntries(months.map((month) => [month, {
+    ...next[month],
+    sales: replacement[month].sales,
+    production: replacement[month].production,
+  }]));
 }
 
 type ParsedValue = { value: number } | { error: string };

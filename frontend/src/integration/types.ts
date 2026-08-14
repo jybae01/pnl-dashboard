@@ -101,6 +101,55 @@ export interface ForecastInputMetadataDto {
   dto_version: '1';
 }
 
+export interface ForecastExcelSalesRowDto {
+  month: number;
+  product_code: string;
+  product_name: string;
+  product_group: string;
+  quantity: number;
+  amount: number;
+  source_sheet: '판매계획';
+  source_row: number;
+}
+
+export interface ForecastExcelBusinessProductionRowDto {
+  month: number;
+  process: '전공정' | '후공정';
+  product_group: 'SW' | 'BW' | 'TW' | 'LC';
+  quantity: number;
+  unit: 'PCS' | 'm';
+  source_sheet: '생산계획';
+  source_row: number;
+}
+
+export interface ForecastExcelIssueDto {
+  code: string;
+  message: string;
+  severity: 'ERROR' | 'WARNING';
+  blocking: boolean;
+  source_sheet: '판매계획' | '생산계획';
+  source_row: number;
+  field: string;
+}
+
+export interface ForecastExcelUnitSummaryDto {
+  unit: 'PCS' | 'm' | 'L' | '—';
+  row_count: number;
+  quantity_total: number;
+}
+
+export interface ForecastExcelPreviewDto {
+  source_filename: string;
+  valid: boolean;
+  blocking: boolean;
+  sales_rows: ForecastExcelSalesRowDto[];
+  business_production_rows: ForecastExcelBusinessProductionRowDto[];
+  issues: ForecastExcelIssueDto[];
+  sales_summary: ForecastExcelUnitSummaryDto[];
+  production_summary: ForecastExcelUnitSummaryDto[];
+  dto_version: '1';
+}
+
 export interface ForecastGenerateRequestDto {
   base_model_id: string; name: string; model_year: number; version: string;
   start_month: number; end_month: number; months: ForecastMonthInputDto[];

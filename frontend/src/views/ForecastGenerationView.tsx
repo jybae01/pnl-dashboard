@@ -1,9 +1,10 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { Calculator, CheckCircle2, Database, Download, LockKeyhole, RotateCcw, ShieldCheck } from 'lucide-react';
+import { AlertCircle, Calculator, CheckCircle2, Database, Download, FileSpreadsheet, LockKeyhole, RotateCcw, ShieldCheck, Upload } from 'lucide-react';
 import { bffClient } from '../integration/client';
 import {
   AnalysisModelDto,
   ApiClientError,
+  ForecastExcelPreviewDto,
   ForecastGenerateResponseDto,
   ForecastInputMetadataDto,
 } from '../integration/types';
@@ -14,6 +15,7 @@ import {
 } from '../integration/EditableNumericInput';
 import {
   adaptForecastInput,
+  applyForecastExcelPreview,
   BUSINESS_PRODUCTION_ROWS,
   createForecastMonthFormState,
   ensureForecastMonths,
@@ -35,6 +37,7 @@ type ViewState =
   | 'FORBIDDEN';
 
 type DownloadState = 'IDLE' | 'DOWNLOADING' | 'FAILED';
+type ExcelState = 'IDLE' | 'UPLOADING' | 'READY' | 'ERROR';
 
 const V1_FORECAST_SYNC_MAX_MONTHS = 6;
 const MONTH_MIN = 1;
@@ -95,6 +98,12 @@ export const ForecastGenerationView: React.FC<ForecastGenerationViewProps> = ({
   const [result, setResult] = useState<ForecastGenerateResponseDto | null>(null);
   const [downloadState, setDownloadState] = useState<DownloadState>('IDLE');
   const [downloadMessage, setDownloadMessage] = useState('');
+  const [excelState, setExcelState] = useState<ExcelState>('IDLE');
+  const [excelPreview, setExcelPreview] = useState<ForecastExcelPreviewDto | null>(null);
+  const [excelMessage, setExcelMessage] = useState('');
+  const [templateDownloading, setTemplateDownloading] = useState(false);
+  const [applyConfirmationOpen, setApplyConfirmationOpen] = useState(false);
+  const [excelApplied, setExcelApplied] = useState(false);
   const [loadAttempt, setLoadAttempt] = useState(0);
   const [inputMetadata, setInputMetadata] = useState<ForecastInputMetadataDto | null>(null);
   const [metadataState, setMetadataState] = useState<'LOADING' | 'READY' | 'ERROR'>('LOADING');
@@ -102,6 +111,8 @@ export const ForecastGenerationView: React.FC<ForecastGenerationViewProps> = ({
   const idempotencyKey = useRef(crypto.randomUUID());
   const submittingRef = useRef(false);
   const downloadPendingRef = useRef(false);
+  const templatePendingRef = useRef(false);
+  const previewPendingRef = useRef(false);
   const mountedRef = useRef(true);
   const metadataRequestSequence = useRef(0);
 
@@ -196,6 +207,14 @@ export const ForecastGenerationView: React.FC<ForecastGenerationViewProps> = ({
     setActiveInputMonth((current) => months.includes(current) ? current : (months[0] ?? current));
   }, [months]);
 
+  const clearExcelPreview = () => {
+    setExcelState('IDLE');
+    setExcelPreview(null);
+    setExcelMessage('');
+    setExcelApplied(false);
+    setApplyConfirmationOpen(false);
+  };
+
   const markDraftChanged = () => {
     setResult(null);
     setMessage('');
@@ -287,16 +306,19 @@ export const ForecastGenerationView: React.FC<ForecastGenerationViewProps> = ({
     setDownloadState('IDLE');
     setDownloadMessage('');
     setState('READY');
+    clearExcelPreview();
     idempotencyKey.current = crypto.randomUUID();
   };
 
   const updateStartMonth = (value: string) => {
     setStartMonth(value);
+    clearExcelPreview();
     markDraftChanged();
   };
 
   const updateEndMonth = (value: string) => {
     setEndMonth(value);
+    clearExcelPreview();
     markDraftChanged();
   };
 
@@ -373,7 +395,88 @@ export const ForecastGenerationView: React.FC<ForecastGenerationViewProps> = ({
     }
   };
 
-  const controlsDisabled = state === 'SUBMITTING' || state === 'LOADING';
+  const downloadInputTemplate = async () => {
+    if (templatePendingRef.current) return;
+    templatePendingRef.current = true;
+    setTemplateDownloading(true);
+    setExcelMessage('');
+    try {
+      await bffClient.downloadForecastInputTemplate();
+    } catch {
+      if (mountedRef.current) setExcelMessage('엑셀 입력 양식을 내려받을 수 없습니다. 잠시 후 다시 시도하세요.');
+    } finally {
+      templatePendingRef.current = false;
+      if (mountedRef.current) setTemplateDownloading(false);
+    }
+  };
+
+  const previewExcel = async (file: File) => {
+    if (previewPendingRef.current) return;
+    if (!rangeValid || parsedStartMonth === null || parsedEndMonth === null) {
+      setExcelState('ERROR');
+      setExcelMessage(rangeMessage || '추정 기간을 먼저 확인하세요.');
+      return;
+    }
+    previewPendingRef.current = true;
+    setExcelState('UPLOADING');
+    setExcelPreview(null);
+    setExcelMessage('');
+    setExcelApplied(false);
+    setApplyConfirmationOpen(false);
+    try {
+      const preview = await bffClient.previewForecastExcel(file, parsedStartMonth, parsedEndMonth);
+      if (!mountedRef.current) return;
+      setExcelPreview(preview);
+      setExcelState('READY');
+      setExcelMessage(preview.blocking
+        ? '오류를 수정한 엑셀 파일을 다시 업로드하세요.'
+        : '검토가 완료되었습니다. 적용 전까지 현재 화면 입력은 유지됩니다.');
+    } catch (error: unknown) {
+      if (!mountedRef.current) return;
+      setExcelState('ERROR');
+      setExcelMessage(error instanceof ApiClientError && error.code === 'FORBIDDEN'
+        ? '엑셀 일괄입력을 사용할 권한이 없습니다.'
+        : '엑셀 파일을 확인하지 못했습니다. 파일 형식과 입력 내용을 확인하세요.');
+    } finally {
+      previewPendingRef.current = false;
+    }
+  };
+
+  const hasExistingPlanValues = months.some((month) => {
+    const monthInput = inputs[month];
+    if (!monthInput) return false;
+    return [...Object.values(monthInput.sales).flatMap((row) => [row.quantity, row.amount]),
+      ...Object.values(monthInput.production).map((row) => row.quantity)]
+      .some((value) => value.trim() !== '' && value.trim() !== '0');
+  });
+
+  const applyExcelPreview = () => {
+    if (!excelPreview || excelPreview.blocking) return;
+    try {
+      setInputs((current) => applyForecastExcelPreview(current, months, excelPreview, inputMetadata ?? undefined));
+    } catch {
+      setExcelState('ERROR');
+      setExcelMessage('엑셀 확인 결과를 적용할 수 없습니다. 파일을 다시 확인하세요.');
+      setApplyConfirmationOpen(false);
+      return;
+    }
+    setActiveInputMonth(months[0] ?? activeInputMonth);
+    setExcelApplied(true);
+    setExcelMessage('판매·생산계획을 화면 입력값으로 적용했습니다. Grid에서 수정한 뒤 추정 계산을 시작하세요.');
+    setApplyConfirmationOpen(false);
+    markDraftChanged();
+  };
+
+  const requestExcelApply = () => {
+    if (!excelPreview || excelPreview.blocking) return;
+    if (hasExistingPlanValues) {
+      setApplyConfirmationOpen(true);
+      return;
+    }
+    applyExcelPreview();
+  };
+
+  const controlsDisabled = state === 'SUBMITTING' || state === 'LOADING' || excelState === 'UPLOADING';
   const advancedControlsDisabled = controlsDisabled || metadataState !== 'READY';
   const submitDisabled = controlsDisabled || !baseModelId || !rangeValid || !models.length
     || metadataState !== 'READY' || !inputMetadata;
@@ -488,8 +591,68 @@ export const ForecastGenerationView: React.FC<ForecastGenerationViewProps> = ({
         </div>
       </section>
 
+      <section className="forecast-workflow__card forecast-workflow__card--bulk" aria-labelledby="forecast-bulk-title">
+        <div className="forecast-workflow__card-heading"><div><p className="forecast-workflow__eyebrow">02 · BULK INPUT</p><h2 id="forecast-bulk-title">대량 입력</h2></div><span className="forecast-workflow__step-state">선택</span></div>
+        <p className="forecast-workflow__helper">판매계획과 생산계획을 엑셀로 확인한 뒤 화면 입력값으로 적용합니다. 업로드만으로 추정 계산은 실행되지 않습니다.</p>
+        <div className="forecast-workflow__bulk-actions">
+          <button type="button" className="forecast-workflow__secondary" disabled={controlsDisabled || templateDownloading} onClick={downloadInputTemplate}>
+            <Download size={15} aria-hidden="true" />{templateDownloading ? '양식 준비 중...' : '엑셀 양식 다운로드'}
+          </button>
+          <label className={`forecast-workflow__upload-button ${(controlsDisabled || !rangeValid) ? 'is-disabled' : ''}`}>
+            <Upload size={15} aria-hidden="true" />{excelState === 'UPLOADING' ? '업로드 및 확인 중...' : '엑셀 업로드'}
+            <input
+              type="file"
+              accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+              aria-label="엑셀 파일 선택"
+              disabled={controlsDisabled || !rangeValid}
+              onChange={(event) => {
+                const file = event.currentTarget.files?.[0];
+                event.currentTarget.value = '';
+                if (file) void previewExcel(file);
+              }}
+            />
+          </label>
+          <span className="forecast-workflow__bulk-boundary">MCM·고급 조정은 기존 직접입력을 유지합니다.</span>
+        </div>
+        {excelMessage && <p className={`forecast-workflow__bulk-message ${(excelState === 'ERROR' || excelPreview?.blocking) ? 'is-error' : ''}`} role={(excelState === 'ERROR' || excelPreview?.blocking) ? 'alert' : 'status'}>{excelMessage}</p>}
+        {excelPreview && <section className="forecast-workflow__preview" aria-labelledby="forecast-preview-title">
+          <div className="forecast-workflow__preview-heading">
+            <div><FileSpreadsheet size={20} aria-hidden="true" /><div><h3 id="forecast-preview-title">Excel 입력 확인</h3><p>{excelPreview.source_filename}</p></div></div>
+            <span className={excelPreview.blocking ? 'is-error' : 'is-valid'}>{excelPreview.blocking ? `오류 ${excelPreview.issues.filter((issue) => issue.blocking).length}건` : (excelApplied ? '입력값 적용 완료' : '적용 가능')}</span>
+          </div>
+          <div className="forecast-workflow__preview-counts">
+            <div><span>판매계획</span><strong>{excelPreview.sales_rows.length}건</strong></div>
+            <div><span>생산계획</span><strong>{excelPreview.business_production_rows.length}건</strong></div>
+            <div><span>오류·주의</span><strong>{excelPreview.issues.length}건</strong></div>
+          </div>
+          <div className="forecast-workflow__preview-units" aria-label="단위별 입력 요약">
+            {excelPreview.sales_summary.map((summary) => <div key={`sales-${summary.unit}`}><span>{summary.unit === 'm' ? 'FS 판매' : summary.unit === 'PCS' ? '완제품 판매' : summary.unit === 'L' ? 'IX 판매' : '기타 판매'}</span><strong>{summary.quantity_total.toLocaleString('ko-KR')} {summary.unit}</strong><small>{summary.row_count}건</small></div>)}
+            {excelPreview.production_summary.map((summary) => <div key={`production-${summary.unit}`}><span>{summary.unit === 'm' ? '전공정 생산' : '후공정 생산'}</span><strong>{summary.quantity_total.toLocaleString('ko-KR')} {summary.unit}</strong><small>{summary.row_count}건</small></div>)}
+          </div>
+          {excelPreview.issues.length > 0 && <div className="forecast-workflow__issue-table-wrap">
+            <table className="forecast-workflow__issue-table">
+              <thead><tr><th scope="col">Sheet</th><th scope="col">행</th><th scope="col">필드</th><th scope="col">문제</th></tr></thead>
+              <tbody>{excelPreview.issues.map((issue, index) => <tr key={`${issue.source_sheet}-${issue.source_row}-${issue.field}-${issue.code}-${index}`} className={issue.blocking ? 'is-blocking' : ''}>
+                <td>{issue.source_sheet}</td><td>{issue.source_row}</td><td>{issue.field}</td><td><span>{issue.message}</span><small>{issue.severity === 'ERROR' ? '오류' : '주의'}</small></td>
+              </tr>)}</tbody>
+            </table>
+          </div>}
+          <div className="forecast-workflow__preview-footer">
+            <p><AlertCircle size={15} aria-hidden="true" />적용하면 판매·생산계획만 교체됩니다. MCM과 고급 조정은 유지됩니다.</p>
+            <button type="button" className="forecast-workflow__primary" disabled={controlsDisabled || excelPreview.blocking || excelApplied} onClick={requestExcelApply}>
+              {excelApplied ? '추정 입력값 적용 완료' : '추정 입력값으로 적용'}
+            </button>
+          </div>
+        </section>}
+        {applyConfirmationOpen && <div className="forecast-workflow__apply-dialog" role="dialog" aria-modal="true" aria-labelledby="forecast-apply-title">
+          <div><h3 id="forecast-apply-title">판매·생산계획을 교체하시겠습니까?</h3><p>현재 입력된 판매·생산계획을 Excel 데이터로 교체합니다. MCM 및 고급 조정 입력은 유지됩니다.</p>
+            <div><button type="button" className="forecast-workflow__secondary" onClick={() => setApplyConfirmationOpen(false)}>취소</button><button type="button" className="forecast-workflow__primary" onClick={applyExcelPreview}>적용</button></div>
+          </div>
+        </div>}
+      </section>
+
       <section className="forecast-workflow__card forecast-workflow__card--inputs" aria-labelledby="forecast-inputs-title">
-        <div className="forecast-workflow__card-heading"><div><p className="forecast-workflow__eyebrow">02 · DIRECT INPUT</p><h2 id="forecast-inputs-title">판매·생산 계획 직접입력</h2></div><span className="forecast-workflow__step-state">월별 입력</span></div>
+        <div className="forecast-workflow__card-heading"><div><p className="forecast-workflow__eyebrow">03 · DIRECT INPUT</p><h2 id="forecast-inputs-title">판매·생산 계획 직접입력</h2></div><span className="forecast-workflow__step-state">월별 입력</span></div>
         <p className="forecast-workflow__helper">제품코드는 정해진 입력 순서를 따릅니다. LC는 4인치/PCS, FS는 LENGTH/m이며 서로 다른 수량 단위를 합산하지 않습니다.</p>
         {metadataState === 'LOADING' && <p className="forecast-workflow__metadata-note" aria-live="polite">선택한 기준 모형의 고급 입력 항목을 불러오는 중입니다.</p>}
         {metadataState === 'ERROR' && <p className="forecast-workflow__metadata-note is-error" role="alert">고급 입력 항목을 불러오지 못했습니다. 기준 모형을 다시 선택하거나 잠시 후 다시 시도하세요.</p>}

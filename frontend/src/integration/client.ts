@@ -19,6 +19,7 @@ import {
   PnlDashboardDto,
   ForecastGenerateRequestDto,
   ForecastGenerateResponseDto,
+  ForecastExcelPreviewDto,
   ForecastInputMetadataDto,
   WorkerStatusDto,
 } from './types';
@@ -112,6 +113,16 @@ export const bffClient = {
     if (value.base_model_id !== baseModelId) invalidPayload();
     return value;
   },
+  downloadForecastInputTemplate: () => downloadForecastInputTemplate(),
+  previewForecastExcel: async (file: File, startMonth: number, endMonth: number) => {
+    const body = new FormData();
+    body.set('start_month', String(startMonth));
+    body.set('end_month', String(endMonth));
+    body.set('file', file, file.name);
+    return validateForecastExcelPreview(await request<unknown>('/api/admin/forecasts/input-preview', {
+      method: 'POST', body,
+    }));
+  },
   generateForecast: async (body: ForecastGenerateRequestDto) => validateForecast(
     await request<unknown>('/api/admin/forecasts', { method: 'POST', body: JSON.stringify(body) }),
   ),
@@ -153,6 +164,87 @@ function validateForecast(value: unknown): ForecastGenerateResponseDto {
     || typeof value.idempotency_replayed !== 'boolean'
     || value.execution_mode !== 'SYNCHRONOUS' || value.dto_version !== '1') invalidPayload();
   return value as unknown as ForecastGenerateResponseDto;
+}
+
+async function downloadForecastInputTemplate(): Promise<void> {
+  let response: Response;
+  try {
+    response = await fetch(`${API_ROOT}/api/admin/forecasts/input-template`, { credentials: 'include' });
+  } catch {
+    throw new ApiClientError(0, 'TRANSIENT_SYSTEM_ERROR', '엑셀 양식 다운로드 서버에 연결할 수 없습니다.');
+  }
+  if (!response.ok) {
+    let code = 'TRANSIENT_SYSTEM_ERROR';
+    try {
+      const value: unknown = await response.json();
+      if (isRecord(value) && isRecord(value.error) && typeof value.error.code === 'string') code = value.error.code;
+    } catch { /* safe fallback */ }
+    throw new ApiClientError(response.status, code, '엑셀 입력 양식을 내려받을 수 없습니다.', response.headers.get('X-Correlation-ID'));
+  }
+  const contentType = response.headers.get('Content-Type') || '';
+  if (!contentType.includes('application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')) invalidPayload();
+  const blob = await response.blob();
+  if (!blob.size) invalidPayload();
+  deliverBlob(blob, safeXlsxFilename(response.headers.get('Content-Disposition'), 'Forecast_Input_Template.xlsx'));
+}
+
+function validateForecastExcelPreview(value: unknown): ForecastExcelPreviewDto {
+  if (!isRecord(value)
+    || typeof value.source_filename !== 'string'
+    || !/^[^\\/\r\n]+\.xlsx$/i.test(value.source_filename)
+    || typeof value.valid !== 'boolean'
+    || typeof value.blocking !== 'boolean'
+    || value.valid === value.blocking
+    || !Array.isArray(value.sales_rows)
+    || !Array.isArray(value.business_production_rows)
+    || !Array.isArray(value.issues)
+    || !Array.isArray(value.sales_summary)
+    || !Array.isArray(value.production_summary)
+    || value.dto_version !== '1') invalidPayload();
+
+  const sourceRow = (row: unknown, sheet: '판매계획' | '생산계획') => isRecord(row)
+    && row.source_sheet === sheet
+    && Number.isSafeInteger(row.source_row)
+    && Number(row.source_row) >= 2;
+  const nonnegativeNumber = (candidate: unknown) => typeof candidate === 'number'
+    && Number.isFinite(candidate) && candidate >= 0;
+
+  for (const row of value.sales_rows) {
+    if (!sourceRow(row, '판매계획') || !isRecord(row)
+      || !integerInRange(row.month, 1, 12)
+      || typeof row.product_code !== 'string' || row.product_code.trim() === ''
+      || typeof row.product_name !== 'string' || row.product_name.trim() === ''
+      || typeof row.product_group !== 'string' || row.product_group.trim() === ''
+      || !nonnegativeNumber(row.quantity) || !nonnegativeNumber(row.amount)) invalidPayload();
+  }
+  for (const row of value.business_production_rows) {
+    if (!sourceRow(row, '생산계획') || !isRecord(row)
+      || !integerInRange(row.month, 1, 12)
+      || !['전공정', '후공정'].includes(String(row.process))
+      || !['SW', 'BW', 'TW', 'LC'].includes(String(row.product_group))
+      || !['PCS', 'm'].includes(String(row.unit))
+      || !nonnegativeNumber(row.quantity)) invalidPayload();
+  }
+  for (const issue of value.issues) {
+    if (!isRecord(issue)
+      || !['판매계획', '생산계획'].includes(String(issue.source_sheet))
+      || !Number.isSafeInteger(issue.source_row) || Number(issue.source_row) < 1
+      || typeof issue.field !== 'string' || typeof issue.code !== 'string'
+      || typeof issue.message !== 'string'
+      || !['ERROR', 'WARNING'].includes(String(issue.severity))
+      || typeof issue.blocking !== 'boolean') invalidPayload();
+  }
+  if (value.blocking !== value.issues.some((issue) => isRecord(issue) && issue.blocking === true)) {
+    invalidPayload();
+  }
+  for (const summary of [...value.sales_summary, ...value.production_summary]) {
+    if (!isRecord(summary)
+      || !['PCS', 'm', 'L', '—'].includes(String(summary.unit))
+      || !Number.isSafeInteger(summary.row_count) || Number(summary.row_count) < 0
+      || !nonnegativeNumber(summary.quantity_total)
+      || 'amount_total' in summary) invalidPayload();
+  }
+  return value as unknown as ForecastExcelPreviewDto;
 }
 
 async function downloadEvidence(resultId: string, role: Role): Promise<void> {
