@@ -1,5 +1,5 @@
 .forecast-workflow {
-  width: min(1180px, 100%);
+  width: min(1280px, 100%);
   min-width: 0;
   margin: 0 auto;
   padding: 26px 0 48px;
@@ -88,7 +88,7 @@
 
 .forecast-workflow__grid {
   display: grid;
-  grid-template-columns: minmax(320px, .9fr) minmax(0, 1.1fr);
+  grid-template-columns: 1fr;
   gap: 14px;
   align-items: start;
 }
@@ -161,14 +161,14 @@
 
 .forecast-workflow__field input:focus,
 .forecast-workflow__field select:focus,
-.forecast-workflow__json-label textarea:focus {
+.forecast-workflow__input-table input:focus {
   border-color: #f97316;
   outline: 3px solid rgba(249, 115, 22, .15);
 }
 
 .forecast-workflow__field input:disabled,
 .forecast-workflow__field select:disabled,
-.forecast-workflow__json-label textarea:disabled {
+.forecast-workflow__input-table input:disabled {
   color: #64748b;
   background: #f8fafc;
   cursor: not-allowed;
@@ -205,69 +205,193 @@
   line-height: 1.55;
 }
 
-.forecast-workflow__month-list {
-  display: grid;
-  gap: 8px;
-  max-height: 590px;
-  overflow: auto;
-  padding-right: 2px;
-}
-
-.forecast-workflow__month {
-  min-width: 0;
+.forecast-workflow__month-tabs {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 14px;
+  padding: 9px;
   border: 1px solid #e2e8f0;
-  border-radius: 9px;
+  border-radius: 10px;
   background: #f8fafc;
 }
 
-.forecast-workflow__month summary {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  padding: 10px 11px;
+.forecast-workflow__month-tabs button {
+  min-height: 31px;
+  border: 1px solid #cbd5e1;
+  border-radius: 7px;
+  padding: 0 11px;
   color: #334155;
+  background: #fff;
   cursor: pointer;
-  font-size: 12px;
+  font: inherit;
+  font-size: 11px;
   font-weight: 800;
-  list-style: none;
 }
 
-.forecast-workflow__month summary::-webkit-details-marker { display: none; }
-
-.forecast-workflow__month-meta {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  color: #94a3b8;
-  font-size: 10px;
-  font-weight: 700;
+.forecast-workflow__month-tabs button.is-active {
+  border-color: #7c3aed;
+  color: #6d28d9;
+  background: #f5f3ff;
+  box-shadow: 0 0 0 2px rgba(124, 58, 237, .1);
 }
 
-.forecast-workflow__month[open] summary svg { transform: rotate(180deg); }
+.forecast-workflow__month-tabs button:focus-visible {
+  outline: 3px solid rgba(249, 115, 22, .18);
+  outline-offset: 1px;
+}
 
-.forecast-workflow__json-label {
-  display: grid;
-  gap: 6px;
-  padding: 0 11px 11px;
+.forecast-workflow__month-tabs button:disabled { opacity: .5; cursor: not-allowed; }
+
+.forecast-workflow__month-tabs > span {
+  margin-left: 4px;
   color: #64748b;
   font-size: 10px;
   font-weight: 800;
 }
 
-.forecast-workflow__json-label textarea {
-  width: 100%;
+.forecast-workflow__month-tabs .forecast-workflow__reset {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  margin-left: auto;
+  border-color: transparent;
+  color: #64748b;
+  background: transparent;
+}
+
+.forecast-workflow__input-section {
   min-width: 0;
-  resize: vertical;
+  overflow: hidden;
+  border: 1px solid #e2e8f0;
+  border-radius: 11px;
+  background: #fff;
+}
+
+.forecast-workflow__input-section + .forecast-workflow__input-section { margin-top: 12px; }
+
+.forecast-workflow__input-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 13px;
+  border-bottom: 1px solid #e2e8f0;
+  background: #f8fafc;
+}
+
+.forecast-workflow__input-heading h3 {
+  color: #0f172a;
+  font-size: 13px;
+  font-weight: 900;
+}
+
+.forecast-workflow__input-heading p {
+  margin-top: 3px;
+  color: #64748b;
+  font-size: 10px;
+}
+
+.forecast-workflow__input-heading > span {
+  flex: 0 0 auto;
+  padding: 4px 7px;
+  border-radius: 999px;
+  color: #475569;
+  background: #e2e8f0;
+  font-size: 9px;
+  font-weight: 900;
+}
+
+.forecast-workflow__table-scroll {
+  max-width: 100%;
+  overflow-x: auto;
+}
+
+.forecast-workflow__input-table {
+  width: 100%;
+  min-width: 720px;
+  border-collapse: separate;
+  border-spacing: 0;
+  font-size: 11px;
+}
+
+.forecast-workflow__input-table--compact { min-width: 420px; }
+
+.forecast-workflow__input-table th,
+.forecast-workflow__input-table td {
+  height: 38px;
+  border-bottom: 1px solid #eef2f7;
+  padding: 5px 9px;
+  text-align: left;
+  white-space: nowrap;
+}
+
+.forecast-workflow__input-table thead th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  color: #475569;
+  background: #f8fafc;
+  font-size: 9px;
+  font-weight: 900;
+  letter-spacing: .04em;
+}
+
+.forecast-workflow__input-table tbody th {
+  color: #334155;
+  font-weight: 900;
+  font-variant-numeric: tabular-nums;
+}
+
+.forecast-workflow__input-table tbody tr:last-child th,
+.forecast-workflow__input-table tbody tr:last-child td { border-bottom: 0; }
+
+.forecast-workflow__input-table input {
+  width: 100%;
+  min-width: 105px;
+  height: 29px;
   border: 1px solid #cbd5e1;
-  border-radius: 8px;
-  padding: 10px;
+  border-radius: 6px;
+  padding: 0 8px;
   color: #0f172a;
   background: #fff;
-  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-  font-size: 11px;
-  line-height: 1.5;
-  tab-size: 2;
+  font: inherit;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+.forecast-workflow__unit {
+  display: inline-flex;
+  min-width: 32px;
+  justify-content: center;
+  border-radius: 5px;
+  padding: 3px 5px;
+  color: #475569;
+  background: #f1f5f9;
+  font-size: 9px;
+  font-weight: 900;
+}
+
+.forecast-workflow__unit--length { color: #0f766e; background: #ccfbf1; }
+
+.forecast-workflow__production-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.2fr) minmax(0, .8fr);
+  gap: 12px;
+  margin-top: 12px;
+  align-items: start;
+}
+
+.forecast-workflow__production-grid .forecast-workflow__input-section + .forecast-workflow__input-section { margin-top: 0; }
+
+.forecast-workflow__boundary-note {
+  padding: 9px 12px;
+  border-top: 1px solid #e2e8f0;
+  color: #64748b;
+  background: #f8fafc;
+  font-size: 9px;
 }
 
 .forecast-workflow__empty-input {
@@ -290,7 +414,7 @@
 
 .forecast-workflow__selection-summary {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 9px;
   margin-top: 16px;
 }
@@ -453,14 +577,15 @@
 @keyframes forecast-workflow-spin { to { transform: rotate(360deg); } }
 
 @media (max-width: 1450px) {
-  .forecast-workflow__month-list { max-height: 215px; }
-  .forecast-workflow__json-label textarea { height: 115px; }
+  .forecast-workflow__input-table th,
+  .forecast-workflow__input-table td { height: 34px; padding-block: 3px; }
 }
 
 @media (max-width: 900px) {
   .forecast-workflow { padding: 20px 0 36px; }
   .forecast-workflow__grid { grid-template-columns: 1fr; }
-  .forecast-workflow__month-list { max-height: none; }
+  .forecast-workflow__production-grid { grid-template-columns: 1fr; }
+  .forecast-workflow__selection-summary { grid-template-columns: 1fr 1fr; }
 }
 
 @media (max-width: 620px) {

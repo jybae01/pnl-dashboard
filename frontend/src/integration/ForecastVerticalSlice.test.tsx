@@ -68,12 +68,17 @@ describe('Forecast React vertical slice', () => {
     expect(body.start_month).toBe(7);
     expect(body.end_month).toBe(7);
     expect(body.months[0].month).toBe(7);
+    expect(body.months[0].sales).toHaveLength(11);
+    expect(body.months[0].production).toHaveLength(8);
+    expect(body.months[0].mcm).toHaveLength(4);
     expect(body.idempotency_key).toBeTruthy();
     expect(screen.getByText('비공개')).toBeInTheDocument();
     expect(screen.queryByText(GENERATION)).not.toBeInTheDocument();
     expect(screen.queryByText(MODEL)).not.toBeInTheDocument();
     expect(screen.queryByText('SYNCHRONOUS')).not.toBeInTheDocument();
     expect(screen.queryByText(/23%|64%|90%/)).not.toBeInTheDocument();
+    expect(screen.queryByText('월별 입력 JSON')).not.toBeInTheDocument();
+    expect(document.querySelector('textarea')).not.toBeInTheDocument();
   });
 
   it('pre-validates an over-limit range without clamping or sending a request', async () => {
@@ -112,6 +117,28 @@ describe('Forecast React vertical slice', () => {
     expect(body.end_month).toBe(12);
     expect(body.months).toHaveLength(6);
     expect(body.months.map((month: { month: number }) => month.month)).toEqual([7, 8, 9, 10, 11, 12]);
+  });
+
+  it('keeps monthly direct-entry values separate while switching month tabs', async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(response(modelPayload()))
+      .mockResolvedValueOnce(response({ ...successPayload(), start_month: 7, end_month: 8 }));
+    vi.stubGlobal('fetch', fetchMock);
+    render(<ForecastGenerationView />);
+    await screen.findByRole('heading', { name: '추정 산출' });
+    fireEvent.change(screen.getByLabelText('종료 월'), { target: { value: '8' } });
+
+    fireEvent.change(screen.getByLabelText('7월 LC 판매수량'), { target: { value: '70' } });
+    fireEvent.click(screen.getByRole('tab', { name: '08월' }));
+    fireEvent.change(screen.getByLabelText('8월 LC 판매수량'), { target: { value: '80' } });
+    fireEvent.click(screen.getByRole('tab', { name: '07월' }));
+    expect(screen.getByLabelText('7월 LC 판매수량')).toHaveValue('70');
+
+    fireEvent.click(screen.getByRole('button', { name: '추정 모형 생성' }));
+    await screen.findByText('추정 모형 생성 완료');
+    const body = JSON.parse(String((fetchMock.mock.calls[1][1] as RequestInit).body));
+    expect(body.months[0].sales.find((row: { product_code: string }) => row.product_code === 'LC').quantity).toBe(70);
+    expect(body.months[1].sales.find((row: { product_code: string }) => row.product_code === 'LC').quantity).toBe(80);
   });
 
   it('keeps month editing text-backed, selects on first focus, and normalizes on blur', async () => {
@@ -170,7 +197,7 @@ describe('Forecast React vertical slice', () => {
     expect(submitButton).toBeDisabled();
     expect(screen.getByText(/접수하고 계산 중입니다/)).toBeInTheDocument();
     expect(screen.getByLabelText('시작 월')).toBeDisabled();
-    expect(screen.getByLabelText('7월 Forecast 입력')).toBeDisabled();
+    expect(screen.getByLabelText('7월 SW400 판매수량')).toBeDisabled();
 
     resolveRequest(response(successPayload()));
     await screen.findByText('추정 모형 생성 완료');
@@ -247,14 +274,38 @@ describe('Forecast React vertical slice', () => {
     expect(onNavigateToManagement).toHaveBeenCalledTimes(1);
   });
 
-  it('rejects malformed JSON before making a forecast request', async () => {
+  it('edits direct sales, production, and MCM rows and serializes the canonical DTO', async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(response(modelPayload()))
+      .mockResolvedValueOnce(response(successPayload()));
+    vi.stubGlobal('fetch', fetchMock);
+    render(<ForecastGenerationView />);
+    await screen.findByRole('heading', { name: '추정 산출' });
+
+    fireEvent.change(screen.getByLabelText('7월 SW400 판매수량'), { target: { value: '125.5' } });
+    fireEvent.change(screen.getByLabelText('7월 SW400 매출액'), { target: { value: '987654' } });
+    fireEvent.change(screen.getByLabelText('7월 SW400 생산수량'), { target: { value: '88' } });
+    fireEvent.change(screen.getByLabelText('7월 SW400 MCM 수량'), { target: { value: '7' } });
+    fireEvent.click(screen.getByRole('button', { name: '추정 모형 생성' }));
+    await screen.findByText('추정 모형 생성 완료');
+
+    const body = JSON.parse(String((fetchMock.mock.calls[1][1] as RequestInit).body));
+    expect(body.months[0].sales[0]).toEqual({ product_code: 'SW400', quantity: 125.5, amount: 987654 });
+    expect(body.months[0].production[0]).toEqual({ product_code: 'SW400', quantity: 88 });
+    expect(body.months[0].mcm[0]).toEqual({ product_code: 'SW400', quantity: 7 });
+    expect(body.months[0].sales.map((row: { product_code: string }) => row.product_code)).toEqual([
+      'SW400', 'SW440', 'BW400', 'BW440', 'LC', 'FS_SW', 'FS_BW', 'FS_TW', 'UF_MBR', 'IX', 'OTHER',
+    ]);
+  });
+
+  it('rejects an empty direct-entry value before making a forecast request', async () => {
     const fetchMock = vi.fn().mockResolvedValueOnce(response(modelPayload()));
     vi.stubGlobal('fetch', fetchMock);
     render(<ForecastGenerationView />);
     await screen.findByRole('heading', { name: '추정 산출' });
-    fireEvent.change(screen.getByLabelText('7월 Forecast 입력'), { target: { value: '{bad json' } });
+    fireEvent.change(screen.getByLabelText('7월 SW400 판매수량'), { target: { value: '' } });
     fireEvent.click(screen.getByRole('button', { name: '추정 모형 생성' }));
-    expect(await screen.findByRole('alert')).toHaveTextContent('월별 입력 JSON');
+    expect(await screen.findByRole('alert')).toHaveTextContent('7월 SW400 판매수량');
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
@@ -265,5 +316,9 @@ describe('Forecast React vertical slice', () => {
     await screen.findByRole('heading', { name: '추정 산출' });
     expect(screen.getByText(/LC는 4인치\/PCS, FS는 LENGTH\/m/)).toBeInTheDocument();
     expect(screen.queryByText(/16인치|대사/)).not.toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: '판매계획' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: '생산계획' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'MCM 유상사급' })).toBeInTheDocument();
+    expect(screen.queryByText('월별 입력 JSON')).not.toBeInTheDocument();
   });
 });

@@ -1,17 +1,26 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { Calculator, CheckCircle2, ChevronDown, Database, LockKeyhole, ShieldCheck } from 'lucide-react';
+import { Calculator, CheckCircle2, Database, LockKeyhole, RotateCcw, ShieldCheck } from 'lucide-react';
 import { bffClient } from '../integration/client';
 import {
   AnalysisModelDto,
   ApiClientError,
   ForecastGenerateResponseDto,
-  ForecastMonthInputDto,
 } from '../integration/types';
 import {
   EditableNumericInput,
   normalizeMonthInput,
   parseMonthInput,
 } from '../integration/EditableNumericInput';
+import {
+  adaptForecastInput,
+  createForecastMonthFormState,
+  ensureForecastMonths,
+  MCM_PRODUCTS,
+  PRODUCTION_PRODUCTS,
+  SALES_PRODUCTS,
+  type ForecastInputSection,
+  type ForecastInputState,
+} from './forecastInputState';
 
 type ViewState =
   | 'LOADING'
@@ -32,19 +41,6 @@ export interface ForecastGenerationViewProps {
   onNavigateToAnalysis?: () => void;
   onNavigateToManagement?: () => void;
 }
-
-const blankMonth = (month: number): ForecastMonthInputDto => ({
-  month,
-  sales: ['SW400', 'SW440', 'BW400', 'BW440', 'LC', 'FS_SW', 'FS_BW', 'FS_TW', 'UF_MBR', 'IX', 'OTHER']
-    .map((product_code) => ({ product_code, quantity: 0, amount: 0 })),
-  production: ['SW400', 'SW440', 'BW400', 'BW440', 'LC', 'FS_SW', 'FS_BW', 'FS_TW']
-    .map((product_code) => ({ product_code, quantity: 0 })),
-  mcm: ['SW400', 'SW440', 'BW400', 'BW440'].map((product_code) => ({ product_code, quantity: 0 })),
-  manufacturing_adjustments: [],
-  sga_adjustments: [],
-});
-
-const monthInput = (month: number) => JSON.stringify(blankMonth(month), null, 2);
 
 function safeErrorMessage(error: unknown): { state: ViewState; message: string } {
   if (error instanceof ApiClientError) {
@@ -79,7 +75,8 @@ export const ForecastGenerationView: React.FC<ForecastGenerationViewProps> = ({
   const [endMonth, setEndMonth] = useState('07');
   const [name, setName] = useState('Forecast Model');
   const [version, setVersion] = useState('V1');
-  const [inputs, setInputs] = useState<Record<number, string>>({ 7: monthInput(7) });
+  const [inputs, setInputs] = useState<ForecastInputState>({ 7: createForecastMonthFormState(7) });
+  const [activeInputMonth, setActiveInputMonth] = useState(7);
   const [state, setState] = useState<ViewState>('LOADING');
   const [message, setMessage] = useState('');
   const [result, setResult] = useState<ForecastGenerateResponseDto | null>(null);
@@ -132,13 +129,8 @@ export const ForecastGenerationView: React.FC<ForecastGenerationViewProps> = ({
   );
 
   useEffect(() => {
-    setInputs((old) => {
-      const next = { ...old };
-      months.forEach((month) => {
-        if (!next[month]) next[month] = monthInput(month);
-      });
-      return next;
-    });
+    setInputs((old) => ensureForecastMonths(old, months));
+    setActiveInputMonth((current) => months.includes(current) ? current : (months[0] ?? current));
     requestSequence.current += 1;
     setResult(null);
     setMessage('');
@@ -146,13 +138,49 @@ export const ForecastGenerationView: React.FC<ForecastGenerationViewProps> = ({
     if (models.length && !submittingRef.current) setState('READY');
   }, [startMonth, endMonth, models.length, months]);
 
-  const updateInput = (month: number, value: string) => {
+  const markDraftChanged = () => {
     requestSequence.current += 1;
-    setInputs((old) => ({ ...old, [month]: value }));
     setResult(null);
     setMessage('');
     setState(models.length ? 'READY' : state);
     idempotencyKey.current = crypto.randomUUID();
+  };
+
+  const updateInput = (
+    month: number,
+    section: ForecastInputSection,
+    productCode: string,
+    field: 'quantity' | 'amount',
+    value: string,
+  ) => {
+    setInputs((old) => {
+      const current = old[month] ?? createForecastMonthFormState(month);
+      if (section === 'sales') {
+        const row = current.sales[productCode] ?? { quantity: '0', amount: '0' };
+        return {
+          ...old,
+          [month]: {
+            ...current,
+            sales: { ...current.sales, [productCode]: { ...row, [field]: value } },
+          },
+        };
+      }
+      const rows = current[section];
+      const row = rows[productCode] ?? { quantity: '0' };
+      return {
+        ...old,
+        [month]: {
+          ...current,
+          [section]: { ...rows, [productCode]: { ...row, quantity: value } },
+        },
+      };
+    });
+    markDraftChanged();
+  };
+
+  const resetMonthInputs = (month: number) => {
+    setInputs((old) => ({ ...old, [month]: createForecastMonthFormState(month) }));
+    markDraftChanged();
   };
 
   const updateBaseModel = (value: string) => {
@@ -179,19 +207,13 @@ export const ForecastGenerationView: React.FC<ForecastGenerationViewProps> = ({
       setMessage('공개된 기준 모형을 선택하세요.');
       return;
     }
-    let parsed: ForecastMonthInputDto[];
-    try {
-      parsed = months.map((month) => {
-        const value: unknown = JSON.parse(inputs[month] || '');
-        if (!value || typeof value !== 'object' || Array.isArray(value)
-          || (value as { month?: unknown }).month !== month) throw new Error('month');
-        return value as ForecastMonthInputDto;
-      });
-    } catch {
+    const adapted = adaptForecastInput(months, inputs);
+    if (!adapted.value) {
       setState('VALIDATION_ERROR');
-      setMessage('월별 입력 JSON과 선택 기간을 확인하세요.');
+      setMessage(adapted.error);
       return;
     }
+    const parsed = adapted.value;
     submittingRef.current = true;
     setState('SUBMITTING');
     const sequence = ++requestSequence.current;
@@ -222,6 +244,7 @@ export const ForecastGenerationView: React.FC<ForecastGenerationViewProps> = ({
   const controlsDisabled = state === 'SUBMITTING' || state === 'LOADING';
   const submitDisabled = controlsDisabled || !baseModelId || !rangeValid || !models.length;
   const selectedBaseModel = models.find((model) => model.model_id === baseModelId) || null;
+  const activeMonthInput = inputs[activeInputMonth] ?? createForecastMonthFormState(activeInputMonth);
 
   if (state === 'LOADING') {
     return <section className="forecast-workflow forecast-workflow--state" aria-busy="true">
@@ -310,22 +333,75 @@ export const ForecastGenerationView: React.FC<ForecastGenerationViewProps> = ({
       </section>
 
       <section className="forecast-workflow__card forecast-workflow__card--inputs" aria-labelledby="forecast-inputs-title">
-        <div className="forecast-workflow__card-heading"><div><p className="forecast-workflow__eyebrow">02 · INPUT</p><h2 id="forecast-inputs-title">월별 입력 JSON</h2></div><span className="forecast-workflow__step-state">정해진 입력 형식</span></div>
-        <p className="forecast-workflow__helper">월별 입력 형식과 제품코드는 정해진 기준을 따릅니다. LC는 4인치/PCS, FS는 LENGTH/m이며 금액이나 수량을 화면에서 계산하지 않습니다.</p>
-        <div className="forecast-workflow__month-list">
-          {months.length ? months.map((month, index) => <details key={month} className="forecast-workflow__month" open={index === 0}>
-            <summary><span>{month}월 입력</span><span className="forecast-workflow__month-meta">JSON · 입력 형식 <ChevronDown size={16} aria-hidden="true" /></span></summary>
-            <label className="forecast-workflow__json-label" htmlFor={`forecast-month-${month}`}>월별 Forecast 입력
-              <textarea id={`forecast-month-${month}`} disabled={controlsDisabled} aria-label={`${month}월 Forecast 입력`} value={inputs[month] || ''} onChange={(event) => updateInput(month, event.target.value)} rows={10} spellCheck={false} />
-            </label>
-          </details>) : <p className="forecast-workflow__empty-input">유효한 기간을 선택하면 월별 입력이 표시됩니다.</p>}
-        </div>
+        <div className="forecast-workflow__card-heading"><div><p className="forecast-workflow__eyebrow">02 · DIRECT INPUT</p><h2 id="forecast-inputs-title">판매·생산 계획 직접입력</h2></div><span className="forecast-workflow__step-state">월별 입력</span></div>
+        <p className="forecast-workflow__helper">제품코드는 정해진 입력 순서를 따릅니다. LC는 4인치/PCS, FS는 LENGTH/m이며 서로 다른 수량 단위를 합산하지 않습니다.</p>
+        {months.length ? <>
+          <div className="forecast-workflow__month-tabs" role="tablist" aria-label="입력 월 선택">
+            {months.map((month) => <button
+              key={month}
+              type="button"
+              role="tab"
+              aria-selected={activeInputMonth === month}
+              className={activeInputMonth === month ? 'is-active' : ''}
+              disabled={controlsDisabled}
+              onClick={() => setActiveInputMonth(month)}
+            >{String(month).padStart(2, '0')}월</button>)}
+            <span>{activeInputMonth}월 입력 편집 중</span>
+            <button type="button" className="forecast-workflow__reset" disabled={controlsDisabled} onClick={() => resetMonthInputs(activeInputMonth)}>
+              <RotateCcw size={13} aria-hidden="true" /> 선택 월 0으로 초기화
+            </button>
+          </div>
+
+          <section className="forecast-workflow__input-section" aria-labelledby="forecast-sales-title">
+            <div className="forecast-workflow__input-heading"><div><h3 id="forecast-sales-title">판매계획</h3><p>제품별 판매수량과 예상 매출액을 입력합니다.</p></div><span>{SALES_PRODUCTS.length}개 품목</span></div>
+            <div className="forecast-workflow__table-scroll">
+              <table className="forecast-workflow__input-table">
+                <thead><tr><th scope="col">제품코드</th><th scope="col">구분</th><th scope="col">단위</th><th scope="col">판매수량</th><th scope="col">매출액(원)</th></tr></thead>
+                <tbody>{SALES_PRODUCTS.map((product) => <tr key={product.code}>
+                  <th scope="row">{product.code}</th><td>{product.label}</td><td><span className={`forecast-workflow__unit forecast-workflow__unit--${product.unit === 'm' ? 'length' : 'quantity'}`}>{product.unit}</span></td>
+                  <td><EditableNumericInput mode="decimal" disabled={controlsDisabled} aria-label={`${activeInputMonth}월 ${product.code} 판매수량`} value={activeMonthInput.sales[product.code]?.quantity ?? ''} onChange={(value) => updateInput(activeInputMonth, 'sales', product.code, 'quantity', value)} /></td>
+                  <td><EditableNumericInput mode="decimal" disabled={controlsDisabled} aria-label={`${activeInputMonth}월 ${product.code} 매출액`} value={activeMonthInput.sales[product.code]?.amount ?? ''} onChange={(value) => updateInput(activeInputMonth, 'sales', product.code, 'amount', value)} /></td>
+                </tr>)}</tbody>
+              </table>
+            </div>
+          </section>
+
+          <div className="forecast-workflow__production-grid">
+            <section className="forecast-workflow__input-section" aria-labelledby="forecast-production-title">
+              <div className="forecast-workflow__input-heading"><div><h3 id="forecast-production-title">생산계획</h3><p>제품별 예상 생산수량을 입력합니다.</p></div><span>{PRODUCTION_PRODUCTS.length}개 품목</span></div>
+              <div className="forecast-workflow__table-scroll">
+                <table className="forecast-workflow__input-table forecast-workflow__input-table--compact">
+                  <thead><tr><th scope="col">제품코드</th><th scope="col">단위</th><th scope="col">생산수량</th></tr></thead>
+                  <tbody>{PRODUCTION_PRODUCTS.map((product) => <tr key={product.code}>
+                    <th scope="row">{product.code}</th><td><span className={`forecast-workflow__unit forecast-workflow__unit--${product.unit === 'm' ? 'length' : 'quantity'}`}>{product.unit}</span></td>
+                    <td><EditableNumericInput mode="decimal" disabled={controlsDisabled} aria-label={`${activeInputMonth}월 ${product.code} 생산수량`} value={activeMonthInput.production[product.code]?.quantity ?? ''} onChange={(value) => updateInput(activeInputMonth, 'production', product.code, 'quantity', value)} /></td>
+                  </tr>)}</tbody>
+                </table>
+              </div>
+            </section>
+
+            <section className="forecast-workflow__input-section" aria-labelledby="forecast-mcm-title">
+              <div className="forecast-workflow__input-heading"><div><h3 id="forecast-mcm-title">MCM 유상사급</h3><p>유상사급 대상 제품의 월별 수량을 입력합니다.</p></div><span>{MCM_PRODUCTS.length}개 품목</span></div>
+              <div className="forecast-workflow__table-scroll">
+                <table className="forecast-workflow__input-table forecast-workflow__input-table--compact">
+                  <thead><tr><th scope="col">제품코드</th><th scope="col">단위</th><th scope="col">MCM 수량</th></tr></thead>
+                  <tbody>{MCM_PRODUCTS.map((product) => <tr key={product.code}>
+                    <th scope="row">{product.code}</th><td><span className="forecast-workflow__unit forecast-workflow__unit--quantity">{product.unit}</span></td>
+                    <td><EditableNumericInput mode="decimal" disabled={controlsDisabled} aria-label={`${activeInputMonth}월 ${product.code} MCM 수량`} value={activeMonthInput.mcm[product.code]?.quantity ?? ''} onChange={(value) => updateInput(activeInputMonth, 'mcm', product.code, 'quantity', value)} /></td>
+                  </tr>)}</tbody>
+                </table>
+              </div>
+              <p className="forecast-workflow__boundary-note">입력한 400/440 수량은 별도로 유지되며 화면에서 자동 배부하지 않습니다.</p>
+            </section>
+          </div>
+        </> : <p className="forecast-workflow__empty-input">유효한 기간을 선택하면 판매·생산 입력표가 표시됩니다.</p>}
       </section>
     </div>
 
     <section className="forecast-workflow__selection-summary" aria-label="추정 산출 요약">
       <div><span>산출 기간</span><strong>{hasOrderedRange ? `${startMonth}~${endMonth}월 · ${selectedMonthCount}개월` : '기간을 선택하세요'}</strong></div>
       <div><span>기준 모형</span><strong>{selectedBaseModel ? `${selectedBaseModel.display_name} · ${selectedBaseModel.model_year}년` : '모형을 선택하세요'}</strong></div>
+      <div><span>직접입력 범위</span><strong>판매 {SALES_PRODUCTS.length} · 생산 {PRODUCTION_PRODUCTS.length} · MCM {MCM_PRODUCTS.length}</strong></div>
       <div><span>결과 유형</span><strong>추정 모형</strong></div>
     </section>
     <div className="forecast-workflow__actions">
