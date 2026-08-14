@@ -9,6 +9,18 @@ from .application import (
 )
 from .auth import AccessCodeSessionService, SessionPrincipal
 from .forecast_download import ForecastModelDownloadService, ForecastWorkbookDownloadService
+from .production_allocation import (
+    BACK_PROCESS,
+    FRONT_PROCESS,
+    UNIT_LENGTH_M,
+    UNIT_PCS,
+    BusinessProductionInput,
+    CanonicalProductionQuantity,
+    ForecastProductionAllocationService,
+    ProductionAllocationBatch,
+    ProductionAllocationResult,
+    allocate_production,
+)
 from .dto import (
     AnalysisModelListResponse,
     AnalysisModelResponse,
@@ -60,6 +72,16 @@ __all__ = [
     "WorkerAdministrationService",
     "ForecastWorkbookDownloadService",
     "ForecastModelDownloadService",
+    "BusinessProductionInput",
+    "FRONT_PROCESS",
+    "BACK_PROCESS",
+    "UNIT_PCS",
+    "UNIT_LENGTH_M",
+    "CanonicalProductionQuantity",
+    "ForecastProductionAllocationService",
+    "ProductionAllocationBatch",
+    "ProductionAllocationResult",
+    "allocate_production",
     "ViewerResultResponse",
     "create_supabase_bff_application",
 ]

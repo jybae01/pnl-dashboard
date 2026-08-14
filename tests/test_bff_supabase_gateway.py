@@ -100,6 +100,7 @@ def test_factory_defaults_to_disabled_and_keeps_non_forecast_capabilities():
     assert app.result_publication is not None
     assert app.forecast_generation is None
     assert app.forecast_input_metadata is None
+    assert app.forecast_production_allocation is None
 
 
 def test_factory_enables_forecast_metadata_with_forecast_capability():
@@ -117,6 +118,7 @@ def test_factory_enables_forecast_metadata_with_forecast_capability():
     )
     assert app.forecast_generation is not None
     assert app.forecast_input_metadata is not None
+    assert app.forecast_production_allocation is not None
 
 
 def test_idempotency_conflict_is_mapped_without_raw_database_error():
