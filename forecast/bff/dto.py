@@ -56,6 +56,20 @@ class AdminModelListResponse:
 
 
 @dataclass(frozen=True)
+class ForecastWorkbookArtifact:
+    """Exact bytes for an authorized Forecast-generated workbook download.
+
+    This is an internal transport handoff rather than a JSON browser DTO.  The
+    bytes are fetched from private Storage after checking the authoritative
+    Model row's recorded SHA-256; no Storage path crosses the HTTP boundary.
+    """
+
+    content: bytes = field(repr=False)
+    filename: str
+    media_type: str = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+
+
+@dataclass(frozen=True)
 class ModelUploadRequest:
     name: str
     model_type: str

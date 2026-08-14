@@ -30,6 +30,7 @@ from .forecast_orchestration import (
     ForecastAdjustmentInput, ForecastGenerateRequest, ForecastMonthInput,
     ForecastQuantityInput, ForecastSalesInput,
 )
+from .forecast_download import content_disposition
 from .production import AuditSink, TrustedProxyPolicy
 from ..temp_artifacts import temp_artifact_policy, temp_artifacts_configured
 
@@ -663,6 +664,29 @@ def create_http_bff(
                 "Forecast input metadata capability is not configured",
             )
         return application.forecast_input_metadata.get(value, base_model_id)
+
+    @app.get("/api/admin/forecast-models/{model_id}/workbook")
+    def download_forecast_workbook(
+        request: Request,
+        model_id: str,
+        value: str = Depends(admin_session),
+    ):
+        if application.forecast_download is None:
+            raise BffError(
+                ApiErrorCode.FORECAST_SCOPE_NOT_APPROVED,
+                "Forecast workbook download is disabled",
+            )
+        artifact = application.forecast_download.admin_download(value, model_id)
+        _operation_audit(audit, application, value, request, "forecast_workbook_download", model_id)
+        return Response(
+            content=artifact.content,
+            media_type=artifact.media_type,
+            headers={
+                "Content-Disposition": content_disposition(artifact.filename),
+                "Cache-Control": "no-store, private",
+                "X-Content-Type-Options": "nosniff",
+            },
+        )
 
     @app.get("/api/jobs/{job_id}")
     def get_job(job_id: str, value: str = Depends(admin_session)):

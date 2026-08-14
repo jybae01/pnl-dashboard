@@ -8,12 +8,14 @@ from .application import (
     WorkerAdministrationService,
 )
 from .auth import AccessCodeSessionService, SessionPrincipal
+from .forecast_download import ForecastModelDownloadService, ForecastWorkbookDownloadService
 from .dto import (
     AnalysisModelListResponse,
     AnalysisModelResponse,
     AdminResultPreviewResponse,
     AnalysisSubmitRequest,
     AnalysisSubmitResponse,
+    ForecastWorkbookArtifact,
     JobStatusResponse,
     ResultPublicationResponse,
     ResultProvenanceResponse,
@@ -38,6 +40,7 @@ __all__ = [
     "AnalysisModelListResponse",
     "AnalysisModelResponse",
     "AnalysisSubmitResponse",
+    "ForecastWorkbookArtifact",
     "ApiError",
     "ApiErrorCode",
     "BffApplicationGateway",
@@ -55,6 +58,8 @@ __all__ = [
     "SupabaseBffApplicationGateway",
     "TrustedBffApplication",
     "WorkerAdministrationService",
+    "ForecastWorkbookDownloadService",
+    "ForecastModelDownloadService",
     "ViewerResultResponse",
     "create_supabase_bff_application",
 ]

@@ -106,6 +106,8 @@ class BffApplicationGateway(Protocol):
         self, *, limit: int, before_created_at: str | None, before_job_id: str | None
     ) -> list[Mapping[str, Any]]: ...
 
+    def get_forecast_model(self, model_id: str) -> Mapping[str, Any] | None: ...
+
     def download_model_source(self, bucket: str, path: str) -> bytes: ...
 
 
@@ -336,6 +338,22 @@ class SupabaseBffApplicationGateway:
             return bytes(self._client.storage.from_(bucket).download(path))
         except Exception as exc:
             raise GatewayTransientError("model source download failed") from exc
+
+    def get_forecast_model(self, model_id: str) -> Mapping[str, Any] | None:
+        """Read one authoritative Model row for the Admin Forecast download.
+
+        Storage binding columns are returned only to the trusted service.  The
+        HTTP DTO never serializes this row or its private bucket/path.
+        """
+
+        try:
+            return _first(self._client.table("models").select(
+                "id,name,model_type,model_year,version,file_name,is_published,is_default,"
+                "workbook_bucket,workbook_path,workbook_sha256,source_kind,source_model_id,"
+                "forecast_generation_id"
+            ).eq("id", model_id).limit(1).execute())
+        except Exception as exc:
+            raise GatewayTransientError("forecast model lookup failed") from exc
 
     def _read(self, name: str, params: Mapping[str, Any]) -> Mapping[str, Any] | None:
         try:

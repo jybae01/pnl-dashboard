@@ -17,6 +17,7 @@ from ..preflight import ExcelPreflightValidator
 from .gateway import SupabaseBffApplicationGateway, SupabaseModelIngestionGateway, SupabaseForecastGateway
 from .forecast_orchestration import ForecastGenerationService, V1_FORECAST_SYNC_MAX_MONTHS
 from .forecast_input_metadata import ForecastInputMetadataService
+from .forecast_download import ForecastWorkbookDownloadService
 from .evidence_history import CalculationHistoryService, EvidenceDeliveryService
 from .analysis_presentation import AnalysisPresentationService
 from .pnl_dashboard import PnlDashboardService
@@ -145,6 +146,10 @@ def create_supabase_bff_application(
         forecast_input_metadata=(
             ForecastInputMetadataService(sessions, model_repository, model_mapping, provenance)
             if forecast_enabled and model_capabilities and mapping_path else None
+        ),
+        forecast_download=(
+            ForecastWorkbookDownloadService(sessions, gateway)
+            if forecast_enabled else None
         ),
         worker_administration=(
             WorkerAdministrationService(sessions, worker_control)
