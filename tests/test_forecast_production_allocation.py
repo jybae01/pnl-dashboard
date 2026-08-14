@@ -197,6 +197,13 @@ def test_invalid_dimensions_and_units_fail_closed(entry):
         allocate_production(entry, None)
 
 
+def test_unhashable_dimension_is_a_validation_error_not_a_raw_type_error():
+    malformed = BusinessProductionInput(7, ["후공정"], "SW", 1, UNIT_PCS)  # type: ignore[arg-type]
+
+    with pytest.raises(ProductionAllocationValidationError):
+        allocate_production(malformed)
+
+
 def test_duplicate_business_dimension_is_rejected():
     with pytest.raises(ProductionAllocationValidationError):
         allocate_production(

@@ -232,13 +232,17 @@ def _normalize_inputs(inputs: BusinessProductionInput | Iterable[BusinessProduct
 
 def _validate_business_row(value: BusinessProductionInput, index: int) -> tuple[int, tuple[str, str], Decimal]:
     month = _month(value.month, f"inputs.{index}.month")
+    if not isinstance(value.process, str) or not isinstance(value.product_group, str):
+        raise ProductionAllocationValidationError(
+            field_errors={f"inputs.{index}.dimension": "process and product group must be strings"},
+        )
     key = (value.process, value.product_group)
     if key not in _DIMENSION_MAP:
         raise ProductionAllocationValidationError(
             field_errors={f"inputs.{index}.dimension": "unsupported process/product group"},
         )
     expected_code, expected_unit = _DIMENSION_MAP[key]
-    if value.unit != expected_unit:
+    if not isinstance(value.unit, str) or value.unit != expected_unit:
         raise ProductionAllocationValidationError(
             field_errors={f"inputs.{index}.unit": f"must be {expected_unit}"},
         )
