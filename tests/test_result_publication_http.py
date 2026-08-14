@@ -237,17 +237,7 @@ class _HistoryQuery:
 
 class _HistoryClient:
     def __init__(self):
-        self.table_rows = [{
-            "id": RESULT_ID,
-            "is_default": True,
-            "published_at": "2026-08-14T00:00:00+00:00",
-        }]
-        self.table_select = None
-        self.table_filter = None
-
-    def rpc(self, name, _params):
-        assert name == "list_calculation_history_admin"
-        return _RpcResponse([{
+        self.history_rows = [{
             "job_id": "33333333-3333-4333-8333-333333333333",
             "result_id": RESULT_ID,
             "status": "completed",
@@ -264,7 +254,18 @@ class _HistoryClient:
             "error_code": None,
             "error_message": None,
             "is_published": True,
-        }])
+        }]
+        self.table_rows = [{
+            "id": RESULT_ID,
+            "is_default": True,
+            "published_at": "2026-08-14T00:00:00+00:00",
+        }]
+        self.table_select = None
+        self.table_filter = None
+
+    def rpc(self, name, _params):
+        assert name == "list_calculation_history_admin"
+        return _RpcResponse(self.history_rows)
 
     def table(self, name):
         assert name == "calculation_results"
@@ -295,6 +296,31 @@ def test_history_batch_enrichment_fails_closed_when_result_metadata_is_missing()
             before_created_at=None,
             before_job_id=None,
         )
+
+
+def test_history_batch_enrichment_preserves_rows_without_a_result():
+    client = _HistoryClient()
+    client.history_rows.append({
+        **client.history_rows[0],
+        "job_id": "44444444-4444-4444-8444-444444444444",
+        "result_id": None,
+        "status": "failed",
+        "completed_at": None,
+        "error_code": "preflight_failed",
+        "error_message": "safe failure",
+        "is_published": False,
+    })
+
+    rows = SupabaseBffApplicationGateway(client).list_calculation_history(
+        limit=25,
+        before_created_at=None,
+        before_job_id=None,
+    )
+
+    assert rows[0]["is_default"] is True
+    assert rows[1]["result_id"] is None
+    assert "is_default" not in rows[1]
+    assert "published_at" not in rows[1]
 
 
 class _PublicationRpcClient:

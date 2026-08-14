@@ -310,7 +310,11 @@ class SupabaseBffApplicationGateway:
                 by_id[str(row["id"])] = row
         for row in rows:
             result_id = row.get("result_id")
-            metadata = by_id.get(str(result_id)) if result_id else None
+            if not result_id:
+                # Queued/running/failed history rows legitimately have no
+                # calculation result yet and therefore no publication state.
+                continue
+            metadata = by_id.get(str(result_id))
             if metadata is None:
                 # A completed history row's result must still exist: silently
                 # defaulting publication metadata would misrepresent the
