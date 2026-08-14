@@ -13,17 +13,30 @@ import {
   ViewerState,
 } from './types';
 import { AnalysisPresentationPanel } from './AnalysisPresentationPanel';
+import {
+  EditableNumericInput,
+  normalizeMonthInput,
+  parseDecimalInput,
+  parseMonthInput,
+} from './EditableNumericInput';
 import '../styles/variance-analysis-shell.css';
 
-type FormState = Omit<SubmitRequest, 'idempotency_key'>;
+type FormState = Omit<SubmitRequest, 'idempotency_key' | 'start_month' | 'end_month' | 'baseline_sales_fx' | 'comparison_sales_fx'> & {
+  start_month: string;
+  end_month: string;
+  baseline_sales_fx: string;
+  comparison_sales_fx: string;
+};
+
+type ParsedFormState = Omit<SubmitRequest, 'idempotency_key'>;
 
 const INITIAL_FORM: FormState = {
   baseline_model_id: '',
   comparison_model_id: '',
-  start_month: 1,
-  end_month: 12,
-  baseline_sales_fx: 1450,
-  comparison_sales_fx: 1450,
+  start_month: '01',
+  end_month: '12',
+  baseline_sales_fx: '1450',
+  comparison_sales_fx: '1450',
 };
 
 const ACTIVE_JOB_STORAGE_KEY = 'pnl.active-analysis-job-id';
@@ -193,14 +206,34 @@ export function CoreAnalysisView({ role, modelRefreshKey = 0, initialResultId }:
   }, [initialResultId]);
 
   const fingerprint = useMemo(() => JSON.stringify(form), [form]);
-  const formValid = form.baseline_model_id && form.comparison_model_id &&
-    form.baseline_model_id !== form.comparison_model_id &&
-    form.start_month >= 1 && form.start_month <= form.end_month && form.end_month <= 12 &&
-    form.baseline_sales_fx > 0 && form.comparison_sales_fx > 0;
+  const parsedStartMonth = parseMonthInput(form.start_month);
+  const parsedEndMonth = parseMonthInput(form.end_month);
+  const parsedBaselineSalesFx = parseDecimalInput(form.baseline_sales_fx);
+  const parsedComparisonSalesFx = parseDecimalInput(form.comparison_sales_fx);
+  const parsedForm: ParsedFormState | null = parsedStartMonth !== null
+    && parsedEndMonth !== null
+    && parsedStartMonth <= parsedEndMonth
+    && parsedBaselineSalesFx !== null
+    && parsedComparisonSalesFx !== null
+    ? {
+      baseline_model_id: form.baseline_model_id,
+      comparison_model_id: form.comparison_model_id,
+      start_month: parsedStartMonth,
+      end_month: parsedEndMonth,
+      baseline_sales_fx: parsedBaselineSalesFx,
+      comparison_sales_fx: parsedComparisonSalesFx,
+    }
+    : null;
+  const formValid = Boolean(
+    parsedForm
+    && form.baseline_model_id
+    && form.comparison_model_id
+    && form.baseline_model_id !== form.comparison_model_id,
+  );
 
   async function submit(event: FormEvent) {
     event.preventDefault();
-    if (!formValid || isSubmitting || isJobActive(job)) return;
+    if (!formValid || !parsedForm || isSubmitting || isJobActive(job)) return;
     setIsSubmitting(true);
     setError(null);
     setResult(null);
@@ -209,15 +242,15 @@ export function CoreAnalysisView({ role, modelRefreshKey = 0, initialResultId }:
       logicalRequest.current = { fingerprint, key: crypto.randomUUID() };
     }
     try {
-      const response = await bffClient.submit({ ...form, idempotency_key: logicalRequest.current.key });
+      const response = await bffClient.submit({ ...parsedForm, idempotency_key: logicalRequest.current.key });
       window.sessionStorage.setItem(ACTIVE_JOB_STORAGE_KEY, response.job_id);
       setJob({
         job_id: response.job_id,
         status: response.status,
         baseline_model_id: form.baseline_model_id,
         comparison_model_id: form.comparison_model_id,
-        start_month: form.start_month,
-        end_month: form.end_month,
+        start_month: parsedForm.start_month,
+        end_month: parsedForm.end_month,
         attempt: 0,
         max_attempts: 0,
         created_at: '', heartbeat_at: null, completed_at: null, result_id: null,
@@ -290,10 +323,10 @@ export function CoreAnalysisView({ role, modelRefreshKey = 0, initialResultId }:
             onChange={(value) => setForm({ ...form, baseline_model_id: value })} />
           <ModelSelect label="비교 모형" value={form.comparison_model_id} models={models} disabled={isSubmitting || isJobActive(job)}
             onChange={(value) => setForm({ ...form, comparison_model_id: value })} />
-          <NumberInput label="시작 월" value={form.start_month} disabled={isSubmitting || isJobActive(job)} onChange={(value) => setForm({ ...form, start_month: value })} />
-          <NumberInput label="종료 월" value={form.end_month} disabled={isSubmitting || isJobActive(job)} onChange={(value) => setForm({ ...form, end_month: value })} />
-          <NumberInput label="기준 매출환율 (KRW/USD)" value={form.baseline_sales_fx} disabled={isSubmitting || isJobActive(job)} onChange={(value) => setForm({ ...form, baseline_sales_fx: value })} />
-          <NumberInput label="비교 매출환율 (KRW/USD)" value={form.comparison_sales_fx} disabled={isSubmitting || isJobActive(job)} onChange={(value) => setForm({ ...form, comparison_sales_fx: value })} />
+          <NumberInput mode="month" label="시작 월" value={form.start_month} disabled={isSubmitting || isJobActive(job)} onChange={(value) => setForm({ ...form, start_month: value })} />
+          <NumberInput mode="month" label="종료 월" value={form.end_month} disabled={isSubmitting || isJobActive(job)} onChange={(value) => setForm({ ...form, end_month: value })} />
+          <NumberInput mode="decimal" label="기준 매출환율 (KRW/USD)" value={form.baseline_sales_fx} disabled={isSubmitting || isJobActive(job)} onChange={(value) => setForm({ ...form, baseline_sales_fx: value })} />
+          <NumberInput mode="decimal" label="비교 매출환율 (KRW/USD)" value={form.comparison_sales_fx} disabled={isSubmitting || isJobActive(job)} onChange={(value) => setForm({ ...form, comparison_sales_fx: value })} />
         </div>
         <div className="variance-control-actions">
           <button className="btn btn-primary" disabled={!formValid || isSubmitting || isJobActive(job)}><Play size={14} />{isSubmitting ? '요청 중…' : '분석 실행'}</button>
@@ -330,8 +363,16 @@ function ModelSelect({ label, value, models, disabled, onChange }: { label: stri
   </select></label>;
 }
 
-function NumberInput({ label, value, disabled, onChange }: { label: string; value: number; disabled: boolean; onChange: (value: number) => void }) {
-  return <label><span className="filter-label">{label}</span><input className="filter-select" style={{ width: '100%' }} type="number" value={value} disabled={disabled} onChange={(event) => onChange(Number(event.target.value))} /></label>;
+function NumberInput({ mode, label, value, disabled, onChange }: { mode: 'month' | 'decimal'; label: string; value: string; disabled: boolean; onChange: (value: string) => void }) {
+  return <label><span className="filter-label">{label}</span><EditableNumericInput
+    className="filter-select"
+    style={{ width: '100%' }}
+    mode={mode}
+    value={value}
+    disabled={disabled}
+    onChange={onChange}
+    onValueBlur={mode === 'month' ? (nextValue) => onChange(normalizeMonthInput(nextValue)) : undefined}
+  /></label>;
 }
 
 function ResultState({ state, error, result, role, onUnavailable }: {

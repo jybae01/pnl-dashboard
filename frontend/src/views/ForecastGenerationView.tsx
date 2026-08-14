@@ -7,6 +7,11 @@ import {
   ForecastGenerateResponseDto,
   ForecastMonthInputDto,
 } from '../integration/types';
+import {
+  EditableNumericInput,
+  normalizeMonthInput,
+  parseMonthInput,
+} from '../integration/EditableNumericInput';
 
 type ViewState =
   | 'LOADING'
@@ -63,12 +68,6 @@ function safeErrorMessage(error: unknown): { state: ViewState; message: string }
   return { state: 'ERROR', message: '추정 산출을 불러오지 못했습니다. 잠시 후 다시 시도하세요.' };
 }
 
-function parseMonth(value: string): number {
-  if (value.trim() === '') return 0;
-  const parsed = Number(value);
-  return Number.isFinite(parsed) ? Math.trunc(parsed) : 0;
-}
-
 export const ForecastGenerationView: React.FC<ForecastGenerationViewProps> = ({
   onNavigateToPnl,
   onNavigateToAnalysis,
@@ -76,8 +75,8 @@ export const ForecastGenerationView: React.FC<ForecastGenerationViewProps> = ({
 }) => {
   const [models, setModels] = useState<AnalysisModelDto[]>([]);
   const [baseModelId, setBaseModelId] = useState('');
-  const [startMonth, setStartMonth] = useState(7);
-  const [endMonth, setEndMonth] = useState(7);
+  const [startMonth, setStartMonth] = useState('07');
+  const [endMonth, setEndMonth] = useState('07');
   const [name, setName] = useState('Forecast Model');
   const [version, setVersion] = useState('V1');
   const [inputs, setInputs] = useState<Record<number, string>>({ 7: monthInput(7) });
@@ -110,11 +109,15 @@ export const ForecastGenerationView: React.FC<ForecastGenerationViewProps> = ({
     };
   }, [loadAttempt]);
 
-  const hasOrderedRange = Number.isInteger(startMonth) && Number.isInteger(endMonth)
-    && MONTH_MIN <= startMonth && startMonth <= MONTH_MAX
-    && MONTH_MIN <= endMonth && endMonth <= MONTH_MAX
-    && startMonth <= endMonth;
-  const selectedMonthCount = hasOrderedRange ? endMonth - startMonth + 1 : 0;
+  const parsedStartMonth = parseMonthInput(startMonth);
+  const parsedEndMonth = parseMonthInput(endMonth);
+  const hasOrderedRange = parsedStartMonth !== null && parsedEndMonth !== null
+    && MONTH_MIN <= parsedStartMonth && parsedStartMonth <= MONTH_MAX
+    && MONTH_MIN <= parsedEndMonth && parsedEndMonth <= MONTH_MAX
+    && parsedStartMonth <= parsedEndMonth;
+  const selectedMonthCount = hasOrderedRange && parsedStartMonth !== null && parsedEndMonth !== null
+    ? parsedEndMonth - parsedStartMonth + 1
+    : 0;
   const rangeValid = hasOrderedRange && selectedMonthCount <= V1_FORECAST_SYNC_MAX_MONTHS;
   const rangeMessage = !hasOrderedRange
     ? '시작 월과 종료 월은 1~12월 범위에서 순서대로 선택하세요.'
@@ -122,10 +125,10 @@ export const ForecastGenerationView: React.FC<ForecastGenerationViewProps> = ({
       ? `선택한 기간은 ${selectedMonthCount}개월입니다. 한 번에 최대 6개월까지 추정할 수 있습니다.`
       : '';
   const months = useMemo(
-    () => hasOrderedRange
-      ? Array.from({ length: selectedMonthCount }, (_, index) => startMonth + index)
+    () => hasOrderedRange && parsedStartMonth !== null
+      ? Array.from({ length: selectedMonthCount }, (_, index) => parsedStartMonth + index)
       : [],
-    [hasOrderedRange, selectedMonthCount, startMonth],
+    [hasOrderedRange, selectedMonthCount, parsedStartMonth],
   );
 
   useEffect(() => {
@@ -165,7 +168,7 @@ export const ForecastGenerationView: React.FC<ForecastGenerationViewProps> = ({
     if (submittingRef.current || state === 'SUBMITTING') return;
     setMessage('');
     setResult(null);
-    if (!rangeValid) {
+    if (!rangeValid || parsedStartMonth === null || parsedEndMonth === null) {
       setState('VALIDATION_ERROR');
       setMessage(rangeMessage);
       return;
@@ -198,8 +201,8 @@ export const ForecastGenerationView: React.FC<ForecastGenerationViewProps> = ({
         name,
         model_year: base.model_year,
         version,
-        start_month: startMonth,
-        end_month: endMonth,
+        start_month: parsedStartMonth,
+        end_month: parsedEndMonth,
         months: parsed,
         idempotency_key: idempotencyKey.current,
       });
@@ -272,10 +275,26 @@ export const ForecastGenerationView: React.FC<ForecastGenerationViewProps> = ({
             </select>
           </label>
           <label className="forecast-workflow__field">시작 월
-            <input disabled={controlsDisabled} type="number" min={MONTH_MIN} max={MONTH_MAX} value={startMonth} onChange={(event) => setStartMonth(parseMonth(event.target.value))} />
+            <EditableNumericInput
+              disabled={controlsDisabled}
+              mode="month"
+              min={MONTH_MIN}
+              max={MONTH_MAX}
+              value={startMonth}
+              onChange={setStartMonth}
+              onValueBlur={(value) => setStartMonth(normalizeMonthInput(value))}
+            />
           </label>
           <label className="forecast-workflow__field">종료 월
-            <input disabled={controlsDisabled} type="number" min={MONTH_MIN} max={MONTH_MAX} value={endMonth} onChange={(event) => setEndMonth(parseMonth(event.target.value))} />
+            <EditableNumericInput
+              disabled={controlsDisabled}
+              mode="month"
+              min={MONTH_MIN}
+              max={MONTH_MAX}
+              value={endMonth}
+              onChange={setEndMonth}
+              onValueBlur={(value) => setEndMonth(normalizeMonthInput(value))}
+            />
           </label>
           <label className="forecast-workflow__field">모형 표시명
             <input disabled={controlsDisabled} value={name} onChange={(event) => { setName(event.target.value); idempotencyKey.current = crypto.randomUUID(); }} />

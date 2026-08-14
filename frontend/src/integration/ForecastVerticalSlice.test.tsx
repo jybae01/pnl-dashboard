@@ -89,7 +89,7 @@ describe('Forecast React vertical slice', () => {
     expect(submitButton).toBeDisabled();
     expect(screen.getAllByText(/7개월/).length).toBeGreaterThan(0);
     expect(screen.getAllByText(/최대 6개월/).length).toBeGreaterThan(0);
-    expect(screen.getByLabelText('종료 월')).toHaveValue(7);
+    expect(screen.getByLabelText('종료 월')).toHaveValue('7');
     fireEvent.click(submitButton);
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
@@ -112,6 +112,45 @@ describe('Forecast React vertical slice', () => {
     expect(body.end_month).toBe(12);
     expect(body.months).toHaveLength(6);
     expect(body.months.map((month: { month: number }) => month.month)).toEqual([7, 8, 9, 10, 11, 12]);
+  });
+
+  it('keeps month editing text-backed, selects on first focus, and normalizes on blur', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValueOnce(response(modelPayload())));
+    render(<ForecastGenerationView />);
+    await screen.findByRole('heading', { name: '추정 산출' });
+
+    const start = screen.getByLabelText('시작 월') as HTMLInputElement;
+    expect(start).toHaveValue('07');
+    expect(start.type).toBe('text');
+    expect(start.inputMode).toBe('numeric');
+    fireEvent.focus(start);
+    expect(start.selectionStart).toBe(0);
+    expect(start.selectionEnd).toBe(2);
+
+    fireEvent.change(start, { target: { value: '' } });
+    expect(start).toHaveValue('');
+    fireEvent.change(start, { target: { value: '8' } });
+    expect(start).toHaveValue('8');
+    fireEvent.blur(start);
+    expect(start).toHaveValue('08');
+
+    // A first pointer entry also selects all, while a second click while
+    // focused is allowed to place the caret normally.
+    fireEvent.blur(start);
+    fireEvent.mouseDown(start);
+    expect(start.selectionStart).toBe(0);
+    expect(start.selectionEnd).toBe(start.value.length);
+    start.setSelectionRange(1, 1);
+    fireEvent.mouseDown(start);
+    expect(start.selectionStart).toBe(1);
+    expect(start.selectionEnd).toBe(1);
+
+    fireEvent.keyDown(start, { key: 'Tab' });
+    fireEvent.blur(start);
+    const end = screen.getByLabelText('종료 월') as HTMLInputElement;
+    fireEvent.focus(end);
+    expect(end.selectionStart).toBe(0);
+    expect(end.selectionEnd).toBe(end.value.length);
   });
 
   it('locks all inputs and suppresses duplicate clicks during the synchronous request', async () => {

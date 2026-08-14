@@ -66,6 +66,64 @@ describe('React core vertical slice', () => {
     expect((submitInit.headers as Headers).get('X-CSRF-Token')).toBe('test-csrf');
   }, 5000);
 
+  it('keeps month and FX editing text-backed, then sends numeric DTO values at submit', async () => {
+    window.sessionStorage.removeItem('pnl.active-analysis-job-id');
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const path = String(input);
+      if (path.endsWith('/api/models')) return json({ models: [
+        { model_id: BASE, display_name: 'Base', model_type: 'PLAN', model_year: 2026, start_month: 1, end_month: 12, is_published: true, is_default: true, dto_version: '1' },
+        { model_id: COMP, display_name: 'Comparison', model_type: 'ACTUAL', model_year: 2026, start_month: 1, end_month: 12, is_published: true, is_default: false, dto_version: '1' },
+      ], dto_version: '1' });
+      if (path.endsWith('/api/analyses')) return json({ job_id: JOB, status: 'PENDING', execution_state: 'QUEUED', idempotency_replayed: false, dto_version: '1' });
+      if (path.endsWith(`/api/jobs/${JOB}`)) return json({
+        job_id: JOB, status: 'PENDING', baseline_model_id: BASE, comparison_model_id: COMP,
+        start_month: 8, end_month: 12, attempt: 1, max_attempts: 3,
+        created_at: '', heartbeat_at: null, completed_at: null, result_id: null,
+        error_code: null, error_message: null, execution_state: 'QUEUED', dto_version: '1',
+      });
+      throw new Error(`unexpected request ${path} ${init?.method || 'GET'}`);
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    render(<CoreAnalysisView role="admin" />);
+    expect(await screen.findByText('분석 조건')).toBeInTheDocument();
+
+    const start = screen.getByLabelText('시작 월') as HTMLInputElement;
+    const baselineFx = screen.getByLabelText('기준 매출환율 (KRW/USD)') as HTMLInputElement;
+    expect(start).toHaveValue('01');
+    expect(screen.getByLabelText('종료 월')).toHaveValue('12');
+    expect(start.type).toBe('text');
+    expect(start.inputMode).toBe('numeric');
+    expect(baselineFx.type).toBe('text');
+    expect(baselineFx.inputMode).toBe('decimal');
+
+    fireEvent.focus(start);
+    expect(start.selectionStart).toBe(0);
+    expect(start.selectionEnd).toBe(start.value.length);
+    fireEvent.change(start, { target: { value: '' } });
+    expect(start).toHaveValue('');
+    fireEvent.change(start, { target: { value: '8' } });
+    expect(start).toHaveValue('8');
+    fireEvent.blur(start);
+    expect(start).toHaveValue('08');
+
+    fireEvent.change(baselineFx, { target: { value: '' } });
+    expect(baselineFx).toHaveValue('');
+    fireEvent.change(baselineFx, { target: { value: '1450.25' } });
+    fireEvent.change(screen.getByLabelText('비교 매출환율 (KRW/USD)'), { target: { value: '1450.5' } });
+    fireEvent.click(screen.getByRole('button', { name: '분석 실행' }));
+
+    await waitFor(() => expect(fetchMock.mock.calls.some(([input]) => String(input).endsWith('/api/analyses'))).toBe(true));
+    const submitCall = fetchMock.mock.calls.find(([input]) => String(input).endsWith('/api/analyses'));
+    if (!submitCall) throw new Error('submit request was not observed');
+    const body = JSON.parse(String((submitCall[1] as RequestInit).body));
+    expect(body.start_month).toBe(8);
+    expect(body.end_month).toBe(12);
+    expect(body.baseline_sales_fx).toBe(1450.25);
+    expect(body.comparison_sales_fx).toBe(1450.5);
+    expect(typeof body.baseline_sales_fx).toBe('number');
+    window.sessionStorage.removeItem('pnl.active-analysis-job-id');
+  });
+
   it('clears cached Viewer result after the backend later denies availability', async () => {
     let reads = 0;
     vi.stubGlobal('fetch', vi.fn((input: RequestInfo | URL) => {
