@@ -485,6 +485,7 @@ class TrustedBffApplication:
         forecast_input_metadata: Any | None = None,
         forecast_download: Any | None = None,
         forecast_production_allocation: Any | None = None,
+        forecast_input_preview: Any | None = None,
     ) -> None:
         self.sessions = sessions
         self.submissions = submissions
@@ -496,6 +497,7 @@ class TrustedBffApplication:
         self.model_publication = model_publication
         self.result_publication = result_publication
         self.forecast_input_metadata = forecast_input_metadata
+        self.forecast_input_preview = forecast_input_preview
         self.forecast_production_allocation = forecast_production_allocation
         self.forecast_download = forecast_download
         self.evidence = evidence

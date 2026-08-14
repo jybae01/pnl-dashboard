@@ -126,6 +126,60 @@ class ForecastInputMetadataResponse:
 
 
 @dataclass(frozen=True)
+class ForecastInputIssue:
+    code: str
+    message: str
+    severity: str = "ERROR"
+    blocking: bool = True
+    source_sheet: str | None = None
+    source_row: int | None = None
+    field: str | None = None
+
+
+@dataclass(frozen=True)
+class ForecastSalesPreviewRow:
+    month: int
+    product_code: str
+    product_name: str
+    product_group: str
+    quantity: float
+    amount: float
+    source_sheet: str
+    source_row: int
+
+
+@dataclass(frozen=True)
+class ForecastBusinessProductionPreviewRow:
+    month: int
+    process: str
+    product_group: str
+    quantity: float
+    unit: str
+    source_sheet: str
+    source_row: int
+
+
+@dataclass(frozen=True)
+class ForecastInputUnitSummary:
+    unit: str
+    row_count: int
+    quantity_total: float
+
+
+@dataclass(frozen=True)
+class ForecastInputPreviewResponse:
+    valid: bool
+    blocking: bool
+    source_filename: str
+    sales_rows: tuple[ForecastSalesPreviewRow, ...]
+    business_production_rows: tuple[ForecastBusinessProductionPreviewRow, ...]
+    issues: tuple[ForecastInputIssue, ...]
+    sales_summary: tuple[ForecastInputUnitSummary, ...]
+    production_summary: tuple[ForecastInputUnitSummary, ...]
+    dto_version: str = "1"
+
+
+@dataclass(frozen=True)
 class AnalysisSubmitRequest:
     baseline_model_id: str
     comparison_model_id: str

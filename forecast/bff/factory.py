@@ -17,6 +17,7 @@ from ..preflight import ExcelPreflightValidator
 from .gateway import SupabaseBffApplicationGateway, SupabaseModelIngestionGateway, SupabaseForecastGateway
 from .forecast_orchestration import ForecastGenerationService, V1_FORECAST_SYNC_MAX_MONTHS
 from .forecast_input_metadata import ForecastInputMetadataService
+from .forecast_input_preview import ForecastInputPreviewService
 from .production_allocation import ForecastProductionAllocationService
 from .forecast_download import ForecastWorkbookDownloadService
 from .evidence_history import CalculationHistoryService, EvidenceDeliveryService
@@ -148,6 +149,11 @@ def create_supabase_bff_application(
             ForecastInputMetadataService(sessions, model_repository, model_mapping, provenance)
             if forecast_enabled and model_capabilities and mapping_path else None
         ),
+        # Template/preview validation is a pure business-input capability and
+        # does not require a model repository or the synchronous Forecast
+        # execution gate.  Keep it available to Admin even when calculation is
+        # disabled so operators can validate a workbook before enabling scope.
+        forecast_input_preview=ForecastInputPreviewService(sessions),
         forecast_production_allocation=(
             ForecastProductionAllocationService(
                 sessions, model_repository, model_mapping, provenance

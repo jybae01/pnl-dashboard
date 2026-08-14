@@ -32,6 +32,11 @@ from .forecast_orchestration import (
     ForecastQuantityInput, ForecastSalesInput,
 )
 from .forecast_download import content_disposition
+from .forecast_input_preview import (
+    MIME_XLSX,
+    MAX_PREVIEW_MONTHS,
+    TEMPLATE_FILENAME,
+)
 from .production import AuditSink, TrustedProxyPolicy
 from .production_allocation import BusinessProductionInput, CANONICAL_PRODUCTION_CODES
 from ..temp_artifacts import temp_artifact_policy, temp_artifacts_configured
@@ -342,7 +347,10 @@ def create_http_bff(
         request.state.correlation_id = str(uuid.uuid4())
         upload_request = request.method == "POST" and request.url.path == "/api/admin/models"
         forecast_request = request.method == "POST" and request.url.path == "/api/admin/forecasts"
-        limited_request = upload_request or forecast_request
+        forecast_input_preview_request = (
+            request.method == "POST" and request.url.path == "/api/admin/forecasts/input-preview"
+        )
+        limited_request = upload_request or forecast_request or forecast_input_preview_request
         request_limit = (MAX_WORKBOOK_BYTES + 1024 * 1024) if upload_request else settings.forecast_request_max_bytes
         if limited_request:
             declared = request.headers.get("content-length")
@@ -481,7 +489,13 @@ def create_http_bff(
         csrf_cookie: str | None = Cookie(default=None, alias=settings.csrf_cookie_name),
         csrf_header: str | None = Header(default=None, alias=settings.csrf_header_name),
     ) -> None:
-        if settings.environment == "production":
+        # The workbook preview is a browser mutation and must honor the exact
+        # configured Origin whenever an allow-list is present.  Existing local
+        # test/development deployments intentionally have no origin list and
+        # retain the same CSRF-token-only behavior as other endpoints.
+        if settings.environment == "production" or (
+            request.url.path == "/api/admin/forecasts/input-preview" and settings.allowed_origins
+        ):
             origin = request.headers.get("origin")
             if origin not in settings.allowed_origins:
                 raise BffError(ApiErrorCode.FORBIDDEN, "CSRF validation failed")
@@ -815,6 +829,74 @@ def create_http_bff(
             )
         return application.forecast_input_metadata.get(value, base_model_id)
 
+    @app.get("/api/admin/forecasts/input-template")
+    def forecast_input_template(value: str = Depends(admin_session)):
+        if application.forecast_input_preview is None:
+            raise BffError(
+                ApiErrorCode.TRANSIENT_SYSTEM_ERROR,
+                "Forecast input template capability is not configured",
+            )
+        content = application.forecast_input_preview.template(value)
+        return Response(
+            content=content,
+            media_type=MIME_XLSX,
+            headers={
+                "Content-Disposition": content_disposition(TEMPLATE_FILENAME),
+                "Cache-Control": "no-store, private",
+                "X-Content-Type-Options": "nosniff",
+            },
+        )
+
+    @app.post("/api/admin/forecasts/input-preview", dependencies=[Depends(csrf_guard)])
+    async def forecast_input_preview(
+        request: Request,
+        file: Annotated[UploadFile, File()],
+        start_month: Annotated[str, Form(min_length=1, max_length=2)],
+        end_month: Annotated[str, Form(min_length=1, max_length=2)],
+        value: str = Depends(admin_session),
+    ):
+        if application.forecast_input_preview is None:
+            raise BffError(
+                ApiErrorCode.TRANSIENT_SYSTEM_ERROR,
+                "Forecast input preview capability is not configured",
+            )
+        try:
+            try:
+                start = int(start_month)
+                end = int(end_month)
+            except (TypeError, ValueError) as exc:
+                raise BffError(
+                    ApiErrorCode.VALIDATION_ERROR,
+                    "Forecast input preview request is invalid",
+                    field_errors={"start_month": "must be an integer", "end_month": "must be an integer"},
+                ) from exc
+            if not 1 <= start <= end <= 12 or end - start + 1 > MAX_PREVIEW_MONTHS:
+                raise BffError(
+                    ApiErrorCode.VALIDATION_ERROR,
+                    "Forecast input preview request is invalid",
+                    field_errors={
+                        "period": (
+                            "must satisfy 1 <= start_month <= end_month <= 12 and "
+                            f"must not exceed {MAX_PREVIEW_MONTHS} months"
+                        ),
+                    },
+                )
+            staged = await _stage_input_preview_upload(file, settings.forecast_request_max_bytes)
+            result = await run_in_threadpool(
+                application.forecast_input_preview.preview,
+                value,
+                staged,
+                start_month=start,
+                end_month=end,
+                source_filename=file.filename or "",
+            )
+            _operation_audit(audit, application, value, request, "forecast_input_preview", result.source_filename)
+            return result
+        finally:
+            await file.close()
+            if "staged" in locals() and staged is not None:
+                staged.unlink(missing_ok=True)
+
     @app.get("/api/admin/forecast-models/{model_id}/workbook")
     def download_forecast_workbook(
         request: Request,
@@ -954,6 +1036,47 @@ async def _stage_upload(file: UploadFile) -> Path:
             raise BffError(
                 ApiErrorCode.VALIDATION_ERROR,
                 "Workbook upload is invalid",
+                field_errors={"file": "upload is empty"},
+            )
+        return path
+    except Exception:
+        path.unlink(missing_ok=True)
+        raise
+
+
+async def _stage_input_preview_upload(file: UploadFile, max_bytes: int) -> Path:
+    """Stage a small business-input workbook under the shared temp policy."""
+
+    suffix = Path(file.filename or "").suffix.casefold()
+    if suffix != ".xlsx":
+        raise BffError(
+            ApiErrorCode.VALIDATION_ERROR,
+            "Forecast input workbook is invalid",
+            field_errors={"file": "only .xlsx files are accepted"},
+        )
+    policy = temp_artifact_policy()
+    policy.ensure_capacity(max_bytes)
+    temporary = policy.make_file(prefix="pnl-forecast-", suffix=".xlsx")
+    path = Path(temporary.name)
+    size = 0
+    try:
+        with temporary:
+            while True:
+                chunk = await file.read(1024 * 1024)
+                if not chunk:
+                    break
+                size += len(chunk)
+                if size > max_bytes:
+                    raise BffError(
+                        ApiErrorCode.VALIDATION_ERROR,
+                        "Forecast input workbook is invalid",
+                        field_errors={"file": "request is too large"},
+                    )
+                temporary.write(chunk)
+        if size == 0:
+            raise BffError(
+                ApiErrorCode.VALIDATION_ERROR,
+                "Forecast input workbook is invalid",
                 field_errors={"file": "upload is empty"},
             )
         return path

@@ -72,7 +72,7 @@ def _canonical(month: int, values: tuple[int, ...]):
     )
 
 
-def make_business_fixture(allocation):
+def make_business_fixture(allocation, forecast=None):
     sessions = AccessCodeSessionService(
         viewer_code="viewer-code", admin_code="admin-code",
         actor_namespace_secret="actor-namespace-secret-at-least-32-chars", ttl_seconds=3600,
@@ -86,7 +86,7 @@ def make_business_fixture(allocation):
                         start_month=1, end_month=12, is_published=True,
                         is_default=False, workbook_sha256="c" * 64),
     ])
-    forecast = FakeForecast()
+    forecast = forecast or FakeForecast()
     application = TrustedBffApplication(
         sessions,
         AnalysisSubmissionService(sessions, gateway, PROVENANCE),
@@ -252,3 +252,41 @@ def test_allocation_bff_error_is_propagated_and_viewer_csrf_boundaries_remain():
     propagated = admin.post("/api/admin/forecasts", json=body, headers={"X-CSRF-Token": admin.cookies.get("pnl_csrf")})
     assert propagated.status_code == 422
     assert propagated.json()["error"]["code"] == ApiErrorCode.VALIDATION_ERROR.value
+
+
+def test_business_input_idempotency_replay_preserves_key_and_returns_replay_flag():
+    class ReplayForecast(FakeForecast):
+        def __init__(self):
+            super().__init__()
+            self.requests = []
+
+        def generate(self, session_id, request):
+            self.requests.append(request)
+            response = dict(super().generate(session_id, request))
+            response["idempotency_replayed"] = len(self.requests) > 1
+            return response
+
+    allocation = AllocationDouble(lambda values: _canonical(values[0].month, tuple(range(1, 9))), [])
+    forecast = ReplayForecast()
+    client, _ = make_business_fixture(allocation, forecast=forecast)
+    client.post("/api/session/login", json={"access_code": "admin-code"})
+    body = _body([7], {7: {"business_production": _business_rows()}})
+    headers = {"X-CSRF-Token": client.cookies.get("pnl_csrf")}
+    first = client.post("/api/admin/forecasts", json=body, headers=headers)
+    second = client.post("/api/admin/forecasts", json=body, headers=headers)
+    assert first.status_code == second.status_code == 200
+    assert second.json()["idempotency_replayed"] is True
+    assert [item.idempotency_key for item in forecast.requests] == [body["idempotency_key"]] * 2
+
+
+def test_malformed_allocator_result_fails_closed_as_integrity_error():
+    allocation = AllocationDouble(lambda _values: object(), [])
+    client, _ = make_business_fixture(allocation)
+    client.post("/api/session/login", json={"access_code": "admin-code"})
+    body = _body([7], {7: {"business_production": _business_rows()}})
+    response = client.post(
+        "/api/admin/forecasts", json=body,
+        headers={"X-CSRF-Token": client.cookies.get("pnl_csrf")},
+    )
+    assert response.status_code == 409
+    assert response.json()["error"]["code"] == ApiErrorCode.INPUT_INTEGRITY_MISMATCH.value
