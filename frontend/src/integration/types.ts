@@ -239,6 +239,16 @@ export interface CalculationHistoryItemDto {
   error_code: string | null;
   error_message: string | null;
   is_published: boolean;
+  is_default: boolean;
+  published_at: string | null;
+}
+
+export interface ResultPublicationDto {
+  result_id: string;
+  is_published: boolean;
+  is_default: boolean;
+  published_at: string | null;
+  dto_version: '1';
 }
 
 export interface CalculationHistoryDto {

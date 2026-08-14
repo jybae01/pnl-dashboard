@@ -33,6 +33,8 @@ function historyItem(overrides: Partial<Record<string, unknown>> = {}) {
     error_code: null,
     error_message: null,
     is_published: true,
+    is_default: false,
+    published_at: '2026-08-11T00:01:30Z',
     ...overrides,
   };
 }
@@ -66,9 +68,9 @@ describe('Evidence and history vertical slice', () => {
       const path = String(input);
       if (path.includes('/api/admin/calculation-history')) return historyPage([
         historyItem(),
-        historyItem({ job_id: OTHER_JOB, result_id: null, status: 'PROCESSING', completed_at: null, is_published: false }),
-        historyItem({ job_id: '77777777-7777-4777-8777-777777777777', result_id: null, status: 'PENDING', completed_at: null, is_published: false }),
-        historyItem({ job_id: '88888888-8888-4888-8888-888888888888', result_id: null, status: 'FAILED', completed_at: '2026-08-11T00:02:00Z', error_code: 'preflight_failed', error_message: `preflight_failed ${RESULT}`, is_published: false }),
+        historyItem({ job_id: OTHER_JOB, result_id: null, status: 'PROCESSING', completed_at: null, is_published: false, published_at: null }),
+        historyItem({ job_id: '77777777-7777-4777-8777-777777777777', result_id: null, status: 'PENDING', completed_at: null, is_published: false, published_at: null }),
+        historyItem({ job_id: '88888888-8888-4888-8888-888888888888', result_id: null, status: 'FAILED', completed_at: '2026-08-11T00:02:00Z', error_code: 'preflight_failed', error_message: `preflight_failed ${RESULT}`, is_published: false, published_at: null }),
       ]);
       if (path.endsWith('/evidence')) return Promise.resolve(new Response(new Blob(['xlsx']), {
         status: 200,
@@ -89,6 +91,7 @@ describe('Evidence and history vertical slice', () => {
     expect(screen.queryByText(/preflight_failed/)).not.toBeInTheDocument();
     expect(screen.getAllByRole('button', { name: '결과 보기' })).toHaveLength(1);
     expect(screen.getAllByRole('button', { name: '분석 근거 엑셀 내려받기' })).toHaveLength(1);
+    expect(screen.getAllByRole('button', { name: '공개 설정' })).toHaveLength(1);
     expect(screen.queryByText(RESULT)).not.toBeInTheDocument();
     expect(screen.queryByText(JOB)).not.toBeInTheDocument();
 
@@ -102,6 +105,70 @@ describe('Evidence and history vertical slice', () => {
 
     fireEvent.click(screen.getByRole('button', { name: '분석 근거 엑셀 내려받기' }));
     await waitFor(() => expect(revoke).toHaveBeenCalledWith('blob:test'));
+  });
+
+  it('publishes an exact completed Result as the Dashboard default through the protected BFF contract', async () => {
+    document.cookie = 'pnl_csrf=history-csrf; Path=/';
+    const unpublished = historyItem({ is_published: false, is_default: false, published_at: null });
+    const publishedDefault = historyItem({ is_published: true, is_default: true, published_at: '2026-08-11T00:03:00Z' });
+    let historyReads = 0;
+    let resolvePublication!: (response: Response) => void;
+    const publicationResponse = new Promise<Response>((resolve) => { resolvePublication = resolve; });
+    const fetchMock = vi.fn((input: RequestInfo | URL, _init?: RequestInit) => {
+      const path = String(input);
+      if (path.includes('/api/admin/calculation-history')) {
+        historyReads += 1;
+        return historyPage([historyReads === 1 ? unpublished : publishedDefault]);
+      }
+      if (path.endsWith(`/api/admin/results/${RESULT}/publication`)) return publicationResponse;
+      throw new Error(path);
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    render(<CalculationHistoryView />);
+    expect((await screen.findAllByText('비공개')).length).toBeGreaterThan(0);
+
+    fireEvent.click(screen.getByRole('button', { name: '공개 설정' }));
+    expect(screen.getByRole('dialog', { name: '공개 설정' })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('radio', { name: /공개 \+ Dashboard 기본 결과/ }));
+    const apply = screen.getByRole('button', { name: '설정 적용' });
+    fireEvent.click(apply);
+    fireEvent.click(apply);
+    expect(screen.getByRole('button', { name: '적용 중…' })).toBeDisabled();
+    expect(fetchMock.mock.calls.filter(([input]) => String(input).endsWith(`/api/admin/results/${RESULT}/publication`))).toHaveLength(1);
+
+    const publicationCall = fetchMock.mock.calls.find(([input]) => String(input).endsWith(`/api/admin/results/${RESULT}/publication`));
+    expect(publicationCall?.[1]?.method).toBe('POST');
+    expect(new Headers(publicationCall?.[1]?.headers).get('X-CSRF-Token')).toBe('history-csrf');
+    expect(JSON.parse(String(publicationCall?.[1]?.body))).toEqual({ is_published: true, is_default: true });
+    resolvePublication(new Response(JSON.stringify({
+      result_id: RESULT,
+      is_published: true,
+      is_default: true,
+      published_at: '2026-08-11T00:03:00Z',
+      dto_version: '1',
+    }), { status: 200, headers: { 'Content-Type': 'application/json' } }));
+
+    expect(await screen.findByText('결과를 공개하고 Dashboard 기본 결과로 지정했습니다.')).toBeInTheDocument();
+    expect(screen.getAllByText('기본 결과').length).toBeGreaterThan(0);
+    expect(historyReads).toBe(2);
+  });
+
+  it('keeps publication failures safe and leaves the server-authoritative history state unchanged', async () => {
+    document.cookie = 'pnl_csrf=history-csrf; Path=/';
+    vi.stubGlobal('fetch', vi.fn((input: RequestInfo | URL) => {
+      const path = String(input);
+      if (path.includes('/api/admin/calculation-history')) return historyPage([historyItem({ is_published: false, is_default: false, published_at: null })]);
+      if (path.endsWith(`/api/admin/results/${RESULT}/publication`)) return apiError('INPUT_INTEGRITY_MISMATCH', 409);
+      throw new Error(path);
+    }));
+    render(<CalculationHistoryView />);
+    await screen.findByText('Base Plan');
+    fireEvent.click(screen.getByRole('button', { name: '공개 설정' }));
+    fireEvent.click(screen.getByRole('radio', { name: /^공개 Viewer/ }));
+    fireEvent.click(screen.getByRole('button', { name: '설정 적용' }));
+    expect(await screen.findByRole('alert')).toHaveTextContent('결과 무결성을 확인할 수 없어 공개하지 않았습니다.');
+    expect(screen.queryByText(/raw INPUT_INTEGRITY/)).not.toBeInTheDocument();
+    expect(screen.getByRole('dialog', { name: '공개 설정' })).toBeInTheDocument();
   });
 
   it('filters only loaded history by model name and status, with a distinct filter-empty state', async () => {

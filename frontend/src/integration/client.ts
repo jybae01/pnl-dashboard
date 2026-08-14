@@ -12,6 +12,7 @@ import {
   ModelUploadResponse,
   CalculationHistoryDto,
   CalculationHistoryItemDto,
+  ResultPublicationDto,
   Role,
   AnalysisPresentationDto,
   AnalysisPresentationEffectDto,
@@ -108,6 +109,11 @@ export const bffClient = {
   ),
   job: async (jobId: string, signal?: AbortSignal) => validateJob(await request<unknown>(`/api/jobs/${jobId}`, { signal })),
   adminResult: async (resultId: string) => validateResult(await request<unknown>(`/api/admin/results/${resultId}`)),
+  publishResult: async (resultId: string, publication: { is_published: boolean; is_default: boolean }) => validateResultPublication(
+    await request<unknown>(`/api/admin/results/${resultId}/publication`, {
+      method: 'POST', body: JSON.stringify(publication),
+    }),
+  ),
   viewerResult: async (resultId: string) => validateResult(await request<unknown>(`/api/viewer/results/${resultId}`)),
   adminPresentation: async (resultId: string) => validatePresentation(
     await request<unknown>(`/api/admin/results/${resultId}/presentation`),
@@ -276,6 +282,18 @@ function validateWorkerStatus(value: unknown): WorkerStatusDto {
 function validateResult(value: unknown): StoredResultDto {
   if (!isRecord(value) || typeof value.result_id !== 'string' || typeof value.job_id !== 'string' || !isRecord(value.analysis_view) || !isRecord(value.provenance)) invalidPayload();
   return value as unknown as StoredResultDto;
+}
+
+function validateResultPublication(value: unknown): ResultPublicationDto {
+  if (!isRecord(value)
+    || !uuid(value.result_id)
+    || typeof value.is_published !== 'boolean'
+    || typeof value.is_default !== 'boolean'
+    || (value.is_default && !value.is_published)
+    || !(value.published_at === null || typeof value.published_at === 'string')
+    || (value.is_published !== (typeof value.published_at === 'string'))
+    || value.dto_version !== '1') invalidPayload();
+  return value as unknown as ResultPublicationDto;
 }
 
 const PRESENTATION_EFFECT_ORDER = [
@@ -535,7 +553,12 @@ function validateHistory(value: unknown): CalculationHistoryDto {
         : item.result_id !== null)
       || typeof item.baseline_model_name !== 'string'
       || typeof item.comparison_model_name !== 'string'
-      || typeof item.created_at !== 'string') invalidPayload();
+      || typeof item.created_at !== 'string'
+      || typeof item.is_published !== 'boolean'
+      || typeof item.is_default !== 'boolean'
+      || (item.is_default && !item.is_published)
+      || !(item.published_at === null || typeof item.published_at === 'string')
+      || (item.is_published !== (typeof item.published_at === 'string'))) invalidPayload();
     return item as unknown as CalculationHistoryItemDto;
   });
   return {
