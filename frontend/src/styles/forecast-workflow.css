@@ -633,9 +633,18 @@
 .forecast-workflow__primary:disabled { opacity: .48; cursor: not-allowed; }
 
 .forecast-workflow__secondary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
   border: 1px solid #cbd5e1;
   color: #334155;
   background: #fff;
+}
+
+.forecast-workflow__secondary:disabled {
+  opacity: .58;
+  cursor: wait;
 }
 
 .forecast-workflow__secondary:hover,
@@ -738,6 +747,17 @@
   .forecast-workflow__input-table td { height: 34px; padding-block: 3px; }
   .forecast-workflow__adjustment-grid,
   .forecast-workflow__advanced-grid { grid-template-columns: 1fr; }
+}
+
+.forecast-workflow__download {
+  border-color: #86efac;
+  color: #166534;
+}
+
+.forecast-workflow__download-error {
+  margin-top: 9px !important;
+  color: #991b1b !important;
+  font-size: 11px !important;
 }
 
 @media (max-width: 900px) {

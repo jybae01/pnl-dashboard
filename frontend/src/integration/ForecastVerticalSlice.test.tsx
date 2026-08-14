@@ -59,7 +59,9 @@ async function waitForForecastReady() {
   await waitFor(() => expect(screen.getByRole('button', { name: '추정 모형 생성' })).not.toBeDisabled());
 }
 
-afterEach(() => vi.unstubAllGlobals());
+afterEach(() => {
+  vi.unstubAllGlobals();
+});
 
 describe('Forecast React vertical slice', () => {
   it('keeps the synchronous POST contract, renders the result, and does not show technical identifiers', async () => {
@@ -93,6 +95,75 @@ describe('Forecast React vertical slice', () => {
     expect(screen.queryByText(/23%|64%|90%/)).not.toBeInTheDocument();
     expect(screen.queryByText('월별 입력 JSON')).not.toBeInTheDocument();
     expect(document.querySelector('textarea')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '모형 내려받기' })).toBeInTheDocument();
+    expect(screen.getByText(/입력반영내역/)).toBeInTheDocument();
+  });
+
+  it('downloads the exact completed Forecast model once and blocks duplicate clicks', async () => {
+    let resolveDownload!: (value: Response) => void;
+    const downloadResponse = new Promise<Response>((resolve) => { resolveDownload = resolve; });
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(response(modelPayload()))
+      .mockResolvedValueOnce(response(metadataPayload()))
+      .mockResolvedValueOnce(response(successPayload()))
+      .mockReturnValueOnce(downloadResponse);
+    const revoke = vi.fn();
+    vi.stubGlobal('fetch', fetchMock);
+
+    render(<ForecastGenerationView />);
+    await waitForForecastReady();
+    expect(screen.queryByRole('button', { name: '모형 내려받기' })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: '추정 모형 생성' }));
+    await screen.findByText('추정 모형 생성 완료');
+
+    vi.stubGlobal('URL', { ...URL, createObjectURL: vi.fn(() => 'blob:forecast'), revokeObjectURL: revoke });
+    let downloadedFilename = '';
+    const anchorClick = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(function (this: HTMLAnchorElement) {
+      downloadedFilename = this.download;
+    });
+
+    const download = screen.getByRole('button', { name: '모형 내려받기' });
+    fireEvent.click(download);
+    fireEvent.click(download);
+    expect(fetchMock).toHaveBeenCalledTimes(4);
+    expect(String(fetchMock.mock.calls[3][0])).toContain(`/api/admin/forecast-models/${MODEL}/workbook`);
+    expect(fetchMock.mock.calls[3][1]).toMatchObject({ credentials: 'include' });
+    expect(screen.getByRole('button', { name: '다운로드 준비 중…' })).toBeDisabled();
+
+    resolveDownload(new Response(new Blob(['PK-forecast-workbook']), {
+      status: 200,
+      headers: {
+        'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        'Content-Disposition': "attachment; filename*=utf-8''Forecast_2026_07.xlsx",
+      },
+    }));
+    await waitFor(() => expect(revoke).toHaveBeenCalledWith('blob:forecast'));
+    expect(downloadedFilename).toBe('Forecast_2026_07.xlsx');
+    expect(screen.getByRole('button', { name: '모형 내려받기' })).not.toBeDisabled();
+    anchorClick.mockRestore();
+  });
+
+  it('shows a safe Forecast workbook download failure without exposing backend detail', async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(response(modelPayload()))
+      .mockResolvedValueOnce(response(metadataPayload()))
+      .mockResolvedValueOnce(response(successPayload()))
+      .mockResolvedValueOnce(response({ error: {
+        code: 'INPUT_INTEGRITY_MISMATCH',
+        message: 'private bucket models/internal/source.xlsx SHA mismatch',
+        field_errors: {}, correlation_id: 'safe-correlation', dto_version: '1',
+      } }, 409));
+    vi.stubGlobal('fetch', fetchMock);
+
+    render(<ForecastGenerationView />);
+    await waitForForecastReady();
+    fireEvent.click(screen.getByRole('button', { name: '추정 모형 생성' }));
+    await screen.findByText('추정 모형 생성 완료');
+    fireEvent.click(screen.getByRole('button', { name: '모형 내려받기' }));
+
+    const alert = await screen.findByRole('alert');
+    expect(alert).toHaveTextContent('생성된 추정 모형을 내려받을 수 없습니다');
+    expect(alert).not.toHaveTextContent(/bucket|source\.xlsx|SHA mismatch/);
   });
 
   it('pre-validates an over-limit range without clamping or sending a request', async () => {
@@ -213,6 +284,7 @@ describe('Forecast React vertical slice', () => {
     vi.stubGlobal('fetch', fetchMock);
     render(<ForecastGenerationView />);
     await screen.findByRole('heading', { name: '추정 산출' });
+    await waitForForecastReady();
 
     const submitButton = screen.getByRole('button', { name: '추정 모형 생성' });
     fireEvent.click(submitButton);

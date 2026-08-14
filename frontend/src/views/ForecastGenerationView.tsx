@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { Calculator, CheckCircle2, Database, LockKeyhole, RotateCcw, ShieldCheck } from 'lucide-react';
+import { Calculator, CheckCircle2, Database, Download, LockKeyhole, RotateCcw, ShieldCheck } from 'lucide-react';
 import { bffClient } from '../integration/client';
 import {
   AnalysisModelDto,
@@ -33,6 +33,8 @@ type ViewState =
   | 'EMPTY'
   | 'ERROR'
   | 'FORBIDDEN';
+
+type DownloadState = 'IDLE' | 'DOWNLOADING' | 'FAILED';
 
 const V1_FORECAST_SYNC_MAX_MONTHS = 6;
 const MONTH_MIN = 1;
@@ -91,12 +93,15 @@ export const ForecastGenerationView: React.FC<ForecastGenerationViewProps> = ({
   const [state, setState] = useState<ViewState>('LOADING');
   const [message, setMessage] = useState('');
   const [result, setResult] = useState<ForecastGenerateResponseDto | null>(null);
+  const [downloadState, setDownloadState] = useState<DownloadState>('IDLE');
+  const [downloadMessage, setDownloadMessage] = useState('');
   const [loadAttempt, setLoadAttempt] = useState(0);
   const [inputMetadata, setInputMetadata] = useState<ForecastInputMetadataDto | null>(null);
   const [metadataState, setMetadataState] = useState<'LOADING' | 'READY' | 'ERROR'>('LOADING');
   const [metadataMessage, setMetadataMessage] = useState('');
   const idempotencyKey = useRef(crypto.randomUUID());
   const submittingRef = useRef(false);
+  const downloadPendingRef = useRef(false);
   const mountedRef = useRef(true);
   const metadataRequestSequence = useRef(0);
 
@@ -194,6 +199,8 @@ export const ForecastGenerationView: React.FC<ForecastGenerationViewProps> = ({
   const markDraftChanged = () => {
     setResult(null);
     setMessage('');
+    setDownloadState('IDLE');
+    setDownloadMessage('');
     setState(models.length ? 'READY' : state);
     idempotencyKey.current = crypto.randomUUID();
   };
@@ -277,6 +284,8 @@ export const ForecastGenerationView: React.FC<ForecastGenerationViewProps> = ({
     setInputs(Object.fromEntries(months.map((month) => [month, createForecastMonthFormState(month)])));
     setResult(null);
     setMessage('');
+    setDownloadState('IDLE');
+    setDownloadMessage('');
     setState('READY');
     idempotencyKey.current = crypto.randomUUID();
   };
@@ -333,6 +342,8 @@ export const ForecastGenerationView: React.FC<ForecastGenerationViewProps> = ({
       });
       if (!mountedRef.current) return;
       setResult(saved);
+      setDownloadState('IDLE');
+      setDownloadMessage('');
       setState('SUCCESS');
     } catch (error: unknown) {
       if (!mountedRef.current) return;
@@ -344,9 +355,28 @@ export const ForecastGenerationView: React.FC<ForecastGenerationViewProps> = ({
     }
   };
 
+  const downloadWorkbook = async () => {
+    if (!result?.model_id || downloadPendingRef.current) return;
+    downloadPendingRef.current = true;
+    setDownloadState('DOWNLOADING');
+    setDownloadMessage('');
+    try {
+      await bffClient.downloadForecastWorkbook(result.model_id);
+      if (!mountedRef.current) return;
+      setDownloadState('IDLE');
+    } catch {
+      if (!mountedRef.current) return;
+      setDownloadState('FAILED');
+      setDownloadMessage('생성된 추정 모형을 내려받을 수 없습니다. 잠시 후 다시 시도하세요.');
+    } finally {
+      downloadPendingRef.current = false;
+    }
+  };
+
   const controlsDisabled = state === 'SUBMITTING' || state === 'LOADING';
   const advancedControlsDisabled = controlsDisabled || metadataState !== 'READY';
-  const submitDisabled = controlsDisabled || !baseModelId || !rangeValid || !models.length || metadataState !== 'READY';
+  const submitDisabled = controlsDisabled || !baseModelId || !rangeValid || !models.length
+    || metadataState !== 'READY' || !inputMetadata;
   const selectedBaseModel = models.find((model) => model.model_id === baseModelId) || null;
   const activeMonthInput = inputs[activeInputMonth] ?? createForecastMonthFormState(activeInputMonth, inputMetadata ?? undefined);
   const advancedEnteredCount = useMemo(() => {
@@ -632,11 +662,22 @@ export const ForecastGenerationView: React.FC<ForecastGenerationViewProps> = ({
       <p><strong>{result.display_name}</strong> · {result.model_year}년 {result.start_month}~{result.end_month}월</p>
       <p className="forecast-workflow__success-meta"><ShieldCheck size={14} aria-hidden="true" /> {result.is_default ? '기본 모형' : '일반 모형'} · {result.is_published ? '공개 상태' : '비공개 상태'}</p>
       <p className="forecast-workflow__success-help">공개 전까지는 분석 화면의 모형 목록에 나타나지 않습니다.</p>
+      <p className="forecast-workflow__success-help">다운로드한 모형의 ‘입력반영내역’ 시트에서 입력값의 적용 위치와 이동 링크를 확인할 수 있습니다.</p>
       <div className="forecast-workflow__cta-row">
+        <button
+          type="button"
+          className="forecast-workflow__secondary forecast-workflow__download"
+          disabled={downloadState === 'DOWNLOADING'}
+          onClick={() => void downloadWorkbook()}
+        >
+          <Download size={14} aria-hidden="true" />
+          {downloadState === 'DOWNLOADING' ? '다운로드 준비 중…' : '모형 내려받기'}
+        </button>
         {onNavigateToPnl && <button type="button" className="forecast-workflow__secondary" onClick={onNavigateToPnl}>손익 현황 보기</button>}
         {onNavigateToAnalysis && <button type="button" className="forecast-workflow__secondary" onClick={onNavigateToAnalysis}>손익분석 보기</button>}
         {onNavigateToManagement && <button type="button" className="forecast-workflow__link" onClick={onNavigateToManagement}>모형 관리로 이동</button>}
       </div>
+      {downloadState === 'FAILED' && downloadMessage && <p className="forecast-workflow__download-error" role="alert">{downloadMessage}</p>}
     </section>}
 
   </section>;

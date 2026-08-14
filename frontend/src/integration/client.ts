@@ -141,6 +141,7 @@ export const bffClient = {
     return validateHistory(await request<unknown>(`/api/admin/calculation-history?${query}`));
   },
   downloadEvidence: (resultId: string, role: Role) => downloadEvidence(resultId, role),
+  downloadForecastWorkbook: (modelId: string) => downloadForecastWorkbook(modelId),
 };
 
 function validateForecast(value: unknown): ForecastGenerateResponseDto {
@@ -178,7 +179,52 @@ async function downloadEvidence(resultId: string, role: Role): Promise<void> {
   if (!contentType.includes('application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')) invalidPayload();
   const blob = await response.blob();
   if (!blob.size) invalidPayload();
-  const filename = evidenceFilename(response.headers.get('Content-Disposition'));
+  const filename = safeXlsxFilename(
+    response.headers.get('Content-Disposition'),
+    '손익분석_근거.xlsx',
+  );
+  deliverBlob(blob, filename);
+}
+
+async function downloadForecastWorkbook(modelId: string): Promise<void> {
+  let response: Response;
+  try {
+    response = await fetch(
+      `${API_ROOT}/api/admin/forecast-models/${encodeURIComponent(modelId)}/workbook`,
+      { credentials: 'include' },
+    );
+  } catch {
+    throw new ApiClientError(0, 'TRANSIENT_SYSTEM_ERROR', '다운로드 서버에 연결할 수 없습니다.');
+  }
+  if (!response.ok) {
+    let code = 'TRANSIENT_SYSTEM_ERROR';
+    try {
+      const value: unknown = await response.json();
+      if (isRecord(value) && isRecord(value.error) && typeof value.error.code === 'string') {
+        code = value.error.code;
+      }
+    } catch { /* safe fallback */ }
+    throw new ApiClientError(
+      response.status,
+      code,
+      '생성된 추정 모형을 내려받을 수 없습니다.',
+      response.headers.get('X-Correlation-ID'),
+    );
+  }
+  const contentType = response.headers.get('Content-Type') || '';
+  if (!contentType.includes('application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')) {
+    invalidPayload();
+  }
+  const blob = await response.blob();
+  if (!blob.size) invalidPayload();
+  const filename = safeXlsxFilename(
+    response.headers.get('Content-Disposition'),
+    'Forecast_Model.xlsx',
+  );
+  deliverBlob(blob, filename);
+}
+
+function deliverBlob(blob: Blob, filename: string): void {
   const url = URL.createObjectURL(blob);
   try {
     const anchor = document.createElement('a');
@@ -190,7 +236,7 @@ async function downloadEvidence(resultId: string, role: Role): Promise<void> {
   }
 }
 
-function evidenceFilename(header: string | null): string {
+function safeXlsxFilename(header: string | null, fallback: string): string {
   const encoded = header?.match(/filename\*=utf-8''([^;]+)/i)?.[1];
   if (encoded) {
     try {
@@ -198,7 +244,7 @@ function evidenceFilename(header: string | null): string {
       if (/^[^\\/\r\n]+\.xlsx$/i.test(value)) return value;
     } catch { /* safe fallback */ }
   }
-  return '손익분석_근거.xlsx';
+  return fallback;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
