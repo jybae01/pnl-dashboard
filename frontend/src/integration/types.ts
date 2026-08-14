@@ -59,8 +59,8 @@ export interface ForecastMonthInputDto {
   sales: Array<{ product_code: string; quantity: number; amount: number }>;
   production: Array<{ product_code: string; quantity: number }>;
   mcm: Array<{ product_code: string; quantity: number }>;
-  manufacturing_adjustments: Array<{ row: number; amount: number; reason: string }>;
-  sga_adjustments: Array<{ row: number; amount: number; reason: string }>;
+  manufacturing_adjustments: Array<{ adjustment_key: string; amount: number; reason: string }>;
+  sga_adjustments: Array<{ adjustment_key: string; amount: number; reason: string }>;
   disposal_adjustment?: number; disposal_reason?: string;
   obsolescence_adjustment?: number; obsolescence_reason?: string;
   new_business_goods_cogs?: number; new_business_goods_cogs_reason?: string;
@@ -71,6 +71,27 @@ export interface ForecastMonthInputDto {
   tariff_applicable_rate?: number; tariff_rate?: number;
   raw_material_basis?: 'model' | 'direct'; raw_material_direct?: number | null;
   raw_material_adjustment?: number; raw_material_reason?: string; refund_rate?: number;
+}
+
+/**
+ * Forecast adjustment identities are intentionally opaque to the browser.
+ * The BFF resolves them against its provenance-validated workbook mapping;
+ * row/cell numbers must never become a frontend contract.
+ */
+export interface ForecastAdjustmentMetadataDto {
+  adjustment_key: string;
+  display_name: string;
+  unit: string;
+  category: 'manufacturing' | 'sga';
+  section: string | null;
+}
+
+export interface ForecastInputMetadataDto {
+  base_model_id: string;
+  manufacturing: ForecastAdjustmentMetadataDto[];
+  sga: ForecastAdjustmentMetadataDto[];
+  reason_max_length: 500;
+  dto_version: '1';
 }
 
 export interface ForecastGenerateRequestDto {

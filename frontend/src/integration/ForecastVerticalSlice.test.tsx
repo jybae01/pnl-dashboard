@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { ForecastGenerationView } from '../views/ForecastGenerationView';
 
@@ -17,6 +17,14 @@ const modelPayload = (name = 'Base') => ({ models: [{
   is_default: false,
   dto_version: '1',
 }] });
+
+const metadataPayload = () => ({
+  base_model_id: BASE,
+  manufacturing: [{ adjustment_key: 'mfg-energy', display_name: '전력비', unit: 'KRW', category: 'manufacturing', section: null }],
+  sga: [{ adjustment_key: 'sga-selling', display_name: '운송비', unit: 'KRW', category: 'sga', section: 'selling' }],
+  reason_max_length: 500,
+  dto_version: '1',
+});
 
 const successPayload = () => ({
   generation_id: GENERATION,
@@ -47,22 +55,28 @@ function forbiddenResponse() {
   } }, 403);
 }
 
+async function waitForForecastReady() {
+  await waitFor(() => expect(screen.getByRole('button', { name: '추정 모형 생성' })).not.toBeDisabled());
+}
+
 afterEach(() => vi.unstubAllGlobals());
 
 describe('Forecast React vertical slice', () => {
   it('keeps the synchronous POST contract, renders the result, and does not show technical identifiers', async () => {
     const fetchMock = vi.fn()
       .mockResolvedValueOnce(response(modelPayload('2026 Actual')))
+      .mockResolvedValueOnce(response(metadataPayload()))
       .mockResolvedValueOnce(response(successPayload()));
     vi.stubGlobal('fetch', fetchMock);
 
     render(<ForecastGenerationView />);
     await screen.findByRole('heading', { name: '추정 산출' });
+    await waitForForecastReady();
     fireEvent.click(screen.getByRole('button', { name: '추정 모형 생성' }));
     await screen.findByText('추정 모형 생성 완료');
 
-    expect(fetchMock).toHaveBeenCalledTimes(2);
-    const [, init] = fetchMock.mock.calls[1];
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+    const [, init] = fetchMock.mock.calls[2];
     const body = JSON.parse(String((init as RequestInit).body));
     expect(body.base_model_id).toBe(BASE);
     expect(body.start_month).toBe(7);
@@ -82,7 +96,9 @@ describe('Forecast React vertical slice', () => {
   });
 
   it('pre-validates an over-limit range without clamping or sending a request', async () => {
-    const fetchMock = vi.fn().mockResolvedValueOnce(response(modelPayload()));
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(response(modelPayload()))
+      .mockResolvedValueOnce(response(metadataPayload()));
     vi.stubGlobal('fetch', fetchMock);
     render(<ForecastGenerationView />);
     await screen.findByRole('heading', { name: '추정 산출' });
@@ -96,22 +112,24 @@ describe('Forecast React vertical slice', () => {
     expect(screen.getAllByText(/최대 6개월/).length).toBeGreaterThan(0);
     expect(screen.getByLabelText('종료 월')).toHaveValue('7');
     fireEvent.click(submitButton);
-    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 
   it('allows the approved six-month range and sends every selected month', async () => {
     const fetchMock = vi.fn()
       .mockResolvedValueOnce(response(modelPayload()))
+      .mockResolvedValueOnce(response(metadataPayload()))
       .mockResolvedValueOnce(response({ ...successPayload(), start_month: 7, end_month: 12 }));
     vi.stubGlobal('fetch', fetchMock);
     render(<ForecastGenerationView />);
     await screen.findByRole('heading', { name: '추정 산출' });
     fireEvent.change(screen.getByLabelText('종료 월'), { target: { value: '12' } });
+    await waitForForecastReady();
     const submitButton = screen.getByRole('button', { name: '추정 모형 생성' });
     expect(submitButton).not.toBeDisabled();
     fireEvent.click(submitButton);
     await screen.findByText('추정 모형 생성 완료');
-    const [, init] = fetchMock.mock.calls[1];
+    const [, init] = fetchMock.mock.calls[2];
     const body = JSON.parse(String((init as RequestInit).body));
     expect(body.start_month).toBe(7);
     expect(body.end_month).toBe(12);
@@ -122,11 +140,13 @@ describe('Forecast React vertical slice', () => {
   it('keeps monthly direct-entry values separate while switching month tabs', async () => {
     const fetchMock = vi.fn()
       .mockResolvedValueOnce(response(modelPayload()))
+      .mockResolvedValueOnce(response(metadataPayload()))
       .mockResolvedValueOnce(response({ ...successPayload(), start_month: 7, end_month: 8 }));
     vi.stubGlobal('fetch', fetchMock);
     render(<ForecastGenerationView />);
     await screen.findByRole('heading', { name: '추정 산출' });
     fireEvent.change(screen.getByLabelText('종료 월'), { target: { value: '8' } });
+    await waitForForecastReady();
 
     fireEvent.change(screen.getByLabelText('7월 LC 판매수량'), { target: { value: '70' } });
     fireEvent.click(screen.getByRole('tab', { name: '08월' }));
@@ -136,15 +156,18 @@ describe('Forecast React vertical slice', () => {
 
     fireEvent.click(screen.getByRole('button', { name: '추정 모형 생성' }));
     await screen.findByText('추정 모형 생성 완료');
-    const body = JSON.parse(String((fetchMock.mock.calls[1][1] as RequestInit).body));
+    const body = JSON.parse(String((fetchMock.mock.calls[2][1] as RequestInit).body));
     expect(body.months[0].sales.find((row: { product_code: string }) => row.product_code === 'LC').quantity).toBe(70);
     expect(body.months[1].sales.find((row: { product_code: string }) => row.product_code === 'LC').quantity).toBe(80);
   });
 
   it('keeps month editing text-backed, selects on first focus, and normalizes on blur', async () => {
-    vi.stubGlobal('fetch', vi.fn().mockResolvedValueOnce(response(modelPayload())));
+    vi.stubGlobal('fetch', vi.fn()
+      .mockResolvedValueOnce(response(modelPayload()))
+      .mockResolvedValueOnce(response(metadataPayload())));
     render(<ForecastGenerationView />);
     await screen.findByRole('heading', { name: '추정 산출' });
+    await waitForForecastReady();
 
     const start = screen.getByLabelText('시작 월') as HTMLInputElement;
     expect(start).toHaveValue('07');
@@ -185,6 +208,7 @@ describe('Forecast React vertical slice', () => {
     const pending = new Promise<Response>((resolve) => { resolveRequest = resolve; });
     const fetchMock = vi.fn()
       .mockResolvedValueOnce(response(modelPayload()))
+      .mockResolvedValueOnce(response(metadataPayload()))
       .mockReturnValueOnce(pending);
     vi.stubGlobal('fetch', fetchMock);
     render(<ForecastGenerationView />);
@@ -193,7 +217,7 @@ describe('Forecast React vertical slice', () => {
     const submitButton = screen.getByRole('button', { name: '추정 모형 생성' });
     fireEvent.click(submitButton);
     fireEvent.click(submitButton);
-    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(fetchMock).toHaveBeenCalledTimes(3);
     expect(submitButton).toBeDisabled();
     expect(screen.getByText(/접수하고 계산 중입니다/)).toBeInTheDocument();
     expect(screen.getByLabelText('시작 월')).toBeDisabled();
@@ -207,6 +231,7 @@ describe('Forecast React vertical slice', () => {
     const keys: string[] = [];
     const fetchMock = vi.fn()
       .mockResolvedValueOnce(response(modelPayload()))
+      .mockResolvedValueOnce(response(metadataPayload()))
       .mockImplementationOnce((_url: string, init?: RequestInit) => {
         keys.push(JSON.parse(String(init?.body)).idempotency_key);
         return Promise.reject(new TypeError('timeout'));
@@ -218,6 +243,7 @@ describe('Forecast React vertical slice', () => {
     vi.stubGlobal('fetch', fetchMock);
     render(<ForecastGenerationView />);
     await screen.findByRole('heading', { name: '추정 산출' });
+    await waitForForecastReady();
     fireEvent.click(screen.getByRole('button', { name: '추정 모형 생성' }));
     await screen.findByRole('alert');
     fireEvent.click(screen.getByRole('button', { name: '추정 모형 생성' }));
@@ -235,9 +261,23 @@ describe('Forecast React vertical slice', () => {
     expect(screen.queryByText(/사용 가능한 기준 모형이 없습니다/)).not.toBeInTheDocument();
   });
 
+  it('fails closed when advanced metadata loses the Admin capability', async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(response(modelPayload()))
+      .mockResolvedValueOnce(forbiddenResponse());
+    vi.stubGlobal('fetch', fetchMock);
+    render(<ForecastGenerationView />);
+
+    await screen.findByRole('heading', { name: '추정 산출 권한이 없습니다.' });
+    expect(screen.getByRole('alert')).toHaveTextContent('권한');
+    expect(screen.queryByRole('button', { name: '추정 모형 생성' })).not.toBeInTheDocument();
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
   it('renders validation errors without leaking backend enum text', async () => {
     const fetchMock = vi.fn()
       .mockResolvedValueOnce(response(modelPayload()))
+      .mockResolvedValueOnce(response(metadataPayload()))
       .mockResolvedValueOnce(response({ error: {
         code: 'FORECAST_SCOPE_NOT_APPROVED',
         message: 'Forecast request exceeds the approved synchronous scope',
@@ -248,6 +288,7 @@ describe('Forecast React vertical slice', () => {
     vi.stubGlobal('fetch', fetchMock);
     render(<ForecastGenerationView />);
     await screen.findByRole('heading', { name: '추정 산출' });
+    await waitForForecastReady();
     fireEvent.click(screen.getByRole('button', { name: '추정 모형 생성' }));
     await screen.findByRole('alert');
     expect(screen.getByRole('alert')).toHaveTextContent('최대 6개월');
@@ -257,6 +298,7 @@ describe('Forecast React vertical slice', () => {
   it('supports post-completion navigation callbacks', async () => {
     const fetchMock = vi.fn()
       .mockResolvedValueOnce(response(modelPayload()))
+      .mockResolvedValueOnce(response(metadataPayload()))
       .mockResolvedValueOnce(response(successPayload()));
     vi.stubGlobal('fetch', fetchMock);
     const onNavigateToPnl = vi.fn();
@@ -264,6 +306,7 @@ describe('Forecast React vertical slice', () => {
     const onNavigateToManagement = vi.fn();
     render(<ForecastGenerationView onNavigateToPnl={onNavigateToPnl} onNavigateToAnalysis={onNavigateToAnalysis} onNavigateToManagement={onNavigateToManagement} />);
     await screen.findByRole('heading', { name: '추정 산출' });
+    await waitForForecastReady();
     fireEvent.click(screen.getByRole('button', { name: '추정 모형 생성' }));
     await screen.findByText('추정 모형 생성 완료');
     fireEvent.click(screen.getByRole('button', { name: '손익 현황 보기' }));
@@ -277,10 +320,12 @@ describe('Forecast React vertical slice', () => {
   it('edits direct sales, production, and MCM rows and serializes the canonical DTO', async () => {
     const fetchMock = vi.fn()
       .mockResolvedValueOnce(response(modelPayload()))
+      .mockResolvedValueOnce(response(metadataPayload()))
       .mockResolvedValueOnce(response(successPayload()));
     vi.stubGlobal('fetch', fetchMock);
     render(<ForecastGenerationView />);
     await screen.findByRole('heading', { name: '추정 산출' });
+    await waitForForecastReady();
 
     fireEvent.change(screen.getByLabelText('7월 SW400 판매수량'), { target: { value: '125.5' } });
     fireEvent.change(screen.getByLabelText('7월 SW400 매출액'), { target: { value: '987654' } });
@@ -289,7 +334,7 @@ describe('Forecast React vertical slice', () => {
     fireEvent.click(screen.getByRole('button', { name: '추정 모형 생성' }));
     await screen.findByText('추정 모형 생성 완료');
 
-    const body = JSON.parse(String((fetchMock.mock.calls[1][1] as RequestInit).body));
+    const body = JSON.parse(String((fetchMock.mock.calls[2][1] as RequestInit).body));
     expect(body.months[0].sales[0]).toEqual({ product_code: 'SW400', quantity: 125.5, amount: 987654 });
     expect(body.months[0].production[0]).toEqual({ product_code: 'SW400', quantity: 88 });
     expect(body.months[0].mcm[0]).toEqual({ product_code: 'SW400', quantity: 7 });
@@ -298,19 +343,63 @@ describe('Forecast React vertical slice', () => {
     ]);
   });
 
-  it('rejects an empty direct-entry value before making a forecast request', async () => {
-    const fetchMock = vi.fn().mockResolvedValueOnce(response(modelPayload()));
+  it('serializes advanced opaque adjustments and keeps values isolated by month', async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(response(modelPayload()))
+      .mockResolvedValueOnce(response(metadataPayload()))
+      .mockResolvedValueOnce(response({ ...successPayload(), start_month: 7, end_month: 8 }));
     vi.stubGlobal('fetch', fetchMock);
     render(<ForecastGenerationView />);
     await screen.findByRole('heading', { name: '추정 산출' });
+    fireEvent.change(screen.getByLabelText('종료 월'), { target: { value: '8' } });
+    await waitForForecastReady();
+    fireEvent.click(screen.getByText(/고급 입력 및 조정/));
+    fireEvent.change(screen.getByLabelText('7월 전력비 제조경비 조정액'), { target: { value: '-456789' } });
+    fireEvent.change(screen.getByLabelText('7월 전력비 제조경비 조정 사유'), { target: { value: '전력 사유' } });
+    fireEvent.change(screen.getByLabelText('7월 운송비 판관비 조정액'), { target: { value: '567890' } });
+    fireEvent.change(screen.getByLabelText('7월 운송비 판관비 조정 사유'), { target: { value: '운송 사유' } });
+    fireEvent.change(screen.getByLabelText('7월 신사업 매출원가 직접 반영액'), { target: { value: '890123' } });
+    fireEvent.click(screen.getByRole('tab', { name: '08월' }));
+    fireEvent.change(screen.getByLabelText('8월 전력비 제조경비 조정액'), { target: { value: '12' } });
+    fireEvent.change(screen.getByLabelText('8월 운송비 판관비 조정액'), { target: { value: '-34' } });
+    fireEvent.click(screen.getByRole('tab', { name: '07월' }));
+    fireEvent.click(screen.getByRole('button', { name: '추정 모형 생성' }));
+    await screen.findByText('추정 모형 생성 완료');
+
+    const body = JSON.parse(String((fetchMock.mock.calls[2][1] as RequestInit).body));
+    expect(body.months[0].manufacturing_adjustments).toEqual([
+      { adjustment_key: 'mfg-energy', amount: -456789, reason: '전력 사유' },
+    ]);
+    expect(body.months[0].sga_adjustments).toEqual([
+      { adjustment_key: 'sga-selling', amount: 567890, reason: '운송 사유' },
+    ]);
+    expect(body.months[0].new_business_goods_cogs).toBe(890123);
+    expect(body.months[1].manufacturing_adjustments).toEqual([
+      { adjustment_key: 'mfg-energy', amount: 12, reason: '' },
+    ]);
+    expect(body.months[1].sga_adjustments).toEqual([
+      { adjustment_key: 'sga-selling', amount: -34, reason: '' },
+    ]);
+  });
+
+  it('rejects an empty direct-entry value before making a forecast request', async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(response(modelPayload()))
+      .mockResolvedValueOnce(response(metadataPayload()));
+    vi.stubGlobal('fetch', fetchMock);
+    render(<ForecastGenerationView />);
+    await screen.findByRole('heading', { name: '추정 산출' });
+    await waitForForecastReady();
     fireEvent.change(screen.getByLabelText('7월 SW400 판매수량'), { target: { value: '' } });
     fireEvent.click(screen.getByRole('button', { name: '추정 모형 생성' }));
     expect(await screen.findByRole('alert')).toHaveTextContent('7월 SW400 판매수량');
-    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 
   it('keeps business unit guidance visible without mixed-unit wording', async () => {
-    const fetchMock = vi.fn().mockResolvedValueOnce(response(modelPayload()));
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(response(modelPayload()))
+      .mockResolvedValueOnce(response(metadataPayload()));
     vi.stubGlobal('fetch', fetchMock);
     render(<ForecastGenerationView />);
     await screen.findByRole('heading', { name: '추정 산출' });

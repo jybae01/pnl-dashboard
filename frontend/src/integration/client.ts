@@ -19,6 +19,7 @@ import {
   PnlDashboardDto,
   ForecastGenerateRequestDto,
   ForecastGenerateResponseDto,
+  ForecastInputMetadataDto,
   WorkerStatusDto,
 } from './types';
 
@@ -104,6 +105,13 @@ export const bffClient = {
   workerStatus: async () => validateWorkerStatus(await request<unknown>('/api/admin/worker')),
   emergencyWorkerWake: async () => validateWorkerStatus(await request<unknown>('/api/admin/worker/emergency-wake', { method: 'POST' })),
   safeWorkerStop: async () => validateWorkerStatus(await request<unknown>('/api/admin/worker/safe-stop', { method: 'POST' })),
+  forecastInputMetadata: async (baseModelId: string) => {
+    const value = validateForecastInputMetadata(
+      await request<unknown>(`/api/admin/forecasts/input-metadata?base_model_id=${encodeURIComponent(baseModelId)}`),
+    );
+    if (value.base_model_id !== baseModelId) invalidPayload();
+    return value;
+  },
   generateForecast: async (body: ForecastGenerateRequestDto) => validateForecast(
     await request<unknown>('/api/admin/forecasts', { method: 'POST', body: JSON.stringify(body) }),
   ),
@@ -282,6 +290,38 @@ function validateWorkerStatus(value: unknown): WorkerStatusDto {
 function validateResult(value: unknown): StoredResultDto {
   if (!isRecord(value) || typeof value.result_id !== 'string' || typeof value.job_id !== 'string' || !isRecord(value.analysis_view) || !isRecord(value.provenance)) invalidPayload();
   return value as unknown as StoredResultDto;
+}
+
+function validateForecastInputMetadata(value: unknown): ForecastInputMetadataDto {
+  if (!isRecord(value)
+    || !uuid(value.base_model_id)
+    || !Array.isArray(value.manufacturing)
+    || !Array.isArray(value.sga)
+    || value.reason_max_length !== 500
+    || value.dto_version !== '1') invalidPayload();
+
+  const validateItems = (items: unknown[], requireSection: boolean) => items.map((item) => {
+    if (!isRecord(item)
+      || typeof item.adjustment_key !== 'string'
+      || item.adjustment_key.trim() === ''
+      || typeof item.display_name !== 'string'
+      || item.display_name.trim() === ''
+      || typeof item.unit !== 'string'
+      || !['manufacturing', 'sga'].includes(String(item.category))
+      || !(item.section === null || typeof item.section === 'string')
+      || 'row' in item
+      || 'cell' in item
+      || (requireSection && item.category !== 'sga')
+      || (!requireSection && item.category !== 'manufacturing')) invalidPayload();
+    return item as unknown as ForecastInputMetadataDto['manufacturing'][number];
+  });
+  return {
+    base_model_id: String(value.base_model_id),
+    manufacturing: validateItems(value.manufacturing, false),
+    sga: validateItems(value.sga, true),
+    reason_max_length: 500,
+    dto_version: '1',
+  };
 }
 
 function validateResultPublication(value: unknown): ResultPublicationDto {
