@@ -1232,3 +1232,264 @@ def write_sales_cogs_basis(
         ws[cell].fill = _FORMULA_FILL
         ws[cell].number_format = _MONEY_FORMAT
     _finish(ws, freeze="A10")
+
+
+def write_sales_cogs_scope(ws, result: dict[str, Any]) -> None:
+    """Write formula-bearing Sales/P&L manufactured COGS scope RCA evidence."""
+    analysis = dict(result.get("sales_cogs_scope_analysis") or {})
+    _title(
+        ws,
+        "Sales/Product COGS ↔ P&L Manufactured COGS Source Scope",
+        "Sales Product COGS와 P&L 제품·반제품 매출원가를 Golden Source formula 단위로 분해합니다. Option은 분석 전용이며 Production Formula를 변경하지 않습니다.",
+    )
+    if not analysis:
+        ws["A4"] = "TRACE_UNAVAILABLE_LEGACY"
+        ws["A5"] = "저장된 legacy Result에는 Slice 5C Source contract가 없습니다. 분석을 다시 실행해야 합니다."
+        _finish(ws)
+        return
+
+    summary = dict(analysis.get("summary") or {})
+    ws["A4"] = "RCA Status"
+    ws["B4"] = analysis.get("status")
+    ws["A5"] = "Overlap Verdict"
+    ws["B5"] = analysis.get("verdict")
+    ws["A6"] = "Option A Readiness"
+    ws["B6"] = analysis.get("option_readiness")
+    ws["A7"] = "Recommendation"
+    ws["B7"] = analysis.get("recommendation")
+    ws["D4"] = "Sales Product COGS Effect"
+    ws["E4"] = _number(summary.get("sales_product_cogs_effect"))
+    ws["D5"] = "P&L Manufactured COGS Effect"
+    ws["E5"] = _number(summary.get("pnl_manufactured_cogs_effect"))
+    ws["D6"] = "Scope Difference (Sales - P&L)"
+    ws["E6"] = "=E4-E5"
+    ws["D7"] = "UNEXPLAINED"
+    ws["E7"] = _number(summary.get("unexplained"))
+    ws["G4"] = "Matched Embedded Quantity (expense)"
+    ws["H4"] = _number(summary.get("matched_embedded_quantity_expense_delta"))
+    ws["G5"] = "Matched Embedded Mix (expense)"
+    ws["H5"] = _number(summary.get("matched_embedded_mix_expense_delta"))
+    ws["G6"] = "Matched Embedded Total (expense)"
+    ws["H6"] = "=H4+H5"
+    ws["G7"] = "Matched Overlap Profit Candidate"
+    ws["H7"] = "=-H6"
+    ws["J4"] = "Current Inventory Timing"
+    ws["K4"] = _number(summary.get("current_inventory_timing"))
+    ws["J5"] = "Option A Adjusted Timing"
+    ws["K5"] = "=K4-H7"
+    ws["J6"] = "Production Formula Mutated"
+    ws["K6"] = bool(analysis.get("production_formula_mutated"))
+    for cell in ("E6", "H6", "H7", "K5"):
+        ws[cell].fill = _FORMULA_FILL
+    for cell in ("E4", "E5", "E6", "E7", "H4", "H5", "H6", "H7", "K4", "K5"):
+        ws[cell].number_format = _MONEY_FORMAT
+
+    source_header = 10
+    _headers(ws, source_header, [
+        "Month", "Product Group", "Pool", "Unit", "Classification",
+        "Base Sales Product COGS", "Comparison Sales Product COGS", "Sales Product Effect",
+        "Base P&L-core Matched COGS", "Comparison P&L-core Matched COGS", "Matched Effect",
+        "Base Sales Adjustment", "Comparison Sales Adjustment", "Adjustment Effect",
+        "Base Merchandise COGS", "Comparison Merchandise COGS", "Merchandise Effect",
+        "Base Source Reference", "Comparison Source Reference", "Base Formula Trace", "Comparison Formula Trace",
+    ])
+    source_start = source_header + 1
+    for item in analysis.get("source_rows") or []:
+        row = ws.max_row + 1
+        ws.append([
+            item.get("period"), item.get("product_group"), item.get("pool"), item.get("unit"), item.get("classification"),
+            item.get("base_sales_product_cogs"), item.get("comparison_sales_product_cogs"), None,
+            item.get("base_matched_manufactured_cogs"), item.get("comparison_matched_manufactured_cogs"), None,
+            item.get("base_sales_adjustment"), item.get("comparison_sales_adjustment"), None,
+            item.get("base_merchandise_cogs"), item.get("comparison_merchandise_cogs"), None,
+            item.get("base_source_reference"), item.get("comparison_source_reference"),
+            item.get("base_formula_trace"), item.get("comparison_formula_trace"),
+        ])
+        for column, formula in (
+            (8, f"=F{row}-G{row}"),
+            (11, f"=I{row}-J{row}"),
+            (14, f"=L{row}-M{row}"),
+            (17, f"=O{row}-P{row}"),
+        ):
+            ws.cell(row, column, formula).fill = _FORMULA_FILL
+            ws.cell(row, column).number_format = _MONEY_FORMAT
+    source_end = max(source_start, ws.max_row)
+
+    scope_header = ws.max_row + 3
+    _headers(ws, scope_header, [
+        "Month", "Sales Product COGS", "Matched Sales Manufactured COGS",
+        "P&L Manufactured COGS", "Scope Difference", "Classified Total",
+        "UNEXPLAINED", "Validation", "Base P&L Source", "Comparison P&L Source",
+        "Base P&L Formula Trace", "Comparison P&L Formula Trace",
+    ])
+    scope_start = scope_header + 1
+    scope_rows: dict[str, int] = {}
+    for item in analysis.get("monthly_scope") or []:
+        row = ws.max_row + 1
+        scope_rows[str(item.get("period"))] = row
+        ws.append([
+            item.get("period"), item.get("sales_product_cogs_effect"),
+            item.get("matched_sales_manufactured_cogs_effect"),
+            item.get("pnl_manufactured_cogs_effect"), None,
+            item.get("classified_total"), item.get("unexplained"), None,
+            item.get("base_pnl_source_reference"), item.get("comparison_pnl_source_reference"),
+            item.get("base_pnl_formula_trace"), item.get("comparison_pnl_formula_trace"),
+        ])
+        ws.cell(row, 5, f"=B{row}-D{row}").fill = _FORMULA_FILL
+        ws.cell(row, 8, f'=IF(ABS(E{row}-F{row})<=1,"PASS","FAIL")').fill = _CHECK_FILL
+    scope_end = max(scope_start, ws.max_row)
+    cumulative_scope_row = ws.max_row + 1
+    ws.cell(cumulative_scope_row, 1, "CUMULATIVE")
+    for column in range(2, 8):
+        letter = get_column_letter(column)
+        ws.cell(cumulative_scope_row, column, f"=SUM({letter}{scope_start}:{letter}{scope_end})").fill = _FORMULA_FILL
+    ws.cell(cumulative_scope_row, 8, f'=IF(ABS(E{cumulative_scope_row}-F{cumulative_scope_row})<=1,"PASS","FAIL")').fill = _CHECK_FILL
+
+    component_header = ws.max_row + 3
+    _headers(ws, component_header, [
+        "Month", "Component", "Amount", "Classification", "Business Source",
+        "Formula Basis", "Source Reference",
+    ])
+    component_start = component_header + 1
+    for item in analysis.get("scope_components") or []:
+        ws.append([
+            item.get("period"), item.get("component"), item.get("amount"),
+            item.get("classification"), item.get("business_source"),
+            item.get("formula_basis"), item.get("source_reference"),
+        ])
+    component_end = max(component_start, ws.max_row)
+    component_total_row = ws.max_row + 1
+    ws.cell(component_total_row, 1, "CLASSIFIED TOTAL")
+    ws.cell(component_total_row, 3, f"=SUM(C{component_start}:C{component_end})").fill = _FORMULA_FILL
+    ws.cell(component_total_row, 4, f'=IF(ABS(C{component_total_row}-E{cumulative_scope_row})<=1,"PASS","FAIL")').fill = _CHECK_FILL
+
+    lc_header = ws.max_row + 3
+    _headers(ws, lc_header, [
+        "Month", "Base Mfg Qty", "Base Merch Qty", "Base Total Qty",
+        "Comparison Mfg Qty", "Comparison Merch Qty", "Comparison Total Qty",
+        "Base Mfg Revenue", "Base Merch Revenue", "Base Total Revenue",
+        "Comparison Mfg Revenue", "Comparison Merch Revenue", "Comparison Total Revenue",
+        "Base Core COGS", "Base Sales Adj", "Base Mfg COGS", "Base Merch COGS", "Base Total COGS",
+        "Comparison Core COGS", "Comparison Sales Adj", "Comparison Mfg COGS", "Comparison Merch COGS", "Comparison Total COGS",
+        "Max Identity Diff", "Separability", "Base Source", "Comparison Source",
+    ])
+    for item in analysis.get("lc_rows") or []:
+        row = ws.max_row + 1
+        ws.append([
+            item.get("period"), item.get("base_manufactured_quantity"), item.get("base_merchandise_quantity"), None,
+            item.get("comparison_manufactured_quantity"), item.get("comparison_merchandise_quantity"), None,
+            item.get("base_manufactured_revenue"), item.get("base_merchandise_revenue"), None,
+            item.get("comparison_manufactured_revenue"), item.get("comparison_merchandise_revenue"), None,
+            item.get("base_core_manufactured_cogs"), item.get("base_sales_adjustment"), None,
+            item.get("base_merchandise_cogs"), item.get("base_total_cogs"),
+            item.get("comparison_core_manufactured_cogs"), item.get("comparison_sales_adjustment"), None,
+            item.get("comparison_merchandise_cogs"), item.get("comparison_total_cogs"),
+            None, item.get("separability"), item.get("base_source_reference"), item.get("comparison_source_reference"),
+        ])
+        for column, formula in (
+            (4, f"=B{row}+C{row}"), (7, f"=E{row}+F{row}"),
+            (10, f"=H{row}+I{row}"), (13, f"=K{row}+L{row}"),
+            (16, f"=N{row}+O{row}"), (21, f"=S{row}+T{row}"),
+            (24, f"=MAX(ABS(D{row}-B{row}-C{row}),ABS(G{row}-E{row}-F{row}),ABS(J{row}-H{row}-I{row}),ABS(M{row}-K{row}-L{row}),ABS(R{row}-P{row}-Q{row}),ABS(W{row}-U{row}-V{row}))"),
+        ):
+            ws.cell(row, column, formula).fill = _FORMULA_FILL
+
+    new_header = ws.max_row + 3
+    _headers(ws, new_header, [
+        "Month", "Base Revenue", "Base COGS", "Base Quantity",
+        "Comparison Revenue", "Comparison COGS", "Comparison Quantity",
+        "Base Denominator Status", "Comparison Denominator Status", "Business Type", "Classification",
+        "Recommended Handling", "Base Source", "Comparison Source",
+    ])
+    for item in analysis.get("new_business_rows") or []:
+        ws.append([
+            item.get("period"), item.get("base_revenue"), item.get("base_cogs"), item.get("base_quantity"),
+            item.get("comparison_revenue"), item.get("comparison_cogs"), item.get("comparison_quantity"),
+            item.get("denominator_status"), item.get("comparison_denominator_status"),
+            item.get("business_classification"), item.get("classification"),
+            item.get("recommended_handling"), item.get("base_source_reference"), item.get("comparison_source_reference"),
+        ])
+
+    sku_header = ws.max_row + 3
+    _headers(ws, sku_header, [
+        "Month", "Product Group", "SKU", "Unit", "Base Qty", "Comparison Qty",
+        "Base Revenue", "Comparison Revenue", "Base COGS", "Comparison COGS",
+        "Coverage", "Base Source", "Comparison Source",
+    ])
+    for item in analysis.get("sku_rows") or []:
+        ws.append([
+            item.get("period"), item.get("product_group"), item.get("sku"), item.get("unit"),
+            item.get("base_quantity"), item.get("comparison_quantity"),
+            item.get("base_revenue"), item.get("comparison_revenue"),
+            item.get("base_cogs"), item.get("comparison_cogs"), item.get("coverage"),
+            item.get("base_source_reference"), item.get("comparison_source_reference"),
+        ])
+
+    matched_header = ws.max_row + 3
+    _headers(ws, matched_header, [
+        "Month", "Pool", "Unit", "Product Group", "Base Qty", "Comparison Qty",
+        "Pool Base Qty", "Pool Comparison Qty", "Base Revenue", "Base COGS",
+        "Base Revenue/unit", "Base COGS/unit", "Base GP/unit", "Base Mix", "Comparison Mix",
+        "Revenue Quantity", "GP Quantity", "Embedded COGS Quantity",
+        "Revenue Mix", "GP Mix", "Embedded COGS Mix", "Embedded COGS Total", "Overlap Profit",
+        "Base Source", "Comparison Source",
+    ])
+    matched_start = matched_header + 1
+    for item in analysis.get("matched_embedded_rows") or []:
+        row = ws.max_row + 1
+        ws.append([
+            item.get("period"), item.get("pool"), item.get("unit"), item.get("product_group"),
+            item.get("base_quantity"), item.get("comparison_quantity"),
+            item.get("pool_base_quantity"), item.get("pool_comparison_quantity"),
+            item.get("base_revenue"), item.get("base_cogs"),
+            None, None, None, None, None, None, None, None, None, None, None, None, None,
+            item.get("base_source_reference"), item.get("comparison_source_reference"),
+        ])
+        formulas = {
+            11: f"=IFERROR(I{row}/E{row},0)", 12: f"=IFERROR(J{row}/E{row},0)",
+            13: f"=K{row}-L{row}", 14: f"=IFERROR(E{row}/G{row},0)",
+            15: f"=IFERROR(F{row}/H{row},0)", 16: f"=(H{row}-G{row})*N{row}*K{row}",
+            17: f"=(H{row}-G{row})*N{row}*M{row}", 18: f"=P{row}-Q{row}",
+            19: f"=H{row}*(O{row}-N{row})*K{row}", 20: f"=H{row}*(O{row}-N{row})*M{row}",
+            21: f"=S{row}-T{row}", 22: f"=R{row}+U{row}", 23: f"=-V{row}",
+        }
+        for column, formula in formulas.items():
+            ws.cell(row, column, formula).fill = _FORMULA_FILL
+    matched_end = max(matched_start, ws.max_row)
+
+    option_header = ws.max_row + 3
+    _headers(ws, option_header, [
+        "Option", "Quantity", "Mix", "Inventory Timing", "Effects Total",
+        "Residual", "OP Delta", "Identity Difference", "Identity", "Counterfactual Only",
+    ])
+    for item in analysis.get("option_rows") or []:
+        row = ws.max_row + 1
+        ws.append([
+            item.get("option"), item.get("quantity"), item.get("mix"),
+            item.get("inventory_timing"), item.get("effects_total"),
+            None, item.get("operating_profit_delta"), None, None,
+            item.get("counterfactual_only"),
+        ])
+        ws.cell(row, 6, f"=G{row}-E{row}").fill = _FORMULA_FILL
+        ws.cell(row, 8, f"=E{row}+F{row}-G{row}").fill = _FORMULA_FILL
+        ws.cell(row, 9, f'=IF(ABS(H{row})<=1,"PASS","FAIL")').fill = _CHECK_FILL
+
+    check_header = ws.max_row + 3
+    _headers(ws, check_header, ["Validation", "Difference", "Tolerance", "Status"])
+    for item in analysis.get("checks") or []:
+        ws.append([
+            item.get("check"), item.get("difference"), item.get("tolerance"), item.get("status")
+        ])
+    ws.append([
+        "Workbook matched embedded identity",
+        f"=SUM(V{matched_start}:V{matched_end})-H6",
+        1,
+        f'=IF(ABS(B{ws.max_row + 1})<=C{ws.max_row + 1},"PASS","FAIL")',
+    ])
+    ws.append([
+        "Production Formula unchanged",
+        "=IF(K6=FALSE,0,1)",
+        0,
+        f'=IF(B{ws.max_row + 1}=0,"PASS","FAIL")',
+    ])
+    _finish(ws, freeze="A11")

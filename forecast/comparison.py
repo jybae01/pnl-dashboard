@@ -15,6 +15,7 @@ from .analysis.manufacturing_effects import calculate_manufacturing_effects
 from .analysis.material_effects import calculate_material_effects
 from .analysis.residual_rca import analyze_residual_rca
 from .analysis.sales_cogs_overlap import analyze_sales_cogs_basis_overlap
+from .analysis.sales_cogs_scope import analyze_sales_cogs_scope_reconciliation
 from .analysis.sales_effects import calculate_sales_effects
 from .analysis.sga_effects import calculate_sga_effects
 from .sales_comparison import calculate_sales_effect_rows, sales_effect_totals
@@ -56,6 +57,7 @@ class ComparisonResult:
     sales_analysis: dict[str, Any] = field(default_factory=dict)
     residual_analysis: dict[str, Any] = field(default_factory=dict)
     sales_cogs_basis_analysis: dict[str, Any] = field(default_factory=dict)
+    sales_cogs_scope_analysis: dict[str, Any] = field(default_factory=dict)
 
 
 class GenericComparisonEngine:
@@ -186,6 +188,7 @@ class GenericComparisonEngine:
         tolerance = max(1.0, abs(op_delta) * 1e-9)
         narrative = self._narrative(op_delta, effects, residual)
         sales_cogs_basis_analysis: dict[str, Any] = {}
+        sales_cogs_scope_analysis: dict[str, Any] = {}
         if baseline.get("adapted") is not None and target.get("adapted") is not None:
             full_base_scenario = baseline["adapted"].scenario
             full_comparison_scenario = target["adapted"].scenario
@@ -522,6 +525,17 @@ class GenericComparisonEngine:
                 absolute_tolerance=1.0,
                 relative_tolerance=1e-9,
             )
+            sales_cogs_scope_analysis = analyze_sales_cogs_scope_reconciliation(
+                baseline_source=baseline.get("sales_cogs_scope_source") or {},
+                comparison_source=target.get("sales_cogs_scope_source") or {},
+                sales_cogs_basis_analysis=sales_cogs_basis_analysis,
+                inventory_analysis=inventory_analysis,
+                effects_total=effects_total,
+                residual=residual,
+                operating_profit_delta=op_delta,
+                absolute_tolerance=1.0,
+                relative_tolerance=1e-9,
+            )
         return ComparisonResult(
             baseline=asdict(baseline_meta), comparison=asdict(comparison_meta), period=asdict(period),
             pnl=pnl, products=products, sales_groups=sales_groups, production=production, mcm=mcm,
@@ -540,6 +554,7 @@ class GenericComparisonEngine:
             sales_analysis=sales_analysis,
             residual_analysis=residual_analysis,
             sales_cogs_basis_analysis=sales_cogs_basis_analysis,
+            sales_cogs_scope_analysis=sales_cogs_scope_analysis,
         )
 
     @staticmethod
@@ -710,6 +725,208 @@ class GenericComparisonEngine:
         return [{"code": key, "item": label, "baseline": baseline[key], "comparison": comparison[key],
                  "delta": comparison[key] - baseline[key]} for key, label in labels.items()]
 
+    def _sales_cogs_scope_source(
+        self,
+        workbook: GoldenWorkbook,
+        year: int,
+        months: tuple[int, ...],
+    ) -> dict[str, Any]:
+        """Read the RCA-only Sales/COGS source contract from configured rows.
+
+        The row contract lives in ``model_mapping.json``.  These values are
+        evidence metadata only; they do not replace any production Effect
+        input or formula.
+        """
+        contract = self.full_mapping.get("sales_cogs_scope_analysis") or {}
+        if not contract:
+            return {}
+
+        def value(column: str, row: int | None) -> float:
+            if row is None:
+                return 0.0
+            return float(workbook.value(f"{column}{int(row)}") or 0.0)
+
+        def raw_value(column: str, row: int) -> Any:
+            reader = getattr(workbook, "raw_value", workbook.value)
+            return reader(f"{column}{int(row)}")
+
+        def summed(column: str, rows: list[int] | tuple[int, ...]) -> float:
+            return sum(value(column, int(row)) for row in rows)
+
+        def reference(column: str, rows: list[int] | tuple[int, ...]) -> str:
+            return " | ".join(f"Data!{column}{int(row)}" for row in rows)
+
+        def formula_trace(column: str, rows: list[int] | tuple[int, ...]) -> str:
+            traces: list[str] = []
+            formulas = getattr(workbook, "formulas", {})
+            for row in rows:
+                address = f"{column}{int(row)}"
+                formula = formulas.get(address)
+                traces.append(f"Data!{address} {formula or '[INPUT/CACHED]'}")
+            return " | ".join(traces)
+
+        group_rows: list[dict[str, Any]] = []
+        pnl_rows: list[dict[str, Any]] = []
+        new_business_rows: list[dict[str, Any]] = []
+        sku_rows: list[dict[str, Any]] = []
+        for month in months:
+            column = self.MONTH_COLUMNS[int(month)]
+            period = f"{int(year):04d}-{int(month):02d}"
+            for group, raw_spec in (contract.get("groups") or {}).items():
+                spec = dict(raw_spec)
+                quantity_row = int(spec["quantity_row"])
+                revenue_row = int(spec["revenue_row"])
+                sales_quantity_row = int(
+                    spec.get("sales_product_quantity_row", quantity_row)
+                )
+                sales_revenue_row = int(
+                    spec.get("sales_product_revenue_row", revenue_row)
+                )
+                sales_cogs_row = int(spec["sales_product_cogs_row"])
+                matched_rows = [
+                    int(row) for row in spec.get("matched_manufactured_cogs_rows", ())
+                ]
+                adjustment_rows = [
+                    int(row) for row in spec.get("sales_adjustment_rows", ())
+                ]
+                merchandise_rows = [
+                    int(spec[key])
+                    for key in (
+                        "merchandise_quantity_row",
+                        "merchandise_revenue_row",
+                        "merchandise_cogs_row",
+                    )
+                    if spec.get(key) is not None
+                ]
+                all_rows = list(dict.fromkeys([
+                    quantity_row,
+                    revenue_row,
+                    sales_quantity_row,
+                    sales_revenue_row,
+                    sales_cogs_row,
+                    *matched_rows,
+                    *adjustment_rows,
+                    *merchandise_rows,
+                ]))
+                group_rows.append({
+                    "period": period,
+                    "product_group": str(group),
+                    "pool": (
+                        "LENGTH" if spec.get("unit_basis") == "LENGTH" else "PCS"
+                    ),
+                    "unit": "m" if spec.get("unit_basis") == "LENGTH" else "PCS",
+                    "classification": spec.get("classification"),
+                    "manufactured_quantity": value(column, quantity_row),
+                    "manufactured_revenue": value(column, revenue_row),
+                    "matched_manufactured_cogs": summed(column, matched_rows),
+                    "sales_manufactured_cogs": (
+                        summed(column, matched_rows)
+                        + summed(column, adjustment_rows)
+                    ),
+                    "sales_product_quantity": value(column, sales_quantity_row),
+                    "sales_product_revenue": value(column, sales_revenue_row),
+                    "sales_product_cogs": value(column, sales_cogs_row),
+                    "sales_adjustment": summed(column, adjustment_rows),
+                    "merchandise_quantity": value(
+                        column, spec.get("merchandise_quantity_row")
+                    ),
+                    "merchandise_revenue": value(
+                        column, spec.get("merchandise_revenue_row")
+                    ),
+                    "merchandise_cogs": value(
+                        column, spec.get("merchandise_cogs_row")
+                    ),
+                    "source_reference": reference(column, all_rows),
+                    "formula_trace": formula_trace(column, all_rows),
+                })
+
+            pnl_spec = dict(contract.get("pnl_manufactured") or {})
+            if pnl_spec:
+                finished_row = int(pnl_spec["finished_goods_cogs_row"])
+                semi_row = int(pnl_spec["semi_finished_goods_cogs_row"])
+                core_finished_row = int(pnl_spec["core_finished_goods_cogs_row"])
+                core_semi_row = int(pnl_spec["core_semi_finished_goods_cogs_row"])
+                source_rows = [
+                    finished_row, semi_row, core_finished_row, core_semi_row
+                ]
+                finished = value(column, finished_row)
+                semi = value(column, semi_row)
+                core_finished = value(column, core_finished_row)
+                core_semi = value(column, core_semi_row)
+                pnl_rows.append({
+                    "period": period,
+                    "finished_goods_cogs": finished,
+                    "semi_finished_goods_cogs": semi,
+                    "pnl_manufactured_cogs": finished + semi,
+                    "core_finished_goods_cogs": core_finished,
+                    "core_semi_finished_goods_cogs": core_semi,
+                    "core_manufactured_cogs": core_finished + core_semi,
+                    "finished_adjustment": finished - core_finished,
+                    "semi_finished_adjustment": semi - core_semi,
+                    "source_reference": reference(column, source_rows),
+                    "formula_trace": formula_trace(column, source_rows),
+                })
+
+            new_spec = dict(contract.get("new_business") or {})
+            if new_spec:
+                source_rows = [
+                    int(new_spec[key])
+                    for key in (
+                        "quantity_row",
+                        "mapped_revenue_row",
+                        "actual_revenue_row",
+                        "actual_cogs_row",
+                    )
+                ]
+                new_business_rows.append({
+                    "period": period,
+                    "quantity": value(column, int(new_spec["quantity_row"])),
+                    "quantity_raw": raw_value(
+                        column, int(new_spec["quantity_row"])
+                    ),
+                    "mapped_revenue": value(
+                        column, int(new_spec["mapped_revenue_row"])
+                    ),
+                    "actual_revenue": value(
+                        column, int(new_spec["actual_revenue_row"])
+                    ),
+                    "actual_cogs": value(column, int(new_spec["actual_cogs_row"])),
+                    "business_classification": new_spec.get(
+                        "business_classification"
+                    ),
+                    "source_reference": reference(column, source_rows),
+                    "formula_trace": formula_trace(column, source_rows),
+                })
+
+            for sku, raw_spec in (contract.get("sku_sources") or {}).items():
+                spec = dict(raw_spec)
+                quantity_row = int(spec["quantity_row"])
+                revenue_row = int(spec["revenue_row"])
+                cogs_rows = [int(row) for row in spec.get("cogs_rows", ())]
+                source_rows = [quantity_row, revenue_row, *cogs_rows]
+                sku_rows.append({
+                    "period": period,
+                    "sku": str(sku),
+                    "product_group": spec.get("product_group"),
+                    "unit": "m" if spec.get("unit_basis") == "LENGTH" else "PCS",
+                    "quantity": value(column, quantity_row),
+                    "revenue": value(column, revenue_row),
+                    "cogs": summed(column, cogs_rows),
+                    "quantity_source_available": bool(quantity_row),
+                    "revenue_source_available": bool(revenue_row),
+                    "cogs_source_available": bool(cogs_rows),
+                    "source_reference": reference(column, source_rows),
+                    "formula_trace": formula_trace(column, source_rows),
+                })
+
+        return {
+            "schema_version": "1",
+            "group_rows": group_rows,
+            "pnl_rows": pnl_rows,
+            "new_business_rows": new_business_rows,
+            "sku_rows": sku_rows,
+        }
+
     def _extract(
         self,
         workbook: GoldenWorkbook,
@@ -813,10 +1030,14 @@ class GenericComparisonEngine:
             "tariff": tariff,
             "general_admin": general_admin,
         })
+        sales_cogs_scope_source = self._sales_cogs_scope_source(
+            workbook, meta.year, months
+        )
         return {"pnl": pnl, "products": products, "sales_groups": sales_groups,
                 "production": production, "mcm": mcm,
                 "cost_summary": cost_summary, "effect_bases": effect_bases,
                 "manufacturing_accounts": [],
                 "sga_accounts": account_rows(adapted.sga_source_rows) if adapted else [],
                 "adapted": adapted,
+                "sales_cogs_scope_source": sales_cogs_scope_source,
                 "analysis_adapter_error": analysis_adapter_error}

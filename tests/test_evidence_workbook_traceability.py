@@ -78,6 +78,13 @@ class EvidenceWorkbookTraceabilityTests(unittest.TestCase):
         self.assertIn("Data!E", sales["G5"].value)
         self.assertIn(sales["B5"].value, {"PCS", "LENGTH"})
         self.assertTrue(sales["O5"].value.startswith("=IFERROR("))
+        scope = workbook["Sales_COGS_Scope"]
+        self.assertEqual(scope["A1"].value, "Sales/Product COGS ↔ P&L Manufactured COGS Source Scope")
+        self.assertTrue(any(
+            isinstance(cell.value, str) and cell.value.startswith("=")
+            for row in scope.iter_rows()
+            for cell in row
+        ))
         quantity_row = _row_with_value(sales, "A", "sales_quantity")
         mix_row = _row_with_value(sales, "A", "sales_mix")
         price_row = _row_with_value(sales, "A", "sales_price")

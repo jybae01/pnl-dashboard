@@ -107,6 +107,53 @@ class ComparisonMappingTests(unittest.TestCase):
             {"labor": 345, "outsourcing": 346, "other_variable": 347},
         )
 
+    def test_sales_cogs_scope_rows_are_analysis_only_and_source_mapped(self):
+        scope = GenericComparisonEngine(MAPPING).full_mapping[
+            "sales_cogs_scope_analysis"
+        ]
+        self.assertEqual(
+            scope["groups"]["LC"],
+            {
+                "unit_basis": "PCS",
+                "quantity_row": 1645,
+                "revenue_row": 1646,
+                "sales_product_quantity_row": 1668,
+                "sales_product_revenue_row": 1669,
+                "sales_product_cogs_row": 1670,
+                "matched_manufactured_cogs_rows": [1131],
+                "sales_adjustment_rows": [1650],
+                "merchandise_quantity_row": 1658,
+                "merchandise_revenue_row": 1659,
+                "merchandise_cogs_row": 1660,
+                "classification": "MANUFACTURED_AND_MERCHANDISE_SEPARABLE",
+            },
+        )
+        self.assertEqual(
+            scope["pnl_manufactured"],
+            {
+                "finished_goods_cogs_row": 1269,
+                "semi_finished_goods_cogs_row": 1280,
+                "core_finished_goods_cogs_row": 1154,
+                "core_semi_finished_goods_cogs_row": 536,
+            },
+        )
+        self.assertEqual(
+            {
+                sku: spec["cogs_rows"]
+                for sku, spec in scope["sku_sources"].items()
+            },
+            {
+                "SW400": [1031, 1572],
+                "SW440": [1056, 1585],
+                "BW400": [1081, 1611],
+                "BW440": [1106, 1624],
+                "LC_4INCH": [1647],
+                "FS_SW": [473, 1686],
+                "FS_BW": [494, 1699],
+                "FS_TW": [515, 1712],
+            },
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -460,6 +460,74 @@
       }
     }
   },
+  "sales_cogs_scope_analysis": {
+    "groups": {
+      "SW": {
+        "unit_basis": "PCS",
+        "quantity_row": 1593,
+        "revenue_row": 1594,
+        "sales_product_cogs_row": 1595,
+        "matched_manufactured_cogs_rows": [1031, 1056],
+        "sales_adjustment_rows": [1572, 1585],
+        "classification": "MANUFACTURED_ONLY"
+      },
+      "BW": {
+        "unit_basis": "PCS",
+        "quantity_row": 1632,
+        "revenue_row": 1633,
+        "sales_product_cogs_row": 1634,
+        "matched_manufactured_cogs_rows": [1081, 1106],
+        "sales_adjustment_rows": [1611, 1624],
+        "classification": "MANUFACTURED_ONLY"
+      },
+      "LC": {
+        "unit_basis": "PCS",
+        "quantity_row": 1645,
+        "revenue_row": 1646,
+        "sales_product_quantity_row": 1668,
+        "sales_product_revenue_row": 1669,
+        "sales_product_cogs_row": 1670,
+        "matched_manufactured_cogs_rows": [1131],
+        "sales_adjustment_rows": [1650],
+        "merchandise_quantity_row": 1658,
+        "merchandise_revenue_row": 1659,
+        "merchandise_cogs_row": 1660,
+        "classification": "MANUFACTURED_AND_MERCHANDISE_SEPARABLE"
+      },
+      "FS": {
+        "unit_basis": "LENGTH",
+        "quantity_row": 1720,
+        "revenue_row": 1721,
+        "sales_product_cogs_row": 1722,
+        "matched_manufactured_cogs_rows": [473, 494, 515],
+        "sales_adjustment_rows": [1686, 1699, 1712],
+        "classification": "SEMI_FINISHED_SCOPE"
+      }
+    },
+    "pnl_manufactured": {
+      "finished_goods_cogs_row": 1269,
+      "semi_finished_goods_cogs_row": 1280,
+      "core_finished_goods_cogs_row": 1154,
+      "core_semi_finished_goods_cogs_row": 536
+    },
+    "new_business": {
+      "quantity_row": 113,
+      "mapped_revenue_row": 114,
+      "actual_revenue_row": 1733,
+      "actual_cogs_row": 1734,
+      "business_classification": "MERCHANDISE"
+    },
+    "sku_sources": {
+      "SW400": {"product_group": "SW", "unit_basis": "PCS", "quantity_row": 32, "revenue_row": 33, "cogs_rows": [1031, 1572]},
+      "SW440": {"product_group": "SW", "unit_basis": "PCS", "quantity_row": 38, "revenue_row": 39, "cogs_rows": [1056, 1585]},
+      "BW400": {"product_group": "BW", "unit_basis": "PCS", "quantity_row": 44, "revenue_row": 45, "cogs_rows": [1081, 1611]},
+      "BW440": {"product_group": "BW", "unit_basis": "PCS", "quantity_row": 50, "revenue_row": 51, "cogs_rows": [1106, 1624]},
+      "LC_4INCH": {"product_group": "LC", "unit_basis": "PCS", "quantity_row": 1645, "revenue_row": 1646, "cogs_rows": [1647]},
+      "FS_SW": {"product_group": "FS", "unit_basis": "LENGTH", "quantity_row": 1681, "revenue_row": 1682, "cogs_rows": [473, 1686]},
+      "FS_BW": {"product_group": "FS", "unit_basis": "LENGTH", "quantity_row": 1694, "revenue_row": 1695, "cogs_rows": [494, 1699]},
+      "FS_TW": {"product_group": "FS", "unit_basis": "LENGTH", "quantity_row": 1707, "revenue_row": 1708, "cogs_rows": [515, 1712]}
+    }
+  },
   "comparison": {
     "pnl_rows": {
       "revenue": 1248,
