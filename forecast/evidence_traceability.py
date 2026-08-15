@@ -13,6 +13,7 @@ _FORMULA_FILL = PatternFill("solid", fgColor="E2F0D9")
 _CHECK_FILL = PatternFill("solid", fgColor="EDEDED")
 _WHITE_FONT = Font(color="FFFFFF", bold=True)
 _BOLD = Font(bold=True)
+_MONEY_FORMAT = '#,##0.000;[Red](#,##0.000);-'
 
 
 def _number(value: Any) -> float:
@@ -42,7 +43,7 @@ def _finish(ws, *, freeze: str = "A5") -> None:
         for cell in row:
             cell.alignment = Alignment(vertical="top", wrap_text=True)
             if isinstance(cell.value, (int, float)) and not isinstance(cell.value, bool):
-                cell.number_format = '#,##0.000;[Red](#,##0.000);-'
+                cell.number_format = _MONEY_FORMAT
     for column in range(1, ws.max_column + 1):
         width = 10
         for cell in ws[get_column_letter(column)]:
@@ -571,7 +572,7 @@ def write_final_bridge(
     result: dict[str, Any],
     evidence_cells: dict[str, tuple[str, str]],
     merchandise_validation: tuple[str, str],
-) -> None:
+) -> dict[str, str]:
     _title(
         ws,
         "최종 OP Bridge 검증",
@@ -630,3 +631,258 @@ def write_final_bridge(
         ws.cell(r, 2, row[1]).fill = _CHECK_FILL
         ws.cell(r, 3, row[2])
     _finish(ws)
+    return {
+        "effects_total": f"C{summary}",
+        "residual": f"C{summary + 1}",
+        "operating_profit_delta": f"C{summary + 2}",
+        "identity": f"F{summary + 3}",
+    }
+
+
+def write_residual_rca(
+    ws,
+    result: dict[str, Any],
+    bridge_cells: dict[str, str],
+) -> None:
+    """Write Source-based residual analysis without introducing a new Effect."""
+    rca = dict(result.get("residual_analysis") or {})
+    if not rca:
+        effects = list(result.get("effects") or [])
+        rca = {
+            "status": "TRACE_UNAVAILABLE_LEGACY",
+            "period": str((result.get("period") or {}).get("label") or "선택기간"),
+            "sign_convention": "+ = OP improvement; - = OP deterioration",
+            "materiality_status": "UNCONFIGURED",
+            "direct_op_bridge": {},
+            "effect_to_pnl_map": [
+                {
+                    "effect_code": item.get("code"),
+                    "pnl_bucket": "LEGACY_UNMAPPED",
+                    "additive": True,
+                    "rca_allocation": False,
+                    "parent": None,
+                    "amount": _number(item.get("profit_effect")),
+                    "direct_source_scope": "Stored legacy Result",
+                    "note": "RCA source trace unavailable",
+                }
+                for item in effects
+            ],
+            "buckets": [],
+            "components": [{
+                "component_id": "unexplained",
+                "bucket": "CROSS_BUCKET",
+                "amount": _number(result.get("residual")),
+                "classification": "UNEXPLAINED",
+                "business_source": "Stored legacy Result",
+                "canonical_field": "residual",
+                "formula_basis": "Legacy source trace unavailable",
+                "source_reference": "SOURCE_REFERENCE_UNAVAILABLE",
+                "period": str((result.get("period") or {}).get("label") or "선택기간"),
+                "scope": "Legacy stored payload",
+                "source_coverage": "NONE",
+                "explanation": "Regenerate the analysis to populate Source-based RCA.",
+            }],
+            "sga_account_rca": [],
+            "plug_created": False,
+        }
+
+    _title(
+        ws,
+        "OP Bridge Residual Root Cause Analysis",
+        "Direct P&L Source와 기존 canonical Effect의 basis·scope 차이를 분해합니다. 이 시트는 신규 Effect를 만들거나 Residual을 backsolve하지 않습니다.",
+    )
+    ws["A3"] = f"RCA Status: {rca.get('status')} / Materiality: {rca.get('materiality_status', 'UNCONFIGURED')} / {rca.get('sign_convention', '')}"
+    ws["A3"].font = _BOLD
+    ws["A4"] = "Unit: KRW / Golden locations are Evidence metadata only"
+
+    direct = dict(rca.get("direct_op_bridge") or {})
+    _headers(
+        ws,
+        5,
+        [
+            "Scenario", "Revenue", "COGS", "Selling", "General Admin",
+            "Reconstructed OP", "Source OP", "Difference", "Validation",
+            "Source Reference",
+        ],
+    )
+    for row_no, key, label in ((6, "base", "BASE"), (7, "comparison", "COMPARISON")):
+        item = dict(direct.get(key) or {})
+        ws.cell(row_no, 1, label)
+        ws.cell(row_no, 2, _number(item.get("revenue")))
+        ws.cell(row_no, 3, _number(item.get("cogs")))
+        ws.cell(row_no, 4, _number(item.get("selling_expense")))
+        ws.cell(row_no, 5, _number(item.get("general_admin")))
+        ws.cell(row_no, 6, f"=B{row_no}-C{row_no}-D{row_no}-E{row_no}").fill = _FORMULA_FILL
+        ws.cell(row_no, 6).number_format = _MONEY_FORMAT
+        ws.cell(row_no, 7, _number(item.get("source_operating_profit")))
+        ws.cell(row_no, 8, f"=F{row_no}-G{row_no}").fill = _FORMULA_FILL
+        ws.cell(row_no, 8).number_format = _MONEY_FORMAT
+        ws.cell(row_no, 9, f'=IF(ABS(H{row_no})<=1,"PASS","FAIL")').fill = _CHECK_FILL
+        ws.cell(
+            row_no,
+            10,
+            " / ".join(
+                str(value)
+                for value in (direct.get("source_references") or {}).values()
+                if value
+            ) or "SOURCE_REFERENCE_UNAVAILABLE",
+        )
+    ws["A8"] = "Direct OP Delta"
+    ws["F8"] = "=F7-F6"; ws["F8"].fill = _FORMULA_FILL
+    ws["F8"].number_format = _MONEY_FORMAT
+    ws["G8"] = _sheet_ref("최종Bridge_검증", bridge_cells["operating_profit_delta"]); ws["G8"].fill = _FORMULA_FILL
+    ws["G8"].number_format = _MONEY_FORMAT
+    ws["H8"] = "=F8-G8"; ws["H8"].fill = _FORMULA_FILL
+    ws["H8"].number_format = _MONEY_FORMAT
+    ws["I8"] = '=IF(ABS(H8)<=1,"PASS","FAIL")'; ws["I8"].fill = _CHECK_FILL
+
+    effect_header = 11
+    _headers(
+        ws,
+        effect_header,
+        [
+            "Canonical Effect", "P&L Bucket", "Additive", "Parent",
+            "RCA Allocation", "Amount", "Direct Source Scope", "Note",
+        ],
+    )
+    effect_rows = list(rca.get("effect_to_pnl_map") or [])
+    effect_start = effect_header + 1
+    for item in effect_rows:
+        ws.append([
+            item.get("effect_code"),
+            item.get("pnl_bucket"),
+            "YES" if item.get("additive") else "NO",
+            item.get("parent"),
+            "YES" if item.get("rca_allocation") else "NO",
+            item.get("amount"),
+            item.get("direct_source_scope"),
+            item.get("note"),
+        ])
+    effect_end = max(effect_start, ws.max_row)
+
+    bucket_header = ws.max_row + 3
+    _headers(
+        ws,
+        bucket_header,
+        [
+            "Direct P&L Bucket", "Base", "Comparison", "Direct Formula",
+            "Engine Direct", "Assigned Canonical Formula", "Gap",
+            "Validation", "Source Reference",
+        ],
+    )
+    bucket_start = bucket_header + 1
+    buckets = list(rca.get("buckets") or [])
+    expense_buckets = {"MANUFACTURED_COGS", "MERCHANDISE_COGS", "OTHER_COGS", "SG&A"}
+    for item in buckets:
+        row_no = ws.max_row + 1
+        bucket = str(item.get("bucket") or "")
+        ws.cell(row_no, 1, bucket)
+        ws.cell(row_no, 2, item.get("base"))
+        ws.cell(row_no, 3, item.get("comparison"))
+        ws.cell(
+            row_no,
+            4,
+            f"=B{row_no}-C{row_no}" if bucket in expense_buckets else f"=C{row_no}-B{row_no}",
+        ).fill = _FORMULA_FILL
+        ws.cell(row_no, 4).number_format = _MONEY_FORMAT
+        ws.cell(row_no, 5, _number(item.get("direct_effect")))
+        ws.cell(
+            row_no,
+            6,
+            f'=SUMIFS($F${effect_start}:$F${effect_end},$B${effect_start}:$B${effect_end},A{row_no},$E${effect_start}:$E${effect_end},"YES")',
+        ).fill = _FORMULA_FILL
+        ws.cell(row_no, 6).number_format = _MONEY_FORMAT
+        ws.cell(row_no, 7, f"=D{row_no}-F{row_no}").fill = _FORMULA_FILL
+        ws.cell(row_no, 7).number_format = _MONEY_FORMAT
+        ws.cell(row_no, 8, f'=IF(ABS(D{row_no}-E{row_no})<=1,"PASS","FAIL")').fill = _CHECK_FILL
+        ws.cell(row_no, 9, item.get("source_reference"))
+    bucket_end = max(bucket_start, ws.max_row)
+
+    component_header = ws.max_row + 3
+    _headers(
+        ws,
+        component_header,
+        [
+            "Component", "Bucket", "Amount", "Classification", "Business Source",
+            "Canonical Field", "Formula Basis", "Source Reference", "Period",
+            "Scope", "Source Coverage", "Explanation",
+        ],
+    )
+    component_start = component_header + 1
+    for item in rca.get("components") or []:
+        ws.append([
+            item.get("component_id"), item.get("bucket"), round(_number(item.get("amount")), 3),
+            item.get("classification"), item.get("business_source"),
+            item.get("canonical_field"), item.get("formula_basis"),
+            item.get("source_reference"), item.get("period"), item.get("scope"),
+            item.get("source_coverage"), item.get("explanation"),
+        ])
+    component_end = max(component_start, ws.max_row)
+    summary = ws.max_row + 2
+    ws.cell(summary, 2, "Classified Total")
+    ws.cell(summary, 3, f"=SUM(C{component_start}:C{component_end})").fill = _FORMULA_FILL
+    ws.cell(summary, 3).number_format = _MONEY_FORMAT
+    ws.cell(summary + 1, 2, "Existing Residual")
+    ws.cell(summary + 1, 3, _sheet_ref("최종Bridge_검증", bridge_cells["residual"])).fill = _FORMULA_FILL
+    ws.cell(summary + 1, 3).number_format = _MONEY_FORMAT
+    ws.cell(summary + 2, 2, "Difference")
+    ws.cell(summary + 2, 3, f"=C{summary}-C{summary + 1}").fill = _FORMULA_FILL
+    ws.cell(summary + 2, 3).number_format = _MONEY_FORMAT
+    ws.cell(summary + 3, 2, "Σ Residual Components = Existing Residual")
+    ws.cell(summary + 3, 3, f'=IF(ABS(C{summary + 2})<=1,"PASS","FAIL")').fill = _CHECK_FILL
+
+    sga_header = summary + 6
+    _headers(
+        ws,
+        sga_header,
+        [
+            "SG&A Account", "Section", "Class", "Base", "Comparison",
+            "Direct Formula", "Canonical", "Gap Formula", "Source Reference",
+            "Source Status", "Note",
+        ],
+    )
+    for item in rca.get("sga_account_rca") or []:
+        row_no = ws.max_row + 1
+        ws.cell(row_no, 1, item.get("account"))
+        ws.cell(row_no, 2, item.get("section"))
+        ws.cell(row_no, 3, item.get("classification"))
+        ws.cell(row_no, 4, _number(item.get("base")))
+        ws.cell(row_no, 5, _number(item.get("comparison")))
+        ws.cell(row_no, 6, f"=D{row_no}-E{row_no}").fill = _FORMULA_FILL
+        ws.cell(row_no, 6).number_format = _MONEY_FORMAT
+        ws.cell(row_no, 7, _number(item.get("canonical_effect")))
+        ws.cell(row_no, 8, f"=F{row_no}-G{row_no}").fill = _FORMULA_FILL
+        ws.cell(row_no, 8).number_format = _MONEY_FORMAT
+        ws.cell(row_no, 9, item.get("source_reference"))
+        ws.cell(row_no, 10, item.get("validation_status"))
+        ws.cell(row_no, 11, item.get("note"))
+
+    checks_header = ws.max_row + 3
+    _headers(ws, checks_header, ["Validation", "Formula Result", "Policy"])
+    checks = [
+        (
+            "Effect map additive sum",
+            f'=IF(ABS(SUMIFS(F{effect_start}:F{effect_end},C{effect_start}:C{effect_end},"YES")-\'최종Bridge_검증\'!{bridge_cells["effects_total"]})<=1,"PASS","FAIL")',
+            "Subtotal children are non-additive",
+        ),
+        (
+            "Bucket gap sum = Residual",
+            f'=IF(ABS(SUM(G{bucket_start}:G{bucket_end})-\'최종Bridge_검증\'!{bridge_cells["residual"]})<=1,"PASS","FAIL")',
+            "Direct P&L - assigned canonical",
+        ),
+        ("Quantity / Mix 중복 없음", f'=IF(AND(COUNTIF(A{effect_start}:A{effect_end},"sales_quantity")=1,COUNTIF(A{effect_start}:A{effect_end},"sales_mix")=1),"PASS","FAIL")', "각 1회"),
+        ("Freight / Price 중복 없음", f'=IF(AND(COUNTIFS(A{effect_start}:A{effect_end},"sales_price",C{effect_start}:C{effect_end},"YES")=1,COUNTIFS(A{effect_start}:A{effect_end},"freight_adjustment",C{effect_start}:C{effect_end},"NO")=1),"PASS","FAIL")', "Freight는 sales_price의 비가산 child"),
+        ("Tariff 별도 유지", f'=IF(COUNTIFS(A{effect_start}:A{effect_end},"tariff",C{effect_start}:C{effect_end},"YES")=1,"PASS","FAIL")', "Freight와 분리"),
+        ("Raw Material / RM FX 중복 없음", f'=IF(AND(COUNTIFS(A{effect_start}:A{effect_end},"material_total",C{effect_start}:C{effect_end},"YES")=1,COUNTIFS(A{effect_start}:A{effect_end},"nonwoven_jpy",C{effect_start}:C{effect_end},"NO")=1),"PASS","FAIL")', "RM FX는 material_total child"),
+        ("MCM 독립 Effect 아님", f'=IF(AND(COUNTIFS(A{effect_start}:A{effect_end},"mcm_policy",C{effect_start}:C{effect_end},"NO")=1,COUNTIFS(A{effect_start}:A{effect_end},"mcm_policy",E{effect_start}:E{effect_end},"YES")=0),"PASS","FAIL")', "PRESENTATION_ONLY 정책 disclosure; 유상사급 mapping gap과 중복 배정하지 않음"),
+        ("Manufacturing parent / child 중복 없음", f'=IF(AND(COUNTIFS(A{effect_start}:A{effect_end},"manufacturing_realized",C{effect_start}:C{effect_end},"YES")=1,COUNTIFS(D{effect_start}:D{effect_end},"manufacturing_realized",C{effect_start}:C{effect_end},"NO")=3),"PASS","FAIL")', "Volume/Unit/Fixed 비가산"),
+        ("Inventory Timing 1회", f'=IF(COUNTIFS(A{effect_start}:A{effect_end},"inventory_timing",C{effect_start}:C{effect_end},"YES")=1,"PASS","FAIL")', "Manufactured COGS에만 배정"),
+        ("Merchandise / Manufactured 분리", f'=IF(AND(COUNTIF(A{bucket_start}:A{bucket_end},"MERCHANDISE_COGS")=1,COUNTIF(A{bucket_start}:A{bucket_end},"MANUFACTURED_COGS")=1),"PASS","FAIL")', "Forecast Merchandise는 Actual Effect가 아님"),
+        ("Current Cost Basis Gap 신규 Effect 아님", f'=IF(COUNTIFS(A{effect_start}:A{effect_end},"current_cost_basis_gap",C{effect_start}:C{effect_end},"NO")=1,"PASS","FAIL")', "Disclosure only"),
+        ("Residual plug 없음", f'=IF(COUNTIFS(A{effect_start}:A{effect_end},"current_cost_basis_gap",C{effect_start}:C{effect_end},"YES")=0,"PASS","FAIL")', "RCA metadata only; Business Formula 불변"),
+    ]
+    for label, formula, policy in checks:
+        ws.append([label, formula, policy])
+        ws.cell(ws.max_row, 2).fill = _CHECK_FILL
+
+    _finish(ws, freeze="A6")

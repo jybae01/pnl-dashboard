@@ -160,6 +160,50 @@ class EvidenceWorkbookTraceabilityTests(unittest.TestCase):
             "=IF(",
         )
 
+        residual_rca = workbook["Residual_RCA"]
+        self.assertEqual(residual_rca["F6"].value, "=B6-C6-D6-E6")
+        self.assertEqual(residual_rca["F7"].value, "=B7-C7-D7-E7")
+        self.assertEqual(residual_rca["F8"].value, "=F7-F6")
+        self.assertTrue(residual_rca["G8"].value.startswith("='최종Bridge_검증'!"))
+        sales_map_row = _row_with_value(residual_rca, "A", "sales_quantity")
+        self.assertEqual(residual_rca[f"B{sales_map_row}"].value, "SALES_REVENUE")
+        self.assertEqual(residual_rca[f"C{sales_map_row}"].value, "YES")
+        mcm_map_row = _row_with_value(residual_rca, "A", "mcm_policy")
+        self.assertEqual(residual_rca[f"C{mcm_map_row}"].value, "NO")
+        self.assertEqual(residual_rca[f"E{mcm_map_row}"].value, "NO")
+        sales_bucket_row = _row_with_value(residual_rca, "A", "SALES_REVENUE")
+        self.assertEqual(residual_rca[f"D{sales_bucket_row}"].value, f"=C{sales_bucket_row}-B{sales_bucket_row}")
+        self.assertTrue(residual_rca[f"F{sales_bucket_row}"].value.startswith("=SUMIFS("))
+        basis_row = next(
+            row for row in range(1, residual_rca.max_row + 1)
+            if str(residual_rca[f"A{row}"].value or "").startswith(
+                "current_cost_formula_scope_difference"
+            )
+        )
+        self.assertEqual(
+            residual_rca[f"D{basis_row}"].value,
+            "FORMULA_BASIS_DIFFERENCE",
+        )
+        self.assertIn("Data!E321", residual_rca[f"H{basis_row}"].value)
+        unexplained_row = _row_with_value(residual_rca, "D", "UNEXPLAINED")
+        self.assertEqual(residual_rca[f"A{unexplained_row}"].value, "unexplained")
+        classified_row = _row_with_value(residual_rca, "B", "Classified Total")
+        existing_row = _row_with_value(residual_rca, "B", "Existing Residual")
+        waterfall_row = _row_with_value(
+            residual_rca, "B", "Σ Residual Components = Existing Residual"
+        )
+        self.assertTrue(residual_rca[f"C{classified_row}"].value.startswith("=SUM("))
+        self.assertTrue(
+            residual_rca[f"C{existing_row}"].value.startswith("='최종Bridge_검증'!")
+        )
+        self.assertTrue(residual_rca[f"C{waterfall_row}"].value.startswith("=IF("))
+        self.assertTrue(
+            residual_rca[
+                f"B{_row_with_value(residual_rca, 'A', 'MCM 독립 Effect 아님')}"
+            ].value.startswith("=IF(")
+        )
+        self.assertIsNotNone(_row_with_value(residual_rca, "A", "운반비"))
+
         errors = []
         for ws in workbook.worksheets:
             for row in ws.iter_rows():

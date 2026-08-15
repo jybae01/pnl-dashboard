@@ -13,6 +13,7 @@ from .analysis.golden_adapter import AdaptedGoldenScenario, GoldenAnalysisAdapte
 from .analysis.inventory_effects import calculate_inventory_timing_effects
 from .analysis.manufacturing_effects import calculate_manufacturing_effects
 from .analysis.material_effects import calculate_material_effects
+from .analysis.residual_rca import analyze_residual_rca
 from .analysis.sales_effects import calculate_sales_effects
 from .analysis.sga_effects import calculate_sga_effects
 from .sales_comparison import calculate_sales_effect_rows, sales_effect_totals
@@ -52,6 +53,7 @@ class ComparisonResult:
     manufacturing_analysis: dict[str, Any] = field(default_factory=dict)
     inventory_analysis: dict[str, Any] = field(default_factory=dict)
     sales_analysis: dict[str, Any] = field(default_factory=dict)
+    residual_analysis: dict[str, Any] = field(default_factory=dict)
 
 
 class GenericComparisonEngine:
@@ -423,6 +425,59 @@ class GenericComparisonEngine:
             baseline.get("cost_summary", {}),
             target.get("cost_summary", {}),
         )
+        inventory_mapping = (
+            self.full_mapping.get("analysis_adapter", {}).get("inventory_timing", {})
+        )
+        inventory_components = inventory_mapping.get(
+            "current_manufacturing_cost_components", {}
+        )
+        residual_analysis = analyze_residual_rca(
+            baseline_pnl=baseline.get("pnl", {}),
+            comparison_pnl=target.get("pnl", {}),
+            baseline_effect_bases=baseline.get("effect_bases", {}),
+            comparison_effect_bases=target.get("effect_bases", {}),
+            effects=effects,
+            sales_analysis=sales_analysis,
+            material_analysis=material_analysis,
+            inventory_analysis=inventory_analysis,
+            sga_accounts=sga_accounts,
+            source_rows={
+                "pnl_rows": self.mapping.get("pnl_rows", {}),
+                "effect_rows": self.mapping.get("effect_rows", {}),
+                "inventory_rows": {
+                    "finished_goods_cogs": (
+                        inventory_mapping.get("finished_goods_cogs", {}).get("row")
+                    ),
+                    "semi_finished_goods_cogs": (
+                        inventory_mapping.get("semi_finished_goods_cogs", {}).get("row")
+                    ),
+                    "labor": inventory_components.get("labor", {}).get("row"),
+                    "manufacturing_expense": inventory_components.get(
+                        "manufacturing_expense", {}
+                    ).get("row"),
+                    "other_cogs_summary": next(
+                        (
+                            row
+                            for row in inventory_mapping.get("scope", {}).get(
+                                "excluded_non_manufactured_cogs_rows", ()
+                            )
+                            if row not in {
+                                self.mapping.get("effect_rows", {}).get("goods_cogs"),
+                                self.mapping.get("effect_rows", {}).get("obsolescence"),
+                            }
+                        ),
+                        None,
+                    ),
+                },
+            },
+            months=period.months,
+            period_label=period.label,
+            operating_profit_delta=op_delta,
+            effects_total=effects_total,
+            residual=residual,
+            absolute_tolerance=1.0,
+            relative_tolerance=1e-9,
+        )
         return ComparisonResult(
             baseline=asdict(baseline_meta), comparison=asdict(comparison_meta), period=asdict(period),
             pnl=pnl, products=products, sales_groups=sales_groups, production=production, mcm=mcm,
@@ -439,6 +494,7 @@ class GenericComparisonEngine:
             manufacturing_analysis=manufacturing_analysis,
             inventory_analysis=inventory_analysis,
             sales_analysis=sales_analysis,
+            residual_analysis=residual_analysis,
         )
 
     @staticmethod
