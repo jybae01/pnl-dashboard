@@ -154,12 +154,20 @@ def test_build_comparison_audit_workbook(monkeypatch, tmp_path):
                 {"product_group": "LC", "unit_basis": "PCS", "specification": "4-inch", "base_unit_cost": 20, "comparison_unit_cost": 21, "evidence_direction": "DETERIORATION", "direction_aligned": False, "coverage": "LIMITED", "base_source_reference": "Data!E1123 / Data!E1122", "comparison_source_reference": "Data!E1123 / Data!E1122"}
             ]
         },
-        "sga_accounts": [{
-            "row": 1168, "section": "판매비", "account": "운반비",
-            "classification": "transport", "baseline_amount": 10,
-            "comparison_amount": 20, "delta": 10, "profit_effect": 0,
-            "bridge_position": "판매효과",
-        }],
+        "sga_accounts": [
+            {
+                "row": 1168, "section": "판매비", "account": "운반비",
+                "classification": "transport", "baseline_amount": 10,
+                "comparison_amount": 20, "delta": 10, "profit_effect": 0,
+                "bridge_position": "판매효과",
+            },
+            {
+                "row": 1169, "section": "판매비", "account": "관세",
+                "classification": "tariff", "baseline_amount": 30,
+                "comparison_amount": 45, "delta": 15, "profit_effect": 0,
+                "bridge_position": "외부효과/관세",
+            },
+        ],
     }
     result["inventory_analysis"]["current_cost_basis_analysis"] = {
         "current_manufacturing_cost_effect": 40,
@@ -238,12 +246,16 @@ def test_build_comparison_audit_workbook(monkeypatch, tmp_path):
 
     workbook = load_workbook(BytesIO(payload), data_only=False)
     assert "원천셀_추적" in workbook.sheetnames
-    assert workbook["판매효과_검증"]["D5"].value.startswith("=")
-    assert workbook["판매효과_검증"]["Y6"].value == 30_000_000.0
-    assert workbook["판매효과_검증"]["Z6"].value == 40_000_000.0
-    assert workbook["판매효과_검증"]["AA6"].value == "=Y6-Z6"
-    assert workbook["판매효과_검증"]["S6"].value == -10_000_000.0
-    assert workbook["손익_정합성"]["G5"].value == "=E5-D5"
+    assert {
+        "판매효과_근거", "원부재료_근거", "제조경비_근거",
+        "재고원가반영시차_근거", "상품원가검증", "최종Bridge_검증",
+    } <= set(workbook.sheetnames)
+    assert workbook["판매효과_근거"]["O5"].value.startswith("=")
+    assert workbook["판매효과_근거"]["AM5"].value == 30_000_000.0
+    assert workbook["판매효과_근거"]["AN5"].value == 40_000_000.0
+    assert workbook["판매효과_근거"]["AS5"].value == "=AM5-AO5*AQ5"
+    assert workbook["판매효과_근거"]["AU5"].value == "=AS5-AT5"
+    assert workbook["판매효과_근거"]["AV5"].value == -10_000_000.0
     assert workbook["원천셀_추적"].max_row > 4
     trace_cells = {
         cell.value
@@ -261,22 +273,27 @@ def test_build_comparison_audit_workbook(monkeypatch, tmp_path):
         cell.value for row in workbook["README"].iter_rows() for cell in row
     }
     material_text = " ".join(
-        str(cell.value or "") for row in workbook["원부재료_검증"].iter_rows() for cell in row
+        str(cell.value or "") for row in workbook["원부재료_근거"].iter_rows() for cell in row
     )
     assert "MCM SW400" not in material_text
-    assert workbook["원부재료_검증"]["I5"].value == "=SUM(E5:G5)"
-    assert workbook["생산제조경비_검증"]["O5"].value == "=SUM(I5:K5)"
-    assert workbook["생산제조경비_검증"]["D5"].value == 347
-    assert workbook["생산제조경비_검증"]["R5"].value == "labor"
+    assert workbook["원부재료_근거"]["O5"].value.startswith("=IF(")
+    manufacturing_sheet = workbook["제조경비_근거"]
+    manufacturing_detail_row = next(
+        row for row in range(1, manufacturing_sheet.max_row + 1)
+        if manufacturing_sheet[f"B{row}"].value == "수도광열비"
+    )
+    assert manufacturing_sheet[f"AK{manufacturing_detail_row}"].value.startswith("=")
+    assert manufacturing_sheet[f"H{manufacturing_detail_row}"].value == "Data row 347"
+    assert manufacturing_sheet[f"AO{manufacturing_detail_row}"].value == "labor"
     basis_sheet = workbook["당기제조원가_기준차이"]
     assert basis_sheet["C5"].value == "=D25"
-    assert "원부재료_검증" in basis_sheet["C6"].value
+    assert "원부재료_근거" in basis_sheet["C6"].value
     assert basis_sheet["C12"].value == "=C5-C11"
     assert basis_sheet["D16"].value == "=B16-C16"
     assert basis_sheet["E16"].value == "=C6"
     assert basis_sheet["F16"].value == "=D16-E16"
     assert "SUMIF" in basis_sheet["E19"].value
-    inventory_sheet = workbook["재고시차_검증"]
+    inventory_sheet = workbook["재고원가반영시차_근거"]
     assert inventory_sheet["B7"].value == "=B5+B6"
     assert inventory_sheet["C7"].value == "=C5+C6"
     assert inventory_sheet["D10"].value == "=B7-C7"
@@ -289,15 +306,21 @@ def test_build_comparison_audit_workbook(monkeypatch, tmp_path):
         if inventory_sheet[f"A{row}"].value == "2025-11"
     )
     assert "Data!C1269" in inventory_sheet[f"E{first_rolling_row}"].value
-    reconciliation_sheet = workbook["손익_정합성"]
+    reconciliation_sheet = workbook["최종Bridge_검증"]
     inventory_bridge_row = next(
         row
         for row in range(5, reconciliation_sheet.max_row + 1)
-        if reconciliation_sheet[f"B{row}"].value == "inventory_timing"
+        if reconciliation_sheet[f"A{row}"].value == "inventory_timing"
     )
-    assert reconciliation_sheet[f"G{inventory_bridge_row}"].value == "='재고시차_검증'!D12"
-    assert "G7:G8" in reconciliation_sheet["G11"].value
-    assert "F10-(G11+F12)" in reconciliation_sheet["H13"].value
-    assert "F12" in reconciliation_sheet["H14"].value
+    assert reconciliation_sheet[f"C{inventory_bridge_row}"].value == "='재고원가반영시차_근거'!D12"
+    identity_row = next(
+        row for row in range(1, reconciliation_sheet.max_row + 1)
+        if reconciliation_sheet[f"B{row}"].value == "effects_total + residual = OP_delta"
+    )
+    assert reconciliation_sheet[f"C{identity_row}"].value.startswith("=")
+    assert reconciliation_sheet[f"F{identity_row}"].value.startswith("=IF(")
     assert workbook["README"]["B16"].value == "CHECK"
     assert workbook["판관비_검증"]["I5"].value == "판매효과"
+    assert workbook["판관비_검증"]["I6"].value == "외부효과/관세"
+    assert 'OR(I6="판매효과",I6="외부효과/관세")' in workbook["판관비_검증"]["G6"].value
+    assert workbook["판관비_검증"]["H6"].value == 0.0

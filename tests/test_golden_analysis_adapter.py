@@ -182,6 +182,15 @@ def test_adapter_calculates_material_three_part_identity_from_golden_cells(tmp_p
         + sw["materials_ex_nonwoven"]
     )
     assert result["jpy_fx_unit"] == "KRW/JPY"
+    sw_trace = next(
+        row for row in result["trace_rows"] if row["product_group"] == "SW"
+    )
+    assert "Data!E211" in sw_trace["base_source_reference"]
+    assert "Data!E1593" in sw_trace["comparison_source_reference"]
+    nonwoven_trace = result["nonwoven_trace_rows"][0]
+    assert "Data!E206" in nonwoven_trace["base_source_reference"]
+    assert "Data!E9" in nonwoven_trace["comparison_source_reference"]
+    assert nonwoven_trace["canonical_fields"].endswith("jpy_fx_krw_per_jpy")
     assert "mcm" not in str(result).lower()
     assert "yield" not in str(result).lower()
 
@@ -243,6 +252,14 @@ def test_adapter_calculates_all_manufacturing_accounts_with_baseline_ratios(tmp_
     assert utilities["inventory_realization_rate"] == 1
     assert utilities["final_profit_effect"] == 100
     assert analysis["inventory_realization_rate"] == 1
+    utilities_trace = next(
+        row for row in analysis["trace_rows"] if row["account"] == "수도광열비"
+    )
+    assert utilities_trace["base_amount_source"] == "Data!E297"
+    assert utilities_trace["front_ratio_source"] == "Data!E347"
+    assert utilities_trace["base_front_allocated"] == 400
+    assert utilities_trace["comparison_front_allocated"] == 360
+    assert utilities_trace["validation_status"] == "SOURCE_MAPPED"
     assert all("기타 제조경비" not in row["account"] for row in accounts)
 
 

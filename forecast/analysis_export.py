@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 from dataclasses import asdict, is_dataclass
 from datetime import datetime
 from io import BytesIO
@@ -12,6 +13,14 @@ from openpyxl.styles import Alignment, Font, PatternFill
 from openpyxl.utils import get_column_letter
 
 from .workbook import GoldenWorkbook
+from .evidence_traceability import (
+    write_final_bridge,
+    write_manufacturing_evidence,
+    write_material_evidence,
+    write_merchandise_link,
+    write_sales_evidence,
+    write_sga_evidence,
+)
 
 
 MIME_XLSX = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
@@ -86,6 +95,39 @@ def _bridge_identity_passes(result: dict[str, Any]) -> bool:
     bridge_total = _number(result.get("effects_total")) + _number(result.get("residual"))
     tolerance = max(1.0, abs(operating_profit_delta) * 1e-9)
     return abs(bridge_total - operating_profit_delta) <= tolerance
+
+
+def _validate_formula_integrity(workbook: Workbook) -> None:
+    """Fail generation on explicit formula errors or broken sheet references."""
+    error_tokens = (
+        "#REF!", "#DIV/0!", "#VALUE!", "#NAME?", "#N/A", "#NUM!", "#NULL!",
+        "#SPILL!", "#CALC!",
+    )
+    broken: list[str] = []
+    for ws in workbook.worksheets:
+        for row in ws.iter_rows():
+            for cell in row:
+                value = cell.value
+                if not (isinstance(value, str) and value.startswith("=")):
+                    continue
+                upper = value.upper()
+                if any(token in upper for token in error_tokens):
+                    broken.append(f"{ws.title}!{cell.coordinate}: {value}")
+                for sheet_name in re.findall(r"'([^']+)'!", value):
+                    if sheet_name not in workbook.sheetnames:
+                        broken.append(
+                            f"{ws.title}!{cell.coordinate}: missing sheet {sheet_name}"
+                        )
+    for defined_name in workbook.defined_names.values():
+        try:
+            destinations = list(defined_name.destinations)
+        except (AttributeError, TypeError, ValueError):
+            continue
+        for sheet_name, _coordinate in destinations:
+            if sheet_name not in workbook.sheetnames:
+                broken.append(f"defined name {defined_name.name}: missing sheet {sheet_name}")
+    if broken:
+        raise ValueError("Evidence Workbook formula integrity failure: " + "; ".join(broken))
 
 
 def _write_readme(ws, result: dict[str, Any], baseline_fx: float, comparison_fx: float) -> None:
@@ -518,7 +560,11 @@ def _write_inventory_timing(ws, result: dict[str, Any]) -> None:
     ws.freeze_panes = "A5"
 
 
-def _write_current_cost_basis(ws, result: dict[str, Any]) -> None:
+def _write_current_cost_basis(
+    ws,
+    result: dict[str, Any],
+    evidence_cells: dict[str, dict[str, Any]] | None = None,
+) -> None:
     inventory = result.get("inventory_analysis") or {}
     basis = inventory.get("current_cost_basis_analysis") or {}
     _write_title(
@@ -531,23 +577,39 @@ def _write_current_cost_basis(ws, result: dict[str, Any]) -> None:
         4,
         ["Metric", "Engine Value", "Excel Formula", "Validation", "Formula Basis", "Status", "Source Reference"],
     )
-    material_count = len((result.get("material_analysis") or {}).get("product_groups") or [])
-    material_last = 4 + material_count
-    manufacturing_count = len(result.get("manufacturing_accounts") or [])
-    manufacturing_last = 4 + manufacturing_count
-    material_formula = f"=SUM('원부재료_검증'!H5:H{material_last})" if material_count else "=0"
-    activity_formula = f"=SUM('생산제조경비_검증'!I5:I{manufacturing_last})" if manufacturing_count else "=0"
-    unit_formula = f"=SUM('생산제조경비_검증'!J5:J{manufacturing_last})" if manufacturing_count else "=0"
-    fixed_formula = f"=SUM('생산제조경비_검증'!K5:K{manufacturing_last})" if manufacturing_count else "=0"
+    evidence_cells = evidence_cells or {}
+    material_cells = evidence_cells.get("material") or {}
+    manufacturing_cells = evidence_cells.get("manufacturing") or {}
+    material_formula = (
+        f"='원부재료_근거'!{material_cells['material_total']}"
+        if material_cells.get("material_total") else "=0"
+    )
+    activity_formula = (
+        f"='제조경비_근거'!{manufacturing_cells['manufacturing_activity']}"
+        if manufacturing_cells.get("manufacturing_activity") else "=0"
+    )
+    unit_formula = (
+        f"='제조경비_근거'!{manufacturing_cells['manufacturing_unit']}"
+        if manufacturing_cells.get("manufacturing_unit") else "=0"
+    )
+    fixed_formula = (
+        f"='제조경비_근거'!{manufacturing_cells['manufacturing_fixed']}"
+        if manufacturing_cells.get("manufacturing_fixed") else "=0"
+    )
     component_rows = list(basis.get("component_details") or [])
     current_total_row = 16 + len(component_rows) + 4
+    current_cost_sources = ", ".join(
+        str(item.get("source_reference") or "")
+        for item in inventory.get("source_details") or []
+        if item.get("canonical_field") == "current_manufacturing_cost"
+    ) or "UNMAPPED"
     summary_rows = [
-        ("Current Manufacturing Cost Effect", basis.get("current_manufacturing_cost_effect"), f"=D{current_total_row}", "Base row 325 - Comparison row 325", basis.get("status"), "Data!K:M325"),
-        ("Existing Raw Material Effect", basis.get("raw_material_effect"), material_formula, "Canonical unit-cost driver × Comparison sales/applicable basis", "UNCHANGED_FORMULA", "원부재료_검증"),
-        ("Manufacturing Volume Effect", basis.get("manufacturing_activity_effect"), activity_formula, "Existing Activity formula", "UNCHANGED_FORMULA", "생산제조경비_검증"),
-        ("Manufacturing Unit Cost Effect", basis.get("manufacturing_unit_effect"), unit_formula, "Existing Unit Cost formula", "UNCHANGED_FORMULA", "생산제조경비_검증"),
-        ("Manufacturing Fixed Effect", basis.get("manufacturing_fixed_effect"), fixed_formula, "Existing Fixed formula", "UNCHANGED_FORMULA", "생산제조경비_검증"),
-        ("Existing Manufacturing Effect", basis.get("manufacturing_effect"), "=SUM(C7:C9)", "Activity + Unit Cost + Fixed", "PASS_DIRECT_TIE", "생산제조경비_검증"),
+        ("Current Manufacturing Cost Effect", basis.get("current_manufacturing_cost_effect"), f"=D{current_total_row}", "Base Current Manufacturing Cost - Comparison Current Manufacturing Cost", basis.get("status"), current_cost_sources),
+        ("Existing Raw Material Effect", basis.get("raw_material_effect"), material_formula, "Canonical unit-cost driver × Comparison sales/applicable basis", "UNCHANGED_FORMULA", "원부재료_근거"),
+        ("Manufacturing Volume Effect", basis.get("manufacturing_activity_effect"), activity_formula, "Existing Activity formula", "UNCHANGED_FORMULA", "제조경비_근거"),
+        ("Manufacturing Unit Cost Effect", basis.get("manufacturing_unit_effect"), unit_formula, "Existing Unit Cost formula", "UNCHANGED_FORMULA", "제조경비_근거"),
+        ("Manufacturing Fixed Effect", basis.get("manufacturing_fixed_effect"), fixed_formula, "Existing Fixed formula", "UNCHANGED_FORMULA", "제조경비_근거"),
+        ("Existing Manufacturing Effect", basis.get("manufacturing_effect"), "=SUM(C7:C9)", "Activity + Unit Cost + Fixed", "PASS_DIRECT_TIE", "제조경비_근거"),
         ("Existing Current Cost Driver subtotal", basis.get("existing_current_cost_driver_subtotal"), "=C6+C10", "Raw Material + Manufacturing", basis.get("status"), "Canonical drivers"),
         ("Basis Gap", basis.get("basis_gap"), "=C5-C11", "Current Manufacturing Cost Effect - Existing Driver subtotal", basis.get("status"), "No residual/plug backsolve"),
     ]
@@ -575,10 +637,15 @@ def _write_current_cost_basis(ws, result: dict[str, Any]) -> None:
             existing_formula = "=C6"
         elif code in {"raw_material_tariff_refund", "paid_supply"}:
             existing_formula = "=0"
-        elif manufacturing_count:
+        elif manufacturing_cells.get("detail_range"):
+            manufacturing_start, manufacturing_end = manufacturing_cells["detail_range"]
+            component_column = manufacturing_cells.get("component_column", "AO")
+            subtotal_column = manufacturing_cells.get("subtotal_column", "AK")
             existing_formula = (
-                f'=SUMIF(\'생산제조경비_검증\'!$R$5:$R${manufacturing_last},'
-                f'"{code}",\'생산제조경비_검증\'!$L$5:$L${manufacturing_last})'
+                f'=SUMIF(\'제조경비_근거\'!${component_column}${manufacturing_start}:'
+                f'${component_column}${manufacturing_end},"{code}",'
+                f'\'제조경비_근거\'!${subtotal_column}${manufacturing_start}:'
+                f'${subtotal_column}${manufacturing_end})'
             )
         else:
             existing_formula = "=0"
@@ -692,7 +759,8 @@ def _write_formula_catalog(ws) -> None:
     _write_headers(ws, header_row, headers)
     rows = [
         ("공통", "증감", "비교값 - 기준값", "단순 증감", "forecast/comparison.py"),
-        ("판매", "수량효과", "(비교수량-기준수량)×기준단가×기준GP율", "개선 + / 악화 -", "forecast/sales_comparison.py"),
+        ("판매", "수량효과", "Pool별 (Comparison 총수량-Base 총수량)×Σ(Base Mix×Base GP/unit)", "PCS/LENGTH 분리; 개선 + / 악화 -", "forecast/analysis/sales_effects.py"),
+        ("판매", "Mix효과", "Pool별 Comparison 총수량×Σ((Comparison Mix-Base Mix)×Base GP/unit)", "제품군 내부 SKU 선합산", "forecast/analysis/sales_effects.py"),
         ("판매", "순수 단가효과", "비교수량×(비교외화단가-기준외화단가)×(기준FX+비교FX)÷2", "환율효과와 합계가 원화 단가효과에 일치", "forecast/sales_comparison.py"),
         ("판매", "매출환율효과", "비교수량×(비교FX-기준FX)×(기준외화단가+비교외화단가)÷2", "KRW/USD", "forecast/sales_comparison.py"),
         ("판매", "고객배송 운반비 효과", "기준 관세제외 운반비-비교 관세제외 운반비", "판매단가 효과에 1회 포함; 판관비 Bridge 0", "forecast/analysis/sales_effects.py"),
@@ -897,14 +965,59 @@ def build_comparison_audit_workbook(
     workbook.calculation.calcMode = "auto"
 
     _write_readme(workbook.create_sheet("README"), result, baseline_fx, comparison_fx)
-    _write_pnl_and_reconciliation(workbook.create_sheet("손익_정합성"), result)
-    _write_sales(workbook.create_sheet("판매효과_검증"), sales_rows, sales_totals, baseline_fx, comparison_fx)
-
-    _write_material_detail(workbook.create_sheet("원부재료_검증"), result)
-    _write_manufacturing_detail(workbook.create_sheet("생산제조경비_검증"), result)
-    _write_inventory_timing(workbook.create_sheet("재고시차_검증"), result)
-    _write_current_cost_basis(workbook.create_sheet("당기제조원가_기준차이"), result)
-    _write_sga_detail(workbook.create_sheet("판관비_검증"), result)
+    sales_cells = write_sales_evidence(
+        workbook.create_sheet("판매효과_근거"),
+        result,
+        sales_rows,
+        sales_totals,
+        baseline_fx,
+        comparison_fx,
+    )
+    material_cells = write_material_evidence(
+        workbook.create_sheet("원부재료_근거"), result
+    )
+    manufacturing_cells = write_manufacturing_evidence(
+        workbook.create_sheet("제조경비_근거"), result
+    )
+    _write_inventory_timing(
+        workbook.create_sheet("재고원가반영시차_근거"), result
+    )
+    merchandise_cells = write_merchandise_link(
+        workbook.create_sheet("상품원가검증")
+    )
+    sga_cells = write_sga_evidence(workbook.create_sheet("판관비_검증"), result)
+    evidence_cells = {
+        "sales": sales_cells,
+        "material": material_cells,
+        "manufacturing": manufacturing_cells,
+        "sga": sga_cells,
+    }
+    _write_current_cost_basis(
+        workbook.create_sheet("당기제조원가_기준차이"), result, evidence_cells
+    )
+    bridge_cells: dict[str, tuple[str, str]] = {
+        code: ("판매효과_근거", cell)
+        for code, cell in sales_cells.items()
+        if code in {"sales_quantity", "sales_mix", "sales_price", "sales_fx", "tariff"}
+    }
+    if material_cells.get("material_total"):
+        bridge_cells["material_total"] = (
+            "원부재료_근거", str(material_cells["material_total"])
+        )
+    if manufacturing_cells.get("manufacturing_realized"):
+        bridge_cells["manufacturing_realized"] = (
+            "제조경비_근거", str(manufacturing_cells["manufacturing_realized"])
+        )
+    bridge_cells["inventory_timing"] = ("재고원가반영시차_근거", "D12")
+    for code in ("sga_variable", "sga_fixed"):
+        if sga_cells.get(code):
+            bridge_cells[code] = ("판관비_검증", sga_cells[code])
+    write_final_bridge(
+        workbook.create_sheet("최종Bridge_검증"),
+        result,
+        bridge_cells,
+        ("상품원가검증", merchandise_cells["scope_validation"]),
+    )
     _write_formula_catalog(workbook.create_sheet("수식_정의"))
     months = tuple(int(month) for month in result.get("period", {}).get("months", ()))
     source_sheet = workbook.create_sheet("원천셀_추적")
@@ -914,19 +1027,21 @@ def build_comparison_audit_workbook(
         _write_stored_source_provenance(source_sheet, result)
 
     required = {
-        "README", "손익_정합성", "판매효과_검증", "원부재료_검증",
-        "생산제조경비_검증", "재고시차_검증", "당기제조원가_기준차이",
-        "판관비_검증", "수식_정의", "원천셀_추적",
+        "README", "판매효과_근거", "원부재료_근거", "제조경비_근거",
+        "재고원가반영시차_근거", "상품원가검증", "최종Bridge_검증",
+        "당기제조원가_기준차이", "판관비_검증", "수식_정의", "원천셀_추적",
     }
     missing = required.difference(workbook.sheetnames)
     if missing:
         raise ValueError(f"검증 엑셀 필수 시트 누락: {sorted(missing)}")
     if not any(
         isinstance(cell.value, str) and cell.value.startswith("=")
-        for row in workbook["판매효과_검증"].iter_rows()
+        for row in workbook["판매효과_근거"].iter_rows()
         for cell in row
     ):
         raise ValueError("판매효과 검증 수식이 생성되지 않았습니다.")
+
+    _validate_formula_integrity(workbook)
 
     output = BytesIO()
     workbook.save(output)

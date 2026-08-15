@@ -247,6 +247,13 @@ class GenericComparisonEngine:
                     + calculated_analysis_sales.sales_fx
                 ),
             }
+            sales_analysis["trace_rows"] = list(calculated_analysis_sales.details)
+            sales_analysis["pool_trace_rows"] = list(
+                calculated_analysis_sales.pool_details
+            )
+            sales_analysis["freight_trace_rows"] = list(
+                calculated_analysis_sales.freight_details
+            )
             effects = [
                 {
                     "code": "sales_quantity",
@@ -545,6 +552,14 @@ class GenericComparisonEngine:
                 "delta": delta,
                 "profit_effect": profit_effect,
                 "bridge_position": bridge_position,
+                "source_validation_status": (
+                    "SOURCE_MAPPED"
+                    if all(
+                        item.get("source_validation_status") == "SOURCE_MAPPED"
+                        for item in (left, right) if item
+                    )
+                    else "UNVALIDATED"
+                ),
             })
         # Web-entered tariff is outside the Golden Model account range, but is
         # still a deterministic comparison input and must be visible exactly once.
@@ -560,6 +575,7 @@ class GenericComparisonEngine:
             "delta": comparison_tariff - base_tariff,
             "profit_effect": base_tariff - comparison_tariff,
             "bridge_position": "관세효과",
+            "source_validation_status": "DIRECT_INPUT",
         })
         return output
 
@@ -659,6 +675,7 @@ class GenericComparisonEngine:
                     "account": row["account"],
                     "section": row["section"],
                     "amount": total(row_number),
+                    "source_validation_status": "SOURCE_MAPPED",
                 })
             return output
 

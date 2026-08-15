@@ -211,6 +211,30 @@ class GoldenAnalysisAdapter:
     def _source_reference(column: str, rows: list[int]) -> str:
         return "+".join(f"Data!{column}{int(row)}" for row in rows)
 
+    @staticmethod
+    def _material_source_rows(spec: dict[str, Any]) -> list[int]:
+        """Return every mapped Golden row that contributes to material cost.
+
+        The returned addresses are evidence metadata only.  The engine still
+        consumes canonical values and never depends on a Golden row number.
+        """
+        rows: list[int] = [int(row) for row in spec.get("direct_material_rows", ())]
+        for term in spec.get("front_material_terms", ()):
+            for key in (
+                "source_production_row", "source_material_amount_row",
+                "source_allocation_ratio_row", "adjustment_row",
+                "production_row", "input_length_row",
+            ):
+                if term.get(key):
+                    rows.append(int(term[key]))
+            rows.extend(int(row) for row in term.get("source_pool_amount_rows", ()))
+        for term in spec.get("back_material_terms", ()):
+            if term.get("allocation_ratio_row"):
+                rows.append(int(term["allocation_ratio_row"]))
+            rows.extend(int(row) for row in term.get("pool_amount_rows", ()))
+        rows.extend(int(row) for row in spec.get("mcm_material_rows", ()))
+        return sorted(set(rows))
+
     def _inventory_source_validation(
         self,
         workbook: Any,
@@ -366,6 +390,35 @@ class GoldenAnalysisAdapter:
                 nonwoven_sales_input_length=nonwoven_input,
                 sales_fx=float(sales_fx) if sales_fx else 1.0,
                 jpy_fx_krw_per_jpy=jpy,
+                sales_quantity_source=f"Data!{column}{spec['sales_quantity_row']}",
+                sales_amount_source=(
+                    f"Data!{column}{sales_spec['amount_row']}" if sales_spec else "UNMAPPED"
+                ),
+                product_cogs_source=(
+                    f"Data!{column}{sales_spec['cogs_row']}" if sales_spec else "UNMAPPED"
+                ),
+                production_source=self._source_reference(
+                    column, [int(row) for row in spec.get("production_quantity_rows", ())]
+                ),
+                raw_material_cost_source=self._source_reference(
+                    column, self._material_source_rows(spec)
+                ),
+                nonwoven_cost_source=(
+                    f"Data!{column}{front_process['nonwoven_amount_row']}"
+                    if group == "FS" else ""
+                ),
+                nonwoven_output_source=(
+                    f"Data!{column}{front_process['nonwoven_quantity_row']}"
+                    if group == "FS" else ""
+                ),
+                nonwoven_input_source=" + ".join(
+                    f"Data!{column}{int(term['sales_quantity_row'])}*"
+                    f"Data!{column}{int(term['input_length_row'])}"
+                    for term in spec.get("nonwoven_input_terms", ())
+                ),
+                sales_fx_source="Analysis request.sales_fx",
+                jpy_fx_source=f"Data!{column}{material['jpy_fx_row']}",
+                source_validation_status="SOURCE_MAPPED",
             ))
             if mcm_quantity:
                 records.append(ProductRecord(
@@ -382,6 +435,12 @@ class GoldenAnalysisAdapter:
                     mcm_qty=mcm_quantity,
                     mcm_product_group=group,
                     outsourcing_eligible_flag=False,
+                    production_source=self._source_reference(
+                        column, [int(row) for row in spec.get("mcm_rows", ())]
+                    ),
+                    sales_fx_source="Analysis request.sales_fx",
+                    jpy_fx_source=f"Data!{column}{material['jpy_fx_row']}",
+                    source_validation_status="SOURCE_MAPPED",
                 ))
         # The material mapping covers SW/BW/LC/FS. Keep any remaining
         # configured sales group (currently 신사업) in the common schema as a
@@ -404,6 +463,12 @@ class GoldenAnalysisAdapter:
                 sales_fx=float(sales_fx) if sales_fx else 1.0,
                 jpy_fx_krw_per_jpy=jpy,
                 material_applicable_flag=False,
+                sales_quantity_source=f"Data!{column}{spec['quantity_row']}",
+                sales_amount_source=f"Data!{column}{spec['amount_row']}",
+                product_cogs_source=f"Data!{column}{spec['cogs_row']}",
+                sales_fx_source="Analysis request.sales_fx",
+                jpy_fx_source=f"Data!{column}{material['jpy_fx_row']}",
+                source_validation_status="SOURCE_MAPPED",
             ))
         return records
 
@@ -475,6 +540,12 @@ class GoldenAnalysisAdapter:
                     current_cost_component=str(
                         source.get("current_cost_component") or ""
                     ),
+                    business_source=account,
+                    amount_source=f"Data!{column}{row}",
+                    front_ratio_source=(
+                        f"Data!{column}{int(ratio_rows[source['ratio_key']])}"
+                    ),
+                    source_validation_status="SOURCE_MAPPED",
                 ))
             current_source = inventory_mapping.get("current_manufacturing_cost", {})
             finished_source = inventory_mapping.get("finished_goods_cogs", {})
@@ -498,6 +569,21 @@ class GoldenAnalysisAdapter:
                 manufacturing_input_cost=manufacturing_input,
                 tariff_input=self._monthly_tariff(meta, month),
                 tariff_in_transport=bool(getattr(meta, "tariff_in_workbook", False)),
+                front_activity_source=self._source_reference(
+                    column, [int(row) for row in manufacturing["front_activity_rows"]]
+                ),
+                back_activity_source=self._source_reference(
+                    column, [int(row) for row in manufacturing["back_activity_rows"]]
+                ),
+                manufacturing_input_cost_source=(
+                    f"Data!{column}{current_row}" if current_row else "UNMAPPED"
+                ),
+                tariff_input_source=(
+                    "Golden workbook transport account (tariff included)"
+                    if getattr(meta, "tariff_in_workbook", False)
+                    else "Scenario metadata.tariff_adjustment_monthly"
+                ),
+                source_validation_status="SOURCE_MAPPED",
             ))
             inventory_costs.append(InventoryCostRecord(
                 year_month=year_month,
@@ -592,6 +678,9 @@ class GoldenAnalysisAdapter:
                     account=account_for_analysis,
                     amount=self._number(workbook.value(f"{column}{source['row']}")),
                     category="sga",
+                    business_source=f"{section} / {account}",
+                    amount_source=f"Data!{column}{int(source['row'])}",
+                    source_validation_status="SOURCE_MAPPED",
                 ))
             external_tariff = (
                 0.0
@@ -671,6 +760,8 @@ class GoldenAnalysisAdapter:
             "calculation_status": "CHECK" if result.issues else "완료",
             "issues": list(result.issues),
             "jpy_fx_unit": "KRW/JPY",
+            "trace_rows": list(result.details),
+            "nonwoven_trace_rows": list(result.nonwoven_details),
         }
 
     def manufacturing_accounts(
@@ -746,5 +837,8 @@ class GoldenAnalysisAdapter:
             ),
             "issues": list(calculated.issues),
             "allocation_policy": "기준 모형 345~347행 전공정 가공비 투입비율을 기준·비교 양쪽에 동일 적용",
+            "trace_rows": list(calculated.details),
+            "production_reconciliation": list(calculated.production_reconciliation),
+            "realization_details": list(calculated.realization_details),
         }
         return output, analysis

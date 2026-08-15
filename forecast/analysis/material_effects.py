@@ -21,6 +21,8 @@ class MaterialEffects:
     by_product_group_details: dict[str, dict[str, float]] = field(default_factory=dict)
     mcm_by_product_group: dict[str, float] = field(default_factory=dict)
     issues: list[str] = field(default_factory=list)
+    details: list[dict[str, float | str]] = field(default_factory=list)
+    nonwoven_details: list[dict[str, float | str]] = field(default_factory=list)
 
     @property
     def detail_reconciliation_difference(self) -> float:
@@ -90,6 +92,42 @@ def calculate_material_effects(base: AnalysisScenario, comparison: AnalysisScena
             if invalid_denominator:
                 detail["calculation_errors"] += 1.0
                 result.issues.append(f"{month} {group}: 원부재료 생산출고 분모가 0임")
+            result.details.append({
+                "period": month,
+                "product_group": group,
+                "unit": "m" if (right or left) and (right or left)[0].unit_basis.upper() == "LENGTH" else "PCS",
+                "base_cost": base_cost,
+                "comparison_cost": comp_cost,
+                "base_output": base_output,
+                "comparison_output": comp_output,
+                "comparison_sales": comparison_sales,
+                "base_unit_cost": base_unit,
+                "comparison_unit_cost": comp_unit,
+                "total_effect": effect,
+                "business_source": "제품군 원부재료 생산출고 금액·생산량·판매 적용량",
+                "canonical_fields": "raw_material_cost / production_basis / sales_basis",
+                "base_source_reference": " | ".join(sorted({
+                    value for row in left for value in (
+                        row.raw_material_cost_source, row.production_source,
+                        row.sales_quantity_source,
+                    ) if value
+                })),
+                "comparison_source_reference": " | ".join(sorted({
+                    value for row in right for value in (
+                        row.raw_material_cost_source, row.production_source,
+                        row.sales_quantity_source,
+                    ) if value
+                })),
+                "validation_status": "CHECK_DENOMINATOR" if invalid_denominator else "PASS",
+                "source_validation_status": (
+                    "SOURCE_MAPPED"
+                    if all(
+                        row.source_validation_status in {"PASS", "SOURCE_MAPPED"}
+                        for row in (*left, *right)
+                    )
+                    else "UNVALIDATED"
+                ),
+            })
 
         left = [row for row in base.products if row.year_month == month]
         right = [row for row in comparison.products if row.year_month == month]
@@ -148,6 +186,44 @@ def calculate_material_effects(base: AnalysisScenario, comparison: AnalysisScena
                     })
                     detail["nonwoven_jpy"] += group_jpy
                     detail["nonwoven_price_ex_fx"] += group_total - group_jpy
+                result.nonwoven_details.append({
+                    "period": month,
+                    "base_cost": base_nonwoven_cost,
+                    "comparison_cost": comparison_nonwoven_cost,
+                    "base_output": base_nonwoven_output,
+                    "comparison_output": comparison_nonwoven_output,
+                    "comparison_input_length": comparison_input_length,
+                    "base_jpy_fx": base_jpy,
+                    "comparison_jpy_fx": comp_jpy,
+                    "base_unit_cost": base_nonwoven_unit,
+                    "comparison_unit_cost": comparison_nonwoven_unit,
+                    "base_jpy_unit": base_jpy_unit,
+                    "nonwoven_total": nonwoven_total,
+                    "nonwoven_jpy": jpy_effect,
+                    "nonwoven_price_ex_fx": nonwoven_total - jpy_effect,
+                    "business_source": "전공정 부직포 생산출고 / KRW/JPY / 판매투입길이",
+                    "canonical_fields": "nonwoven_cost / nonwoven_output_length / nonwoven_sales_input_length / jpy_fx_krw_per_jpy",
+                    "base_source_reference": " | ".join(sorted({
+                        value for row in left for value in (
+                            row.nonwoven_cost_source, row.nonwoven_output_source, row.jpy_fx_source
+                        ) if value
+                    })),
+                    "comparison_source_reference": " | ".join(sorted({
+                        value for row in right for value in (
+                            row.nonwoven_cost_source, row.nonwoven_output_source,
+                            row.nonwoven_input_source, row.jpy_fx_source
+                        ) if value
+                    })),
+                    "validation_status": "PASS",
+                    "source_validation_status": (
+                        "SOURCE_MAPPED"
+                        if all(
+                            row.source_validation_status in {"PASS", "SOURCE_MAPPED"}
+                            for row in (*left, *right)
+                        )
+                        else "UNVALIDATED"
+                    ),
+                })
             else:
                 result.issues.append(f"{month}: 부직포 엔화 효과 산출용 생산길이 또는 기준 KRW/JPY가 0임")
 

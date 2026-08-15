@@ -47,6 +47,17 @@ class ComparisonAnalysisBridgeTests(unittest.TestCase):
             result.operating_profit_delta,
         )
         self.assertIn("mix_effect", result.sales_analysis["totals"])
+        self.assertTrue(result.sales_analysis["trace_rows"])
+        self.assertTrue(result.sales_analysis["pool_trace_rows"])
+        self.assertTrue(result.sales_analysis["freight_trace_rows"])
+        self.assertTrue(result.material_analysis["trace_rows"])
+        self.assertTrue(result.material_analysis["nonwoven_trace_rows"])
+        self.assertTrue(result.manufacturing_analysis["trace_rows"])
+        self.assertTrue(
+            {row["pool"] for row in result.sales_analysis["pool_trace_rows"]}
+            <= {"PCS", "LENGTH"}
+        )
+        self.assertTrue(all(row["unit"] in {"PCS", "m"} for row in result.sales_analysis["pool_trace_rows"]))
         self.assertNotIn(
             "신사업",
             [row["product_group"] for row in result.material_analysis["product_groups"]],

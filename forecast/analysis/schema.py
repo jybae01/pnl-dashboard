@@ -41,6 +41,17 @@ class ProductRecord:
     mcm_product_group: str = ""
     outsourcing_eligible_flag: bool = True
     material_applicable_flag: bool = True
+    sales_quantity_source: str = ""
+    sales_amount_source: str = ""
+    product_cogs_source: str = ""
+    production_source: str = ""
+    raw_material_cost_source: str = ""
+    nonwoven_cost_source: str = ""
+    nonwoven_output_source: str = ""
+    nonwoven_input_source: str = ""
+    sales_fx_source: str = "Analysis request"
+    jpy_fx_source: str = ""
+    source_validation_status: str = "UNVALIDATED"
 
     @property
     def sales_basis(self) -> float:
@@ -82,6 +93,10 @@ class ExpenseRecord:
     front_ratio: float = 0.0
     back_ratio: float = 0.0
     current_cost_component: str = ""
+    business_source: str = ""
+    amount_source: str = ""
+    front_ratio_source: str = ""
+    source_validation_status: str = "UNVALIDATED"
 
 
 @dataclass(frozen=True)
@@ -97,6 +112,11 @@ class ActivityRecord:
     labor_front_ratio: float | None = None
     outsourcing_front_ratio: float | None = None
     other_expense_front_ratio: float | None = None
+    front_activity_source: str = ""
+    back_activity_source: str = ""
+    manufacturing_input_cost_source: str = ""
+    tariff_input_source: str = "Scenario metadata"
+    source_validation_status: str = "UNVALIDATED"
 
 
 @dataclass(frozen=True)

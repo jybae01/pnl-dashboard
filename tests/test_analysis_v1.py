@@ -66,6 +66,13 @@ class SalesEffectsTest(unittest.TestCase):
         self.assertEqual(result.transport_quantity, 0.0)
         self.assertAlmostEqual(result.transport_unit, result.transport_effect)
         self.assertAlmostEqual(result.price, result.displayed_price + result.transport_effect)
+        self.assertEqual({row["product_group"] for row in result.details}, {"SW", "BW"})
+        pool = result.pool_details[0]
+        self.assertEqual(pool["pool"], "PCS")
+        self.assertAlmostEqual(pool["quantity_effect"], result.quantity)
+        self.assertAlmostEqual(pool["mix_effect"], result.mix)
+        self.assertEqual(result.freight_details[0]["freight_effect"], -40.0)
+        self.assertEqual(result.freight_details[0]["tariff_effect"], -10.0)
 
     def test_exact_symmetric_price_fx_split(self):
         config = AnalysisConfig.load(CONFIG)
@@ -162,6 +169,11 @@ class SalesEffectsTest(unittest.TestCase):
         self.assertEqual(result.transport_effect, 0.0)
         self.assertEqual(result.transport_quantity, 0.0)
         self.assertEqual(result.transport_unit, 0.0)
+        self.assertEqual({row["pool"] for row in result.pool_details}, {"PCS", "LENGTH"})
+        self.assertEqual(
+            sum(float(row["quantity_effect"]) for row in result.pool_details),
+            result.quantity,
+        )
 
     def test_customer_transport_delta_is_once_in_sales_price(self):
         config = AnalysisConfig.load(CONFIG)

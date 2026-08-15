@@ -173,6 +173,29 @@ def calculate_manufacturing_effects(
                 "delta": amount1 - amount0,
                 "front_ratio_base": fr0,
                 "front_ratio_comparison": fr1,
+                "base_amount_source": lrow.amount_source if lrow else "",
+                "comparison_amount_source": rrow.amount_source if rrow else "",
+                "front_ratio_source": (
+                    lrow.front_ratio_source if lrow else (
+                        rrow.front_ratio_source if rrow else ""
+                    )
+                ),
+                "base_front_activity_source": raw_a0.front_activity_source,
+                "comparison_front_activity_source": raw_a1.front_activity_source,
+                "base_back_activity_source": raw_a0.back_activity_source,
+                "comparison_back_activity_source": raw_a1.back_activity_source,
+                "business_source": (lrow or rrow).business_source if (lrow or rrow) else account,
+                "canonical_fields": "manufacturing_expense.amount / allocation ratio / SAP production activity",
+                "validation_status": (
+                    "SOURCE_MAPPED"
+                    if (not lrow or lrow.source_validation_status in {"PASS", "SOURCE_MAPPED"})
+                    and (not rrow or rrow.source_validation_status in {"PASS", "SOURCE_MAPPED"})
+                    else "UNVALIDATED"
+                ),
+                "base_front_allocated": front0,
+                "comparison_front_allocated": front1,
+                "base_back_allocated": back0,
+                "comparison_back_allocated": back1,
             }
             if config.is_variable_manufacturing(account):
                 back_activity0 = a0.outsourcing_back if config.is_outsourcing(account) else a0.back
@@ -222,6 +245,10 @@ def calculate_manufacturing_effects(
                     unit_effect=fuv + buv,
                     fixed_effect=0.0,
                     calculation_status=calculation_status,
+                    base_front_unit_cost=(front0 / a0.front if a0.front else None),
+                    comparison_front_unit_cost=(front1 / a1.front if a1.front else None),
+                    base_back_unit_cost=(back0 / back_activity0 if back_activity0 else None),
+                    comparison_back_unit_cost=(back1 / back_activity1 if back_activity1 else None),
                 )
                 if config.is_outsourcing(account) and amount1 < amount0:
                     result.outsourcing_decrease_effect += amount0 - amount1
