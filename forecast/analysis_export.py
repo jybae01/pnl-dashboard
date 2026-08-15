@@ -19,6 +19,7 @@ from .evidence_traceability import (
     write_material_evidence,
     write_merchandise_link,
     write_residual_rca,
+    write_sales_cogs_basis,
     write_sales_evidence,
     write_sga_evidence,
 )
@@ -156,6 +157,12 @@ def _write_readme(ws, result: dict[str, Any], baseline_fx: float, comparison_fx:
                 "status", "TRACE_UNAVAILABLE_LEGACY"
             ),
         ),
+        (
+            "Sales/COGS Basis Overlap",
+            (result.get("sales_cogs_basis_analysis") or {}).get(
+                "verdict", "TRACE_UNAVAILABLE_LEGACY"
+            ),
+        ),
     ]
     evidence = result.get("evidence_provenance", {})
     if isinstance(evidence, dict):
@@ -180,6 +187,7 @@ def _write_readme(ws, result: dict[str, Any], baseline_fx: float, comparison_fx:
     ws.cell(note_row + 4, 1, "4. 원천셀_추적 시트의 수식은 업로드 모형에 저장된 원본 수식이며, 값은 웹 엔진이 읽은 계산값입니다.")
     ws.cell(note_row + 5, 1, "5. MCM과 수율/사용량은 독립 손익효과로 표시하지 않습니다.")
     ws.cell(note_row + 6, 1, "6. Residual_RCA 시트는 Direct P&L과 기존 Effect의 차이를 분해하며 신규 Effect나 plug를 만들지 않습니다.")
+    ws.cell(note_row + 7, 1, "7. Sales_COGS_Basis 시트의 Option A/B/C는 분석용 Counterfactual이며 Production Quantity/Mix/Inventory Timing을 변경하지 않습니다.")
     ws.column_dimensions["A"].width = 28
     ws.column_dimensions["B"].width = 72
 
@@ -1031,6 +1039,11 @@ def build_comparison_audit_workbook(
         result,
         final_bridge_cells,
     )
+    write_sales_cogs_basis(
+        workbook.create_sheet("Sales_COGS_Basis"),
+        result,
+        final_bridge_cells,
+    )
     _write_formula_catalog(workbook.create_sheet("수식_정의"))
     months = tuple(int(month) for month in result.get("period", {}).get("months", ()))
     source_sheet = workbook.create_sheet("원천셀_추적")
@@ -1042,6 +1055,7 @@ def build_comparison_audit_workbook(
     required = {
         "README", "판매효과_근거", "원부재료_근거", "제조경비_근거",
         "재고원가반영시차_근거", "상품원가검증", "최종Bridge_검증", "Residual_RCA",
+        "Sales_COGS_Basis",
         "당기제조원가_기준차이", "판관비_검증", "수식_정의", "원천셀_추적",
     }
     missing = required.difference(workbook.sheetnames)

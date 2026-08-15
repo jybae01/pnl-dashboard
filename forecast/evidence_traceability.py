@@ -886,3 +886,349 @@ def write_residual_rca(
         ws.cell(ws.max_row, 2).fill = _CHECK_FILL
 
     _finish(ws, freeze="A6")
+
+
+def write_sales_cogs_basis(
+    ws,
+    result: dict[str, Any],
+    bridge_cells: dict[str, str],
+) -> None:
+    """Write formula-bearing Sales GP/COGS overlap counterfactual evidence."""
+    analysis = dict(result.get("sales_cogs_basis_analysis") or {})
+    _title(
+        ws,
+        "Sales GP Driver / COGS Basis Overlap",
+        "Revenue-basis와 기존 GP-basis Quantity·Mix 차이를 동일 월·Pool·제품군에서 계산합니다. 모든 Option은 분석 전용이며 Production Formula를 변경하지 않습니다.",
+    )
+    if not analysis:
+        ws["A4"] = "TRACE_UNAVAILABLE_LEGACY"
+        ws["A5"] = "저장된 legacy Result에는 matched-basis Source trace가 없습니다. 분석을 다시 실행해야 합니다."
+        _finish(ws)
+        return
+
+    summary = dict(analysis.get("summary") or {})
+    ws["A4"] = "RCA Status"
+    ws["B4"] = analysis.get("status")
+    ws["A5"] = "Double-count Verdict"
+    ws["B5"] = analysis.get("verdict")
+    ws["A6"] = "Confidence"
+    ws["B6"] = analysis.get("confidence")
+    ws["D4"] = "Sign: Embedded COGS"
+    ws["E4"] = "Comparison expense - Base expense"
+    ws["D5"] = "Sign: Overlap Profit"
+    ws["E5"] = "- Embedded COGS expense delta"
+    ws["D6"] = "Scope"
+    ws["E6"] = "SW/BW/LC=PCS, FS=LENGTH(m); New Business excluded; LC merchandise separation unresolved"
+    mapping_gaps = list((analysis.get("scope") or {}).get("mapping_gaps") or [])
+    ws["D7"] = "Scope Limitation"
+    ws["E7"] = " | ".join(mapping_gaps) or "SOURCE_SCOPE_MATCHED"
+    ws["D8"] = "New Business Base Revenue/unit"
+    ws["E8"] = (
+        "BASE_NON_UNITIZED_REVENUE / matched scope excluded"
+        if (analysis.get("scope") or {}).get("new_business_base_non_unitized_revenue")
+        else "NOT_APPLICABLE"
+    )
+    ws["J4"] = "Slice5A Sales Formula Basis Gap"
+    ws["K4"] = _number(summary.get("slice5a_sales_formula_basis_gap"))
+    ws["J5"] = "Embedded candidate / Slice5A gap"
+    ws["K5"] = "=IFERROR(ABS(H4)/ABS(K4),0)"
+    ws["J6"] = "Gap after embedded candidate"
+    ws["K6"] = "=K4-H4"
+    ws["K4"].number_format = _MONEY_FORMAT
+    ws["K5"].number_format = "0.00%"
+    ws["K6"].number_format = _MONEY_FORMAT
+    ws["K5"].fill = _FORMULA_FILL
+    ws["K6"].fill = _FORMULA_FILL
+
+    detail_header = 9
+    _headers(ws, detail_header, [
+        "Month", "Pool", "Unit", "Product Group", "Base Qty", "Comparison Qty",
+        "Pool Base Qty", "Pool Comparison Qty", "Base Revenue", "Comparison Revenue",
+        "Base COGS", "Comparison COGS", "Base Revenue/unit", "Base COGS/unit",
+        "Base GP/unit", "Base Mix", "Comparison Mix", "Revenue-basis Quantity",
+        "GP-basis Quantity", "Embedded COGS Quantity", "Revenue-basis Mix",
+        "GP-basis Mix", "Embedded COGS Mix", "Embedded COGS Expense Total",
+        "Overlap Profit Candidate", "Base Source Reference", "Comparison Source Reference",
+        "Scope", "Classification", "Source Scope Status",
+    ])
+    detail_start = detail_header + 1
+    for item in analysis.get("detail_rows") or []:
+        row = ws.max_row + 1
+        ws.append([
+            item.get("period"), item.get("pool"), item.get("unit"),
+            item.get("product_group"), _number(item.get("base_quantity")),
+            _number(item.get("comparison_quantity")),
+            _number(item.get("pool_base_quantity")),
+            _number(item.get("pool_comparison_quantity")),
+            _number(item.get("base_revenue")), _number(item.get("comparison_revenue")),
+            _number(item.get("base_cogs")), _number(item.get("comparison_cogs")),
+            None, None, None, None, None, None, None, None, None, None, None, None, None,
+            item.get("base_source_reference"), item.get("comparison_source_reference"),
+            item.get("scope"), item.get("classification"),
+            item.get("source_scope_status"),
+        ])
+        formulas = {
+            13: f"=IFERROR(I{row}/E{row},0)",
+            14: f"=IFERROR(K{row}/E{row},0)",
+            15: f"=M{row}-N{row}",
+            16: f"=IFERROR(E{row}/G{row},0)",
+            17: f"=IFERROR(F{row}/H{row},0)",
+            18: f"=(H{row}-G{row})*P{row}*M{row}",
+            19: f"=(H{row}-G{row})*P{row}*O{row}",
+            20: f"=R{row}-S{row}",
+            21: f"=H{row}*(Q{row}-P{row})*M{row}",
+            22: f"=H{row}*(Q{row}-P{row})*O{row}",
+            23: f"=U{row}-V{row}",
+            24: f"=T{row}+W{row}",
+            25: f"=-X{row}",
+        }
+        for column, formula in formulas.items():
+            ws.cell(row, column, formula).fill = _FORMULA_FILL
+            ws.cell(row, column).number_format = _MONEY_FORMAT
+    detail_end = max(detail_start, ws.max_row)
+
+    pool_header = ws.max_row + 3
+    _headers(ws, pool_header, [
+        "Month", "Pool", "Unit", "Base Total Qty", "Comparison Total Qty",
+        "Official GP Quantity", "Official GP Mix", "Matched GP Quantity",
+        "Matched GP Mix", "Revenue Quantity", "Revenue Mix", "Embedded COGS Expense",
+        "Overlap Profit", "Quantity Scope Diff", "Mix Scope Diff",
+        "Combined GP Scope Diff", "Quantity Scope", "Mix Scope",
+        "Combined Validation",
+    ])
+    pool_start = pool_header + 1
+    for item in analysis.get("pool_rows") or []:
+        row = ws.max_row + 1
+        ws.append([
+            item.get("period"), item.get("pool"), item.get("unit"),
+            item.get("base_total_quantity"), item.get("comparison_total_quantity"),
+            item.get("official_gp_quantity"), item.get("official_gp_mix"),
+            None, None, None, None, None, None, None, None, None, None, None,
+        ])
+        criteria = (
+            f'$A${detail_start}:$A${detail_end},A{row},'
+            f'$B${detail_start}:$B${detail_end},B{row}'
+        )
+        for column, source in ((8, "S"), (9, "V"), (10, "R"), (11, "U")):
+            ws.cell(
+                row, column,
+                f'=SUMIFS(${source}${detail_start}:${source}${detail_end},{criteria})',
+            ).fill = _FORMULA_FILL
+            ws.cell(row, column).number_format = _MONEY_FORMAT
+        ws.cell(row, 12, f"=J{row}+K{row}-H{row}-I{row}").fill = _FORMULA_FILL
+        ws.cell(row, 13, f"=-L{row}").fill = _FORMULA_FILL
+        ws.cell(row, 14, f"=F{row}-H{row}").fill = _FORMULA_FILL
+        ws.cell(row, 15, f"=G{row}-I{row}").fill = _FORMULA_FILL
+        ws.cell(row, 16, f"=N{row}+O{row}").fill = _FORMULA_FILL
+        ws.cell(row, 17, f'=IF(ABS(N{row})<=1,"PASS","CHECK_SCOPE")').fill = _CHECK_FILL
+        ws.cell(row, 18, f'=IF(ABS(O{row})<=1,"PASS","CHECK_SCOPE")').fill = _CHECK_FILL
+        ws.cell(row, 19, f'=IF(ABS(P{row})<=1,"PASS","FAIL")').fill = _CHECK_FILL
+        for column in (12, 13, 14, 15, 16):
+            ws.cell(row, column).number_format = _MONEY_FORMAT
+    pool_end = max(pool_start, ws.max_row)
+
+    cogs_header = ws.max_row + 3
+    _headers(ws, cogs_header, [
+        "Month", "Base Sales Product COGS", "Comparison Sales Product COGS",
+        "Sales Product COGS Direct", "P&L Manufactured COGS Direct", "Scope Difference",
+        "Current Manufacturing Cost Effect", "Inventory Timing", "Overlap Profit Candidate",
+        "Adjusted Inventory Timing", "Classification", "Source Reference",
+    ])
+    cogs_start = cogs_header + 1
+    cogs_rows: dict[str, int] = {}
+    for item in analysis.get("cogs_comparison") or []:
+        row = ws.max_row + 1
+        period = str(item.get("period") or "")
+        cogs_rows[period] = row
+        ws.append([
+            period, item.get("base_sales_product_cogs"),
+            item.get("comparison_sales_product_cogs"), None,
+            item.get("manufactured_cogs_effect"), None,
+            item.get("current_manufacturing_cost_effect"),
+            item.get("inventory_timing_effect"), None, None,
+            item.get("classification"), item.get("source_reference"),
+        ])
+        ws.cell(row, 4, f"=B{row}-C{row}").fill = _FORMULA_FILL
+        ws.cell(row, 6, f"=E{row}-D{row}").fill = _FORMULA_FILL
+        ws.cell(
+            row, 9,
+            f'=SUMIFS($Y${detail_start}:$Y${detail_end},$A${detail_start}:$A${detail_end},A{row})',
+        ).fill = _FORMULA_FILL
+        ws.cell(row, 10, f"=H{row}-I{row}").fill = _FORMULA_FILL
+        for column in (4, 6, 9, 10):
+            ws.cell(row, column).number_format = _MONEY_FORMAT
+    cogs_end = max(cogs_start, ws.max_row)
+    cumulative_period = str(analysis.get("period") or "CUMULATIVE")
+    cumulative_cogs_row = ws.max_row + 1
+    cogs_rows[cumulative_period] = cumulative_cogs_row
+    ws.cell(cumulative_cogs_row, 1, cumulative_period)
+    for column in range(2, 11):
+        letter = get_column_letter(column)
+        ws.cell(
+            cumulative_cogs_row, column,
+            f"=SUM({letter}{cogs_start}:{letter}{cogs_end})",
+        ).fill = _FORMULA_FILL
+        ws.cell(cumulative_cogs_row, column).number_format = _MONEY_FORMAT
+    ws.cell(cumulative_cogs_row, 11, "PARTIAL_OVERLAP_SOURCE_SCOPE_DIFFERENCE")
+    ws.cell(cumulative_cogs_row, 12, "Monthly Source rows above")
+
+    option_header = ws.max_row + 3
+    _headers(ws, option_header, [
+        "Period", "Option", "Quantity", "Mix", "Sales Total", "Inventory Timing",
+        "Other COGS Effects", "Effects Total", "Residual", "OP Delta",
+        "Identity Difference", "Identity", "Counterfactual Only",
+        "Engine Source Effects Total",
+    ])
+    option_start = option_header + 1
+    option_inputs = list(analysis.get("option_rows") or [])
+    current_by_period: dict[str, dict[str, Any]] = {
+        str(row.get("period")): dict(row)
+        for row in option_inputs if row.get("option") == "CURRENT"
+    }
+    option_sheet_rows: dict[tuple[str, str], int] = {}
+    ordered_periods = [*cogs_rows]
+    for period in ordered_periods:
+        current = current_by_period[period]
+        for option in ("CURRENT", "OPTION_A", "OPTION_B", "OPTION_C"):
+            row = ws.max_row + 1
+            option_sheet_rows[(period, option)] = row
+            ws.cell(row, 1, period)
+            ws.cell(row, 2, option)
+            if option == "CURRENT":
+                for column, key in (
+                    (3, "quantity"), (4, "mix"), (5, "sales_total"),
+                    (6, "inventory_timing"), (7, "other_cogs_effects"),
+                    (8, "effects_total"), (9, "residual"),
+                    (10, "operating_profit_delta"),
+                ):
+                    ws.cell(row, column, _number(current.get(key)))
+                if period == cumulative_period:
+                    ws.cell(row, 8, _sheet_ref("최종Bridge_검증", bridge_cells["effects_total"])).fill = _FORMULA_FILL
+                    ws.cell(row, 9, _sheet_ref("최종Bridge_검증", bridge_cells["residual"])).fill = _FORMULA_FILL
+                    ws.cell(row, 10, _sheet_ref("최종Bridge_검증", bridge_cells["operating_profit_delta"])).fill = _FORMULA_FILL
+                ws.cell(row, 14, _number(current.get("effects_total")))
+            else:
+                current_row = option_sheet_rows[(period, "CURRENT")]
+                overlap_cell = f"I{cogs_rows[period]}"
+                if option in {"OPTION_A", "OPTION_C"}:
+                    for column in (3, 4, 5, 7, 10):
+                        letter = get_column_letter(column)
+                        ws.cell(row, column, f"={letter}{current_row}").fill = _FORMULA_FILL
+                if option == "OPTION_A":
+                    ws.cell(row, 6, f"=F{current_row}-{overlap_cell}").fill = _FORMULA_FILL
+                    ws.cell(row, 8, f"=H{current_row}-{overlap_cell}").fill = _FORMULA_FILL
+                elif option == "OPTION_B":
+                    period_formula = (
+                        f'$A${detail_start}:$A${detail_end},A{row}'
+                        if period != cumulative_period else None
+                    )
+                    if period_formula:
+                        ws.cell(row, 3, f'=SUMIFS($R${detail_start}:$R${detail_end},{period_formula})').fill = _FORMULA_FILL
+                        ws.cell(row, 4, f'=SUMIFS($U${detail_start}:$U${detail_end},{period_formula})').fill = _FORMULA_FILL
+                    else:
+                        ws.cell(row, 3, f"=SUM($R${detail_start}:$R${detail_end})").fill = _FORMULA_FILL
+                        ws.cell(row, 4, f"=SUM($U${detail_start}:$U${detail_end})").fill = _FORMULA_FILL
+                    ws.cell(row, 5, f"=E{current_row}-C{current_row}-D{current_row}+C{row}+D{row}").fill = _FORMULA_FILL
+                    ws.cell(row, 6, f"=F{current_row}").fill = _FORMULA_FILL
+                    ws.cell(row, 7, f"=G{current_row}").fill = _FORMULA_FILL
+                    ws.cell(row, 8, f"=H{current_row}-C{current_row}-D{current_row}+C{row}+D{row}").fill = _FORMULA_FILL
+                    ws.cell(row, 10, f"=J{current_row}").fill = _FORMULA_FILL
+                else:
+                    ws.cell(row, 6, f"=F{current_row}").fill = _FORMULA_FILL
+                    ws.cell(row, 8, f"=H{current_row}").fill = _FORMULA_FILL
+                ws.cell(row, 9, f"=J{row}-H{row}").fill = _FORMULA_FILL
+            ws.cell(row, 11, f"=H{row}+I{row}-J{row}").fill = _FORMULA_FILL
+            ws.cell(row, 12, f'=IF(ABS(K{row})<=1,"PASS","FAIL")').fill = _CHECK_FILL
+            ws.cell(row, 13, option != "CURRENT")
+            for column in range(3, 12):
+                ws.cell(row, column).number_format = _MONEY_FORMAT
+    option_end = ws.max_row
+
+    sku_header = ws.max_row + 3
+    _headers(ws, sku_header, [
+        "Product Group", "SKU Scope", "Base Qty", "Comparison Qty",
+        "Revenue Quantity Reference", "Revenue Mix Reference", "Embedded COGS",
+        "Classification", "Source Coverage", "Source Reference", "Validation",
+    ])
+    for item in analysis.get("intra_group_sku") or []:
+        ws.append([
+            item.get("product_group"), item.get("sku_scope"), item.get("base_quantity"),
+            item.get("comparison_quantity"), item.get("revenue_basis_quantity_reference"),
+            item.get("revenue_basis_mix_reference"), item.get("embedded_cogs_component"),
+            item.get("classification"), item.get("source_coverage"),
+            item.get("source_reference"), item.get("validation"),
+        ])
+
+    validation_header = ws.max_row + 3
+    _headers(ws, validation_header, ["Validation", "Formula Result", "Policy"])
+    cumulative_current = option_sheet_rows[(cumulative_period, "CURRENT")]
+    cumulative_a = option_sheet_rows[(cumulative_period, "OPTION_A")]
+    cumulative_b = option_sheet_rows[(cumulative_period, "OPTION_B")]
+    validations = [
+        (
+            "Revenue basis - GP basis = Embedded COGS",
+            f'=IF(ABS(SUM(X{detail_start}:X{detail_end})-(SUM(R{detail_start}:R{detail_end})+SUM(U{detail_start}:U{detail_end})-SUM(S{detail_start}:S{detail_end})-SUM(V{detail_start}:V{detail_end})))<=1,"PASS","FAIL")',
+            "Expense-source sign",
+        ),
+        (
+            "PCS/LENGTH 혼합 없음",
+            f'=IF(COUNTIFS(B{detail_start}:B{detail_end},"PCS",C{detail_start}:C{detail_end},"m")+COUNTIFS(B{detail_start}:B{detail_end},"LENGTH",C{detail_start}:C{detail_end},"PCS")=0,"PASS","FAIL")',
+            "PCS=SW/BW/LC, LENGTH=FS",
+        ),
+        (
+            "New Business excluded from matched calculation",
+            f'=IF(COUNTIF(D{detail_start}:D{detail_end},"New Business")=0,"PASS","FAIL")',
+            "LC merchandise remains a separately disclosed mapping gap",
+        ),
+        (
+            "LC manufactured/total source mismatch disclosed",
+            f'=IF(COUNTIF(AD{detail_start}:AD{detail_end},"MAPPING_GAP_LC_MANUFACTURED_QUANTITY_TOTAL_COGS")>0,"PASS","FAIL")',
+            "BUSINESS_FORMULA_CONFLICT; production mapping unchanged",
+        ),
+        (
+            "월별 Source scope",
+            f'=IF(COUNTA(A{cogs_start}:A{cogs_end})={len(analysis.get("cogs_comparison") or [])},"PASS","FAIL")',
+            "선택 월별 Source 1회",
+        ),
+        (
+            "Option identity",
+            f'=IF(COUNTIF(L{option_start}:L{option_end},"FAIL")=0,"PASS","FAIL")',
+            "effects_total + residual = OP Delta",
+        ),
+        (
+            "Option A/B matched basis",
+            f'=IF(ABS(H{cumulative_a}-H{cumulative_b})<=1,"PASS","FAIL")',
+            "Same overlap component; different presentation",
+        ),
+        (
+            "Production effects_total 불변",
+            f'=IF(ABS(H{cumulative_current}-N{cumulative_current})<=1,"PASS","FAIL")',
+            "Bridge formula vs independently supplied Engine source total",
+        ),
+        (
+            "Production Formula 미변경",
+            '=IF(H7=FALSE,"PASS","FAIL")',
+            "Quantity/Mix/Inventory Timing persisted values unchanged",
+        ),
+        (
+            "Slice5A basis gap candidate reconciliation",
+            '=IF(ABS(K4-H4-K6)<=1,"PASS","FAIL")',
+            "Independent source calculations; no Residual plug",
+        ),
+    ]
+    for label, formula, policy in validations:
+        ws.append([label, formula, policy])
+        ws.cell(ws.max_row, 2).fill = _CHECK_FILL
+
+    ws["G4"] = "Embedded Sales COGS Expense"
+    ws["H4"] = f"=SUM(X{detail_start}:X{detail_end})"
+    ws["G5"] = "Overlap Profit Candidate"
+    ws["H5"] = f"=-H4"
+    ws["G6"] = "Candidate Adjusted Inventory Timing"
+    ws["H6"] = f"=H{cumulative_cogs_row}-I{cumulative_cogs_row}"
+    ws["G7"] = "Production Formula Mutated"
+    ws["H7"] = bool(analysis.get("production_formula_mutated"))
+    for cell in ("H4", "H5", "H6"):
+        ws[cell].fill = _FORMULA_FILL
+        ws[cell].number_format = _MONEY_FORMAT
+    _finish(ws, freeze="A10")

@@ -204,6 +204,49 @@ class EvidenceWorkbookTraceabilityTests(unittest.TestCase):
         )
         self.assertIsNotNone(_row_with_value(residual_rca, "A", "운반비"))
 
+        overlap = workbook["Sales_COGS_Basis"]
+        self.assertEqual(overlap["M10"].value, "=IFERROR(I10/E10,0)")
+        self.assertEqual(overlap["N10"].value, "=IFERROR(K10/E10,0)")
+        self.assertEqual(overlap["O10"].value, "=M10-N10")
+        self.assertEqual(overlap["T10"].value, "=R10-S10")
+        self.assertEqual(overlap["W10"].value, "=U10-V10")
+        self.assertEqual(overlap["X10"].value, "=T10+W10")
+        self.assertEqual(overlap["Y10"].value, "=-X10")
+        self.assertEqual(overlap["H4"].value[:5], "=SUM(")
+        self.assertEqual(overlap["H5"].value, "=-H4")
+        self.assertEqual(overlap["K5"].value, "=IFERROR(ABS(H4)/ABS(K4),0)")
+        self.assertEqual(overlap["K6"].value, "=K4-H4")
+        self.assertFalse(overlap["H7"].value)
+        self.assertFalse(any(
+            overlap[f"D{row}"].value == "신사업"
+            for row in range(10, overlap.max_row + 1)
+        ))
+        overlap_validation = _row_with_value(
+            overlap, "A", "Revenue basis - GP basis = Embedded COGS"
+        )
+        self.assertTrue(overlap[f"B{overlap_validation}"].value.startswith("=IF("))
+        option_a_row = next(
+            row for row in range(1, overlap.max_row + 1)
+            if overlap[f"B{row}"].value == "OPTION_A"
+        )
+        option_b_row = next(
+            row for row in range(1, overlap.max_row + 1)
+            if overlap[f"B{row}"].value == "OPTION_B"
+        )
+        self.assertTrue(overlap[f"F{option_a_row}"].value.startswith("=F"))
+        self.assertTrue(overlap[f"C{option_b_row}"].value.startswith("=SUMIFS("))
+        self.assertTrue(overlap[f"L{option_a_row}"].value.startswith("=IF("))
+        cumulative_current_row = next(
+            row for row in range(1, overlap.max_row + 1)
+            if overlap[f"B{row}"].value == "CURRENT"
+            and overlap[f"A{row}"].value == result.sales_cogs_basis_analysis["period"]
+        )
+        self.assertIsInstance(overlap[f"N{cumulative_current_row}"].value, (int, float))
+        lc_scope_validation = _row_with_value(
+            overlap, "A", "LC manufactured/total source mismatch disclosed"
+        )
+        self.assertTrue(overlap[f"B{lc_scope_validation}"].value.startswith("=IF("))
+
         errors = []
         for ws in workbook.worksheets:
             for row in ws.iter_rows():

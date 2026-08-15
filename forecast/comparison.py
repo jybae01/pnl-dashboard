@@ -14,6 +14,7 @@ from .analysis.inventory_effects import calculate_inventory_timing_effects
 from .analysis.manufacturing_effects import calculate_manufacturing_effects
 from .analysis.material_effects import calculate_material_effects
 from .analysis.residual_rca import analyze_residual_rca
+from .analysis.sales_cogs_overlap import analyze_sales_cogs_basis_overlap
 from .analysis.sales_effects import calculate_sales_effects
 from .analysis.sga_effects import calculate_sga_effects
 from .sales_comparison import calculate_sales_effect_rows, sales_effect_totals
@@ -54,6 +55,7 @@ class ComparisonResult:
     inventory_analysis: dict[str, Any] = field(default_factory=dict)
     sales_analysis: dict[str, Any] = field(default_factory=dict)
     residual_analysis: dict[str, Any] = field(default_factory=dict)
+    sales_cogs_basis_analysis: dict[str, Any] = field(default_factory=dict)
 
 
 class GenericComparisonEngine:
@@ -183,6 +185,7 @@ class GenericComparisonEngine:
         residual = op_delta - effects_total
         tolerance = max(1.0, abs(op_delta) * 1e-9)
         narrative = self._narrative(op_delta, effects, residual)
+        sales_cogs_basis_analysis: dict[str, Any] = {}
         if baseline.get("adapted") is not None and target.get("adapted") is not None:
             full_base_scenario = baseline["adapted"].scenario
             full_comparison_scenario = target["adapted"].scenario
@@ -478,6 +481,47 @@ class GenericComparisonEngine:
             absolute_tolerance=1.0,
             relative_tolerance=1e-9,
         )
+        if baseline.get("adapted") is not None and target.get("adapted") is not None:
+            sales_cogs_basis_analysis = analyze_sales_cogs_basis_overlap(
+                sales_analysis=sales_analysis,
+                sales_scope_contract={
+                    "LC": {
+                        "status": "MAPPING_GAP_LC_MANUFACTURED_QUANTITY_TOTAL_COGS",
+                        "quantity_row": (
+                            self.full_mapping["analysis_adapter"]["material"]
+                            ["groups"]["LC"]["sales_quantity_row"]
+                        ),
+                        "amount_row": self.mapping["sales_groups"]["LC"]["amount_row"],
+                        "cogs_row": self.mapping["sales_groups"]["LC"]["cogs_row"],
+                        "quantity_scope": "MANUFACTURED_ONLY",
+                        "amount_cogs_scope": "LC_TOTAL_INCLUDES_MERCHANDISE",
+                    }
+                },
+                inventory_analysis=inventory_analysis,
+                effects=effects,
+                product_rows=products,
+                manufactured_groups=tuple(
+                    self.full_mapping.get("analysis_adapter", {})
+                    .get("material", {})
+                    .get("groups", {})
+                ),
+                material_details=list(calculated_analysis_material.details),
+                manufacturing_details=list(
+                    calculated_analysis_manufacturing.realization_details
+                ),
+                sga_details=list(calculated_analysis_sga.details),
+                baseline_pnl_records=list(base_scenario.pnl),
+                comparison_pnl_records=list(comparison_scenario.pnl),
+                sku_source_rows=self.mapping.get("products", {}),
+                months=period.months,
+                period_label=period.label,
+                operating_profit_delta=op_delta,
+                effects_total=effects_total,
+                residual=residual,
+                residual_analysis=residual_analysis,
+                absolute_tolerance=1.0,
+                relative_tolerance=1e-9,
+            )
         return ComparisonResult(
             baseline=asdict(baseline_meta), comparison=asdict(comparison_meta), period=asdict(period),
             pnl=pnl, products=products, sales_groups=sales_groups, production=production, mcm=mcm,
@@ -495,6 +539,7 @@ class GenericComparisonEngine:
             inventory_analysis=inventory_analysis,
             sales_analysis=sales_analysis,
             residual_analysis=residual_analysis,
+            sales_cogs_basis_analysis=sales_cogs_basis_analysis,
         )
 
     @staticmethod
