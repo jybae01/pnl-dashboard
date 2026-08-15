@@ -21,6 +21,12 @@ _KOREAN_LABELS = {
     "Comparison Source Reference": "비교 원천 위치",
     "Base Source": "기준 원천 위치",
     "Comparison Source": "비교 원천 위치",
+    "Base Freight(incl Tariff)": "기준 운반비(관세 포함)",
+    "Comparison Freight(incl Tariff)": "비교 운반비(관세 포함)",
+    "Base Freight(ex Tariff)": "기준 운반비(관세 제외)",
+    "Comparison Freight(ex Tariff)": "비교 운반비(관세 제외)",
+    "Base Tariff 포함?": "기준 관세 포함 여부",
+    "Comparison Tariff 포함?": "비교 관세 포함 여부",
     "Business Source": "원천 항목",
     "Canonical field": "Canonical 필드",
     "Canonical Field": "Canonical 필드",
@@ -287,7 +293,7 @@ def _polish_sales(ws, cells: dict[str, Any]) -> None:
     )
     ws.merge_cells("AI2:BL2")
     _set_widths(ws, {
-        "A": 12, "B": 10, "C": 11, "D": 13, "E": 22, "F": 18,
+        "A": 12, "B": 18, "C": 18, "D": 13, "E": 22, "F": 18,
         "G": 22, "H": 22, "I": 14, "J": 14, "K": 18, "L": 18,
         "M": 18, "N": 18, "O": 16, "P": 14, "Q": 14, "R": 12,
         "S": 12, "T": 16, "U": 12, "V": 16, "W": 12, "X": 12,
@@ -336,7 +342,7 @@ def _polish_material(ws, cells: dict[str, Any]) -> None:
     )
     ws.merge_cells("A2:AS2")
     _set_widths(ws, {
-        "A": 12, "B": 11, "C": 13, "D": 22, "E": 18, "F": 22,
+        "A": 12, "B": 18, "C": 18, "D": 22, "E": 18, "F": 22,
         "G": 22, "H": 18, "I": 18, "J": 15, "K": 15, "L": 15,
         "M": 16, "N": 16, "O": 18, "P": 18, "Q": 12, "R": 16,
         "T": 12, "U": 22, "V": 18, "W": 22, "X": 22, "Y": 18,

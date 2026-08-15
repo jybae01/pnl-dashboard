@@ -128,8 +128,14 @@ class EvidenceWorkbookTraceabilityTests(unittest.TestCase):
         self.assertTrue(sales["BL5"].value.startswith("=IF("))
         self.assertEqual(sales["E4"].value, "원천 항목")
         self.assertEqual(sales["B4"].value, "수량 Pool")
+        self.assertEqual(sales["AM4"].value, "기준 운반비(관세 포함)")
+        self.assertEqual(sales["AN4"].value, "비교 운반비(관세 포함)")
+        self.assertEqual(sales["AS4"].value, "기준 운반비(관세 제외)")
+        self.assertEqual(sales["AT4"].value, "비교 운반비(관세 제외)")
         self.assertIn("배부 기준 원천이 없어", sales["AI2"].value)
         self.assertTrue(sales.column_dimensions["E"].hidden)
+        self.assertGreaterEqual(float(sales.column_dimensions["B"].width), 18)
+        self.assertGreaterEqual(float(sales.column_dimensions["C"].width), 18)
         self.assertLessEqual(max(
             dimension.width or 0
             for dimension in sales.column_dimensions.values()
@@ -155,6 +161,8 @@ class EvidenceWorkbookTraceabilityTests(unittest.TestCase):
         self.assertIn("SUM(AJ", material[f"B{jpy_row}"].value)
         self.assertTrue(material[f"B{_row_with_value(material, 'A', 'JPY 원천 유효')}"].value.startswith("=IF("))
         self.assertTrue(material[f"B{_row_with_value(material, 'A', '판매수량 원천 유효')}"].value.startswith("=IF("))
+        self.assertGreaterEqual(float(material.column_dimensions["B"].width), 18)
+        self.assertGreaterEqual(float(material.column_dimensions["C"].width), 18)
 
         manufacturing = workbook["제조경비_근거"]
         reconciliation = result.manufacturing_analysis["production_reconciliation"]
