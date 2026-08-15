@@ -316,7 +316,7 @@ def test_build_comparison_audit_workbook(monkeypatch, tmp_path):
     assert reconciliation_sheet[f"C{inventory_bridge_row}"].value == "='재고원가반영시차_근거'!D16"
     identity_row = next(
         row for row in range(1, reconciliation_sheet.max_row + 1)
-        if reconciliation_sheet[f"B{row}"].value == "effects_total + residual = OP_delta"
+        if reconciliation_sheet[f"B{row}"].value == "공식 효과 합계 + 잔여차이 = 영업이익 증감"
     )
     assert reconciliation_sheet[f"C{identity_row}"].value.startswith("=")
     assert reconciliation_sheet[f"F{identity_row}"].value.startswith("=IF(")

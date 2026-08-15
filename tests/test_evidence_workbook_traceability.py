@@ -120,12 +120,24 @@ class EvidenceWorkbookTraceabilityTests(unittest.TestCase):
         )
         self.assertEqual(sales[f"E{freight_row}"].value, "Price에 1회 포함")
         self.assertEqual(sales["BE5"].value, "DIRECT_AMOUNT_NO_DENOMINATOR")
+        self.assertTrue(sales.column_dimensions["BE"].hidden)
         self.assertTrue(sales["BF5"].value.startswith("=IF("))
+        self.assertIn("적용 불가", sales["BF5"].value)
         self.assertEqual(sales["BJ5"].value, "=BH5+BI5")
         self.assertEqual(sales["BK5"].value, "=BJ5")
         self.assertTrue(sales["BL5"].value.startswith("=IF("))
+        self.assertEqual(sales["E4"].value, "원천 항목")
+        self.assertEqual(sales["B4"].value, "수량 Pool")
+        self.assertIn("배부 기준 원천이 없어", sales["AI2"].value)
+        self.assertTrue(sales.column_dimensions["E"].hidden)
+        self.assertLessEqual(max(
+            dimension.width or 0
+            for dimension in sales.column_dimensions.values()
+            if not dimension.hidden
+        ), 28)
+        self.assertEqual(sales.page_setup.fitToWidth, 2)
         self.assertEqual(
-            sales[f"B{_row_with_value(sales, 'A', 'Freight double count')}"].value[:4],
+            sales[f"B{_row_with_value(sales, 'A', '운반비 중복계상 없음')}"].value[:4],
             "=IF(",
         )
 
@@ -141,8 +153,8 @@ class EvidenceWorkbookTraceabilityTests(unittest.TestCase):
         jpy_row = _row_with_value(material, "A", "nonwoven_jpy")
         self.assertIn("SUM(O", material[f"B{material_total_row}"].value)
         self.assertIn("SUM(AJ", material[f"B{jpy_row}"].value)
-        self.assertTrue(material[f"B{_row_with_value(material, 'A', 'JPY Source valid')}"].value.startswith("=IF("))
-        self.assertTrue(material[f"B{_row_with_value(material, 'A', 'Sales quantity source valid')}"].value.startswith("=IF("))
+        self.assertTrue(material[f"B{_row_with_value(material, 'A', 'JPY 원천 유효')}"].value.startswith("=IF("))
+        self.assertTrue(material[f"B{_row_with_value(material, 'A', '판매수량 원천 유효')}"].value.startswith("=IF("))
 
         manufacturing = workbook["제조경비_근거"]
         reconciliation = result.manufacturing_analysis["production_reconciliation"]
@@ -175,7 +187,7 @@ class EvidenceWorkbookTraceabilityTests(unittest.TestCase):
         self.assertTrue(manufacturing[f"AC{detail_row}"].value.startswith("="))
         self.assertTrue(manufacturing[f"AG{detail_row}"].value.startswith("="))
         self.assertTrue(manufacturing[f"AI{detail_row}"].value.startswith("="))
-        self.assertEqual(manufacturing["L4"].value, "Scenario")
+        self.assertEqual(manufacturing["L4"].value, "구분")
         reconciliation_row = _row_with_value(manufacturing, "N", "SW")
         self.assertIn(manufacturing[f"L{reconciliation_row}"].value, {"base", "comparison"})
         self.assertIsInstance(manufacturing[f"O{reconciliation_row}"].value, (int, float))
@@ -188,13 +200,18 @@ class EvidenceWorkbookTraceabilityTests(unittest.TestCase):
         self.assertIn(f"O{detail_row}-P{detail_row}", manufacturing[f"AE{detail_row}"].value)
         self.assertEqual(
             manufacturing[
-                f"B{_row_with_value(manufacturing, 'A', 'Inventory realization multiplier used')}"
+                f"B{_row_with_value(manufacturing, 'A', '재고실현율 계산 반영 여부')}"
             ].value,
             "=FALSE",
         )
+        self.assertTrue(manufacturing.column_dimensions["D"].hidden)
+        self.assertEqual(manufacturing.page_setup.fitToWidth, 1)
 
         inventory = workbook["재고원가반영시차_근거"]
+        self.assertEqual(inventory["A5"].value, "제품 매출원가")
+        self.assertEqual(inventory["A12"].value, "중복 제거 전 재고·원가 반영시차")
         self.assertEqual(inventory["D12"].value, "=D10-D11")
+        self.assertEqual(inventory["D12"].number_format, '#,##0;[Red](#,##0);-')
         self.assertEqual(inventory["D15"].value, "=D13+D14")
         self.assertEqual(inventory["D16"].value, "=D12-D15")
         self.assertTrue(inventory["F17"].value.startswith("=IF("))
@@ -206,7 +223,7 @@ class EvidenceWorkbookTraceabilityTests(unittest.TestCase):
         self.assertEqual(audit["C8"].value, "PASS")
         self.assertEqual(audit["B9"].value, '=IF(B8=0,"PASS","FAIL")')
         self.assertTrue(any(
-            cell.value == "Embedded Quantity COGS Expense"
+            cell.value == "수량에 포함된 COGS 비용"
             for row in inventory.iter_rows()
             for cell in row
         ))
@@ -220,6 +237,11 @@ class EvidenceWorkbookTraceabilityTests(unittest.TestCase):
         self.assertEqual(sga["L5"].value, "SOURCE_MAPPED")
 
         bridge = workbook["최종Bridge_검증"]
+        self.assertEqual(bridge["B4"].value, "효과")
+        self.assertEqual(bridge["C4"].value, "근거 수식")
+        self.assertTrue(bridge.column_dimensions["A"].hidden)
+        self.assertEqual(bridge["B16"].value, "공식 효과 합계")
+        self.assertEqual(bridge["B19"].value, "공식 효과 합계 + 잔여차이 = 영업이익 증감")
         for code in (
             "sales_quantity", "sales_mix", "sales_price", "sales_fx", "tariff",
             "material_total", "manufacturing_realized", "inventory_timing",
@@ -228,7 +250,11 @@ class EvidenceWorkbookTraceabilityTests(unittest.TestCase):
             row = _row_with_value(bridge, "A", code)
             self.assertTrue(bridge[f"C{row}"].value.startswith("='"))
             self.assertNotEqual(bridge[f"C{row}"].value, f"=D{row}")
-        identity_row = _row_with_value(bridge, "B", "effects_total + residual = OP_delta")
+        identity_row = _row_with_value(
+            bridge,
+            "B",
+            "공식 효과 합계 + 잔여차이 = 영업이익 증감",
+        )
         self.assertTrue(bridge[f"C{identity_row}"].value.startswith("="))
         self.assertTrue(bridge[f"F{identity_row}"].value.startswith("=IF("))
         self.assertEqual(

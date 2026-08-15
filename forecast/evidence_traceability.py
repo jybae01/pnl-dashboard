@@ -202,6 +202,9 @@ def write_sales_evidence(
     freight_start = 5
     for index, item in enumerate(freight_trace):
         r = freight_start + index
+        denominator_policy = str(
+            item.get("freight_denominator_policy") or "DIRECT_AMOUNT_NO_DENOMINATOR"
+        )
         values = [
             item.get("period"), item.get("business_source"), item.get("base_source_reference"),
             item.get("comparison_source_reference"), _number(item.get("base_freight_including_tariff")),
@@ -215,7 +218,7 @@ def write_sales_evidence(
             _number(item.get("comparison_length_quantity")),
             "Base: " + str(item.get("base_quantity_source_reference") or "")
             + " / Comparison: " + str(item.get("comparison_quantity_source_reference") or ""),
-            item.get("freight_denominator_policy") or "DIRECT_AMOUNT_NO_DENOMINATOR",
+            denominator_policy,
             None, None, None, None, None, None, None,
         ]
         for offset, value in enumerate(values):
@@ -229,8 +232,8 @@ def write_sales_evidence(
         # to either PCS or LENGTH products.  Keep both raw pools visible and
         # formula-prove that V1 uses the direct account difference exactly once
         # without unitising or cross-unit aggregation.
-        ws.cell(r, 58, f'=IF(BE{r}="APPLICABLE",IFERROR(AS{r}/AZ{r},0),"NOT_APPLICABLE")').fill = _FORMULA_FILL
-        ws.cell(r, 59, f'=IF(BE{r}="APPLICABLE",IFERROR(AT{r}/BA{r},0),"NOT_APPLICABLE")').fill = _FORMULA_FILL
+        ws.cell(r, 58, f'=IF(BE{r}="APPLICABLE",IFERROR(AS{r}/AZ{r},0),"적용 불가")').fill = _FORMULA_FILL
+        ws.cell(r, 59, f'=IF(BE{r}="APPLICABLE",IFERROR(AT{r}/BA{r},0),"적용 불가")').fill = _FORMULA_FILL
         ws.cell(r, 60, "=0").fill = _FORMULA_FILL
         ws.cell(r, 61, f"=AS{r}-AT{r}").fill = _FORMULA_FILL
         ws.cell(r, 62, f"=BH{r}+BI{r}").fill = _FORMULA_FILL

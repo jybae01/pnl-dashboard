@@ -24,6 +24,7 @@ from .evidence_traceability import (
     write_sales_evidence,
     write_sga_evidence,
 )
+from .evidence_presentation import polish_evidence_workbook
 
 
 MIME_XLSX = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
@@ -1525,6 +1526,15 @@ def build_comparison_audit_workbook(
         inventory_cells=inventory_cells,
         bridge_cells=final_bridge_cells,
         strict_trace=bool(result.get("residual_analysis")),
+    )
+
+    polish_evidence_workbook(
+        workbook,
+        sales_cells=sales_cells,
+        material_cells=material_cells,
+        manufacturing_cells=manufacturing_cells,
+        inventory_cells=inventory_cells,
+        bridge_cells=final_bridge_cells,
     )
 
     required = {
