@@ -70,7 +70,7 @@ export function CoreAnalysisView({ role, modelRefreshKey = 0, initialResultId }:
       if (!active) return;
       setJob(storedJob);
       if (storedJob.status === 'FAILED') {
-        setViewerState('ERROR');
+        setViewerState('JOB_FAILED');
         setError(storedJob.error_message || '분석 Job이 실패했습니다.');
       } else {
         setViewerState('LOADING');
@@ -150,7 +150,7 @@ export function CoreAnalysisView({ role, modelRefreshKey = 0, initialResultId }:
           return;
         }
         if (next.status === 'FAILED') {
-          setViewerState('ERROR');
+          setViewerState('JOB_FAILED');
           setError(next.error_message || '분석 Job이 실패했습니다.');
           return;
         }
@@ -379,6 +379,7 @@ function ResultState({ state, error, result, role, onUnavailable }: {
   state: ViewerState; error: string | null; result: AnalysisPresentationDto | null; role: Role; onUnavailable?: () => void;
 }) {
   if (state === 'LOADING') return <div className="variance-state-card"><LoadingSpinner message="손익 분석 결과를 불러오는 중입니다…" /></div>;
+  if (state === 'JOB_FAILED') return <StateMessage kind="error" title="분석 계산에 실패했습니다." description={error || '잠시 후 다시 시도하거나 관리자에게 문의하세요.'} />;
   if (state === 'ERROR') return <StateMessage kind="error" title="분석 결과를 불러오지 못했습니다." description={error || '잠시 후 다시 시도하거나 관리자에게 문의하세요.'} />;
   if (state === 'FORBIDDEN') return <StateMessage kind="forbidden" title="이 분석 결과를 볼 권한이 없습니다." description="현재 계정의 Viewer/Admin 권한을 확인해 주세요." />;
   if (state === 'INVALID_PAYLOAD') return <StateMessage kind="integrity" title="분석 결과의 무결성을 확인할 수 없습니다." description={error || '서버가 제공한 결과 계약이 올바르지 않습니다.'} />;

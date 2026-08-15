@@ -1,7 +1,7 @@
 export type Role = 'viewer' | 'admin';
 export type JobStatus = 'PENDING' | 'PROCESSING' | 'COMPLETED' | 'FAILED';
 export type WorkerExecutionState = 'QUEUED' | 'STARTING_WORKER' | 'PROCESSING' | 'COMPLETED' | 'FAILED';
-export type ViewerState = 'LOADING' | 'READY' | 'EMPTY' | 'ERROR' | 'FORBIDDEN' | 'INVALID_PAYLOAD';
+export type ViewerState = 'LOADING' | 'READY' | 'EMPTY' | 'ERROR' | 'JOB_FAILED' | 'FORBIDDEN' | 'INVALID_PAYLOAD';
 
 export interface SessionDto {
   authenticated: true;
