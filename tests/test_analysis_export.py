@@ -305,14 +305,14 @@ def test_build_comparison_audit_workbook(monkeypatch, tmp_path):
         for row in range(1, inventory_sheet.max_row + 1)
         if inventory_sheet[f"A{row}"].value == "2025-11"
     )
-    assert "Data!C1269" in inventory_sheet[f"E{first_rolling_row}"].value
+    assert "Data!C1269" in inventory_sheet[f"I{first_rolling_row}"].value
     reconciliation_sheet = workbook["최종Bridge_검증"]
     inventory_bridge_row = next(
         row
         for row in range(5, reconciliation_sheet.max_row + 1)
         if reconciliation_sheet[f"A{row}"].value == "inventory_timing"
     )
-    assert reconciliation_sheet[f"C{inventory_bridge_row}"].value == "='재고원가반영시차_근거'!D12"
+    assert reconciliation_sheet[f"C{inventory_bridge_row}"].value == "='재고원가반영시차_근거'!D16"
     identity_row = next(
         row for row in range(1, reconciliation_sheet.max_row + 1)
         if reconciliation_sheet[f"B{row}"].value == "effects_total + residual = OP_delta"

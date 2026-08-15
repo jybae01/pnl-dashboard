@@ -4,6 +4,7 @@ from dataclasses import dataclass, field
 from typing import Any, Iterable
 
 from .configuration import AnalysisConfig
+from .core_cogs_overlap import CoreManufacturedCogsOverlap
 from .schema import AnalysisScenario, InventoryCostRecord, OpeningInventoryUnitRecord
 
 
@@ -14,6 +15,13 @@ PERSISTENCE_REVERSAL = "REVERSAL"
 PERSISTENCE_INSUFFICIENT = "INSUFFICIENT_HISTORY"
 
 
+def _number(value: Any) -> float:
+    try:
+        return float(value or 0.0)
+    except (TypeError, ValueError):
+        return 0.0
+
+
 @dataclass
 class InventoryTimingEffects:
     base_manufactured_cogs: float = 0.0
@@ -22,7 +30,14 @@ class InventoryTimingEffects:
     base_current_manufacturing_cost: float = 0.0
     comparison_current_manufacturing_cost: float = 0.0
     current_manufacturing_cost_effect: float = 0.0
+    gross_inventory_timing_effect: float = 0.0
+    core_cogs_quantity_overlap_effect: float = 0.0
+    core_cogs_mix_overlap_effect: float = 0.0
+    core_manufactured_cogs_overlap_effect: float = 0.0
     inventory_timing_effect: float = 0.0
+    core_overlap_policy_status: str = "NOT_APPLIED"
+    core_overlap_source_validation_status: str = "UNVALIDATED"
+    core_overlap_pool_validation_status: str = "UNVALIDATED"
     current_cost_related_effects: float = 0.0
     current_cost_explanation_gap: float = 0.0
     additive_bridge_status: str = "UNVALIDATED"
@@ -43,6 +58,8 @@ class InventoryTimingEffects:
     monthly_details: list[dict[str, Any]] = field(default_factory=list)
     opening_inventory_units: list[dict[str, Any]] = field(default_factory=list)
     source_details: list[dict[str, Any]] = field(default_factory=list)
+    core_overlap_details: list[dict[str, Any]] = field(default_factory=list)
+    core_overlap_excluded_sources: list[str] = field(default_factory=list)
     scope_notes: list[str] = field(default_factory=list)
 
 
@@ -121,6 +138,7 @@ def calculate_inventory_timing_effects(
     *,
     operating_profit_delta: float,
     current_cost_related_effects: float,
+    core_cogs_overlap: CoreManufacturedCogsOverlap | None = None,
 ) -> InventoryTimingEffects:
     selected = tuple(sorted(set(selected_months)))
     if not selected:
@@ -149,8 +167,37 @@ def calculate_inventory_timing_effects(
         result.base_current_manufacturing_cost
         - result.comparison_current_manufacturing_cost
     )
-    result.inventory_timing_effect = (
+    result.gross_inventory_timing_effect = (
         result.manufactured_cogs_effect - result.current_manufacturing_cost_effect
+    )
+    if core_cogs_overlap is not None:
+        if (
+            core_cogs_overlap.source_validation_status != "PASS"
+            or core_cogs_overlap.pool_validation_status != "PASS"
+            or core_cogs_overlap.policy_status != "APPLIED_CORE_ONLY"
+        ):
+            raise ValueError("core manufactured COGS overlap validation failed")
+        result.core_cogs_quantity_overlap_effect = (
+            core_cogs_overlap.quantity_overlap_effect
+        )
+        result.core_cogs_mix_overlap_effect = core_cogs_overlap.mix_overlap_effect
+        result.core_manufactured_cogs_overlap_effect = (
+            core_cogs_overlap.total_overlap_effect
+        )
+        result.core_overlap_policy_status = core_cogs_overlap.policy_status
+        result.core_overlap_source_validation_status = (
+            core_cogs_overlap.source_validation_status
+        )
+        result.core_overlap_pool_validation_status = (
+            core_cogs_overlap.pool_validation_status
+        )
+        result.core_overlap_details = list(core_cogs_overlap.details)
+        result.core_overlap_excluded_sources = list(
+            core_cogs_overlap.excluded_sources
+        )
+    result.inventory_timing_effect = (
+        result.gross_inventory_timing_effect
+        - result.core_manufactured_cogs_overlap_effect
     )
     result.current_cost_related_effects = float(current_cost_related_effects)
     result.current_cost_explanation_gap = (
@@ -221,13 +268,25 @@ def calculate_inventory_timing_effects(
 
     latest_selected = selected[-1]
     history_months = tuple(month for month in common if month <= latest_selected)[-3:]
+    overlap_by_month = {
+        str(row.get("period")): row
+        for row in (core_cogs_overlap.monthly_details if core_cogs_overlap else [])
+    }
     for month in history_months:
         manufactured_effect = left[month].manufactured_cogs - right[month].manufactured_cogs
         current_effect = (
             left[month].current_manufacturing_cost
             - right[month].current_manufacturing_cost
         )
-        timing = manufactured_effect - current_effect
+        gross_timing = manufactured_effect - current_effect
+        overlap = _number(overlap_by_month.get(month, {}).get("total_overlap_effect"))
+        quantity_overlap = _number(
+            overlap_by_month.get(month, {}).get("quantity_overlap_effect")
+        )
+        mix_overlap = _number(
+            overlap_by_month.get(month, {}).get("mix_overlap_effect")
+        )
+        timing = gross_timing - overlap
         result.monthly_details.append({
             "period": month,
             "base_manufactured_cogs": left[month].manufactured_cogs,
@@ -236,6 +295,10 @@ def calculate_inventory_timing_effects(
             "base_current_manufacturing_cost": left[month].current_manufacturing_cost,
             "comparison_current_manufacturing_cost": right[month].current_manufacturing_cost,
             "current_manufacturing_cost_effect": current_effect,
+            "gross_inventory_timing_effect": gross_timing,
+            "core_cogs_quantity_overlap_effect": quantity_overlap,
+            "core_cogs_mix_overlap_effect": mix_overlap,
+            "core_manufactured_cogs_overlap_effect": overlap,
             "inventory_timing_effect": timing,
             "direction": _direction(timing),
             "source_reference": (

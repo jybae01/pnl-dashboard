@@ -76,6 +76,28 @@ def _build_workbook(path, *, comparison: bool = False) -> None:
     put(38, 0)
     put(41, 1)
     put(1593, 100, 90)
+    # Slice 5D production contract requires authoritative, positive Base
+    # denominators for every manufactured product group.  These core-only
+    # sources deliberately exclude the adjustment/merchandise rows.
+    put(1632, 10, 10)
+    put(1645, 10, 10)
+    put(1668, 10, 10)
+    put(1720, 10, 10)
+    put(1031, 100, 90)
+    put(1056, 0, 0)
+    put(1081, 10, 10)
+    put(1106, 0, 0)
+    put(1131, 10, 10)
+    put(473, 10, 10)
+    put(494, 0, 0)
+    put(515, 0, 0)
+    put(1595, 100, 90)
+    put(1634, 10, 10)
+    put(1647, 10, 10)
+    put(1670, 10, 10)
+    put(1722, 10, 10)
+    put(1154, 120, 110)
+    put(536, 10, 10)
     put(556, 60)
     put(557, 40)
     put(568, 10)
@@ -105,7 +127,6 @@ def _build_workbook(path, *, comparison: bool = False) -> None:
         44, 47, 50, 53, 56, 59, 62, 65, 68, 71, 74, 77,
         119, 122, 125, 558, 559, 560, 570, 571, 911, 918, 925,
         586, 589, 592, 958, 959, 960, 913, 914, 920, 921, 927,
-        1632, 1720,
     ):
         put(row, 0)
 

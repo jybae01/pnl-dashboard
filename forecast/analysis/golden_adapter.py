@@ -9,6 +9,7 @@ from .material_effects import calculate_material_effects
 from .schema import (
     ActivityRecord,
     AnalysisScenario,
+    CoreManufacturedCogsRecord,
     CurrentCostComponentRecord,
     ExpenseRecord,
     InventoryCostRecord,
@@ -490,6 +491,7 @@ class GoldenAnalysisAdapter:
         sga_expenses: list[ExpenseRecord] = []
         activities: list[ActivityRecord] = []
         inventory_costs: list[InventoryCostRecord] = []
+        core_manufactured_cogs: list[CoreManufacturedCogsRecord] = []
         current_cost_components: list[CurrentCostComponentRecord] = []
         opening_inventory_units: list[OpeningInventoryUnitRecord] = []
         pnl: list[PnlRecord] = []
@@ -501,6 +503,9 @@ class GoldenAnalysisAdapter:
         }
         pnl_rows = self.comparison["pnl_rows"]
         inventory_mapping = self.adapter.get("inventory_timing", {})
+        core_cogs_mapping = (
+            self.mapping.get("sales_cogs_scope_analysis", {}).get("groups", {})
+        )
         source_validation_status, source_validation_issues = (
             self._inventory_source_validation(workbook, months)
         )
@@ -524,6 +529,46 @@ class GoldenAnalysisAdapter:
                 workbook, int(meta.year), month, sales_fx=sales_fx
             )
             products.extend(month_products)
+            for product_group in ("SW", "BW", "LC", "FS"):
+                core_source = dict(core_cogs_mapping.get(product_group) or {})
+                quantity_row = int(core_source.get("quantity_row") or 0)
+                core_rows = [
+                    int(row)
+                    for row in core_source.get("matched_manufactured_cogs_rows", ())
+                ]
+                core_manufactured_cogs.append(CoreManufacturedCogsRecord(
+                    year_month=year_month,
+                    product_group=product_group,
+                    pool=(
+                        "LENGTH"
+                        if core_source.get("unit_basis") == "LENGTH" else "PCS"
+                    ),
+                    unit=(
+                        "m" if core_source.get("unit_basis") == "LENGTH" else "PCS"
+                    ),
+                    sales_quantity=self._number(
+                        workbook.value(f"{column}{quantity_row}")
+                        if quantity_row else 0.0
+                    ),
+                    core_manufactured_cogs=sum(
+                        self._number(workbook.value(f"{column}{row}"))
+                        for row in core_rows
+                    ),
+                    quantity_source=(
+                        f"Data!{column}{quantity_row}" if quantity_row else "UNMAPPED"
+                    ),
+                    core_cogs_source=(
+                        self._source_reference(column, core_rows)
+                        if core_rows else "UNMAPPED"
+                    ),
+                    source_validation_status=(
+                        "SOURCE_MAPPED" if quantity_row and core_rows else "UNMAPPED"
+                    ),
+                    scope_validation_status=(
+                        "CORE_ONLY"
+                        if quantity_row and core_rows else "UNMAPPED"
+                    ),
+                ))
             for source in manufacturing_accounts:
                 row = int(source["row"])
                 account = str(source["account"])
@@ -706,6 +751,7 @@ class GoldenAnalysisAdapter:
             sga_expenses=sga_expenses,
             activities=activities,
             inventory_costs=inventory_costs,
+            core_manufactured_cogs=core_manufactured_cogs,
             current_cost_components=current_cost_components,
             opening_inventory_units=opening_inventory_units,
             pnl=pnl,

@@ -145,6 +145,18 @@ class EvidenceWorkbookTraceabilityTests(unittest.TestCase):
 
         inventory = workbook["재고원가반영시차_근거"]
         self.assertEqual(inventory["D12"].value, "=D10-D11")
+        self.assertEqual(inventory["D15"].value, "=D13+D14")
+        self.assertEqual(inventory["D16"].value, "=D12-D15")
+        self.assertEqual(inventory["F17"].value, "PASS")
+        self.assertTrue(any(
+            cell.value == "Embedded Quantity COGS Expense"
+            for row in inventory.iter_rows()
+            for cell in row
+        ))
+        self.assertEqual(scope["J4"].value, "Net Inventory Timing")
+        self.assertEqual(scope["J5"].value, "Gross Inventory Timing (before deduction)")
+        self.assertEqual(scope["K5"].value, "=K4+H7")
+        self.assertTrue(scope["K6"].value)
         self.assertIn("Data!E325", inventory["G8"].value)
         self.assertEqual(workbook["상품원가검증"]["B9"].value[:4], "=IF(")
         sga = workbook["판관비_검증"]
@@ -165,6 +177,19 @@ class EvidenceWorkbookTraceabilityTests(unittest.TestCase):
         self.assertEqual(
             bridge[f"B{_row_with_value(bridge, 'A', 'Current Cost Basis Gap 신규 Effect 아님')}"].value[:4],
             "=IF(",
+        )
+        inventory_bridge_row = _row_with_value(bridge, "A", "inventory_timing")
+        self.assertEqual(
+            bridge[f"C{inventory_bridge_row}"].value,
+            "='재고원가반영시차_근거'!D16",
+        )
+        self.assertEqual(
+            sum(
+                1
+                for row in range(1, bridge.max_row + 1)
+                if bridge[f"A{row}"].value == "inventory_timing"
+            ),
+            1,
         )
 
         residual_rca = workbook["Residual_RCA"]
@@ -223,7 +248,7 @@ class EvidenceWorkbookTraceabilityTests(unittest.TestCase):
         self.assertEqual(overlap["H5"].value, "=-H4")
         self.assertEqual(overlap["K5"].value, "=IFERROR(ABS(H4)/ABS(K4),0)")
         self.assertEqual(overlap["K6"].value, "=K4-H4")
-        self.assertFalse(overlap["H7"].value)
+        self.assertTrue(overlap["H7"].value)
         self.assertFalse(any(
             overlap[f"D{row}"].value == "신사업"
             for row in range(10, overlap.max_row + 1)
@@ -253,6 +278,11 @@ class EvidenceWorkbookTraceabilityTests(unittest.TestCase):
             overlap, "A", "LC manufactured/total source mismatch disclosed"
         )
         self.assertTrue(overlap[f"B{lc_scope_validation}"].value.startswith("=IF("))
+
+        scope_policy_row = _row_with_value(
+            scope, "A", "Core overlap Production policy applied"
+        )
+        self.assertEqual(scope[f"B{scope_policy_row}"].value, "=IF(K6=TRUE,0,1)")
 
         errors = []
         for ws in workbook.worksheets:

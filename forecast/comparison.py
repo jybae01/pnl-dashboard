@@ -9,6 +9,10 @@ from .storage import ModelMeta
 from .workbook import GoldenWorkbook
 from .analysis.configuration import AnalysisConfig
 from .analysis.current_cost_basis import calculate_current_cost_basis_analysis
+from .analysis.core_cogs_overlap import (
+    calculate_core_manufactured_cogs_overlap,
+    core_cogs_overlap_source,
+)
 from .analysis.golden_adapter import AdaptedGoldenScenario, GoldenAnalysisAdapter
 from .analysis.inventory_effects import calculate_inventory_timing_effects
 from .analysis.manufacturing_effects import calculate_manufacturing_effects
@@ -58,6 +62,7 @@ class ComparisonResult:
     residual_analysis: dict[str, Any] = field(default_factory=dict)
     sales_cogs_basis_analysis: dict[str, Any] = field(default_factory=dict)
     sales_cogs_scope_analysis: dict[str, Any] = field(default_factory=dict)
+    core_cogs_overlap_analysis: dict[str, Any] = field(default_factory=dict)
 
 
 class GenericComparisonEngine:
@@ -189,6 +194,7 @@ class GenericComparisonEngine:
         narrative = self._narrative(op_delta, effects, residual)
         sales_cogs_basis_analysis: dict[str, Any] = {}
         sales_cogs_scope_analysis: dict[str, Any] = {}
+        core_cogs_overlap_analysis: dict[str, Any] = {}
         if baseline.get("adapted") is not None and target.get("adapted") is not None:
             full_base_scenario = baseline["adapted"].scenario
             full_comparison_scenario = target["adapted"].scenario
@@ -209,6 +215,15 @@ class GenericComparisonEngine:
             calculated_analysis_sga = calculate_sga_effects(
                 base_scenario, comparison_scenario, self.analysis_config
             )
+            calculated_core_overlap = calculate_core_manufactured_cogs_overlap(
+                core_cogs_overlap_source(
+                    full_base_scenario.core_manufactured_cogs
+                ),
+                core_cogs_overlap_source(
+                    full_comparison_scenario.core_manufactured_cogs
+                ),
+                selected_year_months,
+            )
             calculated_inventory = calculate_inventory_timing_effects(
                 full_base_scenario,
                 full_comparison_scenario,
@@ -219,7 +234,9 @@ class GenericComparisonEngine:
                     calculated_analysis_material.total
                     + calculated_analysis_manufacturing.occurrence_total
                 ),
+                core_cogs_overlap=calculated_core_overlap,
             )
+            core_cogs_overlap_analysis = asdict(calculated_core_overlap)
             calculated_current_cost_basis = calculate_current_cost_basis_analysis(
                 base_scenario,
                 comparison_scenario,
@@ -555,6 +572,7 @@ class GenericComparisonEngine:
             residual_analysis=residual_analysis,
             sales_cogs_basis_analysis=sales_cogs_basis_analysis,
             sales_cogs_scope_analysis=sales_cogs_scope_analysis,
+            core_cogs_overlap_analysis=core_cogs_overlap_analysis,
         )
 
     @staticmethod
@@ -819,6 +837,10 @@ class GenericComparisonEngine:
                     "manufactured_quantity": value(column, quantity_row),
                     "manufactured_revenue": value(column, revenue_row),
                     "matched_manufactured_cogs": summed(column, matched_rows),
+                    "quantity_source_available": bool(quantity_row),
+                    "core_cogs_source_available": bool(matched_rows),
+                    "quantity_source_reference": reference(column, [quantity_row]),
+                    "core_cogs_source_reference": reference(column, matched_rows),
                     "sales_manufactured_cogs": (
                         summed(column, matched_rows)
                         + summed(column, adjustment_rows)

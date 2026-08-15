@@ -8,6 +8,10 @@ from .current_cost_basis import (
     CurrentCostBasisAnalysis,
     calculate_current_cost_basis_analysis,
 )
+from .core_cogs_overlap import (
+    calculate_core_manufactured_cogs_overlap,
+    core_cogs_overlap_source,
+)
 from .inventory_effects import InventoryTimingEffects, calculate_inventory_timing_effects
 from .manufacturing_effects import ManufacturingEffects, calculate_manufacturing_effects
 from .material_effects import MaterialEffects, calculate_material_effects
@@ -66,6 +70,13 @@ class AnalysisEngine:
         op_delta = sum(row.operating_profit for row in right.pnl) - sum(
             row.operating_profit for row in left.pnl
         )
+        core_overlap = None
+        if base.core_manufactured_cogs and comparison.core_manufactured_cogs:
+            core_overlap = calculate_core_manufactured_cogs_overlap(
+                core_cogs_overlap_source(base.core_manufactured_cogs),
+                core_cogs_overlap_source(comparison.core_manufactured_cogs),
+                selected,
+            )
         if left.inventory_costs and right.inventory_costs:
             inventory = calculate_inventory_timing_effects(
                 base,
@@ -74,6 +85,7 @@ class AnalysisEngine:
                 self.config,
                 operating_profit_delta=op_delta,
                 current_cost_related_effects=material.total + manufacturing.occurrence_total,
+                core_cogs_overlap=core_overlap,
             )
         else:
             inventory = InventoryTimingEffects(

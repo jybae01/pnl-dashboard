@@ -602,6 +602,10 @@ def analyze_sales_cogs_basis_overlap(
         )
 
     effect_amounts = _effect_map(effects)
+    production_core_overlap_applied = (
+        inventory_analysis.get("core_overlap_policy_status")
+        == "APPLIED_CORE_ONLY"
+    )
     return {
         "schema_version": "1",
         "status": "PASS" if all(item["status"] == "PASS" for item in checks) else "CHECK",
@@ -676,13 +680,17 @@ def analyze_sales_cogs_basis_overlap(
         },
         "checks": checks,
         "counterfactual_only": True,
-        "production_formula_mutated": False,
+        "production_formula_mutated": production_core_overlap_applied,
         "recommendation": (
-            "OPTION_A_REVIEW_FIRST"
+            "CORE_ONLY_OVERLAP_PRODUCTION_POLICY_APPLIED"
+            if production_core_overlap_applied
+            else "OPTION_A_REVIEW_FIRST"
             if verdict == "OVERLAP_CONFIRMED"
             else "OPTION_C_PENDING_SCOPE_RECONCILIATION"
             if verdict == "PARTIAL_OVERLAP"
             else "OPTION_C_PENDING_SOURCE"
         ),
-        "decision_candidate_after_scope_reconciliation": "OPTION_A",
+        "decision_candidate_after_scope_reconciliation": (
+            "PRODUCTION_APPLIED" if production_core_overlap_applied else "OPTION_A"
+        ),
     }

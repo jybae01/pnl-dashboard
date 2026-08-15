@@ -10,6 +10,7 @@ from forecast.analysis.inventory_effects import (
     calculate_inventory_timing_effects,
     classify_persistence,
 )
+from forecast.analysis.core_cogs_overlap import CoreManufacturedCogsOverlap
 from forecast.analysis.manufacturing_effects import calculate_manufacturing_effects
 from forecast.analysis.schema import (
     ActivityRecord,
@@ -90,6 +91,61 @@ def test_persistence_rules() -> None:
     assert classify_persistence([10, -20, 30], latest_material=True) == PERSISTENCE_MIXED
     assert classify_persistence([10, 20, -30], latest_material=True) == PERSISTENCE_REVERSAL
     assert classify_persistence([10, 20], latest_material=True) == PERSISTENCE_INSUFFICIENT
+
+
+def test_rolling_three_month_persistence_uses_net_inventory_timing() -> None:
+    base = _scenario("base", [
+        ("2026-05", 100.0, 160.0, 0.0),
+        ("2026-06", 100.0, 160.0, 0.0),
+        ("2026-07", 100.0, 160.0, 0.0),
+    ])
+    comparison = _scenario("comparison", [
+        ("2026-05", 100.0, 150.0, 0.0),
+        ("2026-06", 100.0, 150.0, 0.0),
+        ("2026-07", 100.0, 150.0, 0.0),
+    ])
+    overlap = CoreManufacturedCogsOverlap(
+        quantity_overlap_effect=20.0,
+        total_overlap_effect=20.0,
+        source_validation_status="PASS",
+        pool_validation_status="PASS",
+        policy_status="APPLIED_CORE_ONLY",
+        monthly_details=[
+            {
+                "period": month,
+                "quantity_overlap_effect": amount,
+                "mix_overlap_effect": 0.0,
+                "total_overlap_effect": amount,
+            }
+            for month, amount in (
+                ("2026-05", 0.0),
+                ("2026-06", 0.0),
+                ("2026-07", 20.0),
+            )
+        ],
+    )
+
+    result = calculate_inventory_timing_effects(
+        base,
+        comparison,
+        ("2026-07",),
+        _config(),
+        operating_profit_delta=10.0,
+        current_cost_related_effects=0.0,
+        core_cogs_overlap=overlap,
+    )
+
+    assert [row["gross_inventory_timing_effect"] for row in result.monthly_details] == [
+        10.0,
+        10.0,
+        10.0,
+    ]
+    assert [row["inventory_timing_effect"] for row in result.monthly_details] == [
+        10.0,
+        10.0,
+        -10.0,
+    ]
+    assert result.persistence == PERSISTENCE_REVERSAL
 
 
 def test_units_coverage_and_no_primary_when_materiality_unconfigured() -> None:

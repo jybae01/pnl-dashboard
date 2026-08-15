@@ -301,7 +301,11 @@ def analyze_residual_rca(
         {"effect_code": "manufacturing_activity", "pnl_bucket": "MANUFACTURED_COGS", "additive": False, "rca_allocation": False, "parent": "manufacturing_realized", "amount": _number(basis.get("manufacturing_activity_effect")), "direct_source_scope": "production activity", "note": "non-additive child"},
         {"effect_code": "manufacturing_unit", "pnl_bucket": "MANUFACTURED_COGS", "additive": False, "rca_allocation": False, "parent": "manufacturing_realized", "amount": _number(basis.get("manufacturing_unit_effect")), "direct_source_scope": "manufacturing unit cost", "note": "non-additive child"},
         {"effect_code": "manufacturing_fixed", "pnl_bucket": "MANUFACTURED_COGS", "additive": False, "rca_allocation": False, "parent": "manufacturing_realized", "amount": _number(basis.get("manufacturing_fixed_effect")), "direct_source_scope": "fixed manufacturing account", "note": "non-additive child"},
-        {"effect_code": "inventory_timing", "pnl_bucket": "MANUFACTURED_COGS", "additive": True, "rca_allocation": True, "parent": None, "amount": effect_amounts.get("inventory_timing", 0.0), "direct_source_scope": "manufactured COGS less current manufacturing cost", "note": "one additive timing effect"},
+        {"effect_code": "inventory_timing", "pnl_bucket": "MANUFACTURED_COGS", "additive": True, "rca_allocation": True, "parent": None, "amount": effect_amounts.get("inventory_timing", 0.0), "direct_source_scope": "gross inventory timing less core manufactured COGS overlap", "note": "one additive Net Inventory Timing effect"},
+        {"effect_code": "gross_inventory_timing", "pnl_bucket": "MANUFACTURED_COGS", "additive": False, "rca_allocation": False, "parent": "inventory_timing", "amount": _number(inventory_analysis.get("gross_inventory_timing_effect")), "direct_source_scope": "manufactured COGS less current manufacturing cost", "note": "non-additive evidence parent input"},
+        {"effect_code": "core_manufactured_cogs_overlap", "pnl_bucket": "MANUFACTURED_COGS", "additive": False, "rca_allocation": False, "parent": "inventory_timing", "amount": _number(inventory_analysis.get("core_manufactured_cogs_overlap_effect")), "direct_source_scope": "authoritative SW/BW/LC/FS core COGS matched to Sales Quantity/Mix", "note": "deducted inside inventory_timing; never separately additive"},
+        {"effect_code": "core_cogs_quantity_overlap", "pnl_bucket": "MANUFACTURED_COGS", "additive": False, "rca_allocation": False, "parent": "core_manufactured_cogs_overlap", "amount": _number(inventory_analysis.get("core_cogs_quantity_overlap_effect")), "direct_source_scope": "pool-total Quantity delta at Base core COGS/unit", "note": "PCS/LENGTH calculated separately"},
+        {"effect_code": "core_cogs_mix_overlap", "pnl_bucket": "MANUFACTURED_COGS", "additive": False, "rca_allocation": False, "parent": "core_manufactured_cogs_overlap", "amount": _number(inventory_analysis.get("core_cogs_mix_overlap_effect")), "direct_source_scope": "between-group Mix delta at Base core COGS/unit", "note": "same-group SKU Mix remains excluded"},
         {"effect_code": "sga_variable", "pnl_bucket": "SG&A", "additive": True, "rca_allocation": True, "parent": None, "amount": effect_amounts.get("sga_variable", 0.0), "direct_source_scope": "variable SG&A accounts", "note": "transport excluded"},
         {"effect_code": "sga_fixed", "pnl_bucket": "SG&A", "additive": True, "rca_allocation": True, "parent": None, "amount": effect_amounts.get("sga_fixed", 0.0), "direct_source_scope": "fixed SG&A accounts", "note": "transport excluded"},
         {"effect_code": "forecast_merchandise_cogs", "pnl_bucket": "MERCHANDISE_COGS", "additive": False, "rca_allocation": False, "parent": None, "amount": None, "direct_source_scope": "Forecast workbook only", "note": "not an Actual comparison Effect"},
@@ -371,6 +375,28 @@ def analyze_residual_rca(
             period_label, "Current Manufacturing Cost basis reconciliation",
             str(item.get("source_coverage") or "UNKNOWN"), str(item.get("reason") or ""),
         ))
+
+    core_overlap = _number(
+        inventory_analysis.get("core_manufactured_cogs_overlap_effect")
+    )
+    components.append(_component(
+        "core_manufactured_cogs_overlap_deduction",
+        "MANUFACTURED_COGS",
+        core_overlap,
+        "FORMULA_BASIS_DIFFERENCE",
+        "Sales Quantity/Mix embedded core manufactured COGS",
+        "core_manufactured_cogs_overlap_effect",
+        "Gross Inventory Timing - Core Manufactured COGS Overlap = Net Inventory Timing",
+        " | ".join(
+            str(item.get("base_core_cogs_source_reference") or "")
+            for item in inventory_analysis.get("core_overlap_details") or []
+            if item.get("selected")
+        ) or "SOURCE_REFERENCE_UNAVAILABLE",
+        period_label,
+        "SW/BW/LC PCS and FS LENGTH core-only manufactured COGS",
+        str(inventory_analysis.get("core_overlap_source_validation_status") or "UNKNOWN"),
+        "Non-additive overlap is deducted once inside Inventory Timing; adjustments, merchandise, and row323 are excluded.",
+    ))
 
     components.append(_component(
         "merchandise_cogs_scope", "MERCHANDISE_COGS", direct_merchandise,
@@ -561,6 +587,11 @@ def analyze_residual_rca(
             "mcm_non_additive": "PASS",
             "manufacturing_parent_children": "PASS",
             "inventory_timing_once": "PASS",
+            "core_cogs_overlap_non_additive": "PASS",
+            "gross_inventory_timing_non_additive": "PASS",
+            "adjustment_not_unitized": "PASS",
+            "merchandise_excluded_from_overlap": "PASS",
+            "row323_separate_effect": "PASS",
             "merchandise_vs_manufactured": "PASS",
             "sga_vs_freight": "PASS",
             "current_cost_basis_gap_non_additive": "PASS",

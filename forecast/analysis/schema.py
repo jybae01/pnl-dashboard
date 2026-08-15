@@ -144,6 +144,22 @@ class InventoryCostRecord:
 
 
 @dataclass(frozen=True)
+class CoreManufacturedCogsRecord:
+    """Authoritative sales-matched core COGS source for overlap removal."""
+
+    year_month: str
+    product_group: str
+    pool: str
+    unit: str
+    sales_quantity: float
+    core_manufactured_cogs: float
+    quantity_source: str
+    core_cogs_source: str
+    source_validation_status: str = "UNVALIDATED"
+    scope_validation_status: str = "UNVALIDATED"
+
+
+@dataclass(frozen=True)
 class CurrentCostComponentRecord:
     """Canonical source component of current manufacturing cost.
 
@@ -202,6 +218,9 @@ class AnalysisScenario:
     sga_expenses: list[ExpenseRecord] = field(default_factory=list)
     activities: list[ActivityRecord] = field(default_factory=list)
     inventory_costs: list[InventoryCostRecord] = field(default_factory=list)
+    core_manufactured_cogs: list[CoreManufacturedCogsRecord] = field(
+        default_factory=list
+    )
     current_cost_components: list[CurrentCostComponentRecord] = field(default_factory=list)
     opening_inventory_units: list[OpeningInventoryUnitRecord] = field(default_factory=list)
     pnl: list[PnlRecord] = field(default_factory=list)
@@ -215,6 +234,7 @@ class AnalysisScenario:
             self.sga_expenses,
             self.activities,
             self.inventory_costs,
+            self.core_manufactured_cogs,
             self.current_cost_components,
             self.opening_inventory_units,
             self.pnl,
@@ -231,6 +251,10 @@ class AnalysisScenario:
             sga_expenses=[row for row in self.sga_expenses if row.year_month in selected],
             activities=[row for row in self.activities if row.year_month in selected],
             inventory_costs=[row for row in self.inventory_costs if row.year_month in selected],
+            core_manufactured_cogs=[
+                row for row in self.core_manufactured_cogs
+                if row.year_month in selected
+            ],
             current_cost_components=[
                 row for row in self.current_cost_components if row.year_month in selected
             ],
@@ -272,6 +296,7 @@ class AnalysisScenario:
             ],
             "activities": rows(self.activities),
             "inventory_costs": rows(self.inventory_costs),
+            "core_manufactured_cogs": rows(self.core_manufactured_cogs),
             "current_cost_components": rows(self.current_cost_components),
             "opening_inventory_units": rows(self.opening_inventory_units),
             "pnl": rows(self.pnl),

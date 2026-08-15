@@ -38,6 +38,25 @@ class ComparisonAnalysisBridgeTests(unittest.TestCase):
         self.assertIn("material_total", codes)
         self.assertIn("manufacturing_realized", codes)
         self.assertEqual(codes.count("tariff"), 1)
+        self.assertEqual(codes.count("inventory_timing"), 1)
+        self.assertNotIn("core_manufactured_cogs_overlap", codes)
+        inventory_effect = next(
+            row for row in result.effects if row["code"] == "inventory_timing"
+        )
+        inventory = result.inventory_analysis
+        self.assertAlmostEqual(
+            inventory_effect["profit_effect"], inventory["inventory_timing_effect"]
+        )
+        self.assertAlmostEqual(
+            inventory["gross_inventory_timing_effect"]
+            - inventory["core_manufactured_cogs_overlap_effect"],
+            inventory["inventory_timing_effect"],
+        )
+        self.assertEqual(inventory["core_overlap_policy_status"], "APPLIED_CORE_ONLY")
+        self.assertEqual(
+            result.core_cogs_overlap_analysis["total_overlap_effect"],
+            inventory["core_manufactured_cogs_overlap_effect"],
+        )
         self.assertAlmostEqual(
             sum(float(row["profit_effect"]) for row in result.effects),
             result.effects_total,
@@ -66,6 +85,21 @@ class ComparisonAnalysisBridgeTests(unittest.TestCase):
             "신사업",
             [row["product_group"] for row in result.sales_groups],
         )
+        overlap_component = next(
+            row
+            for row in result.residual_analysis["components"]
+            if row["component_id"] == "core_manufactured_cogs_overlap_deduction"
+        )
+        self.assertAlmostEqual(
+            overlap_component["amount"],
+            inventory["core_manufactured_cogs_overlap_effect"],
+        )
+        overlap_map = next(
+            row
+            for row in result.residual_analysis["effect_to_pnl_map"]
+            if row["effect_code"] == "core_manufactured_cogs_overlap"
+        )
+        self.assertFalse(overlap_map["additive"])
 
     def test_direct_tariff_is_not_double_counted_in_sga_bridge(self):
         with tempfile.TemporaryDirectory() as directory:

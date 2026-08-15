@@ -194,8 +194,8 @@ def _write_readme(ws, result: dict[str, Any], baseline_fx: float, comparison_fx:
     ws.cell(note_row + 4, 1, "4. 원천셀_추적 시트의 수식은 업로드 모형에 저장된 원본 수식이며, 값은 웹 엔진이 읽은 계산값입니다.")
     ws.cell(note_row + 5, 1, "5. MCM과 수율/사용량은 독립 손익효과로 표시하지 않습니다.")
     ws.cell(note_row + 6, 1, "6. Residual_RCA 시트는 Direct P&L과 기존 Effect의 차이를 분해하며 신규 Effect나 plug를 만들지 않습니다.")
-    ws.cell(note_row + 7, 1, "7. Sales_COGS_Basis 시트의 Option A/B/C는 분석용 Counterfactual이며 Production Quantity/Mix/Inventory Timing을 변경하지 않습니다.")
-    ws.cell(note_row + 8, 1, "8. Sales_COGS_Scope 시트는 LC 제조/상품, Sales/P&L 조정, New Business denominator와 SKU Source coverage를 분석하며 Production Formula를 변경하지 않습니다.")
+    ws.cell(note_row + 7, 1, "7. Slice 5D부터 Quantity/Mix는 유지하고 authoritative Core Manufactured COGS overlap만 Gross Inventory Timing에서 차감해 Net Inventory Timing을 Production 적용합니다.")
+    ws.cell(note_row + 8, 1, "8. Sales_COGS_Scope 시트는 LC 제조/상품, Sales/P&L 조정, New Business denominator와 SKU Source coverage를 분석하고 Slice 5D Core-only Production 적용 상태를 검증합니다.")
     ws.column_dimensions["A"].width = 28
     ws.column_dimensions["B"].width = 72
 
@@ -437,12 +437,12 @@ def _write_manufacturing_detail(ws, result: dict[str, Any]) -> None:
     )
 
 
-def _write_inventory_timing(ws, result: dict[str, Any]) -> None:
+def _write_inventory_timing(ws, result: dict[str, Any]) -> dict[str, str]:
     inventory = result.get("inventory_analysis") or {}
     _write_title(
         ws,
         "재고·원가 반영시차 검증",
-        "공식 Effect, Rolling 3M, 제품군 기초재고 단가와 Explanation Policy를 한 시트에서 추적합니다.",
+        "Gross Inventory Timing에서 Sales Quantity/Mix에 이미 포함된 Core Manufactured COGS overlap만 차감하여 Net Inventory Timing을 산출합니다.",
     )
     _write_headers(
         ws,
@@ -506,15 +506,31 @@ def _write_inventory_timing(ws, result: dict[str, Any]) -> None:
     ])
     ws["D11"] = "=B8-C8"; ws["D11"].fill = _FORMULA_FILL
     ws["F11"] = _formula_check("D11", "E11"); ws["F11"].fill = _CHECK_FILL
-    ws.append([
-        "Inventory Timing Effect", None, None, "=D10-D11",
-        _number(inventory.get("inventory_timing_effect")), None,
-        "Manufactured COGS Effect - Current Manufacturing Cost Effect",
-    ])
-    ws["D12"] = "=D10-D11"; ws["D12"].fill = _FORMULA_FILL
-    ws["F12"] = _formula_check("D12", "E12"); ws["F12"].fill = _CHECK_FILL
+    summary_rows = (
+        (12, "Gross Inventory Timing", "=D10-D11", "gross_inventory_timing_effect", "Manufactured COGS Effect - Current Manufacturing Cost Effect"),
+        (13, "Core Quantity COGS Overlap", None, "core_cogs_quantity_overlap_effect", "Sales Quantity에 내재된 core manufactured COGS, OP sign"),
+        (14, "Core Mix COGS Overlap", None, "core_cogs_mix_overlap_effect", "Sales Mix에 내재된 core manufactured COGS, OP sign"),
+        (15, "Total Core Manufactured COGS Overlap", "=D13+D14", "core_manufactured_cogs_overlap_effect", "Quantity + Mix; non-additive deduction"),
+        (16, "Net Inventory Timing Effect", "=D12-D15", "inventory_timing_effect", "공식 additive Effect = Gross - Core overlap"),
+    )
+    for row_no, label, formula, field, note in summary_rows:
+        ws.cell(row_no, 1, label)
+        if formula:
+            ws.cell(row_no, 4, formula).fill = _FORMULA_FILL
+        ws.cell(row_no, 5, _number(inventory.get(field)))
+        ws.cell(row_no, 6, _formula_check(f"D{row_no}", f"E{row_no}")).fill = _CHECK_FILL
+        ws.cell(row_no, 7, note)
+    ws["A17"] = "Core overlap policy"
+    ws["E17"] = inventory.get("core_overlap_policy_status")
+    ws["F17"] = (
+        "PASS" if inventory.get("core_overlap_policy_status") == "APPLIED_CORE_ONLY"
+        and inventory.get("core_overlap_source_validation_status") == "PASS"
+        and inventory.get("core_overlap_pool_validation_status") == "PASS"
+        else "FAIL"
+    )
+    ws["G17"] = "Adjustments, merchandise, Other COGS, P&L adjustments, row323 excluded"
 
-    row_no = 15
+    row_no = 20
     _write_headers(
         ws, row_no,
         ["Business Source", "Canonical Field", "Base/Comparison", "Period", "Unit", "Source Reference", "Used Value", "Calculation", "Validation"],
@@ -527,17 +543,78 @@ def _write_inventory_timing(ws, result: dict[str, Any]) -> None:
             "Source value (no residual/OP backsolve)", source.get("validation_status"),
         ])
 
+    core_header = ws.max_row + 3
+    _write_headers(
+        ws,
+        core_header,
+        [
+            "Period", "Selected", "Pool", "Product Group", "Unit",
+            "Base Quantity", "Comparison Quantity", "Pool Base Quantity",
+            "Pool Comparison Quantity", "Base Core Manufactured COGS",
+            "Base Core COGS/unit", "Base Mix", "Comparison Mix",
+            "Embedded Quantity COGS Expense", "Embedded Mix COGS Expense",
+            "Quantity Overlap OP", "Mix Overlap OP", "Total Overlap OP",
+            "Engine Quantity", "Engine Mix", "Engine Total", "Validation",
+            "Base Quantity Source", "Base Core COGS Source",
+            "Comparison Quantity Source", "Comparison Core COGS Source",
+        ],
+    )
+    core_start = core_header + 1
+    core_details = list(inventory.get("core_overlap_details") or [])
+    for item in core_details:
+        current = ws.max_row + 1
+        ws.append([
+            item.get("period"), "YES" if item.get("selected") else "NO",
+            item.get("pool"), item.get("product_group"), item.get("unit"),
+            item.get("base_quantity"), item.get("comparison_quantity"),
+            item.get("pool_base_quantity"), item.get("pool_comparison_quantity"),
+            item.get("base_core_manufactured_cogs"), None, None, None, None,
+            None, None, None, None,
+            item.get("quantity_overlap_effect"), item.get("mix_overlap_effect"),
+            item.get("total_overlap_effect"), None,
+            item.get("base_quantity_source_reference"),
+            item.get("base_core_cogs_source_reference"),
+            item.get("comparison_quantity_source_reference"),
+            item.get("comparison_core_cogs_source_reference"),
+        ])
+        ws.cell(current, 11, f"=J{current}/F{current}").fill = _FORMULA_FILL
+        ws.cell(current, 12, f"=F{current}/H{current}").fill = _FORMULA_FILL
+        ws.cell(current, 13, f"=IF(I{current}=0,0,G{current}/I{current})").fill = _FORMULA_FILL
+        ws.cell(current, 14, f"=(I{current}-H{current})*L{current}*K{current}").fill = _FORMULA_FILL
+        ws.cell(current, 15, f"=I{current}*(M{current}-L{current})*K{current}").fill = _FORMULA_FILL
+        ws.cell(current, 16, f"=-N{current}").fill = _FORMULA_FILL
+        ws.cell(current, 17, f"=-O{current}").fill = _FORMULA_FILL
+        ws.cell(current, 18, f"=P{current}+Q{current}").fill = _FORMULA_FILL
+        ws.cell(
+            current,
+            22,
+            f'=IF(MAX(ABS(P{current}-S{current}),ABS(Q{current}-T{current}),ABS(R{current}-U{current}))<=1,"PASS","FAIL")',
+        ).fill = _CHECK_FILL
+    core_end = max(core_start, ws.max_row)
+    ws["D13"] = f'=SUMIFS(P{core_start}:P{core_end},B{core_start}:B{core_end},"YES")'
+    ws["D14"] = f'=SUMIFS(Q{core_start}:Q{core_end},B{core_start}:B{core_end},"YES")'
+    ws["D13"].fill = _FORMULA_FILL
+    ws["D14"].fill = _FORMULA_FILL
+
     row_no = ws.max_row + 3
     _write_headers(
         ws,
         row_no,
-        ["Rolling 3M Period", "Inventory Timing Effect", "Direction", "Persistence", "Source Reference"],
+        [
+            "Rolling 3M Period", "Gross Inventory Timing", "Quantity Overlap",
+            "Mix Overlap", "Total Core Overlap", "Net Inventory Timing",
+            "Direction", "Persistence", "Source Reference",
+        ],
     )
     rolling = list(inventory.get("monthly_details") or [])
     for item in rolling:
         ws.append([
-            item.get("period"), item.get("inventory_timing_effect"),
-            item.get("direction"), inventory.get("persistence"),
+            item.get("period"), item.get("gross_inventory_timing_effect"),
+            item.get("core_cogs_quantity_overlap_effect"),
+            item.get("core_cogs_mix_overlap_effect"),
+            item.get("core_manufactured_cogs_overlap_effect"),
+            item.get("inventory_timing_effect"), item.get("direction"),
+            inventory.get("persistence"),
             item.get("source_reference"),
         ])
 
@@ -579,9 +656,17 @@ def _write_inventory_timing(ws, result: dict[str, Any]) -> None:
             cell.alignment = Alignment(vertical="top", wrap_text=True)
             if cell.column in {2, 3, 4, 5, 7} and isinstance(cell.value, (int, float)):
                 cell.number_format = '#,##0'
-    for column, width in {"A": 32, "B": 22, "C": 24, "D": 24, "E": 22, "F": 26, "G": 54, "H": 38, "I": 22, "J": 52, "K": 52}.items():
+    for column, width in {"A": 32, "B": 18, "C": 18, "D": 22, "E": 18, "F": 18, "G": 42, "H": 18, "I": 18, "J": 24, "K": 20, "L": 16, "M": 16, "N": 22, "O": 22, "P": 20, "Q": 20, "R": 20, "S": 20, "T": 20, "U": 20, "V": 16, "W": 34, "X": 42, "Y": 34, "Z": 42}.items():
         ws.column_dimensions[column].width = width
     ws.freeze_panes = "A5"
+    return {
+        "gross_inventory_timing": "D12",
+        "core_quantity_overlap": "D13",
+        "core_mix_overlap": "D14",
+        "core_total_overlap": "D15",
+        "inventory_timing": "D16",
+        "core_overlap_policy": "F17",
+    }
 
 
 def _write_current_cost_basis(
@@ -794,7 +879,9 @@ def _write_formula_catalog(ws) -> None:
         ("제조경비", "최종 제조경비 Effect", "조업도+원단위+고정비 발생효과", "재고실현율은 참고지표이며 multiplier 미적용", "forecast/analysis/manufacturing_effects.py"),
         ("재고시차", "Manufactured COGS Effect", "Base Manufactured COGS-Comparison Manufactured COGS", "제품+반제품 COGS", "forecast/analysis/inventory_effects.py"),
         ("재고시차", "Current Manufacturing Cost Effect", "Base Current Manufacturing Cost-Comparison Current Manufacturing Cost", "당기투입제조원가", "forecast/analysis/inventory_effects.py"),
-        ("재고시차", "Inventory Timing Effect", "Manufactured COGS Effect-Current Manufacturing Cost Effect", "개선 + / 악화 -", "forecast/analysis/inventory_effects.py"),
+        ("재고시차", "Gross Inventory Timing", "Manufactured COGS Effect-Current Manufacturing Cost Effect", "Evidence only; non-additive", "forecast/analysis/inventory_effects.py"),
+        ("재고시차", "Core Manufactured COGS Overlap", "Core Quantity overlap+Core Mix overlap", "Inventory Timing 내부 차감; 비가산", "forecast/analysis/core_cogs_overlap.py"),
+        ("재고시차", "Net Inventory Timing Effect", "Gross Inventory Timing-Core Manufactured COGS Overlap", "개선 + / 악화 -; 공식 additive Effect", "forecast/analysis/inventory_effects.py"),
         ("당기제조원가 Basis", "Existing Driver subtotal", "Raw Material Effect+Manufacturing Activity+Unit+Fixed", "기존 공식 불변", "forecast/analysis/current_cost_basis.py"),
         ("당기제조원가 Basis", "Basis Gap", "Current Manufacturing Cost Effect-Existing Driver subtotal", "설명 Evidence only; Effect/Residual/Plug 아님", "forecast/analysis/current_cost_basis.py"),
         ("손익 브리지", "비용 효과", "기준 비용-비교 비용", "비용 감소는 손익 개선 +", "forecast/comparison.py"),
@@ -1003,7 +1090,7 @@ def build_comparison_audit_workbook(
     manufacturing_cells = write_manufacturing_evidence(
         workbook.create_sheet("제조경비_근거"), result
     )
-    _write_inventory_timing(
+    inventory_cells = _write_inventory_timing(
         workbook.create_sheet("재고원가반영시차_근거"), result
     )
     merchandise_cells = write_merchandise_link(
@@ -1032,7 +1119,24 @@ def build_comparison_audit_workbook(
         bridge_cells["manufacturing_realized"] = (
             "제조경비_근거", str(manufacturing_cells["manufacturing_realized"])
         )
-    bridge_cells["inventory_timing"] = ("재고원가반영시차_근거", "D12")
+    bridge_cells["inventory_timing"] = (
+        "재고원가반영시차_근거", inventory_cells["inventory_timing"]
+    )
+    bridge_cells["gross_inventory_timing"] = (
+        "재고원가반영시차_근거", inventory_cells["gross_inventory_timing"]
+    )
+    bridge_cells["core_cogs_quantity_overlap"] = (
+        "재고원가반영시차_근거", inventory_cells["core_quantity_overlap"]
+    )
+    bridge_cells["core_cogs_mix_overlap"] = (
+        "재고원가반영시차_근거", inventory_cells["core_mix_overlap"]
+    )
+    bridge_cells["core_manufactured_cogs_overlap"] = (
+        "재고원가반영시차_근거", inventory_cells["core_total_overlap"]
+    )
+    bridge_cells["core_overlap_policy"] = (
+        "재고원가반영시차_근거", inventory_cells["core_overlap_policy"]
+    )
     for code in ("sga_variable", "sga_fixed"):
         if sga_cells.get(code):
             bridge_cells[code] = ("판관비_검증", sga_cells[code])

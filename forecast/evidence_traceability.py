@@ -621,6 +621,21 @@ def write_final_bridge(
         ("Raw Material / FX 중복 없음", f'=IF(AND(COUNTIF(A{start}:A{end},"material_total")=1,COUNTIF(A{start}:A{end},"nonwoven_jpy")=0),"PASS","FAIL")', "FX는 material_total 구성요소"),
         ("Manufacturing 하위 Effect 중복 없음", f'=IF(AND(COUNTIF(A{start}:A{end},"manufacturing_realized")=1,COUNTIF(A{start}:A{end},"manufacturing_activity")=0,COUNTIF(A{start}:A{end},"manufacturing_unit")=0,COUNTIF(A{start}:A{end},"manufacturing_fixed")=0),"PASS","FAIL")', "Subtotal만 additive"),
         ("Inventory Timing 한 번만 additive", f'=IF(COUNTIF(A{start}:A{end},"inventory_timing")=1,"PASS","FAIL")', "공식 Effect 1회"),
+        (
+            "Core Sales COGS double count removed",
+            f'=IF(ABS({_sheet_ref(*evidence_cells["inventory_timing"])[1:]}-({_sheet_ref(*evidence_cells["gross_inventory_timing"])[1:]}-{_sheet_ref(*evidence_cells["core_manufactured_cogs_overlap"])[1:]}))<=1,"PASS","FAIL")',
+            "Net Inventory Timing = Gross - Core overlap",
+        ),
+        (
+            "Core overlap counted in Quantity/Mix",
+            f'=IF(ABS({_sheet_ref(*evidence_cells["core_manufactured_cogs_overlap"])[1:]}-({_sheet_ref(*evidence_cells["core_cogs_quantity_overlap"])[1:]}+{_sheet_ref(*evidence_cells["core_cogs_mix_overlap"])[1:]}))<=1,"PASS","FAIL")',
+            "Core overlap = Quantity overlap + Mix overlap",
+        ),
+        ("Core overlap separately additive = FALSE", f'=IF(COUNTIF(A{start}:A{end},"core_manufactured_cogs_overlap")=0,"PASS","FAIL")', "Inventory Timing 내부 non-additive deduction"),
+        ("Gross Inventory Timing additive = FALSE", f'=IF(COUNTIF(A{start}:A{end},"gross_inventory_timing")=0,"PASS","FAIL")', "Net Inventory Timing만 additive"),
+        ("Adjustment unitized = FALSE", _sheet_ref(*evidence_cells["core_overlap_policy"]), "Core-only Source contract"),
+        ("Merchandise included in overlap = FALSE", _sheet_ref(*evidence_cells["core_overlap_policy"]), "LC/New Business merchandise excluded"),
+        ("row323 separate Effect = FALSE", _sheet_ref(*evidence_cells["core_overlap_policy"]), "Current Manufacturing Cost disclosure only"),
         ("Current Cost Basis Gap 신규 Effect 아님", f'=IF(COUNTIF(A{start}:A{end},"current_cost_basis_gap")=0,"PASS","FAIL")', "Disclosure only"),
         ("Forecast Merchandise / Manufactured COGS Scope 분리", _sheet_ref(*merchandise_validation), "상품원가검증 연결"),
         ("Residual plug 없음", f'=IF(COUNTIF(A{start}:A{end},"current_cost_basis_gap")=0,"PASS","FAIL")', "Engine residual을 다른 Effect로 backsolve하지 않음"),
@@ -877,6 +892,9 @@ def write_residual_rca(
         ("MCM 독립 Effect 아님", f'=IF(AND(COUNTIFS(A{effect_start}:A{effect_end},"mcm_policy",C{effect_start}:C{effect_end},"NO")=1,COUNTIFS(A{effect_start}:A{effect_end},"mcm_policy",E{effect_start}:E{effect_end},"YES")=0),"PASS","FAIL")', "PRESENTATION_ONLY 정책 disclosure; 유상사급 mapping gap과 중복 배정하지 않음"),
         ("Manufacturing parent / child 중복 없음", f'=IF(AND(COUNTIFS(A{effect_start}:A{effect_end},"manufacturing_realized",C{effect_start}:C{effect_end},"YES")=1,COUNTIFS(D{effect_start}:D{effect_end},"manufacturing_realized",C{effect_start}:C{effect_end},"NO")=3),"PASS","FAIL")', "Volume/Unit/Fixed 비가산"),
         ("Inventory Timing 1회", f'=IF(COUNTIFS(A{effect_start}:A{effect_end},"inventory_timing",C{effect_start}:C{effect_end},"YES")=1,"PASS","FAIL")', "Manufactured COGS에만 배정"),
+        ("Gross Inventory Timing 비가산", f'=IF(COUNTIFS(A{effect_start}:A{effect_end},"gross_inventory_timing",C{effect_start}:C{effect_end},"NO")=1,"PASS","FAIL")', "Net Inventory Timing의 내부 input"),
+        ("Core overlap 비가산", f'=IF(COUNTIFS(A{effect_start}:A{effect_end},"core_manufactured_cogs_overlap",C{effect_start}:C{effect_end},"NO")=1,"PASS","FAIL")', "Inventory Timing 내부 1회 차감"),
+        ("Core overlap Quantity/Mix children 비가산", f'=IF(AND(COUNTIFS(A{effect_start}:A{effect_end},"core_cogs_quantity_overlap",C{effect_start}:C{effect_end},"NO")=1,COUNTIFS(A{effect_start}:A{effect_end},"core_cogs_mix_overlap",C{effect_start}:C{effect_end},"NO")=1),"PASS","FAIL")', "PCS/LENGTH pool 계산 후 금액만 합산"),
         ("Merchandise / Manufactured 분리", f'=IF(AND(COUNTIF(A{bucket_start}:A{bucket_end},"MERCHANDISE_COGS")=1,COUNTIF(A{bucket_start}:A{bucket_end},"MANUFACTURED_COGS")=1),"PASS","FAIL")', "Forecast Merchandise는 Actual Effect가 아님"),
         ("Current Cost Basis Gap 신규 Effect 아님", f'=IF(COUNTIFS(A{effect_start}:A{effect_end},"current_cost_basis_gap",C{effect_start}:C{effect_end},"NO")=1,"PASS","FAIL")', "Disclosure only"),
         ("Residual plug 없음", f'=IF(COUNTIFS(A{effect_start}:A{effect_end},"current_cost_basis_gap",C{effect_start}:C{effect_end},"YES")=0,"PASS","FAIL")', "RCA metadata only; Business Formula 불변"),
@@ -1206,9 +1224,9 @@ def write_sales_cogs_basis(
             "Bridge formula vs independently supplied Engine source total",
         ),
         (
-            "Production Formula 미변경",
-            '=IF(H7=FALSE,"PASS","FAIL")',
-            "Quantity/Mix/Inventory Timing persisted values unchanged",
+            "Production Core overlap policy",
+            f'=IF(H7={"TRUE" if analysis.get("production_formula_mutated") else "FALSE"},"PASS","FAIL")',
+            "Quantity/Mix는 불변; Slice 5D는 Net Inventory Timing만 Production 적용",
         ),
         (
             "Slice5A basis gap candidate reconciliation",
@@ -1240,7 +1258,7 @@ def write_sales_cogs_scope(ws, result: dict[str, Any]) -> None:
     _title(
         ws,
         "Sales/Product COGS ↔ P&L Manufactured COGS Source Scope",
-        "Sales Product COGS와 P&L 제품·반제품 매출원가를 Golden Source formula 단위로 분해합니다. Option은 분석 전용이며 Production Formula를 변경하지 않습니다.",
+        "Sales Product COGS와 P&L 제품·반제품 매출원가를 Golden Source formula 단위로 분해하며 Slice 5D Core-only overlap Production 적용 상태를 함께 검증합니다.",
     )
     if not analysis:
         ws["A4"] = "TRACE_UNAVAILABLE_LEGACY"
@@ -1273,12 +1291,18 @@ def write_sales_cogs_scope(ws, result: dict[str, Any]) -> None:
     ws["H6"] = "=H4+H5"
     ws["G7"] = "Matched Overlap Profit Candidate"
     ws["H7"] = "=-H6"
-    ws["J4"] = "Current Inventory Timing"
+    production_applied = bool(analysis.get("production_formula_mutated"))
+    ws["J4"] = (
+        "Net Inventory Timing" if production_applied else "Current Inventory Timing"
+    )
     ws["K4"] = _number(summary.get("current_inventory_timing"))
-    ws["J5"] = "Option A Adjusted Timing"
-    ws["K5"] = "=K4-H7"
-    ws["J6"] = "Production Formula Mutated"
-    ws["K6"] = bool(analysis.get("production_formula_mutated"))
+    ws["J5"] = (
+        "Gross Inventory Timing (before deduction)"
+        if production_applied else "Option A Adjusted Timing"
+    )
+    ws["K5"] = "=K4+H7" if production_applied else "=K4-H7"
+    ws["J6"] = "Core overlap Production policy applied"
+    ws["K6"] = production_applied
     for cell in ("E6", "H6", "H7", "K5"):
         ws[cell].fill = _FORMULA_FILL
     for cell in ("E4", "E5", "E6", "E7", "H4", "H5", "H6", "H7", "K4", "K5"):
@@ -1487,8 +1511,8 @@ def write_sales_cogs_scope(ws, result: dict[str, Any]) -> None:
         f'=IF(ABS(B{ws.max_row + 1})<=C{ws.max_row + 1},"PASS","FAIL")',
     ])
     ws.append([
-        "Production Formula unchanged",
-        "=IF(K6=FALSE,0,1)",
+        "Core overlap Production policy applied",
+        "=IF(K6=TRUE,0,1)",
         0,
         f'=IF(B{ws.max_row + 1}=0,"PASS","FAIL")',
     ])

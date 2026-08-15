@@ -435,10 +435,24 @@ def analyze_sales_cogs_scope_reconciliation(
         and inventory_sources_valid
         else "INSUFFICIENT_SOURCE"
     )
-    readiness = "OPTION_A_NOT_READY"
+    production_applied = (
+        inventory_analysis.get("core_overlap_policy_status")
+        == "APPLIED_CORE_ONLY"
+    )
+    readiness = (
+        "CORE_OVERLAP_PRODUCTION_APPLIED"
+        if production_applied else "OPTION_A_NOT_READY"
+    )
 
     basis_summary = dict(sales_cogs_basis_analysis.get("summary") or {})
-    current_inventory = _number(basis_summary.get("current_inventory_timing"))
+    current_inventory = _number(
+        inventory_analysis.get("inventory_timing_effect")
+        if production_applied else basis_summary.get("current_inventory_timing")
+    )
+    gross_inventory = _number(
+        inventory_analysis.get("gross_inventory_timing_effect")
+        if production_applied else current_inventory
+    )
     current_embedded = _number(basis_summary.get("embedded_sales_cogs_expense_delta"))
     official_quantity = _number(basis_summary.get("official_gp_quantity"))
     official_mix = _number(basis_summary.get("official_gp_mix"))
@@ -446,7 +460,7 @@ def analyze_sales_cogs_scope_reconciliation(
     revenue_mix = _number(basis_summary.get("matched_revenue_mix"))
     option_rows = [
         {
-            "option": "CURRENT",
+            "option": "CURRENT_PRODUCTION" if production_applied else "CURRENT",
             "quantity": official_quantity,
             "mix": official_mix,
             "inventory_timing": current_inventory,
@@ -456,12 +470,24 @@ def analyze_sales_cogs_scope_reconciliation(
             "counterfactual_only": False,
         },
         {
-            "option": "OPTION_A_MATCHED_SCOPE",
+            "option": (
+                "BEFORE_CORE_DEDUCTION"
+                if production_applied else "OPTION_A_MATCHED_SCOPE"
+            ),
             "quantity": official_quantity,
             "mix": official_mix,
-            "inventory_timing": current_inventory - overlap_profit,
-            "effects_total": float(effects_total) - overlap_profit,
-            "residual": float(residual) + overlap_profit,
+            "inventory_timing": (
+                gross_inventory if production_applied
+                else current_inventory - overlap_profit
+            ),
+            "effects_total": (
+                float(effects_total) + overlap_profit if production_applied
+                else float(effects_total) - overlap_profit
+            ),
+            "residual": (
+                float(residual) - overlap_profit if production_applied
+                else float(residual) + overlap_profit
+            ),
             "operating_profit_delta": float(operating_profit_delta),
             "counterfactual_only": True,
         },
@@ -470,18 +496,33 @@ def analyze_sales_cogs_scope_reconciliation(
             "quantity": revenue_quantity,
             "mix": revenue_mix,
             "inventory_timing": current_inventory,
-            "effects_total": float(effects_total) + current_embedded,
-            "residual": float(residual) - current_embedded,
+            "effects_total": (
+                float(effects_total) + overlap_profit + current_embedded
+                if production_applied else float(effects_total) + current_embedded
+            ),
+            "residual": (
+                float(residual) - overlap_profit - current_embedded
+                if production_applied else float(residual) - current_embedded
+            ),
             "operating_profit_delta": float(operating_profit_delta),
             "counterfactual_only": True,
         },
         {
-            "option": "OPTION_C_KEEP_CURRENT",
+            "option": (
+                "OPTION_C_GROSS_LEGACY"
+                if production_applied else "OPTION_C_KEEP_CURRENT"
+            ),
             "quantity": official_quantity,
             "mix": official_mix,
-            "inventory_timing": current_inventory,
-            "effects_total": float(effects_total),
-            "residual": float(residual),
+            "inventory_timing": gross_inventory if production_applied else current_inventory,
+            "effects_total": (
+                float(effects_total) + overlap_profit
+                if production_applied else float(effects_total)
+            ),
+            "residual": (
+                float(residual) - overlap_profit
+                if production_applied else float(residual)
+            ),
             "operating_profit_delta": float(operating_profit_delta),
             "counterfactual_only": True,
         },
@@ -546,9 +587,13 @@ def analyze_sales_cogs_scope_reconciliation(
         "status": "PASS" if all(check["status"] == "PASS" for check in checks) else "CHECK",
         "verdict": verdict,
         "option_readiness": readiness,
-        "recommendation": "OPTION_C_RECOMMENDED_PENDING_BUSINESS_FORMULA_CONTRACT",
+        "recommendation": (
+            "CORE_ONLY_OVERLAP_PRODUCTION_POLICY_APPLIED"
+            if production_applied
+            else "OPTION_C_RECOMMENDED_PENDING_BUSINESS_FORMULA_CONTRACT"
+        ),
         "confidence": "HIGH" if verdict == "OVERLAP_CONFIRMED" else "MEDIUM",
-        "production_formula_mutated": False,
+        "production_formula_mutated": production_applied,
         "sign_convention": "+ = OP improvement; cost effect = Base - Comparison",
         "source_rows": source_rows,
         "monthly_scope": monthly_scope,
@@ -577,7 +622,11 @@ def analyze_sales_cogs_scope_reconciliation(
             "current_slice5b_embedded_expense_delta": current_embedded,
             "scope_only_embedded_difference": current_embedded - matched_embedded_expense,
             "current_inventory_timing": current_inventory,
-            "option_a_adjusted_inventory_timing": current_inventory - overlap_profit,
+            "gross_inventory_timing": gross_inventory,
+            "option_a_adjusted_inventory_timing": (
+                current_inventory if production_applied
+                else current_inventory - overlap_profit
+            ),
             "current_effects_total": float(effects_total),
             "current_residual": float(residual),
             "operating_profit_delta": float(operating_profit_delta),

@@ -42,7 +42,7 @@ EFFECT_METADATA = {
     "sales_fx": ("매출환율", "EXTERNAL", "KRW/USD 매출환율 효과"),
     "material_total": ("원재료", "COST", "부직포 가격·JPY 환율·기타 원부재료의 결정론적 합계"),
     "manufacturing_realized": ("제조경비", "COST", "전공정/후공정 제조경비 발생효과; 재고실현율 multiplier 미적용"),
-    "inventory_timing": ("재고·원가 반영시차", "COST", "제조품 COGS Effect - 당기투입제조원가 Effect"),
+    "inventory_timing": ("재고·원가 반영시차", "COST", "Gross Inventory Timing - Core Manufactured COGS overlap"),
     "sga_variable": ("변동 판관비", "COST", "고객배송 운반비와 관세를 제외한 변동 판관비"),
     "sga_fixed": ("고정 판관비", "COST", "고객배송 운반비와 관세를 제외한 고정 판관비"),
     "tariff": ("관세", "EXTERNAL", "별도 관세 효과"),
@@ -603,10 +603,40 @@ def _validate_cost_effects(
         amounts["inventory_timing"],
     ):
         raise _integrity()
-    if not _close(
-        _number(inventory.get("manufactured_cogs_effect"))
-        - _number(inventory.get("current_manufacturing_cost_effect")),
-        amounts["inventory_timing"],
+    slice5d_numeric_fields = (
+        "gross_inventory_timing_effect",
+        "core_cogs_quantity_overlap_effect",
+        "core_cogs_mix_overlap_effect",
+        "core_manufactured_cogs_overlap_effect",
+    )
+    slice5d_present = any(
+        inventory.get(field) is not None for field in slice5d_numeric_fields
+    )
+    if slice5d_present:
+        if any(inventory.get(field) is None for field in slice5d_numeric_fields):
+            raise _integrity()
+        if (
+            inventory.get("core_overlap_policy_status") != "APPLIED_CORE_ONLY"
+            or inventory.get("core_overlap_source_validation_status") != "PASS"
+            or inventory.get("core_overlap_pool_validation_status") != "PASS"
+        ):
+            raise _integrity()
+        gross_inventory_timing = _number(
+            inventory.get("gross_inventory_timing_effect")
+        )
+    else:
+        gross_inventory_timing = (
+            _number(inventory.get("manufactured_cogs_effect"))
+            - _number(inventory.get("current_manufacturing_cost_effect"))
+        )
+    raw_core_overlap = inventory.get("core_manufactured_cogs_overlap_effect")
+    core_overlap = _number(raw_core_overlap) if raw_core_overlap is not None else 0.0
+    if not _close(gross_inventory_timing - core_overlap, amounts["inventory_timing"]):
+        raise _integrity()
+    if slice5d_present and not _close(
+        _number(inventory.get("core_cogs_quantity_overlap_effect"))
+        + _number(inventory.get("core_cogs_mix_overlap_effect")),
+        core_overlap,
     ):
         raise _integrity()
     for classification, code in (("variable", "sga_variable"), ("fixed", "sga_fixed")):

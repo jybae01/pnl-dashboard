@@ -223,6 +223,54 @@ def test_product_and_activity_units_never_mix_and_lc_is_four_inch():
     }
 
 
+def test_net_inventory_timing_payload_validates_gross_and_overlap_contract():
+    row = presentation_row()
+    inventory = row["result_payload"]["comparison_result"]["inventory_analysis"]
+    inventory.update({
+        "gross_inventory_timing_effect": 10.0,
+        "core_cogs_quantity_overlap_effect": 5.0,
+        "core_cogs_mix_overlap_effect": 3.0,
+        "core_manufactured_cogs_overlap_effect": 8.0,
+        "core_overlap_policy_status": "APPLIED_CORE_ONLY",
+        "core_overlap_source_validation_status": "PASS",
+        "core_overlap_pool_validation_status": "PASS",
+    })
+
+    build_analysis_presentation(RESULT_ID, row, PROVENANCE, ("1",))
+
+    inventory["core_manufactured_cogs_overlap_effect"] = 7.0
+    with pytest.raises(BffError):
+        build_analysis_presentation(RESULT_ID, row, PROVENANCE, ("1",))
+
+
+@pytest.mark.parametrize(
+    "status_field",
+    (
+        "core_overlap_policy_status",
+        "core_overlap_source_validation_status",
+        "core_overlap_pool_validation_status",
+    ),
+)
+def test_net_inventory_timing_payload_requires_authoritative_policy_status(
+    status_field: str,
+):
+    row = presentation_row()
+    inventory = row["result_payload"]["comparison_result"]["inventory_analysis"]
+    inventory.update({
+        "gross_inventory_timing_effect": 10.0,
+        "core_cogs_quantity_overlap_effect": 5.0,
+        "core_cogs_mix_overlap_effect": 3.0,
+        "core_manufactured_cogs_overlap_effect": 8.0,
+        "core_overlap_policy_status": "APPLIED_CORE_ONLY",
+        "core_overlap_source_validation_status": "PASS",
+        "core_overlap_pool_validation_status": "PASS",
+    })
+    inventory[status_field] = "FAIL"
+
+    with pytest.raises(BffError):
+        build_analysis_presentation(RESULT_ID, row, PROVENANCE, ("1",))
+
+
 @pytest.mark.parametrize("mutation", ["effects_total", "transport_quantity", "transport_duplicate", "fx_snapshot", "inventory_source", "payload_schema"])
 def test_mismatch_payload_is_rejected_not_repaired(mutation):
     row = presentation_row()
