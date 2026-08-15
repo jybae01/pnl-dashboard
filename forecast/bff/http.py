@@ -13,7 +13,7 @@ from urllib.parse import urlsplit
 from collections import defaultdict, deque
 from dataclasses import asdict, dataclass
 from pathlib import Path
-from typing import Annotated, Callable, Mapping, Protocol
+from typing import Annotated, Callable, Literal, Mapping, Protocol
 
 from fastapi import Cookie, Depends, FastAPI, File, Form, Header, Query, Request, Response, UploadFile
 from fastapi.exceptions import RequestValidationError
@@ -114,7 +114,12 @@ class ForecastMonthBody(BaseModel):
     disposal_reason: StrictStr = Field(default="", max_length=500)
     obsolescence_adjustment: StrictFloat | StrictInt = 0
     obsolescence_reason: StrictStr = Field(default="", max_length=500)
-    new_business_goods_cogs: StrictFloat | StrictInt = 0
+    # Omitted mode is the legacy contract and is normalized to MANUAL_OVERRIDE.
+    # A nullable amount preserves the distinction between omitted and explicit 0.
+    new_business_goods_cogs_mode: Literal[
+        "ACTUAL_YTD_DEFAULT", "MANUAL_OVERRIDE"
+    ] | None = None
+    new_business_goods_cogs: StrictFloat | StrictInt | None = None
     new_business_goods_cogs_reason: StrictStr = Field(default="", max_length=500)
     uf_mbr_cogs_rate: StrictFloat | StrictInt = 0.85
     ix_cogs_rate: StrictFloat | StrictInt = 0.85

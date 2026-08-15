@@ -77,6 +77,10 @@ def create_http_bff_from_environment(
         raise RuntimeError("BFF_LOGIN_WINDOW_SECONDS must be 1-86400")
     shared_session_store = SupabaseSessionStore(client) if environment == "production" else None
     mapping_document = json.loads((root / "config" / "model_mapping.json").read_text(encoding="utf-8"))
+    forecast_merchandise_mapping_path = root / "config" / "forecast_merchandise_sources.json"
+    forecast_merchandise_mapping = json.loads(
+        forecast_merchandise_mapping_path.read_text(encoding="utf-8")
+    )
     viewer_code = _required("VIEWER_CODE")
     admin_code = _required("ADMIN_CODE")
     if environment == "production" and (len(viewer_code) < 16 or len(admin_code) < 16):
@@ -96,6 +100,8 @@ def create_http_bff_from_environment(
         model_repository=bundle.models,
         model_mapping=mapping_document,
         mapping_path=str(root / "config" / "model_mapping.json"),
+        forecast_merchandise_mapping=forecast_merchandise_mapping,
+        forecast_merchandise_mapping_path=str(forecast_merchandise_mapping_path),
         session_ttl_seconds=session_ttl_seconds,
         session_store=shared_session_store,
         forecast_max_concurrency=forecast_max_concurrency,

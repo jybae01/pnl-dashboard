@@ -70,6 +70,7 @@ export interface ForecastMonthInputDto {
   sga_adjustments: Array<{ adjustment_key: string; amount: number; reason: string }>;
   disposal_adjustment?: number; disposal_reason?: string;
   obsolescence_adjustment?: number; obsolescence_reason?: string;
+  new_business_goods_cogs_mode?: 'ACTUAL_YTD_DEFAULT' | 'MANUAL_OVERRIDE';
   new_business_goods_cogs?: number; new_business_goods_cogs_reason?: string;
   uf_mbr_cogs_rate?: number; ix_cogs_rate?: number;
   uf_mbr_transport_rate?: number; ix_transport_rate?: number;

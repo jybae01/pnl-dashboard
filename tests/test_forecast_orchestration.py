@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import threading
+from dataclasses import replace
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -179,6 +180,65 @@ def test_v1_sync_scope_boundary_is_explicit_for_one_six_seven_and_twelve_months(
 def test_v1_service_composition_cannot_raise_sync_scope_above_six_months():
     with pytest.raises(ValueError, match="1-6"):
         service(Gateway(), max_sync_months=7)
+
+
+def test_legacy_no_mode_is_normalized_to_manual_zero_without_requiring_reason():
+    target, _session = service(Gateway())
+    accepted = target._validate(request())
+    month = accepted.months[0]
+    assert month.new_business_goods_cogs_mode == "MANUAL_OVERRIDE"
+    assert month.new_business_goods_cogs == 0.0
+    assert month.new_business_goods_cogs_reason == ""
+    assert month.new_business_goods_cogs_legacy_normalized is True
+
+
+def test_explicit_new_business_modes_validate_conflicts_amount_and_reason():
+    target, _session = service(Gateway())
+    template = request()
+    month = template.months[0]
+
+    automatic = replace(
+        template,
+        months=(replace(month, new_business_goods_cogs_mode="ACTUAL_YTD_DEFAULT"),),
+    )
+    accepted = target._validate(automatic).months[0]
+    assert accepted.new_business_goods_cogs is None
+    assert accepted.new_business_goods_cogs_legacy_normalized is False
+
+    for candidate, field, code in (
+        (
+            replace(month, new_business_goods_cogs_mode="ACTUAL_YTD_DEFAULT", new_business_goods_cogs=0),
+            "new_business_goods_cogs", "actual_ytd_manual_amount_conflict",
+        ),
+        (
+            replace(month, new_business_goods_cogs_mode="MANUAL_OVERRIDE", new_business_goods_cogs=None, new_business_goods_cogs_reason="사유"),
+            "new_business_goods_cogs", "manual_amount_required",
+        ),
+        (
+            replace(month, new_business_goods_cogs_mode="MANUAL_OVERRIDE", new_business_goods_cogs=0, new_business_goods_cogs_reason=""),
+            "new_business_goods_cogs_reason", "manual_reason_required",
+        ),
+    ):
+        invalid = replace(template, months=(candidate,))
+        with pytest.raises(BffError) as captured:
+            target._validate(invalid)
+        assert captured.value.error.field_errors[f"months.0.{field}"] == code
+
+
+def test_explicit_manual_zero_and_reason_reach_canonical_engine_input():
+    target, _session = service(Gateway())
+    template = request()
+    candidate = replace(
+        template.months[0],
+        new_business_goods_cogs_mode="MANUAL_OVERRIDE",
+        new_business_goods_cogs=0,
+        new_business_goods_cogs_reason="명시적 0원",
+    )
+    accepted = target._validate(replace(template, months=(candidate,))).months[0]
+    assert accepted.new_business_goods_cogs_mode == "MANUAL_OVERRIDE"
+    assert accepted.new_business_goods_cogs == 0.0
+    assert accepted.new_business_goods_cogs_reason == "명시적 0원"
+    assert accepted.new_business_goods_cogs_legacy_normalized is False
 
 
 def test_migration_011_is_additive_race_safe_private_and_strict_default():

@@ -61,6 +61,7 @@ export interface ForecastAdvancedFormState {
   disposalReason: string;
   obsolescenceAdjustment: string;
   obsolescenceReason: string;
+  newBusinessGoodsCogsMode: 'ACTUAL_YTD_DEFAULT' | 'MANUAL_OVERRIDE';
   newBusinessGoodsCogs: string;
   newBusinessGoodsCogsReason: string;
   ufMbrCogsRate: string;
@@ -127,7 +128,8 @@ function advancedValues(metadata?: ForecastInputMetadataDto): ForecastAdvancedFo
     disposalReason: '',
     obsolescenceAdjustment: '0',
     obsolescenceReason: '',
-    newBusinessGoodsCogs: '0',
+    newBusinessGoodsCogsMode: 'ACTUAL_YTD_DEFAULT',
+    newBusinessGoodsCogs: '',
     newBusinessGoodsCogsReason: '',
     ufMbrCogsRate: '0.85',
     ixCogsRate: '0.85',
@@ -345,13 +347,28 @@ export function adaptForecastInput(
     const disposalReason = parseReason(form.disposalReason, '제품 폐기손실 사유');
     const obsolescenceAdjustment = parseNumber(form.obsolescenceAdjustment, '제품 진부화 평가손실', { defaultValue: 0, allowNegative: true });
     const obsolescenceReason = parseReason(form.obsolescenceReason, '제품 진부화 평가손실 사유');
-    const goodsCogs = parseNumber(form.newBusinessGoodsCogs, '신사업 매출원가', { defaultValue: 0 });
     const goodsCogsReason = parseReason(form.newBusinessGoodsCogsReason, '신사업 매출원가 사유');
     if ('error' in disposalAdjustment || 'error' in disposalReason || 'error' in obsolescenceAdjustment || 'error' in obsolescenceReason
-      || 'error' in goodsCogs || 'error' in goodsCogsReason) {
-      const error = [disposalAdjustment, disposalReason, obsolescenceAdjustment, obsolescenceReason, goodsCogs, goodsCogsReason]
+      || 'error' in goodsCogsReason) {
+      const error = [disposalAdjustment, disposalReason, obsolescenceAdjustment, obsolescenceReason, goodsCogsReason]
         .find((item): item is { error: string } => 'error' in item);
       return { value: null, error: `${month}월 ${error?.error ?? '고급 입력을 확인하세요.'}` };
+    }
+    let manualGoodsCogs: number | undefined;
+    let manualGoodsCogsReason: string | undefined;
+    if (form.newBusinessGoodsCogsMode === 'MANUAL_OVERRIDE') {
+      const goodsCogs = parseRequiredNumber(form.newBusinessGoodsCogs, '신사업 매출원가 직접 반영액');
+      if ('error' in goodsCogs) return { value: null, error: `${month}월 ${goodsCogs.error}` };
+      if (!goodsCogsReason.value.trim()) {
+        return { value: null, error: `${month}월 신사업 매출원가 사유를 입력하세요.` };
+      }
+      manualGoodsCogs = goodsCogs.value;
+      manualGoodsCogsReason = goodsCogsReason.value;
+    } else if (form.newBusinessGoodsCogs.trim() || goodsCogsReason.value.trim()) {
+      return {
+        value: null,
+        error: `${month}월 Actual YTD 자동 산출 모드에는 직접 반영액·사유를 함께 보낼 수 없습니다.`,
+      };
     }
 
     const scalarFields: Array<[keyof ForecastAdvancedFormState, string, { defaultValue: number; allowNegative?: boolean; max?: number; strictlyPositive?: boolean }]> = [
@@ -396,8 +413,11 @@ export function adaptForecastInput(
       disposal_reason: disposalReason.value,
       obsolescence_adjustment: obsolescenceAdjustment.value,
       obsolescence_reason: obsolescenceReason.value,
-      new_business_goods_cogs: goodsCogs.value,
-      new_business_goods_cogs_reason: goodsCogsReason.value,
+      new_business_goods_cogs_mode: form.newBusinessGoodsCogsMode,
+      ...(form.newBusinessGoodsCogsMode === 'MANUAL_OVERRIDE' ? {
+        new_business_goods_cogs: manualGoodsCogs,
+        new_business_goods_cogs_reason: manualGoodsCogsReason,
+      } : {}),
       uf_mbr_cogs_rate: scalar('ufMbrCogsRate'),
       ix_cogs_rate: scalar('ixCogsRate'),
       uf_mbr_transport_rate: scalar('ufMbrTransportRate'),

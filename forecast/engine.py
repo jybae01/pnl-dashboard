@@ -6,6 +6,13 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any
 
+from .merchandise_cogs import (
+    GoldenForecastMerchandiseAdapter,
+    MerchandiseSourceValidationError,
+    NewBusinessGoodsCogsMode,
+    calculate_forecast_merchandise_cogs,
+    normalize_new_business_goods_cogs,
+)
 from .workbook import GoldenWorkbook
 
 
@@ -34,8 +41,10 @@ class ForecastInput:
     disposal_reason: str = ""
     obsolescence_adjustment: float = 0
     obsolescence_reason: str = ""
-    new_business_goods_cogs: float = 0
+    new_business_goods_cogs_mode: str | None = None
+    new_business_goods_cogs: float | None = None
     new_business_goods_cogs_reason: str = ""
+    new_business_goods_cogs_legacy_normalized: bool = False
     uf_mbr_cogs_rate: float = 0.85
     ix_cogs_rate: float = 0.85
     uf_mbr_transport_rate: float = 0.05
@@ -62,7 +71,7 @@ class ForecastResult:
     sga: float
     operating_profit: float
     operating_margin: float
-    detail: dict[str, float]
+    detail: dict[str, Any]
     validations: list[dict[str, Any]]
     input_log: list[dict[str, Any]]
     workbook_path: str
@@ -71,9 +80,22 @@ class ForecastResult:
 
 
 class ForecastEngine:
-    def __init__(self, model_path: str | Path, mapping_path: str | Path):
+    def __init__(
+        self,
+        model_path: str | Path,
+        mapping_path: str | Path,
+        merchandise_mapping_path: str | Path | None = None,
+    ):
         self.model_path = Path(model_path)
         self.mapping = json.loads(Path(mapping_path).read_text(encoding="utf-8"))
+        if merchandise_mapping_path:
+            source_path = Path(merchandise_mapping_path)
+        else:
+            frozen_candidate = Path(mapping_path).parent / "forecast_merchandise_sources.json"
+            source_path = frozen_candidate if frozen_candidate.is_file() else (
+                Path(__file__).resolve().parents[1] / "config" / "forecast_merchandise_sources.json"
+            )
+        self.merchandise_mapping = json.loads(source_path.read_text(encoding="utf-8"))
 
     @staticmethod
     def column(month: int) -> str:
@@ -84,13 +106,48 @@ class ForecastEngine:
         col = self.column(request.month)
         wb = GoldenWorkbook(self.model_path)
         explicit = set(self.mapping["formula_input_exceptions"])
+        new_business_selection = normalize_new_business_goods_cogs(
+            request.new_business_goods_cogs_mode,
+            request.new_business_goods_cogs,
+            request.new_business_goods_cogs_reason,
+            legacy_normalized=request.new_business_goods_cogs_legacy_normalized,
+        )
 
-        if str(wb.raw_value(f"{col}3") or "").strip() == "실적":
+        period_type_row = int(self.merchandise_mapping["period_type_row"])
+        if str(wb.raw_value(f"{col}{period_type_row}") or "").strip() == "실적":
             raise ValueError(f"{request.month}월은 기준 모형에서 실적으로 확정되어 추정할 수 없습니다.")
+        merchandise_sources = GoldenForecastMerchandiseAdapter(
+            self.merchandise_mapping
+        ).build(wb, request.month)
+        configured_output_row = {
+            source.total_forecast_cogs_row for source in merchandise_sources.values()
+        }
+        if configured_output_row != {int(self.mapping["special_rows"]["goods_cogs"])}:
+            raise MerchandiseSourceValidationError(
+                "output_mapping_mismatch",
+                "Forecast merchandise output mapping does not match the canonical P&L row",
+            )
+        expected_revenue_rows = {
+            "LC": int(self.mapping["lc_goods"]["amount_row"]),
+            "NEW_BUSINESS": int(self.mapping["new_business_revenue_row"]),
+        }
+        if any(
+            merchandise_sources[code].forecast_revenue_row != row
+            for code, row in expected_revenue_rows.items()
+        ):
+            raise MerchandiseSourceValidationError(
+                "forecast_revenue_mapping_mismatch",
+                "Forecast merchandise revenue mapping does not match canonical revenue rows",
+            )
 
         # Mark only the generated month as forecast in the downloaded workbook.
         # Other months keep the Golden Model's existing plan/actual labels.
-        wb.set_text(f"{col}3", "추정", "forecast.period_type", "추정 산출 월")
+        wb.set_text(
+            f"{col}{period_type_row}",
+            "추정",
+            "forecast.period_type",
+            "추정 산출 월",
+        )
 
         def put(row: int, value: float, source: str, reason: str = "") -> None:
             addr = f"{col}{row}"
@@ -116,12 +173,14 @@ class ForecastEngine:
         put(self.mapping["sales"]["LC"]["quantity_row"], manufactured_qty, "sales.LC.manufactured_quantity")
         put(self.mapping["sales"]["LC"]["amount_row"], manufactured_qty * lc_price, "sales.LC.manufactured_amount")
         put(self.mapping["lc_goods"]["quantity_row"], goods_qty, "sales.LC.goods_quantity")
-        put(self.mapping["lc_goods"]["amount_row"], goods_qty * lc_price, "sales.LC.goods_amount")
+        lc_goods_revenue = goods_qty * lc_price
+        put(self.mapping["lc_goods"]["amount_row"], lc_goods_revenue, "sales.LC.goods_amount")
 
         uf = request.sales.get("UF_MBR", SalesInput())
         ix = request.sales.get("IX", SalesInput())
         other = request.sales.get("OTHER", SalesInput())
-        put(self.mapping["new_business_revenue_row"], uf.amount + ix.amount, "sales.new_business.amount")
+        new_business_revenue = uf.amount + ix.amount
+        put(self.mapping["new_business_revenue_row"], new_business_revenue, "sales.new_business.amount")
         put(self.mapping["other_revenue_row"], other.amount, "sales.other.amount")
 
         for adjustment in request.manufacturing_adjustments:
@@ -205,17 +264,45 @@ class ForecastEngine:
             uf.amount * request.uf_mbr_cogs_rate
             + ix.amount * request.ix_cogs_rate
         )
-        goods_cogs = goods_qty * lc_unit_cost + request.new_business_goods_cogs
+        lc_merchandise = calculate_forecast_merchandise_cogs(
+            merchandise_sources["LC"],
+            forecast_month=request.month,
+            forecast_merchandise_revenue=lc_goods_revenue,
+        )
+        new_business_merchandise = calculate_forecast_merchandise_cogs(
+            merchandise_sources["NEW_BUSINESS"],
+            forecast_month=request.month,
+            forecast_merchandise_revenue=new_business_revenue,
+            selection=new_business_selection,
+        )
+        goods_cogs = (
+            lc_merchandise.applied_forecast_cogs
+            + new_business_merchandise.applied_forecast_cogs
+        )
         put(
             self.mapping["special_rows"]["goods_cogs"],
             goods_cogs,
             "cogs.goods",
-            request.new_business_goods_cogs_reason,
+            new_business_selection.reason
+            if new_business_selection.mode is NewBusinessGoodsCogsMode.MANUAL_OVERRIDE
+            else "",
         )
         put(self.mapping["special_rows"]["customs_refund"], -refund, "cogs.customs_refund", refund_reason)
+        wb.add_merchandise_cogs_evidence(
+            [lc_merchandise.as_dict(), new_business_merchandise.as_dict()]
+        )
 
         errors = wb.recalculate()
         validation = self._validate(wb, col, request, errors)
+        validation.extend([
+            {
+                "name": f"{item.product_code} 상품원가 Source 및 Mode",
+                "ok": item.validation_status == "PASS",
+                "value": item.calculation_source,
+                "message": "Actual-only source와 명시적 mode 검증",
+            }
+            for item in (lc_merchandise, new_business_merchandise)
+        ])
         if request.raw_material_basis == "direct" and request.raw_material_direct is not None:
             allocation_delta = applied_front_rm + applied_back_rm - applied_rm
             validation.append({
@@ -246,7 +333,21 @@ class ForecastEngine:
                 "lc_unit_cost": lc_unit_cost, "uf_mbr_goods_cogs": uf.amount * request.uf_mbr_cogs_rate,
                 "ix_goods_cogs": ix.amount * request.ix_cogs_rate,
                 "new_business_goods_cogs_reference": reference_new_business_goods_cogs,
-                "new_business_goods_cogs_applied": request.new_business_goods_cogs,
+                "lc_merchandise_cogs_calculation_source": lc_merchandise.calculation_source,
+                "lc_merchandise_cogs_applied": lc_merchandise.applied_forecast_cogs,
+                "lc_actual_ytd_merchandise_revenue": lc_merchandise.actual_ytd_revenue,
+                "lc_actual_ytd_merchandise_cogs": lc_merchandise.actual_ytd_cogs,
+                "lc_actual_ytd_merchandise_cogs_rate": lc_merchandise.actual_ytd_cogs_rate,
+                "new_business_goods_cogs_mode": new_business_merchandise.mode,
+                "new_business_goods_cogs_calculation_source": new_business_merchandise.calculation_source,
+                "new_business_goods_cogs_applied": new_business_merchandise.applied_forecast_cogs,
+                "new_business_actual_ytd_merchandise_revenue": new_business_merchandise.actual_ytd_revenue,
+                "new_business_actual_ytd_merchandise_cogs": new_business_merchandise.actual_ytd_cogs,
+                "new_business_actual_ytd_merchandise_cogs_rate": new_business_merchandise.actual_ytd_cogs_rate,
+                "new_business_goods_cogs_reason": new_business_merchandise.manual_reason,
+                "new_business_goods_cogs_legacy_normalized": new_business_merchandise.legacy_normalized,
+                "forecast_merchandise_source_mapping_version": new_business_merchandise.source_mapping_version,
+                "forecast_merchandise_source_mapping_hash": new_business_merchandise.source_mapping_hash,
                 "new_business_transport": transport,
                 "ix_packaging": packaging,
                 "plan_na_sa_sales": request.plan_na_sa_sales,

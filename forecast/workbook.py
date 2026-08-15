@@ -38,6 +38,7 @@ REL_NS = "http://schemas.openxmlformats.org/package/2006/relationships"
 CONTENT_TYPES_NS = "http://schemas.openxmlformats.org/package/2006/content-types"
 OFFICE_REL_NS = "http://schemas.openxmlformats.org/officeDocument/2006/relationships"
 AUDIT_SHEET_NAME = "입력반영내역"
+MERCHANDISE_EVIDENCE_SHEET_NAME = "상품원가검증"
 MONTH_COLUMNS = {month: chr(ord("E") + month - 1) for month in range(1, 13)}
 FORMULA_REFERENCE_RE = re.compile(
     r"(?<![A-Z0-9_])(?P<start>\$?[A-Z]{1,3}\$?\d+)"
@@ -317,6 +318,7 @@ class GoldenWorkbook:
         self.formula_fallbacks: dict[str, FormulaFallback] = {}
         self._precedent_cache: dict[str, tuple[str, ...]] = {}
         self.log: list[ChangeLog] = []
+        self.merchandise_cogs_evidence: list[dict[str, Any]] = []
 
     def _default_model_sheet_xml(self) -> str:
         """Prefer the approved Data sheet even when a README sheet comes first."""
@@ -670,7 +672,10 @@ class GoldenWorkbook:
                 item.source.startswith(direct_prefixes)
                 or item.source in direct_sources
             )
-            and self._values_differ(item.old_value, item.new_value)
+            and (
+                self._values_differ(item.old_value, item.new_value)
+                or (item.source == "cogs.goods" and bool(item.reason.strip()))
+            )
         }
 
     def _direct_input_logs(self) -> list[ChangeLog]:
@@ -704,6 +709,27 @@ class GoldenWorkbook:
                     formula_overwritten=bool(record.get("formula_overwritten", False)),
                 )
             )
+
+    def add_merchandise_cogs_evidence(
+        self, records: list[dict[str, Any]]
+    ) -> None:
+        """Queue formula-traceable merchandise evidence for the existing save path."""
+        required = {
+            "product_code", "business_source", "specification", "currency",
+            "mode", "calculation_source", "forecast_month", "latest_actual_month",
+            "actual_ytd_revenue", "actual_ytd_cogs", "actual_ytd_cogs_rate",
+            "forecast_merchandise_revenue", "actual_ytd_derived_cogs",
+            "manual_cogs", "manual_reason", "applied_forecast_cogs",
+            "revenue_source_reference", "cogs_source_reference",
+            "monthly_rate_source_reference", "forecast_revenue_source_reference",
+            "total_forecast_cogs_source_reference", "source_mapping_version",
+            "source_mapping_hash",
+        }
+        for record in records:
+            missing = required - set(record)
+            if missing:
+                raise ValueError(f"merchandise evidence fields missing: {sorted(missing)}")
+            self.merchandise_cogs_evidence.append(dict(record))
 
     @staticmethod
     def _audit_category(source: str) -> str:
@@ -794,6 +820,17 @@ class GoldenWorkbook:
         inline = ET.SubElement(cell, Q("is"))
         text = ET.SubElement(inline, Q("t"))
         text.text = "" if value is None else str(value)
+
+    @staticmethod
+    def _append_formula_cell(
+        row: ET.Element, address: str, formula: str, cached_value: Any
+    ) -> None:
+        attributes = {"r": address}
+        if isinstance(cached_value, str):
+            attributes["t"] = "str"
+        cell = ET.SubElement(row, Q("c"), attributes)
+        ET.SubElement(cell, Q("f")).text = str(formula).lstrip("=")
+        ET.SubElement(cell, Q("v")).text = "" if cached_value is None else str(cached_value)
 
     @staticmethod
     def _worksheet_target(entries: dict[str, bytes], sheet_name: str) -> tuple[str, ET.Element, ET.Element] | None:
@@ -963,6 +1000,265 @@ class GoldenWorkbook:
         auto_filter.attrib["ref"] = f"A1:J{next_row - 1}"
         entries[sheet_path] = serialize_xml(audit_root)
 
+    @staticmethod
+    def _new_merchandise_evidence_sheet(
+        entries: dict[str, bytes],
+    ) -> tuple[str, ET.Element]:
+        workbook_name = "xl/workbook.xml"
+        rels_name = "xl/_rels/workbook.xml.rels"
+        workbook = ET.fromstring(entries[workbook_name])
+        relationships = ET.fromstring(entries[rels_name])
+        sheets = workbook.find(Q("sheets"))
+        if sheets is None:
+            sheets = ET.SubElement(workbook, Q("sheets"))
+
+        targets = {
+            node.attrib.get("Target", "")
+            for node in relationships.findall(f"{{{REL_NS}}}Relationship")
+        }
+        sheet_number = 1
+        while f"worksheets/sheet{sheet_number}.xml" in targets:
+            sheet_number += 1
+        target = f"worksheets/sheet{sheet_number}.xml"
+        sheet_path = f"xl/{target}"
+
+        relationship_ids = {
+            node.attrib.get("Id", "")
+            for node in relationships.findall(f"{{{REL_NS}}}Relationship")
+        }
+        rid_number = 1
+        while f"rId{rid_number}" in relationship_ids:
+            rid_number += 1
+        relationship_id = f"rId{rid_number}"
+        ET.SubElement(
+            relationships,
+            f"{{{REL_NS}}}Relationship",
+            {
+                "Id": relationship_id,
+                "Type": f"{OFFICE_REL_NS}/worksheet",
+                "Target": target,
+            },
+        )
+
+        sheet_ids = [
+            int(node.attrib.get("sheetId", "0"))
+            for node in sheets.findall(Q("sheet"))
+        ]
+        new_sheet = ET.Element(
+            Q("sheet"),
+            {
+                "name": MERCHANDISE_EVIDENCE_SHEET_NAME,
+                "sheetId": str(max(sheet_ids, default=0) + 1),
+                f"{{{OFFICE_REL_NS}}}id": relationship_id,
+            },
+        )
+        children = list(sheets)
+        audit_index = next(
+            (
+                index
+                for index, node in enumerate(children)
+                if node.attrib.get("name") == AUDIT_SHEET_NAME
+            ),
+            None,
+        )
+        if audit_index is not None:
+            insert_at = audit_index + 1
+        else:
+            data_index = next(
+                (
+                    index
+                    for index, node in enumerate(children)
+                    if node.attrib.get("name") == "Data"
+                ),
+                len(children) - 1,
+            )
+            insert_at = max(data_index + 1, 0)
+        sheets.insert(insert_at, new_sheet)
+
+        content_types_name = "[Content_Types].xml"
+        content_types = ET.fromstring(entries[content_types_name])
+        ET.SubElement(
+            content_types,
+            f"{{{CONTENT_TYPES_NS}}}Override",
+            {
+                "PartName": f"/{sheet_path}",
+                "ContentType": "application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml",
+            },
+        )
+        entries[workbook_name] = serialize_xml(
+            workbook, ("x15", "xr", "xr6", "xr10", "xr2")
+        )
+        entries[rels_name] = serialize_xml(relationships, default_namespace=REL_NS)
+        entries[content_types_name] = serialize_xml(
+            content_types, default_namespace=CONTENT_TYPES_NS
+        )
+
+        root = ET.Element(Q("worksheet"))
+        views = ET.SubElement(root, Q("sheetViews"))
+        view = ET.SubElement(views, Q("sheetView"), {"workbookViewId": "0"})
+        ET.SubElement(
+            view,
+            Q("pane"),
+            {
+                "ySplit": "1", "topLeftCell": "A2",
+                "activePane": "bottomLeft", "state": "frozen",
+            },
+        )
+        ET.SubElement(root, Q("sheetFormatPr"), {"defaultRowHeight": "15"})
+        columns = ET.SubElement(root, Q("cols"))
+        widths = (
+            16, 14, 22, 18, 14, 20, 20, 16, 12, 20,
+            18, 22, 22, 22, 14, 42, 14, 14, 14, 14,
+            14, 14, 14, 14, 14, 14, 14, 14, 70, 24,
+        )
+        for index, width in enumerate(widths, start=1):
+            ET.SubElement(
+                columns, Q("col"),
+                {"min": str(index), "max": str(index), "width": str(width), "customWidth": "1"},
+            )
+        sheet_data = ET.SubElement(root, Q("sheetData"))
+        header = ET.SubElement(sheet_data, Q("row"), {"r": "1"})
+        headers = (
+            "Product", "Specification", "Mode", "Calculation Source",
+            "Actual Cutoff", "Actual YTD Revenue", "Actual YTD COGS",
+            "Actual YTD Rate", "Forecast Month", "Forecast Revenue",
+            "Manual COGS", "Actual YTD Derived COGS", "Applied COGS Formula",
+            "Engine Applied COGS", "Formula Match", "Manual Reason",
+            "Cutoff Valid", "Actual-only Numerator", "Actual-only Denominator",
+            "Zero Denominator Check", "Missing Source Check", "No Self-reference",
+            "Scope Valid", "Mode Valid", "Manual Conflict Free",
+            "Manual Reason Valid", "No Hardcoded COGS", "Golden Source PASS",
+            "Source / Canonical / Mapping Provenance", "Target Output",
+        )
+        for index, value in enumerate(headers, start=1):
+            GoldenWorkbook._append_inline_cell(header, f"{col_name(index)}1", value)
+        ET.SubElement(root, Q("autoFilter"), {"ref": "A1:AD1"})
+        return sheet_path, root
+
+    def _append_merchandise_cogs_evidence(
+        self, entries: dict[str, bytes]
+    ) -> None:
+        if not self.merchandise_cogs_evidence:
+            return
+        existing = self._worksheet_target(entries, MERCHANDISE_EVIDENCE_SHEET_NAME)
+        if existing is None:
+            sheet_path, root = self._new_merchandise_evidence_sheet(entries)
+        else:
+            sheet_path = existing[0]
+            root = ET.fromstring(entries[sheet_path])
+        sheet_data = root.find(Q("sheetData"))
+        if sheet_data is None:
+            sheet_data = ET.SubElement(root, Q("sheetData"))
+        existing_rows = [
+            int(row.attrib.get("r", "0")) for row in sheet_data.findall(Q("row"))
+        ]
+        next_row = max(existing_rows, default=1) + 1
+        first_product_row = next_row
+
+        for item in self.merchandise_cogs_evidence:
+            row_number = next_row
+            row = ET.SubElement(sheet_data, Q("row"), {"r": str(row_number)})
+            canonical_fields = " / ".join(
+                str(item.get(key, ""))
+                for key in (
+                    "canonical_revenue_field", "canonical_cogs_field",
+                    "canonical_rate_field", "canonical_forecast_revenue_field",
+                    "canonical_forecast_cogs_field",
+                )
+            )
+            source_reference = " / ".join(
+                str(item.get(key, ""))
+                for key in (
+                    "revenue_source_reference", "cogs_source_reference",
+                    "monthly_rate_source_reference", "forecast_revenue_source_reference",
+                )
+            )
+            provenance = (
+                f"{item['business_source']} | {canonical_fields} | {source_reference} | "
+                f"{item['source_mapping_version']}:{item['source_mapping_hash']}"
+            )
+            values = {
+                "A": item["product_code"], "B": item["specification"],
+                "C": item["mode"], "D": item["calculation_source"],
+                "E": item["latest_actual_month"], "I": item["forecast_month"],
+                "K": item["manual_cogs"], "N": item["applied_forecast_cogs"],
+                "P": item["manual_reason"],
+                "Q": "PASS" if item.get("actual_cutoff_valid") else "CHECK",
+                "R": "PASS" if item.get("actual_only_numerator") else "CHECK",
+                "S": "PASS" if item.get("actual_only_denominator") else "CHECK",
+                "T": "PASS" if item.get("zero_denominator_check") else "CHECK",
+                "U": "PASS" if item.get("missing_source_check") else "CHECK",
+                "V": "PASS" if item.get("no_forecast_self_reference") else "CHECK",
+                "W": "PASS" if item.get("product_scope_valid") else "CHECK",
+                "X": "PASS" if item.get("mode_valid") else "CHECK",
+                "Y": "PASS" if item.get("manual_amount_conflict_free") else "CHECK",
+                "Z": "PASS" if item.get("manual_reason_valid") else "CHECK",
+                "AA": "PASS" if item.get("no_hardcoded_forecast_cogs") else "CHECK",
+                "AB": "PASS" if item.get("golden_source_valid") else "CHECK",
+                "AC": provenance,
+                "AD": item["total_forecast_cogs_source_reference"],
+            }
+            for column, value in values.items():
+                self._append_inline_cell(row, f"{column}{row_number}", value)
+            self._append_formula_cell(
+                row, f"F{row_number}", f"SUM({item['revenue_source_reference']})",
+                item["actual_ytd_revenue"],
+            )
+            self._append_formula_cell(
+                row, f"G{row_number}", f"SUM({item['cogs_source_reference']})",
+                item["actual_ytd_cogs"],
+            )
+            self._append_formula_cell(
+                row, f"H{row_number}", f"IFERROR(G{row_number}/F{row_number},NA())",
+                item["actual_ytd_cogs_rate"],
+            )
+            self._append_formula_cell(
+                row, f"J{row_number}", item["forecast_revenue_source_reference"],
+                item["forecast_merchandise_revenue"],
+            )
+            self._append_formula_cell(
+                row, f"L{row_number}", f"J{row_number}*H{row_number}",
+                item["actual_ytd_derived_cogs"],
+            )
+            self._append_formula_cell(
+                row, f"M{row_number}",
+                f'IF(C{row_number}="MANUAL_OVERRIDE",K{row_number},L{row_number})',
+                item["applied_forecast_cogs"],
+            )
+            self._append_formula_cell(
+                row, f"O{row_number}",
+                f'IF(ABS(M{row_number}-N{row_number})<=1,"PASS","CHECK")',
+                "PASS",
+            )
+            next_row += 1
+
+        last_product_row = next_row - 1
+        total = sum(
+            float(item["applied_forecast_cogs"])
+            for item in self.merchandise_cogs_evidence
+        )
+        target_reference = str(
+            self.merchandise_cogs_evidence[0]["total_forecast_cogs_source_reference"]
+        )
+        total_row = ET.SubElement(sheet_data, Q("row"), {"r": str(next_row)})
+        self._append_inline_cell(total_row, f"A{next_row}", "TOTAL")
+        self._append_formula_cell(
+            total_row, f"M{next_row}", f"SUM(M{first_product_row}:M{last_product_row})", total,
+        )
+        self._append_formula_cell(total_row, f"N{next_row}", target_reference, total)
+        self._append_formula_cell(
+            total_row, f"O{next_row}",
+            f'IF(ABS(M{next_row}-N{next_row})<=1,"PASS","CHECK")', "PASS",
+        )
+        self._append_inline_cell(total_row, f"AD{next_row}", target_reference)
+        next_row += 1
+
+        auto_filter = root.find(Q("autoFilter"))
+        if auto_filter is None:
+            auto_filter = ET.SubElement(root, Q("autoFilter"))
+        auto_filter.attrib["ref"] = f"A1:AD{next_row - 1}"
+        entries[sheet_path] = serialize_xml(root)
+
     def save(self, destination: str | Path) -> Path:
         destination = Path(destination)
         destination.parent.mkdir(parents=True, exist_ok=True)
@@ -1007,6 +1303,7 @@ class GoldenWorkbook:
         entries = dict(self.entries)
         entries[self.sheet_xml] = serialize_xml(self.root, ("x14ac", "xr", "xr2", "xr3"))
         self._append_audit_sheet(entries)
+        self._append_merchandise_cogs_evidence(entries)
         if self._worksheet_target(entries, AUDIT_SHEET_NAME) is None:
             raise RuntimeError("입력반영내역 시트를 생성하지 못했습니다.")
         workbook_name = "xl/workbook.xml"

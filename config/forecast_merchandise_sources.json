@@ -1,0 +1,36 @@
+{
+  "schema_version": "1",
+  "mapping_version": "forecast-merchandise-v1.0.0",
+  "period_type_row": 3,
+  "total_forecast_cogs_row": 1289,
+  "products": {
+    "LC": {
+      "business_source": "LC 상품 매출원가",
+      "specification": "4-inch",
+      "currency": "KRW",
+      "section_row": 1658,
+      "expected_section_label": "LC 상품",
+      "actual_revenue_row": 1659,
+      "expected_revenue_label": "매출액",
+      "actual_cogs_row": 1660,
+      "expected_cogs_label": "매출원가",
+      "actual_monthly_rate_row": 1661,
+      "expected_monthly_rate_label": "매출원가율",
+      "forecast_revenue_row": 105
+    },
+    "NEW_BUSINESS": {
+      "business_source": "신사업 상품 매출원가",
+      "specification": "상품",
+      "currency": "KRW",
+      "section_row": 1733,
+      "expected_section_label": "신사업",
+      "actual_revenue_row": 1733,
+      "expected_revenue_label": "매출액",
+      "actual_cogs_row": 1734,
+      "expected_cogs_label": "매출원가",
+      "actual_monthly_rate_row": 1736,
+      "expected_monthly_rate_label": "매출원가율",
+      "forecast_revenue_row": 114
+    }
+  }
+}

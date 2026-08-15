@@ -12,6 +12,12 @@ from pathlib import Path
 from typing import Any, Mapping, Protocol, Sequence
 
 from ..engine import CostAdjustment, ForecastEngine, ForecastInput, SalesInput
+from ..merchandise_cogs import (
+    MerchandiseSourceValidationError,
+    NewBusinessGoodsCogsSelection,
+    NewBusinessGoodsCogsValidationError,
+    normalize_new_business_goods_cogs,
+)
 from ..provenance import ResultProvenance, canonical_json_bytes, mapping_hash
 from ..workbook import extract_period_types, infer_workbook_year
 from .auth import AccessCodeSessionService
@@ -55,8 +61,10 @@ class ForecastMonthInput:
     disposal_reason: str = ""
     obsolescence_adjustment: float = 0
     obsolescence_reason: str = ""
-    new_business_goods_cogs: float = 0
+    new_business_goods_cogs_mode: str | None = None
+    new_business_goods_cogs: float | None = None
     new_business_goods_cogs_reason: str = ""
+    new_business_goods_cogs_legacy_normalized: bool = False
     uf_mbr_cogs_rate: float = 0.85
     ix_cogs_rate: float = 0.85
     uf_mbr_transport_rate: float = 0.05
@@ -143,12 +151,35 @@ class ForecastGenerationService:
     def __init__(self, sessions: AccessCodeSessionService, gateway: ForecastGateway,
                  provenance: ResultProvenance, mapping_path: str | Path,
                  mapping: Mapping[str, Any], *, max_execution_seconds: int = 900,
-                 max_sync_months: int = V1_FORECAST_SYNC_MAX_MONTHS) -> None:
+                 max_sync_months: int = V1_FORECAST_SYNC_MAX_MONTHS,
+                 merchandise_mapping_path: str | Path | None = None,
+                 merchandise_mapping: Mapping[str, Any] | None = None) -> None:
         self._sessions = sessions
         self._gateway = gateway
         self._provenance = provenance
         self._mapping_path = Path(mapping_path)
         self._mapping = mapping
+        default_merchandise_path = (
+            Path(__file__).resolve().parents[2]
+            / "config" / "forecast_merchandise_sources.json"
+        )
+        self._merchandise_mapping_path = (
+            Path(merchandise_mapping_path)
+            if merchandise_mapping_path is not None
+            else (None if merchandise_mapping is not None else default_merchandise_path)
+        )
+        if merchandise_mapping is not None:
+            self._merchandise_mapping = dict(merchandise_mapping)
+        else:
+            self._merchandise_mapping = json.loads(
+                self._merchandise_mapping_path.read_text(encoding="utf-8")
+            )
+        self._merchandise_mapping_hash = mapping_hash(self._merchandise_mapping)
+        self._merchandise_mapping_version = str(
+            self._merchandise_mapping.get("mapping_version") or ""
+        ).strip()
+        if not self._merchandise_mapping_version:
+            raise ValueError("forecast merchandise mapping_version is required")
         if not 30 <= max_execution_seconds <= 1500:
             raise ValueError("forecast execution budget must be 30-1500 seconds")
         if (not isinstance(max_sync_months, int) or isinstance(max_sync_months, bool)
@@ -164,7 +195,14 @@ class ForecastGenerationService:
         canonical = self._validate(request)
         request_payload = asdict(canonical)
         request_payload.pop("idempotency_key", None)
-        payload = {"request": request_payload, "provenance": self._provenance.as_dict()}
+        payload = {
+            "request": request_payload,
+            "provenance": self._provenance.as_dict(),
+            "forecast_merchandise_source": {
+                "mapping_version": self._merchandise_mapping_version,
+                "mapping_hash": self._merchandise_mapping_hash,
+            },
+        }
         fingerprint = hashlib.sha256(canonical_json_bytes(payload)).hexdigest()
         try:
             reservation = self._gateway.reserve(actor=principal.actor_id, request=canonical,
@@ -197,6 +235,14 @@ class ForecastGenerationService:
         if mapping_hash(self._mapping_path) != self._provenance.mapping_hash:
             raise BffError(ApiErrorCode.INPUT_INTEGRITY_MISMATCH,
                            "Forecast mapping provenance is invalid")
+        if (
+            self._merchandise_mapping_path is not None
+            and mapping_hash(self._merchandise_mapping_path) != self._merchandise_mapping_hash
+        ):
+            raise BffError(
+                ApiErrorCode.INPUT_INTEGRITY_MISMATCH,
+                "Forecast merchandise source provenance is invalid",
+            )
         if reservation.status != "reserved" or not reservation.lease_token:
             raise BffError(ApiErrorCode.INPUT_INTEGRITY_MISMATCH,
                            "Forecast reservation contract is invalid")
@@ -227,6 +273,10 @@ class ForecastGenerationService:
                 # Freeze the already-loaded, provenance-validated mapping for
                 # the whole operation; monthly engines never re-read live config.
                 mapping_snapshot.write_bytes(canonical_json_bytes(self._mapping))
+                merchandise_mapping_snapshot = root / "forecast_merchandise_sources.json"
+                merchandise_mapping_snapshot.write_bytes(
+                    canonical_json_bytes(self._merchandise_mapping)
+                )
                 source = base
                 for index, month in enumerate(canonical.months):
                     if time.monotonic() - started > self._max_execution_seconds:
@@ -236,7 +286,22 @@ class ForecastGenerationService:
                         self._gateway.renew_execution_permit(reservation.generation_id, permit_token)
                     destination = final if index == len(canonical.months) - 1 else root / f"month-{month.month}.xlsx"
                     previous = source
-                    result = ForecastEngine(source, mapping_snapshot).run(_engine_input(month), destination)
+                    try:
+                        result = ForecastEngine(source, mapping_snapshot).run(
+                            _engine_input(month), destination
+                        )
+                    except MerchandiseSourceValidationError as exc:
+                        raise BffError(
+                            ApiErrorCode.VALIDATION_ERROR,
+                            "Forecast merchandise COGS source validation failed",
+                            field_errors={"merchandise_cogs_source": exc.code},
+                        ) from exc
+                    except NewBusinessGoodsCogsValidationError as exc:
+                        raise BffError(
+                            ApiErrorCode.VALIDATION_ERROR,
+                            "Forecast new-business merchandise mode validation failed",
+                            field_errors={exc.field: exc.code},
+                        ) from exc
                     if time.monotonic() - started > self._max_execution_seconds:
                         raise BffError(ApiErrorCode.TRANSIENT_SYSTEM_ERROR,
                                        "Forecast generation exceeded its execution budget")
@@ -334,7 +399,9 @@ class ForecastGenerationService:
         expected = tuple(range(request.start_month, request.end_month + 1)) if months_are_int else ()
         if tuple(item.month for item in request.months) != expected:
             errors["months"] = "must contain each selected month exactly once in order"
-        for index, item in enumerate(request.months): self._validate_month(item, errors, index)
+        selections: list[NewBusinessGoodsCogsSelection | None] = []
+        for index, item in enumerate(request.months):
+            selections.append(self._validate_month(item, errors, index))
         if errors: raise BffError(ApiErrorCode.VALIDATION_ERROR, "Forecast request is invalid", field_errors=errors)
         normalized_months = tuple(replace(item,
             sales=tuple(sorted(item.sales, key=lambda value: value.product_code)),
@@ -342,11 +409,27 @@ class ForecastGenerationService:
             mcm=tuple(sorted(item.mcm, key=lambda value: value.product_code)),
             manufacturing_adjustments=tuple(sorted(item.manufacturing_adjustments, key=lambda value: value.row)),
             sga_adjustments=tuple(sorted(item.sga_adjustments, key=lambda value: value.row)),
-        ) for item in request.months)
+            new_business_goods_cogs_mode=selection.mode.value,
+            new_business_goods_cogs=selection.manual_amount,
+            new_business_goods_cogs_reason=selection.reason,
+            new_business_goods_cogs_legacy_normalized=selection.legacy_normalized,
+        ) for item, selection in zip(request.months, selections) if selection is not None)
         return ForecastGenerateRequest(base_id, name, request.model_year, version,
             request.start_month, request.end_month, normalized_months, key)
 
-    def _validate_month(self, item: ForecastMonthInput, errors: dict[str, str], index: int) -> None:
+    def _validate_month(
+        self, item: ForecastMonthInput, errors: dict[str, str], index: int
+    ) -> NewBusinessGoodsCogsSelection | None:
+        selection: NewBusinessGoodsCogsSelection | None = None
+        try:
+            selection = normalize_new_business_goods_cogs(
+                item.new_business_goods_cogs_mode,
+                item.new_business_goods_cogs,
+                item.new_business_goods_cogs_reason,
+                legacy_normalized=item.new_business_goods_cogs_legacy_normalized,
+            )
+        except NewBusinessGoodsCogsValidationError as exc:
+            errors[f"months.{index}.{exc.field}"] = exc.code
         if not isinstance(item.month, int) or isinstance(item.month, bool) or not 1 <= item.month <= 12:
             errors[f"months.{index}.month"] = "must be an integer from 1 through 12"
         sales_allowed = set(self._mapping.get("sales", {})) | {"UF_MBR", "IX", "OTHER"}
@@ -371,11 +454,12 @@ class ForecastGenerationService:
         for x in item.sales: nonnegative += [x.quantity, x.amount]
         for x in item.production: nonnegative.append(x.quantity)
         for x in item.mcm: nonnegative.append(x.quantity)
-        nonnegative += [item.new_business_goods_cogs,
-            item.uf_mbr_cogs_rate, item.ix_cogs_rate, item.uf_mbr_transport_rate,
+        nonnegative += [item.uf_mbr_cogs_rate, item.ix_cogs_rate, item.uf_mbr_transport_rate,
             item.ix_transport_rate, item.ix_pack_liters, item.ix_pack_cost,
             item.plan_na_sa_sales, item.na_sa_sales, item.tariff_applicable_rate,
             item.tariff_rate, item.refund_rate]
+        if item.new_business_goods_cogs is not None:
+            nonnegative.append(item.new_business_goods_cogs)
         if item.raw_material_direct is not None: nonnegative.append(item.raw_material_direct)
         # Cost adjustments are signed deltas in the existing Streamlit workflow.
         values = nonnegative + [item.disposal_adjustment, item.obsolescence_adjustment,
@@ -403,6 +487,7 @@ class ForecastGenerationService:
         ix_quantity = next((x.quantity for x in item.sales if x.product_code == "IX"), 0)
         if float(ix_quantity) > 0 and float(item.ix_pack_liters) <= 0:
             errors[f"months.{index}.ix_pack_liters"] = "must be positive when IX quantity is positive"
+        return selection
 
     @staticmethod
     def _response(reservation: ForecastReservation, saved: Mapping[str, Any], replayed: bool,
@@ -432,8 +517,10 @@ def _engine_input(value: ForecastMonthInput) -> ForecastInput:
         sga_adjustments=[CostAdjustment(x.row, x.amount, x.reason) for x in value.sga_adjustments],
         disposal_adjustment=value.disposal_adjustment, disposal_reason=value.disposal_reason,
         obsolescence_adjustment=value.obsolescence_adjustment, obsolescence_reason=value.obsolescence_reason,
+        new_business_goods_cogs_mode=value.new_business_goods_cogs_mode,
         new_business_goods_cogs=value.new_business_goods_cogs,
         new_business_goods_cogs_reason=value.new_business_goods_cogs_reason,
+        new_business_goods_cogs_legacy_normalized=value.new_business_goods_cogs_legacy_normalized,
         uf_mbr_cogs_rate=value.uf_mbr_cogs_rate, ix_cogs_rate=value.ix_cogs_rate,
         uf_mbr_transport_rate=value.uf_mbr_transport_rate, ix_transport_rate=value.ix_transport_rate,
         ix_pack_liters=value.ix_pack_liters, ix_pack_cost=value.ix_pack_cost,

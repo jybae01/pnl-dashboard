@@ -88,6 +88,8 @@ describe('Forecast React vertical slice', () => {
     expect(body.months[0].production).toBeUndefined();
     expect(body.months[0].business_production).toHaveLength(6);
     expect(body.months[0].mcm).toHaveLength(4);
+    expect(body.months[0].new_business_goods_cogs_mode).toBe('ACTUAL_YTD_DEFAULT');
+    expect(body.months[0].new_business_goods_cogs).toBeUndefined();
     expect(body.idempotency_key).toBeTruthy();
     expect(screen.getByText('비공개')).toBeInTheDocument();
     expect(screen.queryByText(GENERATION)).not.toBeInTheDocument();
@@ -445,7 +447,9 @@ describe('Forecast React vertical slice', () => {
     fireEvent.change(screen.getByLabelText('7월 전력비 제조경비 조정 사유'), { target: { value: '전력 사유' } });
     fireEvent.change(screen.getByLabelText('7월 운송비 판관비 조정액'), { target: { value: '567890' } });
     fireEvent.change(screen.getByLabelText('7월 운송비 판관비 조정 사유'), { target: { value: '운송 사유' } });
+    fireEvent.change(screen.getByLabelText('7월 신사업 상품원가 산출 모드'), { target: { value: 'MANUAL_OVERRIDE' } });
     fireEvent.change(screen.getByLabelText('7월 신사업 매출원가 직접 반영액'), { target: { value: '890123' } });
+    fireEvent.change(screen.getByLabelText('7월 신사업 매출원가 사유'), { target: { value: '신사업 직접 반영' } });
     fireEvent.click(screen.getByRole('tab', { name: '08월' }));
     fireEvent.change(screen.getByLabelText('8월 전력비 제조경비 조정액'), { target: { value: '12' } });
     fireEvent.change(screen.getByLabelText('8월 운송비 판관비 조정액'), { target: { value: '-34' } });
@@ -461,6 +465,8 @@ describe('Forecast React vertical slice', () => {
       { adjustment_key: 'sga-selling', amount: 567890, reason: '운송 사유' },
     ]);
     expect(body.months[0].new_business_goods_cogs).toBe(890123);
+    expect(body.months[0].new_business_goods_cogs_mode).toBe('MANUAL_OVERRIDE');
+    expect(body.months[0].new_business_goods_cogs_reason).toBe('신사업 직접 반영');
     expect(body.months[1].manufacturing_adjustments).toEqual([
       { adjustment_key: 'mfg-energy', amount: 12, reason: '' },
     ]);

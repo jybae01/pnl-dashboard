@@ -280,12 +280,33 @@ export const ForecastGenerationView: React.FC<ForecastGenerationViewProps> = ({
 
   const updateAdvanced = (
     month: number,
-    field: keyof Omit<ForecastMonthFormState, 'month' | 'sales' | 'production' | 'mcm' | 'manufacturingAdjustments' | 'sgaAdjustments'>,
+    field: keyof Omit<ForecastMonthFormState, 'month' | 'sales' | 'production' | 'mcm' | 'manufacturingAdjustments' | 'sgaAdjustments' | 'newBusinessGoodsCogsMode'>,
     value: string,
   ) => {
     setInputs((old) => {
       const current = old[month] ?? createForecastMonthFormState(month, inputMetadata ?? undefined);
       return { ...old, [month]: { ...current, [field]: value } };
+    });
+    markDraftChanged();
+  };
+
+  const updateNewBusinessGoodsCogsMode = (
+    month: number,
+    mode: ForecastMonthFormState['newBusinessGoodsCogsMode'],
+  ) => {
+    setInputs((old) => {
+      const current = old[month] ?? createForecastMonthFormState(month, inputMetadata ?? undefined);
+      return {
+        ...old,
+        [month]: {
+          ...current,
+          newBusinessGoodsCogsMode: mode,
+          ...(mode === 'ACTUAL_YTD_DEFAULT' ? {
+            newBusinessGoodsCogs: '',
+            newBusinessGoodsCogsReason: '',
+          } : {}),
+        },
+      };
     });
     markDraftChanged();
   };
@@ -488,7 +509,7 @@ export const ForecastGenerationView: React.FC<ForecastGenerationViewProps> = ({
       ...Object.values(activeMonthInput.sgaAdjustments),
     ].filter((entry) => entry.amount.trim() !== '' && entry.amount.trim() !== '0' || entry.reason.trim() !== '').length;
     const scalarDefaults: Record<string, string> = {
-      disposalAdjustment: '0', obsolescenceAdjustment: '0', newBusinessGoodsCogs: '0',
+      disposalAdjustment: '0', obsolescenceAdjustment: '0', newBusinessGoodsCogs: '',
       ufMbrCogsRate: '0.85', ixCogsRate: '0.85', ufMbrTransportRate: '0.05', ixTransportRate: '0.05',
       ixPackLiters: '25', ixPackCost: '380', planNaSaSales: '0', naSaSales: '0',
       tariffApplicableRate: '0.1', tariffRate: '0.13', refundRate: '0.013',
@@ -502,7 +523,8 @@ export const ForecastGenerationView: React.FC<ForecastGenerationViewProps> = ({
     const rawMaterialCount = activeMonthInput.rawMaterialBasis === 'direct'
       ? 1
       : Number(activeMonthInput.rawMaterialAdjustment.trim() !== '' && activeMonthInput.rawMaterialAdjustment.trim() !== '0');
-    return adjustmentCount + scalarCount + reasonCount + rawMaterialCount;
+    const newBusinessModeCount = activeMonthInput.newBusinessGoodsCogsMode === 'MANUAL_OVERRIDE' ? 1 : 0;
+    return adjustmentCount + scalarCount + reasonCount + rawMaterialCount + newBusinessModeCount;
   }, [activeMonthInput]);
 
   if (state === 'LOADING') {
@@ -768,10 +790,11 @@ export const ForecastGenerationView: React.FC<ForecastGenerationViewProps> = ({
               </section>
               <section className="forecast-workflow__advanced-block" aria-labelledby="forecast-new-business-title">
                 <h3 id="forecast-new-business-title">신사업 입력 및 참고 기준값</h3>
-                <p className="forecast-workflow__advanced-block-help">신사업 매출원가는 서버에 직접 반영합니다. 비율·운송·포장 기준값은 참고용으로 전달되며 자동으로 비용을 반영하지 않습니다.</p>
+                <p className="forecast-workflow__advanced-block-help">기본값은 최신 확정 Actual 누계 상품원가율 자동 산출입니다. 직접 반영을 선택하면 금액과 사유가 모두 필수입니다. 비율·운송·포장 기준값은 참고용입니다.</p>
                 <div className="forecast-workflow__advanced-fields">
-                  <label>신사업 매출원가 직접 반영액<EditableNumericInput mode="decimal" disabled={advancedControlsDisabled} aria-label={`${activeInputMonth}월 신사업 매출원가 직접 반영액`} value={activeMonthInput.newBusinessGoodsCogs} onChange={(value) => updateAdvanced(activeInputMonth, 'newBusinessGoodsCogs', value)} /></label>
-                  <label>신사업 매출원가 사유<input disabled={advancedControlsDisabled} aria-label={`${activeInputMonth}월 신사업 매출원가 사유`} maxLength={500} value={activeMonthInput.newBusinessGoodsCogsReason} onChange={(event) => updateAdvanced(activeInputMonth, 'newBusinessGoodsCogsReason', event.target.value)} /></label>
+                  <label>신사업 상품원가 산출 모드<select disabled={advancedControlsDisabled} aria-label={`${activeInputMonth}월 신사업 상품원가 산출 모드`} value={activeMonthInput.newBusinessGoodsCogsMode} onChange={(event) => updateNewBusinessGoodsCogsMode(activeInputMonth, event.target.value as ForecastMonthFormState['newBusinessGoodsCogsMode'])}><option value="ACTUAL_YTD_DEFAULT">Actual YTD 자동 산출</option><option value="MANUAL_OVERRIDE">직접 반영</option></select></label>
+                  <label>신사업 매출원가 직접 반영액{activeMonthInput.newBusinessGoodsCogsMode === 'MANUAL_OVERRIDE' && <span className="forecast-workflow__required">필수</span>}<EditableNumericInput mode="decimal" disabled={advancedControlsDisabled || activeMonthInput.newBusinessGoodsCogsMode !== 'MANUAL_OVERRIDE'} aria-label={`${activeInputMonth}월 신사업 매출원가 직접 반영액`} value={activeMonthInput.newBusinessGoodsCogs} onChange={(value) => updateAdvanced(activeInputMonth, 'newBusinessGoodsCogs', value)} /></label>
+                  <label>신사업 매출원가 사유{activeMonthInput.newBusinessGoodsCogsMode === 'MANUAL_OVERRIDE' && <span className="forecast-workflow__required">필수</span>}<input disabled={advancedControlsDisabled || activeMonthInput.newBusinessGoodsCogsMode !== 'MANUAL_OVERRIDE'} aria-label={`${activeInputMonth}월 신사업 매출원가 사유`} maxLength={500} value={activeMonthInput.newBusinessGoodsCogsReason} onChange={(event) => updateAdvanced(activeInputMonth, 'newBusinessGoodsCogsReason', event.target.value)} /></label>
                   <label>UF/MBR 매출원가 비율 (0~1)<EditableNumericInput mode="decimal" disabled={advancedControlsDisabled} aria-label={`${activeInputMonth}월 UF/MBR 매출원가 비율`} value={activeMonthInput.ufMbrCogsRate} onChange={(value) => updateAdvanced(activeInputMonth, 'ufMbrCogsRate', value)} /></label>
                   <label>IX 매출원가 비율 (0~1)<EditableNumericInput mode="decimal" disabled={advancedControlsDisabled} aria-label={`${activeInputMonth}월 IX 매출원가 비율`} value={activeMonthInput.ixCogsRate} onChange={(value) => updateAdvanced(activeInputMonth, 'ixCogsRate', value)} /></label>
                   <label>UF/MBR 운송비 비율 (0~1)<EditableNumericInput mode="decimal" disabled={advancedControlsDisabled} aria-label={`${activeInputMonth}월 UF/MBR 운송비 비율`} value={activeMonthInput.ufMbrTransportRate} onChange={(value) => updateAdvanced(activeInputMonth, 'ufMbrTransportRate', value)} /></label>

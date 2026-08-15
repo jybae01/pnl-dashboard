@@ -155,6 +155,31 @@ def test_business_path_allocates_once_with_exact_session_model_and_forwards_cano
     assert tuple(item.quantity for item in forecast.last_request.months[0].production) == tuple(float(value) for value in range(1, 9))
 
 
+def test_http_preserves_legacy_omission_and_forwards_explicit_actual_mode():
+    allocation = AllocationDouble(
+        lambda values: _canonical(values[0].month, tuple(range(1, 9))), []
+    )
+    client, forecast = make_business_fixture(allocation)
+    client.post("/api/session/login", json={"access_code": "admin-code"})
+    headers = {"X-CSRF-Token": client.cookies.get("pnl_csrf")}
+
+    legacy = _body([7], {7: {"business_production": _business_rows()}})
+    assert client.post("/api/admin/forecasts", json=legacy, headers=headers).status_code == 200
+    legacy_month = forecast.last_request.months[0]
+    assert legacy_month.new_business_goods_cogs_mode is None
+    assert legacy_month.new_business_goods_cogs is None
+
+    explicit = _body([7], {7: {
+        "business_production": _business_rows(),
+        "new_business_goods_cogs_mode": "ACTUAL_YTD_DEFAULT",
+    }})
+    explicit["idempotency_key"] = "business-http-explicit-mode"
+    assert client.post("/api/admin/forecasts", json=explicit, headers=headers).status_code == 200
+    explicit_month = forecast.last_request.months[0]
+    assert explicit_month.new_business_goods_cogs_mode == "ACTUAL_YTD_DEFAULT"
+    assert explicit_month.new_business_goods_cogs is None
+
+
 def test_business_fixture_reaches_existing_forecast_contract_with_expected_canonical_values():
     allocation = AllocationDouble(
         lambda values: allocate_production(

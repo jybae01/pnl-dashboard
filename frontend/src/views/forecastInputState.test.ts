@@ -38,6 +38,8 @@ describe('forecast direct-input adapter', () => {
     expect(adapted.value?.[0].sales[0]).toEqual({ product_code: 'SW400', quantity: 12.5, amount: 1000 });
     expect(adapted.value?.[0].manufacturing_adjustments).toEqual([]);
     expect(adapted.value?.[0].sga_adjustments).toEqual([]);
+    expect(adapted.value?.[0].new_business_goods_cogs_mode).toBe('ACTUAL_YTD_DEFAULT');
+    expect(adapted.value?.[0].new_business_goods_cogs).toBeUndefined();
   });
 
   it('rejects blank, negative, and non-finite editing values instead of coercing them to zero', () => {
@@ -80,6 +82,7 @@ describe('forecast direct-input adapter', () => {
     month.disposalReason = '폐기 사유';
     month.obsolescenceAdjustment = '2300';
     month.obsolescenceReason = '진부화 사유';
+    month.newBusinessGoodsCogsMode = 'MANUAL_OVERRIDE';
     month.newBusinessGoodsCogs = '890123';
     month.newBusinessGoodsCogsReason = '신사업 직접 반영';
     month.ufMbrCogsRate = '0.8';
@@ -112,6 +115,7 @@ describe('forecast direct-input adapter', () => {
     expect(adapted.value?.[0].obsolescence_reason).toBe('진부화 사유');
     expect(adapted.value?.[0].new_business_goods_cogs).toBe(890123);
     expect(adapted.value?.[0].new_business_goods_cogs_reason).toBe('신사업 직접 반영');
+    expect(adapted.value?.[0].new_business_goods_cogs_mode).toBe('MANUAL_OVERRIDE');
     expect(adapted.value?.[0].uf_mbr_cogs_rate).toBe(0.8);
     expect(adapted.value?.[0].ix_cogs_rate).toBe(0.81);
     expect(adapted.value?.[0].uf_mbr_transport_rate).toBe(0.04);
@@ -150,7 +154,9 @@ describe('forecast direct-input adapter', () => {
     july.manufacturingAdjustments['mfg-energy'] = { amount: '-66', reason: '제조 유지' };
     july.sgaAdjustments['sga-selling'] = { amount: '55', reason: '판관비 유지' };
     july.disposalAdjustment = '44';
+    july.newBusinessGoodsCogsMode = 'MANUAL_OVERRIDE';
     july.newBusinessGoodsCogs = '33';
+    july.newBusinessGoodsCogsReason = '직접 반영 유지';
     july.naSaSales = '22';
     july.rawMaterialAdjustment = '11';
 
@@ -178,7 +184,26 @@ describe('forecast direct-input adapter', () => {
     expect(applied[7].sgaAdjustments['sga-selling']).toEqual({ amount: '55', reason: '판관비 유지' });
     expect(applied[7].disposalAdjustment).toBe('44');
     expect(applied[7].newBusinessGoodsCogs).toBe('33');
+    expect(applied[7].newBusinessGoodsCogsMode).toBe('MANUAL_OVERRIDE');
+    expect(applied[7].newBusinessGoodsCogsReason).toBe('직접 반영 유지');
     expect(applied[7].naSaSales).toBe('22');
     expect(applied[7].rawMaterialAdjustment).toBe('11');
+  });
+
+  it('requires explicit manual amount and reason while preserving zero override', () => {
+    const missing = createForecastMonthFormState(7);
+    missing.newBusinessGoodsCogsMode = 'MANUAL_OVERRIDE';
+    expect(adaptForecastInput([7], { 7: missing })).toMatchObject({ value: null });
+
+    const zero = createForecastMonthFormState(7);
+    zero.newBusinessGoodsCogsMode = 'MANUAL_OVERRIDE';
+    zero.newBusinessGoodsCogs = '0';
+    zero.newBusinessGoodsCogsReason = '명시적 0원';
+    const adapted = adaptForecastInput([7], { 7: zero });
+    expect(adapted.value?.[0]).toMatchObject({
+      new_business_goods_cogs_mode: 'MANUAL_OVERRIDE',
+      new_business_goods_cogs: 0,
+      new_business_goods_cogs_reason: '명시적 0원',
+    });
   });
 });

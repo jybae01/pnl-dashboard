@@ -44,6 +44,8 @@ def create_supabase_bff_application(
     model_repository: Any | None = None,
     model_mapping: Mapping[str, Any] | None = None,
     mapping_path: str | None = None,
+    forecast_merchandise_mapping: Mapping[str, Any] | None = None,
+    forecast_merchandise_mapping_path: str | None = None,
     session_store: SessionStore | None = None,
     forecast_max_concurrency: int = 1,
     forecast_permit_lease_seconds: int = 1200,
@@ -143,6 +145,8 @@ def create_supabase_bff_application(
                 ), provenance, mapping_path, model_mapping,
                 max_execution_seconds=forecast_max_execution_seconds,
                 max_sync_months=forecast_sync_max_months,
+                merchandise_mapping_path=forecast_merchandise_mapping_path,
+                merchandise_mapping=forecast_merchandise_mapping,
             ) if forecast_enabled and model_capabilities and mapping_path else None
         ),
         forecast_input_metadata=(
