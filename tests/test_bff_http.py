@@ -31,6 +31,10 @@ from forecast.bff.production import AuditSink
 from forecast.bff.evidence_history import EvidenceArtifact
 from forecast.analysis_export import MIME_XLSX
 from forecast.provenance import ResultProvenance
+from forecast.bff.persistent_delete import (
+    PersistentDeleteBatchResult,
+    PersistentDeleteItemResult,
+)
 
 
 BASE = "11111111-1111-4111-8111-111111111111"
@@ -115,7 +119,7 @@ class Fixture:
         return self.client.cookies.get("pnl_csrf")
 
 
-def make_fixture(*, limiter=None, clock=None, worker_control=None, audit_sink=None) -> Fixture:
+def make_fixture(*, limiter=None, clock=None, worker_control=None, audit_sink=None, persistent_delete=None) -> Fixture:
     sessions = AccessCodeSessionService(
         viewer_code="viewer-code", admin_code="admin-code",
         actor_namespace_secret="actor-namespace-secret-at-least-32-chars", ttl_seconds=3600,
@@ -148,6 +152,7 @@ def make_fixture(*, limiter=None, clock=None, worker_control=None, audit_sink=No
             WorkerAdministrationService(sessions, worker_control)
             if worker_control is not None else None
         ),
+        persistent_delete=persistent_delete,
     )
     app = create_http_bff(
         app_service,
@@ -544,3 +549,142 @@ def test_forecast_disabled_mode_is_admin_authenticated_and_fails_closed():
     )
     assert denied.status_code == 403
     assert denied.json()["error"]["code"] == "FORECAST_SCOPE_NOT_APPROVED"
+
+
+class FakePersistentDelete:
+    def __init__(self):
+        self.calls = []
+
+    def delete_models(self, session_id, ids):
+        self.calls.append(("model", session_id, tuple(ids)))
+        return PersistentDeleteBatchResult(
+            resource_type="model", requested_count=2, deleted_count=1,
+            blocked_count=1, failed_count=0,
+            items=(
+                PersistentDeleteItemResult(ids[0], "DELETED", "DELETED", {}, False),
+                PersistentDeleteItemResult(ids[1], "BLOCKED_IN_USE", "MODEL_IN_USE", {"analysis_jobs": 1}, False),
+            ),
+        )
+
+    def delete_analyses(self, session_id, ids):
+        self.calls.append(("analysis", session_id, tuple(ids)))
+        return PersistentDeleteBatchResult(
+            resource_type="analysis", requested_count=1, deleted_count=0,
+            blocked_count=0, failed_count=0, cleanup_required_count=1,
+            items=(PersistentDeleteItemResult(
+                ids[0], "CLEANUP_REQUIRED",
+                "DB_DELETED_STORAGE_CLEANUP_REQUIRED", {}, True,
+            ),),
+        )
+
+    def list_model_recoveries(self, session_id):
+        self.calls.append(("model-recovery", session_id))
+        return PersistentDeleteBatchResult(
+            resource_type="model", requested_count=1, deleted_count=0,
+            blocked_count=0, failed_count=0, cleanup_required_count=1,
+            items=(PersistentDeleteItemResult(
+                BASE, "CLEANUP_REQUIRED",
+                "DB_DELETED_STORAGE_CLEANUP_REQUIRED", {}, True,
+            ),),
+        )
+
+    def list_analysis_recoveries(self, session_id):
+        self.calls.append(("analysis-recovery", session_id))
+        return PersistentDeleteBatchResult(
+            resource_type="analysis", requested_count=1, deleted_count=0,
+            blocked_count=0, failed_count=0, cleanup_required_count=1,
+            items=(PersistentDeleteItemResult(
+                JOB, "CLEANUP_REQUIRED",
+                "DB_DELETED_STORAGE_CLEANUP_REQUIRED", {}, True,
+            ),),
+        )
+
+    def retry_model_cleanup(self, session_id, ids):
+        self.calls.append(("model-retry", session_id, tuple(ids)))
+        return PersistentDeleteBatchResult(
+            resource_type="model", requested_count=1, deleted_count=1,
+            blocked_count=0, failed_count=0,
+            items=(PersistentDeleteItemResult(ids[0], "DELETED", "DELETED", {}, True),),
+        )
+
+    def retry_analysis_cleanup(self, session_id, ids):
+        self.calls.append(("analysis-retry", session_id, tuple(ids)))
+        return PersistentDeleteBatchResult(
+            resource_type="analysis", requested_count=1, deleted_count=1,
+            blocked_count=0, failed_count=0,
+            items=(PersistentDeleteItemResult(ids[0], "DELETED", "DELETED", {}, True),),
+        )
+
+
+def test_persistent_delete_routes_require_admin_csrf_and_return_per_item_results():
+    capability = FakePersistentDelete()
+    anonymous = make_fixture(persistent_delete=capability)
+    assert anonymous.client.post("/api/admin/models/delete", json={"ids": [BASE, COMP]}).status_code == 401
+
+    viewer = make_fixture(persistent_delete=capability); viewer.login("viewer-code")
+    assert viewer.client.post(
+        "/api/admin/models/delete", json={"ids": [BASE, COMP]},
+        headers={"X-CSRF-Token": viewer.csrf},
+    ).status_code == 403
+
+    audit = RecordingAudit()
+    admin = make_fixture(persistent_delete=capability, audit_sink=audit); admin.login()
+    assert admin.client.post("/api/admin/models/delete", json={"ids": [BASE, COMP]}).status_code == 403
+    response = admin.client.post(
+        "/api/admin/models/delete", json={"ids": [BASE, COMP]},
+        headers={"X-CSRF-Token": admin.csrf},
+    )
+    assert response.status_code == 200
+    assert response.json()["deleted_count"] == 1
+    assert response.json()["items"][1]["reason"] == "MODEL_IN_USE"
+    delete_events = [event for event in audit.events if event["event_type"] == "model_persistent_delete"]
+    assert [event["outcome"] for event in delete_events] == ["success", "denied"]
+    assert "storage_path" not in response.text and "service_role" not in response.text
+
+
+def test_analysis_delete_route_reports_storage_cleanup_and_rejects_arbitrary_fields():
+    capability = FakePersistentDelete()
+    audit = RecordingAudit()
+    admin = make_fixture(persistent_delete=capability, audit_sink=audit); admin.login()
+    headers = {"X-CSRF-Token": admin.csrf}
+    invalid = admin.client.post(
+        "/api/admin/calculation-history/delete",
+        json={"ids": [JOB], "storage_path": "models/other/source.xlsx"}, headers=headers,
+    )
+    assert invalid.status_code == 422
+    assert capability.calls == []
+
+    response = admin.client.post(
+        "/api/admin/calculation-history/delete", json={"ids": [JOB]}, headers=headers,
+    )
+    assert response.status_code == 200
+    assert response.json()["cleanup_required_count"] == 1
+    assert response.json()["items"][0]["status"] == "CLEANUP_REQUIRED"
+    event = next(event for event in audit.events if event["event_type"] == "analysis_persistent_delete")
+    assert event["outcome"] == "cleanup_required"
+    assert event["error_code"] == "DB_DELETED_STORAGE_CLEANUP_REQUIRED"
+
+
+def test_persistent_delete_recovery_status_and_retry_are_admin_only_and_path_free():
+    capability = FakePersistentDelete()
+    admin = make_fixture(persistent_delete=capability); admin.login()
+    headers = {"X-CSRF-Token": admin.csrf}
+
+    status = admin.client.get("/api/admin/models/delete/recovery")
+    assert status.status_code == 200
+    assert status.json()["items"][0]["status"] == "CLEANUP_REQUIRED"
+    assert "storage_path" not in status.text and "storage_bucket" not in status.text
+
+    no_csrf = admin.client.post(
+        "/api/admin/models/delete/retry", json={"ids": [BASE]},
+    )
+    assert no_csrf.status_code == 403
+    retry = admin.client.post(
+        "/api/admin/models/delete/retry", json={"ids": [BASE]}, headers=headers,
+    )
+    assert retry.status_code == 200
+    assert retry.json()["items"][0]["status"] == "DELETED"
+    assert ("model-retry", admin.client.cookies.get("pnl_session"), (BASE,)) in capability.calls
+
+    viewer = make_fixture(persistent_delete=capability); viewer.login("viewer-code")
+    assert viewer.client.get("/api/admin/calculation-history/delete/recovery").status_code == 403

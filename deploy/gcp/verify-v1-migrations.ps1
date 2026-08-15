@@ -25,6 +25,10 @@ $expected = [ordered]@{
     '20260811150705_align_pnl_dashboard_viewer_contract.sql' = '4a5ebd0bdbbdd2c52c628f13cb5d2e392aebe7a7fad4e742b7267dd75078883b'
     '20260811151052_restore_pnl_dashboard_default_contract.sql' = '08a326ddfe66844680e97c7d5507cdb56a78aa45827677f47011563d8fd1ff4a'
     '202608120001_demand_only_worker_lifecycle.sql' = '4f0483e36f2883561410e5e4708c2a5903d7d6e50c5018a066424d4e8087c6cb'
+    '20260815023857_persistent_delete_slice3.sql' = '1e5c9237c6a03742fa915b5a5bc8e0c5ed79dec911e73bb1e26a24e17fb14931'
+    '20260815050758_persistent_delete_recovery_slice3a.sql' = 'da63aef01016f6a1845fee04005820f9bd8705dcbc4a895048fd9c3455b37632'
+    '20260815053855_persistent_delete_status_classification_slice3a.sql' = '8f16ee6a7914669714c5fbae2e46f9a6ccde0059a2e71d4682533e060823d09a'
+    '20260815055055_persistent_delete_storage_requirement_slice3a.sql' = '3b93c47c8ccbef65d87b3e71b20cb1d7eb02970db620c27d852f51931abc35e6'
 }
 
 $files = @(Get-ChildItem -LiteralPath $MigrationDirectory -File -Filter '*.sql' | Sort-Object Name)

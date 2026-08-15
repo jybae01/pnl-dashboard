@@ -171,12 +171,15 @@ both legacy refs. Before applying SQL, pin the exact V1 chain:
 ./deploy/gcp/verify-v1-migrations.ps1
 ```
 
-The verifier requires all 18 files in lexical order and their frozen SHA-256
-digests, including `202608120001_demand_only_worker_lifecycle.sql`. Apply that
-exact chain once to the new empty Production project through the authenticated
+The verifier requires all 22 files in lexical order and their frozen SHA-256
+digests, including `20260815023857_persistent_delete_slice3.sql` and
+`20260815050758_persistent_delete_recovery_slice3a.sql`, and
+`20260815053855_persistent_delete_status_classification_slice3a.sql`, and
+`20260815055055_persistent_delete_storage_requirement_slice3a.sql`. Apply those
+exact migrations once to the new empty Production project through the authenticated
 Supabase management channel. Do not use a staging dump, skip a file, edit a
 migration, or apply manual SQL. Before any Google deployment, capture remote
-migration history proving 18/18 with no gap or duplicate, then verify RLS/ACL,
+migration history proving 22/22 with no gap or duplicate, then verify RLS/ACL,
 SECURITY DEFINER search paths, pgmq, private `pnl-models`, shared sessions and
 lockout, publication, audit, and Worker lifecycle catalogs. A Security Advisor
 warning or remote-history mismatch blocks provisioning.

@@ -22,6 +22,8 @@ import {
   ForecastExcelPreviewDto,
   ForecastInputMetadataDto,
   WorkerStatusDto,
+  PersistentDeleteBatchDto,
+  PersistentDeleteItemDto,
 } from './types';
 
 const API_ROOT = (import.meta.env.VITE_BFF_BASE_URL || '').replace(/\/$/, '');
@@ -100,6 +102,22 @@ export const bffClient = {
         : publication),
     }),
   ),
+  deleteModels: async (ids: string[]) => validatePersistentDelete(
+    await request<unknown>('/api/admin/models/delete', {
+      method: 'POST', body: JSON.stringify({ ids }),
+    }),
+    'model',
+  ),
+  modelDeleteRecovery: async () => validatePersistentDelete(
+    await request<unknown>('/api/admin/models/delete/recovery', { cache: 'no-store' }),
+    'model',
+  ),
+  retryModelDeleteCleanup: async (ids: string[]) => validatePersistentDelete(
+    await request<unknown>('/api/admin/models/delete/retry', {
+      method: 'POST', body: JSON.stringify({ ids }),
+    }),
+    'model',
+  ),
   submit: async (body: SubmitRequest) => validateSubmit(await request<unknown>('/api/analyses', {
     method: 'POST', body: JSON.stringify(body),
   })),
@@ -151,6 +169,22 @@ export const bffClient = {
     }
     return validateHistory(await request<unknown>(`/api/admin/calculation-history?${query}`));
   },
+  deleteAnalysisHistory: async (ids: string[]) => validatePersistentDelete(
+    await request<unknown>('/api/admin/calculation-history/delete', {
+      method: 'POST', body: JSON.stringify({ ids }),
+    }),
+    'analysis',
+  ),
+  analysisDeleteRecovery: async () => validatePersistentDelete(
+    await request<unknown>('/api/admin/calculation-history/delete/recovery', { cache: 'no-store' }),
+    'analysis',
+  ),
+  retryAnalysisDeleteCleanup: async (ids: string[]) => validatePersistentDelete(
+    await request<unknown>('/api/admin/calculation-history/delete/retry', {
+      method: 'POST', body: JSON.stringify({ ids }),
+    }),
+    'analysis',
+  ),
   downloadEvidence: (resultId: string, role: Role) => downloadEvidence(resultId, role),
   downloadForecastWorkbook: (modelId: string) => downloadForecastWorkbook(modelId),
 };
@@ -745,4 +779,64 @@ function validateHistory(value: unknown): CalculationHistoryDto {
     next_before_job_id: typeof value.next_before_job_id === 'string' ? value.next_before_job_id : null,
     dto_version: '1',
   };
+}
+
+function validatePersistentDelete(
+  value: unknown,
+  expectedResourceType: 'model' | 'analysis',
+): PersistentDeleteBatchDto {
+  if (!isRecord(value)
+    || value.resource_type !== expectedResourceType
+    || value.dto_version !== '1'
+    || !Array.isArray(value.items)
+    || !nonnegativeInteger(value.requested_count)
+    || !nonnegativeInteger(value.deleted_count)
+    || !nonnegativeInteger(value.blocked_count)
+    || !nonnegativeInteger(value.failed_count)
+    || (value.cleanup_required_count !== undefined && !nonnegativeInteger(value.cleanup_required_count))
+    || (value.uncertain_count !== undefined && !nonnegativeInteger(value.uncertain_count))
+    || value.requested_count !== value.items.length) invalidPayload();
+  const statuses = new Set([
+    'DELETED', 'CLEANUP_REQUIRED', 'PREPARE_UNCERTAIN',
+    'BLOCKED_IN_USE', 'BLOCKED_NON_TERMINAL', 'BLOCKED_PROTECTED',
+    'NOT_FOUND', 'STORAGE_CLEANUP_FAILED', 'FAILED',
+  ]);
+  const ids = new Set<string>();
+  const items = value.items.map((item): PersistentDeleteItemDto => {
+    if (!isRecord(item)
+      || typeof item.resource_id !== 'string'
+      || !uuid(item.resource_id)
+      || ids.has(item.resource_id)
+      || !statuses.has(String(item.status))
+      || typeof item.reason !== 'string'
+      || !/^[A-Z][A-Z0-9_]{1,79}$/.test(item.reason)
+      || typeof item.idempotent_replayed !== 'boolean'
+      || !isRecord(item.reference_counts)
+      || Object.values(item.reference_counts).some((entry) => (
+        !(typeof entry === 'string' || nonnegativeInteger(entry))
+      ))) invalidPayload();
+    ids.add(item.resource_id);
+    return item as unknown as PersistentDeleteItemDto;
+  });
+  const deleted = items.filter((item) => item.status === 'DELETED').length;
+  const cleanupRequired = items.filter((item) => item.status === 'CLEANUP_REQUIRED').length;
+  const blocked = items.filter((item) => item.status.startsWith('BLOCKED_')).length;
+  const uncertain = items.filter((item) => item.status === 'PREPARE_UNCERTAIN').length;
+  const failed = items.length - deleted - cleanupRequired - blocked - uncertain;
+  const cleanupCount = value.cleanup_required_count === undefined ? 0 : value.cleanup_required_count;
+  const uncertainCount = value.uncertain_count === undefined ? 0 : value.uncertain_count;
+  if (deleted !== value.deleted_count || cleanupRequired !== cleanupCount
+    || blocked !== value.blocked_count || uncertain !== uncertainCount
+    || failed !== value.failed_count
+    || value.requested_count !== deleted + cleanupCount + blocked + uncertainCount + failed) invalidPayload();
+  return {
+    ...value,
+    cleanup_required_count: cleanupCount,
+    uncertain_count: uncertainCount,
+    items,
+  } as unknown as PersistentDeleteBatchDto;
+}
+
+function nonnegativeInteger(value: unknown): value is number {
+  return typeof value === 'number' && Number.isInteger(value) && value >= 0;
 }

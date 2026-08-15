@@ -336,6 +336,37 @@ export interface CalculationHistoryDto {
   dto_version: '1';
 }
 
+export type PersistentDeleteStatus =
+  | 'DELETED'
+  | 'CLEANUP_REQUIRED'
+  | 'PREPARE_UNCERTAIN'
+  | 'BLOCKED_IN_USE'
+  | 'BLOCKED_NON_TERMINAL'
+  | 'BLOCKED_PROTECTED'
+  | 'NOT_FOUND'
+  | 'STORAGE_CLEANUP_FAILED'
+  | 'FAILED';
+
+export interface PersistentDeleteItemDto {
+  resource_id: string;
+  status: PersistentDeleteStatus;
+  reason: string;
+  reference_counts: Record<string, number | string>;
+  idempotent_replayed: boolean;
+}
+
+export interface PersistentDeleteBatchDto {
+  resource_type: 'model' | 'analysis';
+  requested_count: number;
+  deleted_count: number;
+  cleanup_required_count: number;
+  blocked_count: number;
+  uncertain_count: number;
+  failed_count: number;
+  items: PersistentDeleteItemDto[];
+  dto_version: '1';
+}
+
 export interface DashboardFinancialLineDto {
   code: string;
   label: string;

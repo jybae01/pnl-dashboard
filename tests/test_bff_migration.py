@@ -10,7 +10,7 @@ def section(start: str, end: str) -> str:
     return SQL.split(start, 1)[1].split(end, 1)[0]
 
 
-def test_migration_chain_is_additive_001_through_017():
+def test_migration_chain_is_additive_through_slice3_persistent_delete():
     assert [path.name for path in sorted(MIGRATION.parent.glob("*.sql"))] == [
         "202608090001_phase1_foundation.sql",
         "202608090002_phase2_queue_worker.sql",
@@ -30,6 +30,10 @@ def test_migration_chain_is_additive_001_through_017():
         "20260811150705_align_pnl_dashboard_viewer_contract.sql",
         "20260811151052_restore_pnl_dashboard_default_contract.sql",
         "202608120001_demand_only_worker_lifecycle.sql",
+        "20260815023857_persistent_delete_slice3.sql",
+        "20260815050758_persistent_delete_recovery_slice3a.sql",
+        "20260815053855_persistent_delete_status_classification_slice3a.sql",
+        "20260815055055_persistent_delete_storage_requirement_slice3a.sql",
     ]
     assert SQL.startswith("-- trusted bff foundation")
     assert "begin;" in SQL and SQL.rstrip().endswith("commit;")

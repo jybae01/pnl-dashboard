@@ -79,6 +79,14 @@
 .calculation-history__filters input:focus,
 .calculation-history__filters select:focus { border-color: #f97316; outline: 3px solid rgba(249, 115, 22, .14); }
 .calculation-history__filter-note { max-width: 255px; padding-bottom: 8px; color: #94a3b8; font-size: 10px; line-height: 1.4; }
+.calculation-history__bulk-actions { display: flex; align-items: center; gap: 8px; margin-left: auto; color: #64748b; font-size: 10px; font-weight: 800; }
+.calculation-history__delete-button { display: inline-flex; align-items: center; justify-content: center; gap: 5px; min-height: 32px; border: 1px solid #fecaca; border-radius: 8px; padding: 0 11px; color: #b91c1c; background: #fff; font: inherit; font-size: 10px; font-weight: 900; cursor: pointer; }
+.calculation-history__delete-button:hover:not(:disabled) { border-color: #ef4444; background: #fef2f2; }
+.calculation-history__delete-button:disabled { cursor: not-allowed; opacity: .5; }
+.calculation-history__delete-result { display: grid; gap: 7px; margin: 10px 0; border: 1px solid #fed7aa; border-radius: 8px; padding: 10px; color: #7c2d12; background: #fff7ed; font-size: 11px; }
+.calculation-history__delete-result ul { display: grid; gap: 4px; margin: 0; padding-left: 18px; }
+.calculation-history__delete-result code { font-size: 9px; overflow-wrap: anywhere; }
+.calculation-history__delete-result .calculation-history__secondary { justify-self: start; }
 
 .calculation-history__state,
 .calculation-history__filter-empty {
@@ -110,6 +118,7 @@
   white-space: nowrap;
 }
 .calculation-history__table td { padding: 9px; border-bottom: 1px solid #f1f5f9; color: #334155; vertical-align: middle; white-space: nowrap; }
+.calculation-history__table input[type='checkbox'] { accent-color: #ea580c; }
 .calculation-history__table tbody tr:hover,
 .calculation-history__table tbody tr.is-selected { background: #fff7ed; }
 .calculation-history__table tbody tr:last-child td { border-bottom: 0; }

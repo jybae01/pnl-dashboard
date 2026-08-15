@@ -170,6 +170,10 @@ def test_migration_contract_is_001_through_004():
         "20260811150705_align_pnl_dashboard_viewer_contract.sql",
         "20260811151052_restore_pnl_dashboard_default_contract.sql",
         "202608120001_demand_only_worker_lifecycle.sql",
+        "20260815023857_persistent_delete_slice3.sql",
+        "20260815050758_persistent_delete_recovery_slice3a.sql",
+        "20260815053855_persistent_delete_status_classification_slice3a.sql",
+        "20260815055055_persistent_delete_storage_requirement_slice3a.sql",
     ]
 
 

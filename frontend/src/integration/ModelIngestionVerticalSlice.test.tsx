@@ -247,4 +247,111 @@ describe('model management vertical slice', () => {
     expect(screen.queryByText('등록된 모형이 없습니다.')).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: '새 모형 업로드' })).not.toBeInTheDocument();
   });
+
+  it('confirms model hard delete, sends only selected IDs, shows partial results, and refetches', async () => {
+    document.cookie = 'pnl_csrf=delete-csrf; Path=/';
+    let reads = 0;
+    const fetchMock = vi.fn((input: RequestInfo | URL, _init?: RequestInit) => {
+      const path = String(input);
+      if (path.endsWith('/api/admin/models/delete')) return response({
+        resource_type: 'model', requested_count: 2, deleted_count: 1, blocked_count: 1, failed_count: 0,
+        items: [
+          { resource_id: MODEL, status: 'DELETED', reason: 'DELETED', reference_counts: {}, idempotent_replayed: false },
+          { resource_id: OTHER, status: 'BLOCKED_IN_USE', reason: 'MODEL_IN_USE', reference_counts: { analysis_jobs: 1 }, idempotent_replayed: false },
+        ], dto_version: '1',
+      });
+      if (path.endsWith('/api/admin/models')) {
+        reads += 1;
+        return list(reads === 1 ? [model(), model({ model_id: OTHER, display_name: 'Referenced Model' })] : [model({ model_id: OTHER, display_name: 'Referenced Model' })]);
+      }
+      throw new Error(path);
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    render(<ModelManagementView />);
+    await screen.findByText('Referenced Model');
+    fireEvent.click(screen.getByLabelText('표시된 모형 전체 선택'));
+    fireEvent.click(screen.getByRole('button', { name: '선택 삭제' }));
+    expect(screen.getByRole('dialog', { name: /선택한 모형 2건/ })).toHaveTextContent('복구할 수 없습니다');
+    fireEvent.click(screen.getByRole('button', { name: '영구 삭제' }));
+
+    expect(await screen.findByText('2건 요청 / 1건 삭제 / 0건 Storage 정리 필요 / 1건 차단 / 0건 상태 확인 필요 / 0건 실패')).toBeInTheDocument();
+    expect(screen.getByText(/분석·Forecast 등에서 사용 중입니다/)).toBeInTheDocument();
+    expect(screen.queryByText('2026 Actual')).not.toBeInTheDocument();
+    expect(screen.getByText('Referenced Model')).toBeInTheDocument();
+    expect(reads).toBe(2);
+    const call = fetchMock.mock.calls.find(([url]) => String(url).endsWith('/api/admin/models/delete'));
+    expect(call?.[1]?.method).toBe('POST');
+    expect(new Headers(call?.[1]?.headers).get('X-CSRF-Token')).toBe('delete-csrf');
+    expect(JSON.parse(String(call?.[1]?.body))).toEqual({ ids: [MODEL, OTHER] });
+    expect(JSON.stringify(JSON.parse(String(call?.[1]?.body)))).not.toContain('storage');
+  });
+
+  it('keeps a retry action for DB-deleted models whose Storage cleanup failed', async () => {
+    let reads = 0;
+    let deletes = 0;
+    const fetchMock = vi.fn((input: RequestInfo | URL) => {
+      const path = String(input);
+      if (path.endsWith('/api/admin/models/delete')) {
+        deletes += 1;
+        return response({
+          resource_type: 'model', requested_count: 1,
+          deleted_count: 0, cleanup_required_count: 1, blocked_count: 0, uncertain_count: 0, failed_count: 0,
+          items: [{ resource_id: MODEL, status: 'CLEANUP_REQUIRED', reason: 'DB_DELETED_STORAGE_CLEANUP_REQUIRED', reference_counts: {}, idempotent_replayed: false }],
+          dto_version: '1',
+        });
+      }
+      if (path.endsWith('/api/admin/models/delete/retry')) {
+        deletes += 1;
+        return response({
+          resource_type: 'model', requested_count: 1,
+          deleted_count: 1, cleanup_required_count: 0, blocked_count: 0, uncertain_count: 0, failed_count: 0,
+          items: [{ resource_id: MODEL, status: 'DELETED', reason: 'DELETED', reference_counts: {}, idempotent_replayed: true }],
+          dto_version: '1',
+        });
+      }
+      if (path.endsWith('/api/admin/models')) { reads += 1; return list(reads === 1 ? [model()] : []); }
+      throw new Error(path);
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    render(<ModelManagementView />);
+    await screen.findByText('2026 Actual');
+    fireEvent.click(screen.getByLabelText('2026 Actual 삭제 선택'));
+    fireEvent.click(screen.getByRole('button', { name: '선택 삭제' }));
+    fireEvent.click(screen.getByRole('button', { name: '영구 삭제' }));
+    expect(await screen.findByRole('button', { name: 'Storage 정리 재시도' })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Storage 정리 재시도' }));
+    expect(await screen.findByText('1건 요청 / 1건 삭제 / 0건 Storage 정리 필요 / 0건 차단 / 0건 상태 확인 필요 / 0건 실패')).toBeInTheDocument();
+    expect(deletes).toBe(2);
+  });
+
+  it('discovers a cleanup receipt after reload and retries without a Storage path', async () => {
+    document.cookie = 'pnl_csrf=recovery-csrf; Path=/';
+    const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      const path = String(input);
+      if (path.endsWith('/api/admin/models/delete/recovery')) return response({
+        resource_type: 'model', requested_count: 1,
+        deleted_count: 0, cleanup_required_count: 1, blocked_count: 0, uncertain_count: 0, failed_count: 0,
+        items: [{ resource_id: MODEL, status: 'CLEANUP_REQUIRED', reason: 'DB_DELETED_STORAGE_CLEANUP_REQUIRED', reference_counts: {}, idempotent_replayed: true }],
+        dto_version: '1',
+      });
+      if (path.endsWith('/api/admin/models/delete/retry')) return response({
+        resource_type: 'model', requested_count: 1,
+        deleted_count: 1, cleanup_required_count: 0, blocked_count: 0, uncertain_count: 0, failed_count: 0,
+        items: [{ resource_id: MODEL, status: 'DELETED', reason: 'DELETED', reference_counts: {}, idempotent_replayed: true }],
+        dto_version: '1',
+      });
+      if (path.endsWith('/api/admin/models')) return list([]);
+      throw new Error(`${init?.method || 'GET'} ${path}`);
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    render(<ModelManagementView />);
+    await screen.findByText('등록된 모형이 없습니다.');
+    fireEvent.click(screen.getByRole('button', { name: '삭제 복구 상태 확인' }));
+    expect(await screen.findByRole('button', { name: 'Storage 정리 재시도' })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Storage 정리 재시도' }));
+    expect(await screen.findByText('1건 요청 / 1건 삭제 / 0건 Storage 정리 필요 / 0건 차단 / 0건 상태 확인 필요 / 0건 실패')).toBeInTheDocument();
+    const retry = fetchMock.mock.calls.find(([url]) => String(url).endsWith('/api/admin/models/delete/retry'));
+    expect(JSON.parse(String(retry?.[1]?.body))).toEqual({ ids: [MODEL] });
+    expect(String(retry?.[1]?.body)).not.toContain('storage');
+  });
 });

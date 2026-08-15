@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { AlertTriangle, CheckCircle2, ChevronDown, Clock3, ExternalLink, Settings2, XCircle } from 'lucide-react';
+import { AlertTriangle, CheckCircle2, ChevronDown, Clock3, ExternalLink, Settings2, Trash2, XCircle } from 'lucide-react';
 import { bffClient } from './client';
 import { EvidenceDownloadButton } from './EvidenceDownloadButton';
-import { ApiClientError, CalculationHistoryItemDto } from './types';
+import { ApiClientError, CalculationHistoryItemDto, PersistentDeleteBatchDto } from './types';
+import { persistentDeleteReason, persistentDeleteSummary } from './persistentDeleteUi';
 import '../styles/calculation-history.css';
 
 type HistoryState = 'LOADING' | 'READY' | 'EMPTY' | 'FILTER_EMPTY' | 'ERROR' | 'FORBIDDEN';
@@ -83,6 +84,13 @@ function safePublicationError(value: unknown): string {
   }
 }
 
+function safeDeleteError(value: unknown): string {
+  if (!(value instanceof ApiClientError)) return '분석 이력을 삭제하지 못했습니다. 잠시 후 다시 시도하세요.';
+  if (value.status === 403 || value.code === 'FORBIDDEN') return '분석 이력을 삭제할 권한이 없습니다.';
+  if (value.code === 'VALIDATION_ERROR') return '삭제할 분석 이력 선택값을 확인하세요.';
+  return '분석 이력을 삭제하지 못했습니다. 잠시 후 다시 시도하세요.';
+}
+
 function publicationChoice(item: CalculationHistoryItemDto): PublicationChoice {
   if (item.is_default) return 'DASHBOARD_DEFAULT';
   return item.is_published ? 'PUBLISHED' : 'PRIVATE';
@@ -113,6 +121,11 @@ export function CalculationHistoryView({ onOpenResult }: CalculationHistoryViewP
   const [publicationPending, setPublicationPending] = useState(false);
   const [publicationError, setPublicationError] = useState<string | null>(null);
   const [publicationNotice, setPublicationNotice] = useState<string | null>(null);
+  const [deleteSelection, setDeleteSelection] = useState<Set<string>>(new Set());
+  const [deleteConfirmationOpen, setDeleteConfirmationOpen] = useState(false);
+  const [deletePending, setDeletePending] = useState(false);
+  const [deleteResult, setDeleteResult] = useState<PersistentDeleteBatchDto | null>(null);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
   const publicationPendingRef = useRef(false);
 
   const load = useCallback(async (cursor: Cursor = null, append = false) => {
@@ -128,6 +141,10 @@ export function CalculationHistoryView({ onOpenResult }: CalculationHistoryViewP
     try {
       const page = await bffClient.history(20, cursor?.beforeCreatedAt, cursor?.beforeJobId);
       setItems((previous) => append ? [...previous, ...page.items] : page.items);
+      if (!append) {
+        const available = new Set(page.items.map((item) => item.job_id));
+        setDeleteSelection((current) => new Set([...current].filter((id) => available.has(id))));
+      }
       setNextCursor(page.next_before_created_at && page.next_before_job_id
         ? { beforeCreatedAt: page.next_before_created_at, beforeJobId: page.next_before_job_id }
         : null);
@@ -182,6 +199,52 @@ export function CalculationHistoryView({ onOpenResult }: CalculationHistoryViewP
     }
   };
 
+  const confirmDelete = async (ids: string[] = [...deleteSelection]) => {
+    if (deletePending || ids.length === 0) return;
+    setDeletePending(true);
+    setDeleteResult(null);
+    setDeleteError(null);
+    try {
+      const result = await bffClient.deleteAnalysisHistory(ids);
+      setDeleteResult(result);
+      setDeleteSelection(new Set(result.items.filter((item) => item.status !== 'DELETED').map((item) => item.resource_id)));
+      setDeleteConfirmationOpen(false);
+      await load();
+    } catch (value) {
+      setDeleteError(safeDeleteError(value));
+    } finally {
+      setDeletePending(false);
+    }
+  };
+
+  const checkDeleteRecovery = async () => {
+    if (deletePending) return;
+    setDeletePending(true);
+    setDeleteError(null);
+    try {
+      setDeleteResult(await bffClient.analysisDeleteRecovery());
+    } catch (value) {
+      setDeleteError(safeDeleteError(value));
+    } finally {
+      setDeletePending(false);
+    }
+  };
+
+  const retryDeleteCleanup = async (ids: string[]) => {
+    if (deletePending || ids.length === 0) return;
+    setDeletePending(true);
+    setDeleteError(null);
+    try {
+      const result = await bffClient.retryAnalysisDeleteCleanup(ids);
+      setDeleteResult(result);
+      await load();
+    } catch (value) {
+      setDeleteError(safeDeleteError(value));
+    } finally {
+      setDeletePending(false);
+    }
+  };
+
   const filteredItems = useMemo(() => {
     const needle = search.trim().toLocaleLowerCase('ko-KR');
     return items.filter((item) => {
@@ -208,6 +271,9 @@ export function CalculationHistoryView({ onOpenResult }: CalculationHistoryViewP
       </header>
 
       {publicationNotice && <p className="calculation-history__notice" role="status"><CheckCircle2 size={15} />{publicationNotice}</p>}
+      <div className="calculation-history__bulk-actions"><span>완료되지 않은 삭제 작업을 다시 확인할 수 있습니다.</span><button type="button" className="calculation-history__secondary" disabled={deletePending} onClick={() => void checkDeleteRecovery()}>삭제 복구 상태 확인</button></div>
+      {deleteResult && <div className="calculation-history__delete-result" role="status"><strong>{persistentDeleteSummary(deleteResult)}</strong>{deleteResult.items.some((item) => item.status !== 'DELETED') && <ul>{deleteResult.items.filter((item) => item.status !== 'DELETED').map((item) => <li key={item.resource_id}><code>{item.resource_id}</code> · {persistentDeleteReason(item)}</li>)}</ul>}{deleteResult.items.some((item) => item.status === 'CLEANUP_REQUIRED' || item.status === 'STORAGE_CLEANUP_FAILED') && <button type="button" className="calculation-history__secondary" disabled={deletePending} onClick={() => void retryDeleteCleanup(deleteResult.items.filter((item) => item.status === 'CLEANUP_REQUIRED' || item.status === 'STORAGE_CLEANUP_FAILED').map((item) => item.resource_id))}>Storage 정리 재시도</button>}</div>}
+      {deleteError && <p className="calculation-history__modal-error" role="alert">{deleteError}</p>}
 
       {state !== 'LOADING' && state !== 'ERROR' && state !== 'FORBIDDEN' && (
         <div className="calculation-history__filters">
@@ -226,6 +292,7 @@ export function CalculationHistoryView({ onOpenResult }: CalculationHistoryViewP
             </select>
           </label>
           <span className="calculation-history__filter-note">검색과 상태 필터는 현재 불러온 이력에 적용됩니다.</span>
+          <div className="calculation-history__bulk-actions"><span>{deleteSelection.size}건 선택</span><button type="button" className="calculation-history__delete-button" disabled={deleteSelection.size === 0 || deletePending} onClick={() => { setDeleteResult(null); setDeleteConfirmationOpen(true); }}><Trash2 size={14} />선택 삭제</button></div>
         </div>
       )}
 
@@ -239,12 +306,13 @@ export function CalculationHistoryView({ onOpenResult }: CalculationHistoryViewP
         <>
           {filteredItems.length > 0 && <div className="calculation-history__table-wrap">
             <table className="calculation-history__table">
-              <thead><tr><th>상태</th><th>기준 모형 / 비교 모형</th><th>기간</th><th>생성</th><th>완료</th><th>공개 상태</th><th>Dashboard 기본</th><th>작업</th></tr></thead>
+              <thead><tr><th><input type="checkbox" aria-label="표시된 분석 이력 전체 선택" checked={filteredItems.length > 0 && filteredItems.every((item) => deleteSelection.has(item.job_id))} onChange={(event) => setDeleteSelection((current) => { const next = new Set(current); filteredItems.forEach((item) => { if (event.target.checked) next.add(item.job_id); else next.delete(item.job_id); }); return next; })} /></th><th>상태</th><th>기준 모형 / 비교 모형</th><th>기간</th><th>생성</th><th>완료</th><th>공개 상태</th><th>Dashboard 기본</th><th>작업</th></tr></thead>
               <tbody>{filteredItems.map((item) => {
                 const failure = rowFailureMessage(item);
                 const completed = item.status === 'COMPLETED' && Boolean(item.result_id);
                 const selected = selectedItem?.job_id === item.job_id;
                 return <tr key={item.job_id} className={selected ? 'is-selected' : ''}>
+                  <td><input type="checkbox" aria-label={`${item.baseline_model_name} → ${item.comparison_model_name} 분석 이력 삭제 선택`} checked={deleteSelection.has(item.job_id)} onChange={(event) => setDeleteSelection((current) => { const next = new Set(current); if (event.target.checked) next.add(item.job_id); else next.delete(item.job_id); return next; })} /></td>
                   <td>
                     <span className={`calculation-history__status calculation-history__status--${statusClass(item.status)}`}>
                       {item.status === 'COMPLETED' && <CheckCircle2 size={13} aria-hidden="true" />}
@@ -297,6 +365,17 @@ export function CalculationHistoryView({ onOpenResult }: CalculationHistoryViewP
           <div className="calculation-history__modal-actions">
             <button type="button" className="calculation-history__secondary" disabled={publicationPending} onClick={() => setPublicationTarget(null)}>취소</button>
             <button type="button" className={publicationSelection === 'PRIVATE' ? 'calculation-history__unpublish' : 'calculation-history__confirm'} disabled={publicationPending} onClick={() => void confirmPublication()}>{publicationPending ? '적용 중…' : '설정 적용'}</button>
+          </div>
+        </section>
+      </div>}
+      {deleteConfirmationOpen && <div className="calculation-history__modal-backdrop" role="presentation">
+        <section className="calculation-history__modal" role="dialog" aria-modal="true" aria-labelledby="history-delete-heading">
+          <p className="calculation-history__eyebrow">HARD DELETE</p>
+          <h3 id="history-delete-heading">선택한 분석 이력 {deleteSelection.size}건을 삭제할까요?</h3>
+          <p className="calculation-history__modal-warning"><AlertTriangle size={15} />분석 결과와 Evidence/전용 artifact는 복구할 수 없게 삭제됩니다. 원본 기준·비교 모형은 유지되며, 실행 대기·처리 중 이력은 차단됩니다.</p>
+          <div className="calculation-history__modal-actions">
+            <button type="button" className="calculation-history__secondary" disabled={deletePending} onClick={() => setDeleteConfirmationOpen(false)}>취소</button>
+            <button type="button" className="calculation-history__delete-button" disabled={deletePending} onClick={() => void confirmDelete()}>{deletePending ? '삭제 중…' : '영구 삭제'}</button>
           </div>
         </section>
       </div>}

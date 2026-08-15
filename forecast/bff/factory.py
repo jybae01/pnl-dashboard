@@ -29,6 +29,7 @@ from .model_ingestion import (
     ModelPublicationService,
 )
 from ..persistence.supabase import SupabaseResultPublicationRepository
+from .persistent_delete import PersistentDeleteService, SupabasePersistentDeleteGateway
 
 
 def create_supabase_bff_application(
@@ -171,5 +172,8 @@ def create_supabase_bff_application(
         worker_administration=(
             WorkerAdministrationService(sessions, worker_control)
             if worker_control is not None else None
+        ),
+        persistent_delete=PersistentDeleteService(
+            sessions, SupabasePersistentDeleteGateway(supabase_client)
         ),
     )

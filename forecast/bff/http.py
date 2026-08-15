@@ -64,6 +64,11 @@ class ModelPublicationBody(BaseModel):
     is_default: StrictBool = False
 
 
+class PersistentDeleteBatchBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    ids: list[StrictStr] = Field(min_length=1, max_length=100)
+
+
 class ForecastSalesBody(BaseModel):
     model_config = ConfigDict(extra="forbid")
     product_code: StrictStr
@@ -651,6 +656,65 @@ def create_http_bff(
         _operation_audit(audit, application, value, request, "model_publication", model_id)
         return result
 
+    @app.post("/api/admin/models/delete", dependencies=[Depends(csrf_guard)])
+    def delete_models(
+        request: Request,
+        body: PersistentDeleteBatchBody,
+        value: str = Depends(admin_session),
+    ):
+        if application.persistent_delete is None:
+            raise BffError(
+                ApiErrorCode.TRANSIENT_SYSTEM_ERROR,
+                "Persistent delete capability is not configured",
+            )
+        result = application.persistent_delete.delete_models(value, body.ids)
+        for item in result.items:
+            _operation_audit(
+                audit,
+                application,
+                value,
+                request,
+                "model_persistent_delete",
+                item.resource_id,
+                outcome=_delete_audit_outcome(item.status),
+                error_code=None if item.status == "DELETED" else item.reason,
+            )
+        return result
+
+    @app.get("/api/admin/models/delete/recovery")
+    def model_delete_recovery(value: str = Depends(admin_session)):
+        if application.persistent_delete is None:
+            raise BffError(
+                ApiErrorCode.TRANSIENT_SYSTEM_ERROR,
+                "Persistent delete capability is not configured",
+            )
+        return application.persistent_delete.list_model_recoveries(value)
+
+    @app.post("/api/admin/models/delete/retry", dependencies=[Depends(csrf_guard)])
+    def retry_model_delete_cleanup(
+        request: Request,
+        body: PersistentDeleteBatchBody,
+        value: str = Depends(admin_session),
+    ):
+        if application.persistent_delete is None:
+            raise BffError(
+                ApiErrorCode.TRANSIENT_SYSTEM_ERROR,
+                "Persistent delete capability is not configured",
+            )
+        result = application.persistent_delete.retry_model_cleanup(value, body.ids)
+        for item in result.items:
+            _operation_audit(
+                audit,
+                application,
+                value,
+                request,
+                "model_persistent_delete_retry",
+                item.resource_id,
+                outcome=_delete_audit_outcome(item.status),
+                error_code=None if item.status == "DELETED" else item.reason,
+            )
+        return result
+
     @app.post("/api/admin/results/{result_id}/publication", dependencies=[Depends(csrf_guard)])
     def set_result_publication(
         request: Request,
@@ -1007,6 +1071,68 @@ def create_http_bff(
             before_job_id=before_job_id,
         )
 
+    @app.post("/api/admin/calculation-history/delete", dependencies=[Depends(csrf_guard)])
+    def delete_calculation_history(
+        request: Request,
+        body: PersistentDeleteBatchBody,
+        value: str = Depends(admin_session),
+    ):
+        if application.persistent_delete is None:
+            raise BffError(
+                ApiErrorCode.TRANSIENT_SYSTEM_ERROR,
+                "Persistent delete capability is not configured",
+            )
+        result = application.persistent_delete.delete_analyses(value, body.ids)
+        for item in result.items:
+            _operation_audit(
+                audit,
+                application,
+                value,
+                request,
+                "analysis_persistent_delete",
+                item.resource_id,
+                outcome=_delete_audit_outcome(item.status),
+                error_code=None if item.status == "DELETED" else item.reason,
+            )
+        return result
+
+    @app.get("/api/admin/calculation-history/delete/recovery")
+    def analysis_delete_recovery(value: str = Depends(admin_session)):
+        if application.persistent_delete is None:
+            raise BffError(
+                ApiErrorCode.TRANSIENT_SYSTEM_ERROR,
+                "Persistent delete capability is not configured",
+            )
+        return application.persistent_delete.list_analysis_recoveries(value)
+
+    @app.post(
+        "/api/admin/calculation-history/delete/retry",
+        dependencies=[Depends(csrf_guard)],
+    )
+    def retry_analysis_delete_cleanup(
+        request: Request,
+        body: PersistentDeleteBatchBody,
+        value: str = Depends(admin_session),
+    ):
+        if application.persistent_delete is None:
+            raise BffError(
+                ApiErrorCode.TRANSIENT_SYSTEM_ERROR,
+                "Persistent delete capability is not configured",
+            )
+        result = application.persistent_delete.retry_analysis_cleanup(value, body.ids)
+        for item in result.items:
+            _operation_audit(
+                audit,
+                application,
+                value,
+                request,
+                "analysis_persistent_delete_retry",
+                item.resource_id,
+                outcome=_delete_audit_outcome(item.status),
+                error_code=None if item.status == "DELETED" else item.reason,
+            )
+        return result
+
     return app
 
 
@@ -1158,6 +1284,7 @@ def _secure_response(response: Response, correlation_id: str) -> Response:
 def _operation_audit(
     sink: AuditSink, application: TrustedBffApplication, session_id: str,
     request: Request, operation_type: str, operation_id: str,
+    *, outcome: str = "success", error_code: str | None = None,
 ) -> None:
     del application, session_id
     principal = getattr(request.state, "principal", None)
@@ -1172,8 +1299,19 @@ def _operation_audit(
         correlation_id=request.state.correlation_id,
         operation_type=operation_type,
         operation_id=_audit_operation_id(operation_type, operation_id),
-        outcome="success",
+        outcome=outcome,
+        error_code=error_code,
     )
+
+
+def _delete_audit_outcome(status: str) -> str:
+    if status == "DELETED":
+        return "success"
+    if status.startswith("BLOCKED_") or status == "NOT_FOUND":
+        return "denied"
+    if status in {"CLEANUP_REQUIRED", "STORAGE_CLEANUP_FAILED"}:
+        return "cleanup_required"
+    return "failed"
 
 
 def _audit_operation_id(operation_type: str, operation_id: str) -> str:

@@ -222,6 +222,41 @@ describe('Evidence and history vertical slice', () => {
     expect(String(nextCall[0])).toContain(`before_job_id=${JOB}`);
   });
 
+  it('hard-deletes selected terminal history, blocks processing history, preserves Models, and refetches', async () => {
+    document.cookie = 'pnl_csrf=history-delete-csrf; Path=/';
+    let reads = 0;
+    const processing = historyItem({ job_id: OTHER_JOB, result_id: null, status: 'PROCESSING', completed_at: null, is_published: false, published_at: null });
+    const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      const path = String(input);
+      if (path.endsWith('/api/admin/calculation-history/delete')) return json({
+        resource_type: 'analysis', requested_count: 2, deleted_count: 1, blocked_count: 1, failed_count: 0,
+        items: [
+          { resource_id: JOB, status: 'DELETED', reason: 'DELETED', reference_counts: {}, idempotent_replayed: false },
+          { resource_id: OTHER_JOB, status: 'BLOCKED_NON_TERMINAL', reason: 'NON_TERMINAL_ANALYSIS_DELETE_BLOCKED', reference_counts: { status: 'processing' }, idempotent_replayed: false },
+        ], dto_version: '1',
+      });
+      if (path.includes('/api/admin/calculation-history')) {
+        reads += 1;
+        return historyPage(reads === 1 ? [historyItem(), processing] : [processing]);
+      }
+      throw new Error(`${init?.method || 'GET'} ${path}`);
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    render(<CalculationHistoryView />);
+    expect((await screen.findAllByText('Base Plan')).length).toBeGreaterThan(0);
+    fireEvent.click(screen.getByLabelText('표시된 분석 이력 전체 선택'));
+    fireEvent.click(screen.getByRole('button', { name: '선택 삭제' }));
+    expect(screen.getByRole('dialog', { name: /선택한 분석 이력 2건/ })).toHaveTextContent('원본 기준·비교 모형은 유지');
+    fireEvent.click(screen.getByRole('button', { name: '영구 삭제' }));
+    expect(await screen.findByText('2건 요청 / 1건 삭제 / 0건 Storage 정리 필요 / 1건 차단 / 0건 상태 확인 필요 / 0건 실패')).toBeInTheDocument();
+    expect(screen.getByText(/실행 대기 또는 처리 중인 분석입니다/)).toBeInTheDocument();
+    expect(reads).toBe(2);
+    const call = fetchMock.mock.calls.find(([url]) => String(url).endsWith('/api/admin/calculation-history/delete'));
+    expect(call?.[1]?.method).toBe('POST');
+    expect(new Headers(call?.[1]?.headers).get('X-CSRF-Token')).toBe('history-delete-csrf');
+    expect(JSON.parse(String(call?.[1]?.body))).toEqual({ ids: [JOB, OTHER_JOB] });
+  });
+
   it('opens the exact requested Result in the admin analysis route without active-job recovery or submit', async () => {
     const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
       const path = String(input);
