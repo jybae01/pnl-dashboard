@@ -176,6 +176,7 @@ describe('React core vertical slice', () => {
     expect(keys).toHaveLength(2);
     expect(keys[0]).toBe(keys[1]);
     expect(await screen.findByText('분석 계산에 실패했습니다.')).toBeInTheDocument();
+    expect(screen.getAllByText('Job failed')).toHaveLength(1);
     expect(screen.queryByText('분석 결과를 불러오지 못했습니다.')).not.toBeInTheDocument();
   });
 

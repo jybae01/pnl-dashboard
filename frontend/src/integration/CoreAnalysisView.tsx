@@ -336,7 +336,7 @@ export function CoreAnalysisView({ role, modelRefreshKey = 0, initialResultId }:
           }}><RefreshCw size={14} />새 분석</button>
         </div>
       </form>
-      {error && !['ERROR', 'FORBIDDEN', 'INVALID_PAYLOAD'].includes(viewerState) && <div role="alert" style={{ color: '#b91c1c', marginTop: 10 }}>{error}</div>}
+      {error && !['ERROR', 'JOB_FAILED', 'FORBIDDEN', 'INVALID_PAYLOAD'].includes(viewerState) && <div role="alert" style={{ color: '#b91c1c', marginTop: 10 }}>{error}</div>}
       {job && <div className={`variance-job-status variance-job-status-${job.status.toLowerCase()}`} data-testid="job-status">
         <div>
           <span className="variance-job-eyebrow">분석 진행상태</span>
