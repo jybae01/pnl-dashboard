@@ -227,6 +227,28 @@ def calculate_sales_effects(
         tariff1 = a1.tariff_input if a1 else 0.0
         c0 = base_transport.get(month, 0.0) - (tariff0 if a0 and a0.tariff_in_transport else 0.0)
         c1 = comp_transport.get(month, 0.0) - (tariff1 if a1 and a1.tariff_in_transport else 0.0)
+        base_pcs_rows = [
+            row for (year_month, _code), row in left.items()
+            if year_month == month and row.unit_basis.upper() == "PCS"
+        ]
+        comparison_pcs_rows = [
+            row for (year_month, _code), row in right.items()
+            if year_month == month and row.unit_basis.upper() == "PCS"
+        ]
+        base_length_rows = [
+            row for (year_month, _code), row in left.items()
+            if year_month == month and row.unit_basis.upper() == "LENGTH"
+        ]
+        comparison_length_rows = [
+            row for (year_month, _code), row in right.items()
+            if year_month == month and row.unit_basis.upper() == "LENGTH"
+        ]
+
+        def quantity_sources(rows: list[ProductRecord]) -> str:
+            return " | ".join(sorted({
+                row.sales_quantity_source for row in rows if row.sales_quantity_source
+            }))
+
         result.base_transport_ex_tariff += c0
         result.comparison_transport_ex_tariff += c1
         result.transport_effect += c0 - c1
@@ -243,6 +265,23 @@ def calculate_sales_effects(
             "comparison_tariff_in_transport": bool(a1 and a1.tariff_in_transport),
             "base_freight_ex_tariff": c0,
             "comparison_freight_ex_tariff": c1,
+            # The transport account is monthly and has no authoritative
+            # product/pool allocation.  Expose both raw quantity pools for
+            # audit, but never combine PCS and LENGTH or invent a Freight/unit
+            # denominator.  V1 therefore assigns the whole direct amount
+            # difference to the non-quantity component below.
+            "base_pcs_quantity": sum(row.sales_basis for row in base_pcs_rows),
+            "comparison_pcs_quantity": sum(row.sales_basis for row in comparison_pcs_rows),
+            "base_length_quantity": sum(row.sales_basis for row in base_length_rows),
+            "comparison_length_quantity": sum(row.sales_basis for row in comparison_length_rows),
+            "base_quantity_source_reference": " | ".join(filter(None, (
+                quantity_sources(base_pcs_rows), quantity_sources(base_length_rows),
+            ))),
+            "comparison_quantity_source_reference": " | ".join(filter(None, (
+                quantity_sources(comparison_pcs_rows),
+                quantity_sources(comparison_length_rows),
+            ))),
+            "freight_denominator_policy": "DIRECT_AMOUNT_NO_DENOMINATOR",
             "freight_effect": c0 - c1,
             "tariff_effect": tariff0 - tariff1,
             "base_source_reference": " | ".join(filter(None, (

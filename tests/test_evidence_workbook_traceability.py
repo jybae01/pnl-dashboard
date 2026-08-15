@@ -59,12 +59,35 @@ class EvidenceWorkbookTraceabilityTests(unittest.TestCase):
                 comparison_path=comparison_path,
                 mapping_path=ROOT / "config" / "model_mapping.json",
             )
+            stored_payload = build_comparison_audit_workbook(
+                result=asdict(result),
+                sales_rows=result.sales_analysis["rows"],
+                sales_totals=result.sales_analysis["totals"],
+                baseline_fx=1_000,
+                comparison_fx=1_100,
+                mapping_path=ROOT / "config" / "model_mapping.json",
+            )
             after = {
                 base_path: sha256(base_path.read_bytes()).hexdigest(),
                 comparison_path: sha256(comparison_path.read_bytes()).hexdigest(),
             }
 
         self.assertEqual(before, after)
+        stored = load_workbook(BytesIO(stored_payload), data_only=False)
+        stored_trace = stored["원천셀_추적"]
+        raw_header = next(
+            row for row in range(1, stored_trace.max_row + 1)
+            if stored_trace[f"A{row}"].value == "Domain"
+        )
+        self.assertGreater(stored_trace.max_row, raw_header)
+        self.assertIn("SALES", {
+            stored_trace[f"A{row}"].value
+            for row in range(raw_header + 1, stored_trace.max_row + 1)
+        })
+        self.assertTrue(all(
+            not (isinstance(stored_trace[f"I{row}"].value, str) and stored_trace[f"I{row}"].value.startswith("="))
+            for row in range(raw_header + 1, stored_trace.max_row + 1)
+        ))
         workbook = load_workbook(BytesIO(payload), data_only=False)
         self.assertEqual(
             workbook.sheetnames[:6],
@@ -96,6 +119,11 @@ class EvidenceWorkbookTraceabilityTests(unittest.TestCase):
             f"=B{price_row - 2}+B{freight_row}",
         )
         self.assertEqual(sales[f"E{freight_row}"].value, "Price에 1회 포함")
+        self.assertEqual(sales["BE5"].value, "DIRECT_AMOUNT_NO_DENOMINATOR")
+        self.assertTrue(sales["BF5"].value.startswith("=IF("))
+        self.assertEqual(sales["BJ5"].value, "=BH5+BI5")
+        self.assertEqual(sales["BK5"].value, "=BJ5")
+        self.assertTrue(sales["BL5"].value.startswith("=IF("))
         self.assertEqual(
             sales[f"B{_row_with_value(sales, 'A', 'Freight double count')}"].value[:4],
             "=IF(",
@@ -113,8 +141,30 @@ class EvidenceWorkbookTraceabilityTests(unittest.TestCase):
         jpy_row = _row_with_value(material, "A", "nonwoven_jpy")
         self.assertIn("SUM(O", material[f"B{material_total_row}"].value)
         self.assertIn("SUM(AJ", material[f"B{jpy_row}"].value)
+        self.assertTrue(material[f"B{_row_with_value(material, 'A', 'JPY Source valid')}"].value.startswith("=IF("))
+        self.assertTrue(material[f"B{_row_with_value(material, 'A', 'Sales quantity source valid')}"].value.startswith("=IF("))
 
         manufacturing = workbook["제조경비_근거"]
+        reconciliation = result.manufacturing_analysis["production_reconciliation"]
+        production_period = str(reconciliation[0]["month"])
+        production_row = _row_with_value(manufacturing, "A", production_period)
+        for scenario, front_column, back_column in (
+            ("base", "B", "E"), ("comparison", "C", "F"),
+        ):
+            selected = [item for item in reconciliation if item["scenario"] == scenario and str(item["month"]) == production_period]
+            self.assertAlmostEqual(
+                manufacturing[f"{front_column}{production_row}"].value,
+                sum(float(item.get("sap_length") or 0) for item in selected if item["product_group"] == "FS"),
+            )
+            self.assertAlmostEqual(
+                manufacturing[f"{back_column}{production_row}"].value,
+                sum(float(item.get("sap_qty") or 0) for item in selected if item["product_group"] in {"SW", "BW", "LC"}),
+            )
+        self.assertEqual(manufacturing[f"J{production_row}"].value, "=FALSE")
+        self.assertIn("Front:", manufacturing[f"H{production_row}"].value)
+        self.assertIn("Back:", manufacturing[f"H{production_row}"].value)
+        self.assertIn("Front:", manufacturing[f"I{production_row}"].value)
+        self.assertIn("Back:", manufacturing[f"I{production_row}"].value)
         detail_row = _row_with_value(manufacturing, "B", "수도광열비")
         self.assertEqual(manufacturing[f"I{detail_row}"].value, "LENGTH(m)")
         self.assertEqual(
@@ -147,7 +197,14 @@ class EvidenceWorkbookTraceabilityTests(unittest.TestCase):
         self.assertEqual(inventory["D12"].value, "=D10-D11")
         self.assertEqual(inventory["D15"].value, "=D13+D14")
         self.assertEqual(inventory["D16"].value, "=D12-D15")
-        self.assertEqual(inventory["F17"].value, "PASS")
+        self.assertTrue(inventory["F17"].value.startswith("=IF("))
+        paid_supply_row = _row_with_value(inventory, "A", "CURRENT_COST_ROW_323_PAID_SUPPLY")
+        self.assertEqual(inventory[f"B{paid_supply_row}"].value, "=FALSE")
+        self.assertIn("계획 대응금액", inventory[f"C{paid_supply_row}"].value)
+        audit = workbook["Evidence_Audit"]
+        self.assertEqual(audit["B8"].value, 0)
+        self.assertEqual(audit["C8"].value, "PASS")
+        self.assertEqual(audit["B9"].value, '=IF(B8=0,"PASS","FAIL")')
         self.assertTrue(any(
             cell.value == "Embedded Quantity COGS Expense"
             for row in inventory.iter_rows()

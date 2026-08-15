@@ -305,7 +305,8 @@ def test_build_comparison_audit_workbook(monkeypatch, tmp_path):
         for row in range(1, inventory_sheet.max_row + 1)
         if inventory_sheet[f"A{row}"].value == "2025-11"
     )
-    assert "Data!C1269" in inventory_sheet[f"I{first_rolling_row}"].value
+    assert inventory_sheet[f"I{first_rolling_row}"].value == "=0"
+    assert "Data!C1269" in inventory_sheet[f"Q{first_rolling_row}"].value
     reconciliation_sheet = workbook["최종Bridge_검증"]
     inventory_bridge_row = next(
         row

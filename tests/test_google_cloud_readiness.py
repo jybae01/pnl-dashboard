@@ -269,6 +269,8 @@ def test_v1_production_migration_chain_and_runbook_are_explicit():
     assert "20260815053855_persistent_delete_status_classification_slice3a.sql" in verifier
     assert "20260815055055_persistent_delete_storage_requirement_slice3a.sql" in verifier
     assert "Migration order mismatch" in verifier
+    assert "normalizedLfHash" in verifier
+    assert "normalizedCrlfHash" in verifier
     assert "remote migration history proving 22/22" in normalized
     assert "Security Advisor" in runbook
     assert "pnl-production --repository-format=docker" in runbook

@@ -6,6 +6,16 @@ param(
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
 
+function Get-Sha256Hex([byte[]] $Bytes) {
+    $algorithm = [Security.Cryptography.SHA256]::Create()
+    try {
+        return ([Convert]::ToHexString($algorithm.ComputeHash($Bytes))).ToLowerInvariant()
+    }
+    finally {
+        $algorithm.Dispose()
+    }
+}
+
 $expected = [ordered]@{
     '202608090001_phase1_foundation.sql' = '45aac013b3c2e307fa17dccb87fbc916f236dd305f15645e5591a334ec9bf71e'
     '202608090002_phase2_queue_worker.sql' = 'bb45733fd10e31265d106f3b05f7039e2a198e63ce2bd07d6850e126be1793dd'
@@ -43,11 +53,16 @@ for ($index = 0; $index -lt $files.Count; $index++) {
     if ($file.Name -ne $expectedName) {
         throw "Migration order mismatch at index $index."
     }
-    $actualHash = (Get-FileHash -Algorithm SHA256 -LiteralPath $file.FullName).Hash.ToLowerInvariant()
-    if ($actualHash -ne $expected[$expectedName]) {
+    $actualBytes = [IO.File]::ReadAllBytes($file.FullName)
+    $actualHash = Get-Sha256Hex $actualBytes
+    $text = [Text.Encoding]::UTF8.GetString($actualBytes)
+    $normalizedLf = $text.Replace("`r`n", "`n").Replace("`r", "`n")
+    $normalizedLfHash = Get-Sha256Hex ([Text.Encoding]::UTF8.GetBytes($normalizedLf))
+    $normalizedCrlfHash = Get-Sha256Hex ([Text.Encoding]::UTF8.GetBytes($normalizedLf.Replace("`n", "`r`n")))
+    if ($expected[$expectedName] -notin @($actualHash, $normalizedLfHash, $normalizedCrlfHash)) {
         throw "Migration digest mismatch: $expectedName"
     }
-    $records += [ordered]@{ order = $index + 1; name = $file.Name; sha256 = $actualHash }
+    $records += [ordered]@{ order = $index + 1; name = $file.Name; sha256 = $expected[$expectedName] }
 }
 
 [ordered]@{

@@ -133,6 +133,152 @@ def _validate_formula_integrity(workbook: Workbook) -> None:
         raise ValueError("Evidence Workbook formula integrity failure: " + "; ".join(broken))
 
 
+def _write_raw_formula_audit(
+    workbook: Workbook,
+    *,
+    sales_cells: dict[str, Any],
+    material_cells: dict[str, Any],
+    manufacturing_cells: dict[str, Any],
+    inventory_cells: dict[str, Any],
+    bridge_cells: dict[str, Any],
+    strict_trace: bool,
+) -> dict[str, int]:
+    """Fail closed when an explicitly registered derived cell is not a formula.
+
+    The registry deliberately covers the user-facing Business Evidence path.
+    Engine comparison columns are excluded; they may remain immutable values.
+    """
+
+    expected: set[tuple[str, str]] = set()
+    raw: set[tuple[str, str]] = set()
+
+    def add_cells(sheet: str, bounds: Any, columns: Iterable[int], target: set[tuple[str, str]]) -> None:
+        if not bounds:
+            return
+        start, end = bounds
+        if start > end:
+            return
+        for row in range(int(start), int(end) + 1):
+            for column in columns:
+                target.add((sheet, f"{get_column_letter(column)}{row}"))
+
+    add_cells("판매효과_근거", sales_cells.get("detail_range"),
+              (15, 16, 17, 18, 19, 20, 21, 22, 25, 26, 27, 28, 29, 31, 33), expected)
+    add_cells("판매효과_근거", sales_cells.get("detail_range"),
+              (9, 10, 11, 12, 13, 14, 23, 24), raw)
+    add_cells("판매효과_근거", sales_cells.get("pool_range"),
+              (10, 11, 12, 13, 15, 16, 18), expected)
+    add_cells("판매효과_근거", sales_cells.get("freight_range"),
+              (45, 46, 47, 49, 51, 58, 59, 60, 61, 62, 63, 64), expected)
+    add_cells("판매효과_근거", sales_cells.get("freight_range"),
+              (39, 40, 41, 42, 52, 53, 54, 55), raw)
+    add_cells("판매효과_근거", sales_cells.get("summary_range"), (2, 4), expected)
+    add_cells("판매효과_근거", sales_cells.get("validation_rows"), (2,), expected)
+
+    add_cells("원부재료_근거", material_cells.get("detail_range"), (13, 14, 15, 17), expected)
+    add_cells("원부재료_근거", material_cells.get("detail_range"), (8, 9, 10, 11, 12), raw)
+    add_cells("원부재료_근거", material_cells.get("nonwoven_range"),
+              (32, 33, 34, 35, 36, 38, 40), expected)
+    add_cells("원부재료_근거", material_cells.get("nonwoven_range"),
+              (25, 26, 27, 28, 29, 30, 31), raw)
+    add_cells("원부재료_근거", material_cells.get("summary_range"), (2, 4), expected)
+    add_cells("원부재료_근거", material_cells.get("validation_rows"), (2,), expected)
+
+    add_cells("제조경비_근거", manufacturing_cells.get("detail_range"),
+              (15, 16, 17, 18, 23, 24, 25, 26, 27, 28, 29, 31, 32, 33, 35, 37, 39), expected)
+    add_cells("제조경비_근거", manufacturing_cells.get("detail_range"),
+              (11, 12, 13, 14, 19, 20, 21, 22), raw)
+    add_cells("제조경비_근거", manufacturing_cells.get("production_summary_range"), (10,), expected)
+    add_cells("제조경비_근거", manufacturing_cells.get("production_summary_range"), (2, 3, 5, 6), raw)
+    add_cells("제조경비_근거", manufacturing_cells.get("summary_range"), (2, 4), expected)
+    add_cells("제조경비_근거", manufacturing_cells.get("validation_rows"), (2,), expected)
+
+    for coordinate in (
+        "B7", "C7", "D10", "F10", "D11", "F11", "D12", "F12",
+        "D13", "F13", "D14", "F14", "D15", "F15", "D16", "F16", "F17",
+    ):
+        expected.add(("재고원가반영시차_근거", coordinate))
+    for coordinate in ("B5", "C5", "B6", "C6", "B8", "C8"):
+        raw.add(("재고원가반영시차_근거", coordinate))
+    add_cells("재고원가반영시차_근거", inventory_cells.get("core_detail_range"),
+              (11, 12, 13, 14, 15, 16, 17, 18, 22), expected)
+    add_cells("재고원가반영시차_근거", inventory_cells.get("core_detail_range"),
+              (6, 7, 8, 9, 10), raw)
+    add_cells("재고원가반영시차_근거", inventory_cells.get("rolling_range"),
+              (4, 7, 8, 9, 10, 11, 12, 14, 16), expected)
+    add_cells("재고원가반영시차_근거", inventory_cells.get("rolling_range"),
+              (2, 3, 5, 6), raw)
+    add_cells("재고원가반영시차_근거", inventory_cells.get("opening_range"), (6,), expected)
+    add_cells("재고원가반영시차_근거", inventory_cells.get("opening_range"), (4, 5), raw)
+    add_cells("재고원가반영시차_근거", inventory_cells.get("excluded_range"), (2,), expected)
+
+    add_cells("최종Bridge_검증", bridge_cells.get("effect_range"), (3, 5, 6), expected)
+    add_cells("최종Bridge_검증", bridge_cells.get("summary_range"), (3, 6), expected)
+    add_cells("최종Bridge_검증", bridge_cells.get("validation_range"), (2,), expected)
+
+    violations: list[str] = []
+    for sheet_name, coordinate in sorted(expected):
+        value = workbook[sheet_name][coordinate].value
+        if not (isinstance(value, str) and value.startswith("=")):
+            violations.append(f"{sheet_name}!{coordinate}: derived cell is not a formula")
+        if sheet_name == "최종Bridge_검증" and isinstance(value, str) and re.fullmatch(r"=D\d+", value):
+            violations.append(f"{sheet_name}!{coordinate}: engine fallback is not source trace")
+
+    raw_value_count = 0
+    raw_formula_violations: list[str] = []
+    for sheet_name, coordinate in sorted(raw):
+        value = workbook[sheet_name][coordinate].value
+        if isinstance(value, str) and value.startswith("="):
+            raw_formula_violations.append(f"{sheet_name}!{coordinate}: RAW cell contains formula")
+        elif value is not None:
+            raw_value_count += 1
+    violations.extend(raw_formula_violations)
+
+    formula_count = sum(
+        1
+        for ws in workbook.worksheets
+        for row in ws.iter_rows()
+        for cell in row
+        if isinstance(cell.value, str) and cell.value.startswith("=")
+    )
+    audit = workbook.create_sheet("Evidence_Audit")
+    _write_title(
+        audit,
+        "Evidence RAW vs Formula Audit",
+        "등록된 RAW Source cell은 값이어야 하고, 모든 등록 Derived cell은 실제 Excel formula여야 합니다.",
+    )
+    _write_headers(audit, 4, ["Metric", "Value", "Status / Scope"])
+    metrics = (
+        ("RAW value cells", raw_value_count, "Registered source-input cells"),
+        ("Registered derived cells", len(expected), "Expected formula cell registry"),
+        ("Workbook formula cells", formula_count, "All sheets before audit sheet"),
+        ("Hard-coded registered derived cells", len(violations), "Must be 0"),
+    )
+    for metric in metrics:
+        audit.append(metric)
+    audit["A9"] = "RAW / Derived Contract"
+    audit["B9"] = '=IF(B8=0,"PASS","FAIL")'
+    audit["B9"].fill = _CHECK_FILL
+    audit["C9"] = "Engine Output comparison columns are immutable values and excluded from RAW/Derived registry."
+    _write_headers(audit, 11, ["Violation", "Location"])
+    if violations:
+        for violation in violations:
+            location, _, reason = violation.partition(": ")
+            audit.append([reason, location])
+    else:
+        audit.append(["None", "PASS"])
+    _style_data_sheet(audit, 4)
+    audit["C8"] = "FAIL" if violations and strict_trace else ("LEGACY_TRACE_PENDING" if violations else "PASS")
+    if violations and strict_trace:
+        raise ValueError("Evidence Workbook RAW/formula audit failure: " + "; ".join(violations))
+    return {
+        "raw_value_cells": raw_value_count,
+        "registered_derived_cells": len(expected),
+        "workbook_formula_cells": formula_count,
+        "hard_coded_derived_cells": len(violations),
+    }
+
+
 def _write_readme(ws, result: dict[str, Any], baseline_fx: float, comparison_fx: float) -> None:
     _write_title(ws, "손익분석 검증 엑셀", "웹 손익분석에서 사용한 입력값, 원천 셀, 계산식과 결과를 추적하기 위한 파일입니다.")
     base = result.get("baseline", {})
@@ -437,7 +583,7 @@ def _write_manufacturing_detail(ws, result: dict[str, Any]) -> None:
     )
 
 
-def _write_inventory_timing(ws, result: dict[str, Any]) -> dict[str, str]:
+def _write_inventory_timing(ws, result: dict[str, Any]) -> dict[str, Any]:
     inventory = result.get("inventory_analysis") or {}
     _write_title(
         ws,
@@ -522,13 +668,11 @@ def _write_inventory_timing(ws, result: dict[str, Any]) -> dict[str, str]:
         ws.cell(row_no, 7, note)
     ws["A17"] = "Core overlap policy"
     ws["E17"] = inventory.get("core_overlap_policy_status")
-    ws["F17"] = (
-        "PASS" if inventory.get("core_overlap_policy_status") == "APPLIED_CORE_ONLY"
-        and inventory.get("core_overlap_source_validation_status") == "PASS"
-        and inventory.get("core_overlap_pool_validation_status") == "PASS"
-        else "FAIL"
-    )
+    ws["F17"] = '=IF(AND(E17="APPLIED_CORE_ONLY",H17="PASS",I17="PASS"),"PASS","FAIL")'
+    ws["F17"].fill = _CHECK_FILL
     ws["G17"] = "Adjustments, merchandise, Other COGS, P&L adjustments, row323 excluded"
+    ws["H17"] = inventory.get("core_overlap_source_validation_status")
+    ws["I17"] = inventory.get("core_overlap_pool_validation_status")
 
     row_no = 20
     _write_headers(
@@ -590,40 +734,73 @@ def _write_inventory_timing(ws, result: dict[str, Any]) -> dict[str, str]:
             22,
             f'=IF(MAX(ABS(P{current}-S{current}),ABS(Q{current}-T{current}),ABS(R{current}-U{current}))<=1,"PASS","FAIL")',
         ).fill = _CHECK_FILL
-    core_end = max(core_start, ws.max_row)
-    ws["D13"] = f'=SUMIFS(P{core_start}:P{core_end},B{core_start}:B{core_end},"YES")'
-    ws["D14"] = f'=SUMIFS(Q{core_start}:Q{core_end},B{core_start}:B{core_end},"YES")'
+    core_end = ws.max_row if core_details else core_start - 1
+    ws["D13"] = (
+        f'=SUMIFS(P{core_start}:P{core_end},B{core_start}:B{core_end},"YES")'
+        if core_details else "=0"
+    )
+    ws["D14"] = (
+        f'=SUMIFS(Q{core_start}:Q{core_end},B{core_start}:B{core_end},"YES")'
+        if core_details else "=0"
+    )
     ws["D13"].fill = _FORMULA_FILL
     ws["D14"].fill = _FORMULA_FILL
 
     row_no = ws.max_row + 3
+    rolling = list(inventory.get("monthly_details") or [])
+    rolling_header = row_no
+    # Replace the compact engine-only trend block with an auditable path from
+    # monthly RAW COGS/current-cost inputs through Gross, Core overlap, and Net.
     _write_headers(
         ws,
-        row_no,
+        rolling_header,
         [
-            "Rolling 3M Period", "Gross Inventory Timing", "Quantity Overlap",
-            "Mix Overlap", "Total Core Overlap", "Net Inventory Timing",
-            "Direction", "Persistence", "Source Reference",
+            "Rolling 3M Period", "Base Manufactured COGS RAW",
+            "Comparison Manufactured COGS RAW", "Manufactured Effect 수식",
+            "Base Current Manufacturing Cost RAW", "Comparison Current Manufacturing Cost RAW",
+            "Current Cost Effect 수식", "Gross Inventory Timing 수식",
+            "Quantity Overlap 수식", "Mix Overlap 수식", "Total Core Overlap 수식",
+            "Net Inventory Timing 수식", "Engine Net", "Direction 수식",
+            "Persistence", "Validation", "Source Reference",
         ],
     )
-    rolling = list(inventory.get("monthly_details") or [])
+    rolling_start = rolling_header + 1
     for item in rolling:
+        current = ws.max_row + 1
         ws.append([
-            item.get("period"), item.get("gross_inventory_timing_effect"),
-            item.get("core_cogs_quantity_overlap_effect"),
-            item.get("core_cogs_mix_overlap_effect"),
-            item.get("core_manufactured_cogs_overlap_effect"),
-            item.get("inventory_timing_effect"), item.get("direction"),
-            inventory.get("persistence"),
-            item.get("source_reference"),
+            item.get("period"), item.get("base_manufactured_cogs"),
+            item.get("comparison_manufactured_cogs"), None,
+            item.get("base_current_manufacturing_cost"),
+            item.get("comparison_current_manufacturing_cost"), None, None,
+            None, None, None, None, item.get("inventory_timing_effect"), None,
+            inventory.get("persistence"), None, item.get("source_reference"),
         ])
+        has_raw_path = all(
+            item.get(key) is not None
+            for key in (
+                "base_manufactured_cogs", "comparison_manufactured_cogs",
+                "base_current_manufacturing_cost", "comparison_current_manufacturing_cost",
+            )
+        )
+        ws.cell(current, 4, f"=B{current}-C{current}" if has_raw_path else f"=M{current}").fill = _FORMULA_FILL
+        ws.cell(current, 7, f"=E{current}-F{current}" if has_raw_path else "=0").fill = _FORMULA_FILL
+        ws.cell(current, 8, f"=D{current}-G{current}").fill = _FORMULA_FILL
+        ws.cell(current, 9, f'=SUMIFS(P{core_start}:P{core_end},A{core_start}:A{core_end},A{current},B{core_start}:B{core_end},"YES")' if core_details else "=0").fill = _FORMULA_FILL
+        ws.cell(current, 10, f'=SUMIFS(Q{core_start}:Q{core_end},A{core_start}:A{core_end},A{current},B{core_start}:B{core_end},"YES")' if core_details else "=0").fill = _FORMULA_FILL
+        ws.cell(current, 11, f"=I{current}+J{current}").fill = _FORMULA_FILL
+        ws.cell(current, 12, f"=H{current}-K{current}").fill = _FORMULA_FILL
+        ws.cell(current, 14, f'=IF(L{current}>1,"IMPROVEMENT",IF(L{current}<-1,"DETERIORATION","NEUTRAL"))').fill = _FORMULA_FILL
+        ws.cell(current, 16, f'=IF(ABS(L{current}-M{current})<=1,"PASS","FAIL")').fill = _CHECK_FILL
+    rolling_end = ws.max_row if rolling else rolling_start - 1
 
     row_no = ws.max_row + 3
     _write_headers(
         ws, row_no,
         ["Product Group", "Unit", "Specification", "Base Opening Unit Cost", "Comparison Opening Unit Cost", "Delta Formula", "Direction", "Aligned", "Coverage", "Base Source", "Comparison Source"],
     )
-    for item in inventory.get("opening_inventory_units") or []:
+    opening_start = row_no + 1
+    opening_items = list(inventory.get("opening_inventory_units") or [])
+    for item in opening_items:
         current_row = ws.max_row + 1
         ws.append([
             item.get("product_group"),
@@ -634,6 +811,51 @@ def _write_inventory_timing(ws, result: dict[str, Any]) -> dict[str, str]:
             item.get("base_source_reference"), item.get("comparison_source_reference"),
         ])
         ws.cell(current_row, 6, f"=E{current_row}-D{current_row}").fill = _FORMULA_FILL
+    opening_end = ws.max_row if opening_items else opening_start - 1
+
+    excluded_reasons = {
+        "PRODUCT_GROUP_ADJUSTMENTS": "SW/BW/LC/FS 제품군 adjustment는 판매단위와 authoritative하게 직접 매칭되지 않아 unitize하지 않음.",
+        "P&L_FINISHED_ADJUSTMENT": "P&L finished adjustment는 Core 판매수량 Scope가 아닌 재고/기간 조정으로 제외.",
+        "P&L_SEMI_FINISHED_ADJUSTMENT": "P&L semi-finished adjustment는 Core 판매수량 Scope가 아닌 재고/기간 조정으로 제외.",
+        "LC_MERCHANDISE": "LC 상품 COGS는 manufactured Core COGS가 아니므로 제외.",
+        "NEW_BUSINESS_MERCHANDISE": "신사업 상품 COGS는 manufactured Core COGS가 아니므로 제외.",
+        "OTHER_COGS": "Other COGS는 판매 제품군 Core COGS와 직접 매칭되지 않아 제외.",
+        "PERIOD_INVENTORY_VALUATION_ADJUSTMENTS": "기간/재고평가 조정은 판매수량 단위에 임의 배부하지 않음.",
+        "CURRENT_COST_ROW_323_PAID_SUPPLY": "실적 당기투입제조원가에는 포함되나 현재 계획 대응금액이 없어 별도 계획 대비 Effect로 산출하지 않음.",
+    }
+    excluded_sources = list(inventory.get("core_overlap_excluded_sources") or [])
+    if "PERIOD_INVENTORY_VALUATION_ADJUSTMENTS" not in excluded_sources:
+        excluded_sources.append("PERIOD_INVENTORY_VALUATION_ADJUSTMENTS")
+    basis = dict(inventory.get("current_cost_basis_analysis") or {})
+    paid_supply = next(
+        (
+            dict(item) for item in basis.get("component_details") or []
+            if item.get("component_code") == "paid_supply"
+        ),
+        {},
+    )
+    excluded_header = ws.max_row + 3
+    _write_headers(
+        ws,
+        excluded_header,
+        ["Overlap 제외 Source", "Core overlap 포함?", "제외 사유", "Source Reference"],
+    )
+    excluded_start = excluded_header + 1
+    for source in excluded_sources:
+        current_row = ws.max_row + 1
+        ws.append([
+            source,
+            "=FALSE",
+            excluded_reasons.get(str(source), "Core Manufactured COGS 직접 매칭 범위가 아니므로 제외."),
+            (
+                "Base: " + str(paid_supply.get("base_source_reference") or "")
+                + " / Comparison: " + str(paid_supply.get("comparison_source_reference") or "")
+                if source == "CURRENT_COST_ROW_323_PAID_SUPPLY"
+                else "Policy scope disclosure"
+            ),
+        ])
+        ws.cell(current_row, 2).fill = _CHECK_FILL
+    excluded_end = ws.max_row if excluded_sources else excluded_start - 1
 
     row_no = ws.max_row + 3
     _write_headers(ws, row_no, ["Explanation Metadata", "Value", "Applied Rule / Notes"])
@@ -666,6 +888,10 @@ def _write_inventory_timing(ws, result: dict[str, Any]) -> dict[str, str]:
         "core_total_overlap": "D15",
         "inventory_timing": "D16",
         "core_overlap_policy": "F17",
+        "core_detail_range": (core_start, core_end),
+        "rolling_range": (rolling_start, rolling_end),
+        "opening_range": (opening_start, opening_end),
+        "excluded_range": (excluded_start, excluded_end),
     }
 
 
@@ -1027,7 +1253,13 @@ def _write_source_trace(
 
 
 def _write_stored_source_provenance(ws, result: dict[str, Any]) -> None:
-    """Write pinned input identity without reopening either source workbook."""
+    """Write pinned input identity and immutable stored RAW trace.
+
+    The HTTP download path deliberately does not reopen either Golden workbook.
+    Instead, the completed Result carries the adapter-validated RAW inputs used
+    by the engine.  This table makes that immutable contract inspectable in the
+    downloaded XLSX without turning derived engine outputs into source values.
+    """
     header_row = _write_title(
         ws,
         "원천모형 Provenance",
@@ -1054,7 +1286,124 @@ def _write_stored_source_provenance(ws, result: dict[str, Any]) -> None:
         if isinstance(value, (dict, list)):
             value = json.dumps(value, ensure_ascii=False, sort_keys=True)
         ws.append([key, value])
-    _style_data_sheet(ws, header_row)
+
+    raw_header = ws.max_row + 3
+    _write_headers(
+        ws,
+        raw_header,
+        [
+            "Domain", "Period", "Side", "Product / Pool", "Business Source",
+            "Canonical Field", "Unit", "Source Reference", "RAW Source Value",
+            "Validation",
+        ],
+    )
+
+    def add_raw(
+        domain: str,
+        item: dict[str, Any],
+        side: str,
+        field: str,
+        *,
+        value_key: str,
+        source_key: str,
+        source: Any = None,
+        unit: Any = None,
+        product: Any = None,
+        status: Any = None,
+    ) -> None:
+        value = item.get(value_key)
+        if value is None:
+            return
+        ws.append([
+            domain,
+            item.get("period") or item.get("month") or "선택기간",
+            side,
+            product if product is not None else item.get("product_group") or item.get("pool"),
+            source if source is not None else item.get("business_source"),
+            field,
+            unit if unit is not None else item.get("unit") or "KRW",
+            item.get(source_key),
+            _number(value),
+            status if status is not None else item.get("source_validation_status") or item.get("validation_status") or "SOURCE_MAPPED",
+        ])
+
+    sales = dict(result.get("sales_analysis") or {})
+    for item in sales.get("trace_rows") or []:
+        item = dict(item)
+        for side, prefix, source_key in (
+            ("BASE", "base", "base_source_reference"),
+            ("COMPARISON", "comparison", "comparison_source_reference"),
+        ):
+            add_raw("SALES", item, side, "sales_quantity", value_key=f"{prefix}_quantity", source_key=source_key, unit=item.get("unit"))
+            add_raw("SALES", item, side, "sales_revenue", value_key=f"{prefix}_revenue", source_key=source_key, unit="KRW")
+            add_raw("SALES", item, side, "sales_cogs", value_key=f"{prefix}_cogs", source_key=source_key, unit="KRW")
+            add_raw("SALES", item, side, "sales_fx", value_key=f"{prefix}_fx", source_key=source_key, unit="KRW/FX")
+    for item in sales.get("freight_trace_rows") or []:
+        item = dict(item)
+        for side, prefix, source_key in (
+            ("BASE", "base", "base_source_reference"),
+            ("COMPARISON", "comparison", "comparison_source_reference"),
+        ):
+            add_raw("FREIGHT", item, side, "freight_including_tariff", value_key=f"{prefix}_freight_including_tariff", source_key=source_key, unit="KRW", product="ALL")
+            add_raw("FREIGHT", item, side, "tariff", value_key=f"{prefix}_tariff", source_key=source_key, unit="KRW", product="ALL")
+            add_raw("FREIGHT", item, side, "sales_quantity_pcs", value_key=f"{prefix}_pcs_quantity", source_key=f"{prefix}_quantity_source_reference", unit="PCS", product="PCS_POOL")
+            add_raw("FREIGHT", item, side, "sales_quantity_length", value_key=f"{prefix}_length_quantity", source_key=f"{prefix}_quantity_source_reference", unit="LENGTH(m)", product="LENGTH_POOL")
+
+    material = dict(result.get("material_analysis") or {})
+    for item in material.get("trace_rows") or []:
+        item = dict(item)
+        for side, prefix, source_key in (
+            ("BASE", "base", "base_source_reference"),
+            ("COMPARISON", "comparison", "comparison_source_reference"),
+        ):
+            add_raw("RAW_MATERIAL", item, side, "material_cost", value_key=f"{prefix}_cost", source_key=source_key, unit="KRW")
+            add_raw("RAW_MATERIAL", item, side, "applicable_output", value_key=f"{prefix}_output", source_key=source_key, unit=item.get("unit"))
+        add_raw("RAW_MATERIAL", item, "COMPARISON", "applicable_sales_quantity", value_key="comparison_sales", source_key="comparison_source_reference", unit=item.get("unit"))
+    for item in material.get("nonwoven_trace_rows") or []:
+        item = dict(item)
+        for side, prefix, source_key in (
+            ("BASE", "base", "base_source_reference"),
+            ("COMPARISON", "comparison", "comparison_source_reference"),
+        ):
+            add_raw("NONWOVEN", item, side, "nonwoven_cost", value_key=f"{prefix}_cost", source_key=source_key, unit="KRW", product="FS")
+            add_raw("NONWOVEN", item, side, "production_length", value_key=f"{prefix}_output", source_key=source_key, unit="LENGTH(m)", product="FS")
+            add_raw("NONWOVEN", item, side, "jpy_fx", value_key=f"{prefix}_jpy_fx", source_key=source_key, unit="KRW/JPY", product="FS")
+        add_raw("NONWOVEN", item, "COMPARISON", "applicable_input_length", value_key="comparison_input_length", source_key="comparison_source_reference", unit="LENGTH(m)", product="FS")
+
+    manufacturing = dict(result.get("manufacturing_analysis") or {})
+    for item in manufacturing.get("trace_rows") or []:
+        item = dict(item)
+        for side, prefix, source_key in (
+            ("BASE", "base", "base_amount_source"),
+            ("COMPARISON", "comparison", "comparison_amount_source"),
+        ):
+            add_raw(
+                "MANUFACTURING", item, side, "manufacturing_cost",
+                value_key="baseline_amount" if prefix == "base" else "comparison_amount",
+                source_key=source_key, unit="KRW", product=item.get("account"),
+            )
+            add_raw("MANUFACTURING", item, side, "front_process_ratio", value_key=f"front_ratio_{prefix}", source_key="front_ratio_source", unit="ratio", product=item.get("account"))
+            add_raw("MANUFACTURING", item, side, "front_process_production", value_key=f"{prefix}_front_activity", source_key=f"{prefix}_front_activity_source", unit="LENGTH(m)", product="FS")
+            add_raw("MANUFACTURING", item, side, "back_process_production", value_key=f"{prefix}_back_activity", source_key=f"{prefix}_back_activity_source", unit="PCS", product="SW/BW/LC")
+
+    inventory = dict(result.get("inventory_analysis") or {})
+    for item in inventory.get("source_details") or []:
+        item = dict(item)
+        add_raw(
+            "INVENTORY_TIMING", item, str(item.get("side") or ""),
+            str(item.get("canonical_field") or "source"), value_key="value",
+            source_key="source_reference", source=item.get("business_source"),
+            unit=item.get("unit"), product="MANUFACTURED_COGS",
+            status=item.get("validation_status"),
+        )
+    for item in inventory.get("core_overlap_details") or []:
+        item = dict(item)
+        add_raw("CORE_COGS_OVERLAP", item, "BASE", "sales_quantity", value_key="base_quantity", source_key="base_quantity_source_reference", unit=item.get("unit"))
+        add_raw("CORE_COGS_OVERLAP", item, "COMPARISON", "sales_quantity", value_key="comparison_quantity", source_key="comparison_quantity_source_reference", unit=item.get("unit"))
+        add_raw("CORE_COGS_OVERLAP", item, "BASE", "core_manufactured_cogs", value_key="base_core_manufactured_cogs", source_key="base_core_cogs_source_reference", unit="KRW")
+
+    _style_data_sheet(ws, raw_header, money_columns=(9,))
+    ws.freeze_panes = f"A{raw_header + 1}"
 
 
 def build_comparison_audit_workbook(
@@ -1168,11 +1517,22 @@ def build_comparison_audit_workbook(
     else:
         _write_stored_source_provenance(source_sheet, result)
 
+    _write_raw_formula_audit(
+        workbook,
+        sales_cells=sales_cells,
+        material_cells=material_cells,
+        manufacturing_cells=manufacturing_cells,
+        inventory_cells=inventory_cells,
+        bridge_cells=final_bridge_cells,
+        strict_trace=bool(result.get("residual_analysis")),
+    )
+
     required = {
         "README", "판매효과_근거", "원부재료_근거", "제조경비_근거",
         "재고원가반영시차_근거", "상품원가검증", "최종Bridge_검증", "Residual_RCA",
         "Sales_COGS_Basis", "Sales_COGS_Scope",
         "당기제조원가_기준차이", "판관비_검증", "수식_정의", "원천셀_추적",
+        "Evidence_Audit",
     }
     missing = required.difference(workbook.sheetnames)
     if missing:

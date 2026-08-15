@@ -193,6 +193,11 @@ def write_sales_evidence(
         "Comparison Freight(incl Tariff)", "Base Tariff", "Comparison Tariff", "Base Tariff 포함?",
         "Comparison Tariff 포함?", "Base Freight(ex Tariff)", "Comparison Freight(ex Tariff)",
         "Freight Adjustment 수식", "Freight Engine", "Tariff 수식", "Tariff Engine", "Validation",
+        "Base PCS 판매수량", "Comparison PCS 판매수량", "Base LENGTH(m) 판매수량",
+        "Comparison LENGTH(m) 판매수량", "수량 Source Reference", "Freight denominator 정책",
+        "Base Freight/unit 수식", "Comparison Freight/unit 수식", "Freight Quantity Component 수식",
+        "Freight Unit/Direct Component 수식", "Freight Adjustment 재구성", "Price 반영 Freight",
+        "Trace Validation",
     ], freight_start_col)
     freight_start = 5
     for index, item in enumerate(freight_trace):
@@ -204,6 +209,14 @@ def write_sales_evidence(
             _number(item.get("comparison_tariff")), bool(item.get("base_tariff_in_transport")),
             bool(item.get("comparison_tariff_in_transport")), None, None, None,
             _number(item.get("freight_effect")), None, _number(item.get("tariff_effect")), None,
+            _number(item.get("base_pcs_quantity")),
+            _number(item.get("comparison_pcs_quantity")),
+            _number(item.get("base_length_quantity")),
+            _number(item.get("comparison_length_quantity")),
+            "Base: " + str(item.get("base_quantity_source_reference") or "")
+            + " / Comparison: " + str(item.get("comparison_quantity_source_reference") or ""),
+            item.get("freight_denominator_policy") or "DIRECT_AMOUNT_NO_DENOMINATOR",
+            None, None, None, None, None, None, None,
         ]
         for offset, value in enumerate(values):
             ws.cell(r, freight_start_col + offset, value)
@@ -212,6 +225,21 @@ def write_sales_evidence(
         ws.cell(r, 47, f"=AS{r}-AT{r}").fill = _FORMULA_FILL
         ws.cell(r, 49, f"=AO{r}-AP{r}").fill = _FORMULA_FILL
         ws.cell(r, 51, f'=IF(MAX(ABS(AU{r}-AV{r}),ABS(AW{r}-AX{r}))<=1,"PASS","FAIL")').fill = _CHECK_FILL
+        # There is no authoritative allocation of the monthly freight account
+        # to either PCS or LENGTH products.  Keep both raw pools visible and
+        # formula-prove that V1 uses the direct account difference exactly once
+        # without unitising or cross-unit aggregation.
+        ws.cell(r, 58, f'=IF(BE{r}="APPLICABLE",IFERROR(AS{r}/AZ{r},0),"NOT_APPLICABLE")').fill = _FORMULA_FILL
+        ws.cell(r, 59, f'=IF(BE{r}="APPLICABLE",IFERROR(AT{r}/BA{r},0),"NOT_APPLICABLE")').fill = _FORMULA_FILL
+        ws.cell(r, 60, "=0").fill = _FORMULA_FILL
+        ws.cell(r, 61, f"=AS{r}-AT{r}").fill = _FORMULA_FILL
+        ws.cell(r, 62, f"=BH{r}+BI{r}").fill = _FORMULA_FILL
+        ws.cell(r, 63, f"=BJ{r}").fill = _FORMULA_FILL
+        ws.cell(
+            r,
+            64,
+            f'=IF(AND(BE{r}="DIRECT_AMOUNT_NO_DENOMINATOR",BH{r}=0,ABS(BJ{r}-AU{r})<=1,ABS(BK{r}-AV{r})<=1),"PASS","FAIL")',
+        ).fill = _CHECK_FILL
     freight_end = freight_start + len(freight_trace) - 1
 
     summary_header = max(detail_end, freight_end) + 3
@@ -244,7 +272,7 @@ def write_sales_evidence(
         ("sales_quantity", f"=SUM(M{pool_start}:M{pool_end})", totals.get("quantity_effect"), "Pool별 합산"),
         ("sales_mix", f"=SUM(P{pool_start}:P{pool_end})", totals.get("mix_effect"), "제품군 간 Mix만"),
         ("displayed_sales_price", f"=SUM(AC{detail_start}:AC{detail_end})", totals.get("displayed_sales_price_effect", totals.get("pure_price_effect")), "Freight 반영 전"),
-        ("freight_adjustment", f"=SUM(AU{freight_start}:AU{freight_end})", totals.get("transport_effect"), "Price에 1회 포함"),
+        ("freight_adjustment", f"=SUM(BK{freight_start}:BK{freight_end})", totals.get("transport_effect"), "Price에 1회 포함"),
         ("sales_price", f"=B{summary_start + 2}+B{summary_start + 3}", totals.get("sales_price_effect"), "Displayed Price + Freight"),
         ("sales_fx", f"=SUM(AE{detail_start}:AE{detail_end})", totals.get("sales_fx_effect"), "Price와 symmetric 분리"),
         ("tariff", f"=SUM(AW{freight_start}:AW{freight_end})", totals.get("tariff_effect"), "Price/Freight와 분리"),
@@ -263,8 +291,13 @@ def write_sales_evidence(
     ws.cell(validation_start, 2, f'=IF(AND(B{summary_start + 4}=B{summary_start + 2}+B{summary_start + 3},COUNTIF(A{summary_start}:A{summary_start + 6},"freight_adjustment")=1),"PASS","FAIL")').fill = _CHECK_FILL
     ws.cell(validation_start + 1, 1, "Tariff separate")
     ws.cell(validation_start + 1, 2, f'=IF(AND(B{summary_start + 6}=SUM(AW{freight_start}:AW{freight_end}),B{summary_start + 4}=B{summary_start + 2}+B{summary_start + 3}),"PASS","FAIL")').fill = _CHECK_FILL
+    ws.cell(validation_start + 2, 1, "Freight unit denominator / PCS+LENGTH policy")
+    ws.cell(validation_start + 2, 2, f'=IF(AND(COUNTIF(BE{freight_start}:BE{freight_end},"DIRECT_AMOUNT_NO_DENOMINATOR")=ROWS(BE{freight_start}:BE{freight_end}),SUM(BH{freight_start}:BH{freight_end})=0,COUNTIF(BL{freight_start}:BL{freight_end},"PASS")=ROWS(BL{freight_start}:BL{freight_end})),"PASS","FAIL")').fill = _CHECK_FILL
     cells["detail_range"] = (detail_start, detail_end)
-    cells["validation_rows"] = (validation_start, validation_start + 1)
+    cells["pool_range"] = (pool_start, pool_end)
+    cells["freight_range"] = (freight_start, freight_end)
+    cells["summary_range"] = (summary_start, summary_start + len(summary) - 1)
+    cells["validation_rows"] = (validation_start, validation_start + 2)
     _finish(ws)
     return cells
 
@@ -372,8 +405,17 @@ def write_material_evidence(ws, result: dict[str, Any]) -> dict[str, Any]:
     validation_row = start + len(summary) + 1
     ws.cell(validation_row, 1, "RM / RM FX double count")
     ws.cell(validation_row, 2, f'=IF(ABS(B{start}-(B{start + 1}+B{start + 2}+B{start + 3}))<=1,"PASS","FAIL")').fill = _CHECK_FILL
+    ws.cell(validation_row + 1, 1, "JPY Source valid")
+    if nonwoven:
+        ws.cell(validation_row + 1, 2, f'=IF(AND(MIN(AD{nw_start}:AD{nw_end})>0,MIN(AE{nw_start}:AE{nw_end})>0,COUNTBLANK(AO{nw_start}:AO{nw_end})=0,COUNTIF(AO{nw_start}:AO{nw_end},"FAIL")=0,COUNTIF(AO{nw_start}:AO{nw_end},"TRACE_UNAVAILABLE_LEGACY")=0,COUNTIF(AN{nw_start}:AN{nw_end},"FAIL")=0),"PASS","FAIL")').fill = _CHECK_FILL
+    else:
+        ws.cell(validation_row + 1, 2, '="TRACE_UNAVAILABLE"').fill = _CHECK_FILL
+    ws.cell(validation_row + 2, 1, "Sales quantity source valid")
+    ws.cell(validation_row + 2, 2, f'=IF(AND(COUNTBLANK(R{detail_start}:R{detail_end})=0,COUNTIF(R{detail_start}:R{detail_end},"FAIL")=0,COUNTIF(R{detail_start}:R{detail_end},"TRACE_UNAVAILABLE_LEGACY")=0,COUNTIFS(L{detail_start}:L{detail_end},"<>0",J{detail_start}:J{detail_end},0)+COUNTIFS(L{detail_start}:L{detail_end},"<>0",K{detail_start}:K{detail_end},0)=0),"PASS","FAIL")').fill = _CHECK_FILL
     cells["detail_range"] = (detail_start, detail_end)
-    cells["validation_rows"] = (validation_row, validation_row)
+    cells["nonwoven_range"] = (nw_start, nw_end) if nonwoven else None
+    cells["summary_range"] = (start, start + len(summary) - 1)
+    cells["validation_rows"] = (validation_row, validation_row + 2)
     _finish(ws)
     return cells
 
@@ -391,18 +433,68 @@ def write_manufacturing_evidence(ws, result: dict[str, Any]) -> dict[str, Any]:
         "Base 후공정 생산량", "Comparison 후공정 생산량", "후공정 단위",
         "Base Source Reference", "Comparison Source Reference", "PCS+LENGTH 합산",
     ])
-    periods: dict[str, dict[str, Any]] = {}
+    reconciliation = list(analysis.get("production_reconciliation") or [])
+    period_sources: dict[str, dict[str, str]] = {}
     for item in trace:
-        periods.setdefault(str(item.get("month") or "선택기간"), item)
+        period = str(item.get("month") or "선택기간")
+        sources = period_sources.setdefault(period, {})
+        for key in (
+            "base_front_activity_source", "comparison_front_activity_source",
+            "base_back_activity_source", "comparison_back_activity_source",
+        ):
+            if item.get(key) and not sources.get(key):
+                sources[key] = str(item[key])
+
+    periods: dict[str, dict[str, Any]] = {}
+    if reconciliation:
+        for item in reconciliation:
+            period = str(item.get("month") or "선택기간")
+            summary = periods.setdefault(period, {
+                "base_front_activity": 0.0,
+                "comparison_front_activity": 0.0,
+                "base_back_activity": 0.0,
+                "comparison_back_activity": 0.0,
+            })
+            side = str(item.get("scenario") or "").lower()
+            if side not in {"base", "comparison"}:
+                continue
+            group = str(item.get("product_group") or "").upper()
+            if group == "FS":
+                summary[f"{side}_front_activity"] += _number(item.get("sap_length"))
+            elif group in {"SW", "BW", "LC"}:
+                summary[f"{side}_back_activity"] += _number(item.get("sap_qty"))
+            summary.update(period_sources.get(period) or {})
+    else:
+        # Legacy payloads have no reconciliation table.  Use the largest
+        # authoritative activity exposed by the month's account trace instead
+        # of the first row (which can be a fixed-cost row with zero activity).
+        for item in trace:
+            period = str(item.get("month") or "선택기간")
+            summary = periods.setdefault(period, {})
+            for key in (
+                "base_front_activity", "comparison_front_activity",
+                "base_back_activity", "comparison_back_activity",
+            ):
+                summary[key] = max(_number(summary.get(key)), _number(item.get(key)))
+            summary.update(period_sources.get(period) or {})
+
+    production_summary_start = 5
     for period, item in sorted(periods.items()):
         r = ws.max_row + 1
+        base_source = (
+            "Front: " + str(item.get("base_front_activity_source") or "SOURCE_UNAVAILABLE")
+            + " / Back: " + str(item.get("base_back_activity_source") or "SOURCE_UNAVAILABLE")
+        )
+        comparison_source = (
+            "Front: " + str(item.get("comparison_front_activity_source") or "SOURCE_UNAVAILABLE")
+            + " / Back: " + str(item.get("comparison_back_activity_source") or "SOURCE_UNAVAILABLE")
+        )
         ws.append([
             period, _number(item.get("base_front_activity")), _number(item.get("comparison_front_activity")),
             "LENGTH(m)", _number(item.get("base_back_activity")), _number(item.get("comparison_back_activity")),
-            "PCS (LC=4-inch 포함)", item.get("base_front_activity_source") or item.get("base_back_activity_source"),
-            item.get("comparison_front_activity_source") or item.get("comparison_back_activity_source"), "=FALSE",
+            "PCS (LC=4-inch 포함)", base_source, comparison_source, "=FALSE",
         ])
-    reconciliation = list(analysis.get("production_reconciliation") or [])
+    production_summary_end = ws.max_row if periods else production_summary_start - 1
     if reconciliation:
         _headers(ws, 4, [
             "Scenario", "Month", "Product Group", "SAP Qty", "MES Qty", "Qty Difference",
@@ -500,6 +592,8 @@ def write_manufacturing_evidence(ws, result: dict[str, Any]) -> dict[str, Any]:
     ws.cell(validation_row + 1, 1, "Inventory realization multiplier used")
     ws.cell(validation_row + 1, 2, "=FALSE").fill = _CHECK_FILL
     cells["detail_range"] = (detail_start, detail_end)
+    cells["production_summary_range"] = (production_summary_start, production_summary_end)
+    cells["summary_range"] = (start, start + len(summary) - 1)
     cells["component_column"] = "AO"
     cells["subtotal_column"] = "AK"
     cells["validation_rows"] = (validation_row, validation_row + 1)
@@ -572,7 +666,7 @@ def write_final_bridge(
     result: dict[str, Any],
     evidence_cells: dict[str, tuple[str, str]],
     merchandise_validation: tuple[str, str],
-) -> dict[str, str]:
+) -> dict[str, Any]:
     _title(
         ws,
         "최종 OP Bridge 검증",
@@ -600,11 +694,13 @@ def write_final_bridge(
     ws.cell(summary, 4, _number(result.get("effects_total")))
     ws.cell(summary, 6, _validation(f"C{summary}", f"D{summary}")).fill = _CHECK_FILL
     ws.cell(summary + 1, 2, "residual")
-    ws.cell(summary + 1, 3, _number(result.get("residual")))
+    ws.cell(summary + 1, 3, f"=C{summary + 2}-C{summary}").fill = _FORMULA_FILL
     ws.cell(summary + 1, 4, _number(result.get("residual")))
     ws.cell(summary + 1, 6, _validation(f"C{summary + 1}", f"D{summary + 1}")).fill = _CHECK_FILL
     ws.cell(summary + 2, 2, "OP_delta")
-    ws.cell(summary + 2, 3, _number(result.get("operating_profit_delta")))
+    # Direct OP Delta is reconstructed from RAW P&L lines on Residual_RCA.
+    # The engine value remains a comparison-only output in column D.
+    ws.cell(summary + 2, 3, "='Residual_RCA'!F8").fill = _FORMULA_FILL
     ws.cell(summary + 2, 4, _number(result.get("operating_profit_delta")))
     ws.cell(summary + 2, 6, _validation(f"C{summary + 2}", f"D{summary + 2}")).fill = _CHECK_FILL
     ws.cell(summary + 3, 2, "effects_total + residual = OP_delta")
@@ -651,13 +747,16 @@ def write_final_bridge(
         "residual": f"C{summary + 1}",
         "operating_profit_delta": f"C{summary + 2}",
         "identity": f"F{summary + 3}",
+        "effect_range": (start, end),
+        "summary_range": (summary, summary + 3),
+        "validation_range": (checks + 1, checks + len(check_rows)),
     }
 
 
 def write_residual_rca(
     ws,
     result: dict[str, Any],
-    bridge_cells: dict[str, str],
+    bridge_cells: dict[str, Any],
 ) -> None:
     """Write Source-based residual analysis without introducing a new Effect."""
     rca = dict(result.get("residual_analysis") or {})
@@ -757,7 +856,7 @@ def write_residual_rca(
         effect_header,
         [
             "Canonical Effect", "P&L Bucket", "Additive", "Parent",
-            "RCA Allocation", "Amount", "Direct Source Scope", "Note",
+            "RCA Allocation", "Engine Output Amount", "Direct Source Scope", "Note",
         ],
     )
     effect_rows = list(rca.get("effect_to_pnl_map") or [])
@@ -781,7 +880,7 @@ def write_residual_rca(
         bucket_header,
         [
             "Direct P&L Bucket", "Base", "Comparison", "Direct Formula",
-            "Engine Direct", "Assigned Canonical Formula", "Gap",
+            "Engine Direct Output", "Assigned Canonical Formula", "Gap",
             "Validation", "Source Reference",
         ],
     )
@@ -818,7 +917,7 @@ def write_residual_rca(
         ws,
         component_header,
         [
-            "Component", "Bucket", "Amount", "Classification", "Business Source",
+            "Component", "Bucket", "Engine RCA Output Amount", "Classification", "Business Source",
             "Canonical Field", "Formula Basis", "Source Reference", "Period",
             "Scope", "Source Coverage", "Explanation",
         ],
@@ -852,7 +951,7 @@ def write_residual_rca(
         sga_header,
         [
             "SG&A Account", "Section", "Class", "Base", "Comparison",
-            "Direct Formula", "Canonical", "Gap Formula", "Source Reference",
+            "Direct Formula", "Canonical Engine Output", "Gap Formula", "Source Reference",
             "Source Status", "Note",
         ],
     )
@@ -909,7 +1008,7 @@ def write_residual_rca(
 def write_sales_cogs_basis(
     ws,
     result: dict[str, Any],
-    bridge_cells: dict[str, str],
+    bridge_cells: dict[str, Any],
 ) -> None:
     """Write formula-bearing Sales GP/COGS overlap counterfactual evidence."""
     analysis = dict(result.get("sales_cogs_basis_analysis") or {})
@@ -1341,9 +1440,9 @@ def write_sales_cogs_scope(ws, result: dict[str, Any]) -> None:
 
     scope_header = ws.max_row + 3
     _headers(ws, scope_header, [
-        "Month", "Sales Product COGS", "Matched Sales Manufactured COGS",
-        "P&L Manufactured COGS", "Scope Difference", "Classified Total",
-        "UNEXPLAINED", "Validation", "Base P&L Source", "Comparison P&L Source",
+        "Month", "Sales Product COGS Engine Output", "Matched Sales Manufactured COGS Engine Output",
+        "P&L Manufactured COGS Engine Output", "Scope Difference Formula", "Classified Engine Output",
+        "UNEXPLAINED Engine Output", "Validation", "Base P&L Source", "Comparison P&L Source",
         "Base P&L Formula Trace", "Comparison P&L Formula Trace",
     ])
     scope_start = scope_header + 1
@@ -1371,7 +1470,7 @@ def write_sales_cogs_scope(ws, result: dict[str, Any]) -> None:
 
     component_header = ws.max_row + 3
     _headers(ws, component_header, [
-        "Month", "Component", "Amount", "Classification", "Business Source",
+        "Month", "Component", "Engine RCA Output Amount", "Classification", "Business Source",
         "Formula Basis", "Source Reference",
     ])
     component_start = component_header + 1
@@ -1480,6 +1579,17 @@ def write_sales_cogs_scope(ws, result: dict[str, Any]) -> None:
         for column, formula in formulas.items():
             ws.cell(row, column, formula).fill = _FORMULA_FILL
     matched_end = max(matched_start, ws.max_row)
+
+    # Summary cells are Evidence formulas.  The corresponding RCA constants
+    # remain only in explicitly labelled Engine Output columns below.
+    ws["E4"] = f"=B{cumulative_scope_row}"
+    ws["E5"] = f"=D{cumulative_scope_row}"
+    ws["E7"] = f"=G{cumulative_scope_row}"
+    ws["H4"] = f"=SUM(R{matched_start}:R{matched_end})"
+    ws["H5"] = f"=SUM(U{matched_start}:U{matched_end})"
+    ws["K4"] = "='재고원가반영시차_근거'!D16"
+    for cell in ("E4", "E5", "E7", "H4", "H5", "K4"):
+        ws[cell].fill = _FORMULA_FILL
 
     option_header = ws.max_row + 3
     _headers(ws, option_header, [
