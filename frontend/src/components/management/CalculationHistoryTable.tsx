@@ -2,10 +2,10 @@ import React from 'react';
 import { CalculationHistoryView } from '../../integration/CalculationHistoryView';
 
 interface CalculationHistoryTableProps {
-  onGoToVariance: () => void;
+  onGoToVariance?: (resultId?: string) => void;
 }
 
-/** Compatibility wrapper for the legacy handoff view.
+/** Compatibility wrapper for the durable BFF-backed calculation history view.
  *
  * The canonical implementation is the durable BFF-backed integration view;
  * no dummy rows, timer, toast-only download, or fabricated result identity
