@@ -79,6 +79,7 @@
 
 .variance-analysis__summary-value {
   font-size: 22px;
+  font-weight: 800;
   font-variant-numeric: tabular-nums;
 }
 
@@ -104,6 +105,19 @@
   font-variant-numeric: tabular-nums;
   font-weight: 700;
   white-space: nowrap;
+}
+
+.variance-analysis__tone--positive {
+  color: var(--variance-positive, #047857) !important;
+}
+
+.variance-analysis__tone--negative {
+  color: var(--variance-negative, #b91c1c) !important;
+}
+
+.variance-analysis__tone--zero,
+.variance-analysis__tone--neutral {
+  color: var(--variance-zero, #64748b) !important;
 }
 
 .variance-analysis__executive,
