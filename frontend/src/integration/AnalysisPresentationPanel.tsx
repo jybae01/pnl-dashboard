@@ -79,7 +79,7 @@ function PresentationHeader({ value }: { value: AnalysisPresentationDto }) {
         <div className="variance-analysis__op-summary">
           <span className="variance-analysis__summary-label">영업이익 증감</span>
           <strong className={`variance-analysis__summary-value variance-analysis__tone--${tone}`}>
-            {formatCurrency(kpi.operating_profit_delta, true)}
+            {formatMillions(kpi.operating_profit_delta, true)}
           </strong>
         </div>
       </div>
@@ -98,7 +98,7 @@ function KpiLine({ label, value, signed = false }: { label: string; value: numbe
   return (
     <div className="variance-analysis__kpi-line">
       <span>{label}</span>
-      <strong>{formatCurrency(value, signed)}</strong>
+      <strong>{formatMillions(value, signed)}</strong>
     </div>
   );
 }
@@ -128,7 +128,7 @@ function ExecutiveFacts({
       </div>
       <div className={`variance-analysis__residual-summary variance-analysis__tone--${profitEffectTone(residual.amount)}`}>
         <strong>{residual.uiLabel}</strong>
-        <span>{formatCurrency(residual.amount, true)}</span>
+        <span>{formatMillions(residual.amount, true)}</span>
       </div>
     </section>
   );
@@ -159,7 +159,7 @@ function FactorList({
             onClick={() => onSelectEffect(effect.code)}
           >
             <span>{effect.uiLabel}</span>
-            <strong>{formatCurrency(effect.profit_effect, true)}</strong>
+            <strong>{formatMillions(effect.profit_effect, true)}</strong>
           </button>
         );
       }) : <div className="variance-analysis__factor-empty">해당 Effect 없음</div>}
@@ -185,7 +185,7 @@ function EffectTable({
     <section className="variance-analysis__effect-section" data-testid="effect-table">
       <div className="variance-analysis__section-header">
         <h2>Effect 상세 / Drilldown</h2>
-        <span>금액 단위: {`KRW`} · 상세 값은 서버 DTO 그대로 표시</span>
+        <span>금액 단위: 백만원 · 상세 값은 서버 DTO 그대로 표시</span>
       </div>
       <div className="variance-analysis__table-scroll">
         <table className="financial-table variance-analysis__effect-table">
@@ -208,7 +208,7 @@ function EffectTable({
             })}
             <tr className="row-total">
               <td colSpan={2}>Effect 총액 (서버)</td>
-              <td className="text-right tabular-nums">{formatCurrency(effectsTotal, true)}</td>
+              <td className="text-right tabular-nums">{formatMillions(effectsTotal, true)}</td>
               <td>서버 제공 effects_total</td>
             </tr>
             <tr data-testid="effect-row-residual" className={selectedEffect === residual.code ? 'row-active' : ''}>
@@ -224,7 +224,7 @@ function EffectTable({
                 </button>
               </td>
               <td>—</td>
-              <td data-testid="effect-tone-residual" className={`text-right tabular-nums variance-analysis__tone--${profitEffectTone(residual.amount)}`}>{formatCurrency(residual.amount, true)}</td>
+              <td data-testid="effect-tone-residual" className={`text-right tabular-nums variance-analysis__tone--${profitEffectTone(residual.amount)}`}>{formatMillions(residual.amount, true)}</td>
               <td>—</td>
             </tr>
           </tbody>
@@ -273,7 +273,7 @@ function EffectRow({
           </button>
         </td>
         <td>{effect.uiCategoryLabel}</td>
-        <td data-testid={`effect-tone-${effect.code}`} className={`text-right tabular-nums variance-analysis__tone--${tone}`}>{formatCurrency(effect.profit_effect, true)}</td>
+        <td data-testid={`effect-tone-${effect.code}`} className={`text-right tabular-nums variance-analysis__tone--${tone}`}>{formatMillions(effect.profit_effect, true)}</td>
         <td>{available ? effect.description : effect.drilldown.unavailable_reason}</td>
       </tr>
       {open && available && (
@@ -285,12 +285,12 @@ function EffectRow({
               </tr></thead>
               <tbody>{effect.drilldown.rows.map((row) => (
                 <tr key={row.row_id}>
-                  <td>{row.label}</td>
+                  <td>{effect.code.startsWith('sga') ? formatSgaLabel(row.label) : row.label}</td>
                   <td>{row.unit}</td>
                   <td className="text-right">{displayNullable(row.baseline)}</td>
                   <td className="text-right">{displayNullable(row.comparison)}</td>
                   <td className="text-right">{displayNullable(row.delta, true)}</td>
-                  <td className={`text-right ${row.profit_effect === null ? '' : `variance-analysis__tone--${profitEffectTone(row.profit_effect)}`}`}>{row.profit_effect === null ? '—' : formatCurrency(row.profit_effect, true)}</td>
+                  <td className={`text-right ${row.profit_effect === null ? '' : `variance-analysis__tone--${profitEffectTone(row.profit_effect)}`}`}>{row.profit_effect === null ? '—' : formatMillions(row.profit_effect, true)}</td>
                   <td>{row.note}</td>
                 </tr>
               ))}</tbody>
@@ -306,11 +306,11 @@ function ProductGroupTable({ value }: { value: AnalysisPresentationDto }) {
   if (!value.product_groups.length) return null;
   return (
     <section className="variance-analysis__evidence-table" aria-labelledby="product-groups-title">
-      <div className="variance-analysis__section-header"><h2 id="product-groups-title">제품군 근거</h2><span>수량 단위는 DTO 값 유지</span></div>
+      <div className="variance-analysis__section-header"><h2 id="product-groups-title">제품군 근거</h2><span>수량 단위는 DTO 값 유지 · 금액 단위: 백만원</span></div>
       <div className="variance-analysis__table-scroll"><table className="financial-table"><thead><tr>
         <th>제품군</th><th>수량 단위</th><th className="text-right">기준 수량</th><th className="text-right">비교 수량</th><th className="text-right">기준 매출</th><th className="text-right">비교 매출</th>
       </tr></thead><tbody>{value.product_groups.map((row) => (
-        <tr key={row.code}><td>{row.display_name}</td><td>{row.quantity_unit}</td><td className="text-right">{formatNumber(row.baseline_quantity)}</td><td className="text-right">{formatNumber(row.comparison_quantity)}</td><td className="text-right">{formatCurrency(row.baseline_revenue)}</td><td className="text-right">{formatCurrency(row.comparison_revenue)}</td></tr>
+        <tr key={row.code}><td>{row.display_name}</td><td>{row.quantity_unit}</td><td className="text-right">{formatNumber(row.baseline_quantity)}</td><td className="text-right">{formatNumber(row.comparison_quantity)}</td><td className="text-right">{formatMillions(row.baseline_revenue)}</td><td className="text-right">{formatMillions(row.comparison_revenue)}</td></tr>
       ))}</tbody></table></div>
     </section>
   );
@@ -339,9 +339,23 @@ function EvidenceAccess({ value, role, onUnavailable }: { value: AnalysisPresent
   );
 }
 
-function formatCurrency(value: number, signed = false): string {
-  const number = value.toLocaleString('ko-KR', { maximumFractionDigits: 2 });
-  return `${signed && value > 0 ? '+' : ''}${number} KRW`;
+function formatMillions(krwValue: number, signed = false): string {
+  const millions = Math.round(krwValue / 1_000_000);
+  const formatted = millions.toLocaleString('ko-KR');
+  return `${signed && millions > 0 ? '+' : ''}${formatted} 백만원`;
+}
+
+function formatSgaLabel(label: string): string {
+  if (label.includes('판매비 소계') || label.includes('판매비소계')) return '판매비 소계';
+  if (label.includes('일반관리비 소계') || label.includes('일반관리비소계')) return '일반관리비 소계';
+  if (label.includes('판관비 총계') || label.includes('판관비총계') || label.includes('판매관리비 총계')) return '판관비 총계';
+
+  const clean = label.replace(/^\d+\.\s*/, '').trim();
+  if (clean.startsWith('판매비_') || clean.startsWith('일반관리비_')) return clean;
+
+  const sellingKeywords = ['운반비', '수수료', '보관료', '광고선전비', '판매', '수출비', '포장비'];
+  const isSelling = sellingKeywords.some((k) => clean.includes(k));
+  return isSelling ? `판매비_${clean}` : `일반관리비_${clean}`;
 }
 
 function formatNumber(value: number, signed = false): string {
