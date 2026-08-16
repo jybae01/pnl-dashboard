@@ -327,13 +327,17 @@ export function CoreAnalysisView({ role, modelRefreshKey = 0, initialResultId }:
           <NumberInput mode="month" label="종료 월" value={form.end_month} disabled={isSubmitting || isJobActive(job)} onChange={(value) => setForm({ ...form, end_month: value })} />
           <NumberInput mode="decimal" label="기준 매출환율 (KRW/USD)" value={form.baseline_sales_fx} disabled={isSubmitting || isJobActive(job)} onChange={(value) => setForm({ ...form, baseline_sales_fx: value })} />
           <NumberInput mode="decimal" label="비교 매출환율 (KRW/USD)" value={form.comparison_sales_fx} disabled={isSubmitting || isJobActive(job)} onChange={(value) => setForm({ ...form, comparison_sales_fx: value })} />
-        </div>
-        <div className="variance-control-actions">
-          <button className="btn btn-primary" disabled={!formValid || isSubmitting || isJobActive(job)}><Play size={14} />{isSubmitting ? '요청 중…' : '분석 실행'}</button>
-          <button type="button" className="btn btn-secondary" disabled={isSubmitting || isJobActive(job)} onClick={() => {
-            window.sessionStorage.removeItem(ACTIVE_JOB_STORAGE_KEY);
-            logicalRequest.current = null; setJob(null); setResult(null); setViewerState('EMPTY'); setError(null);
-          }}><RefreshCw size={14} />새 분석</button>
+          <div className="variance-control-actions">
+            <button className="btn btn-primary" disabled={!formValid || isSubmitting || isJobActive(job)}>
+              <Play size={14} />{isSubmitting ? '요청 중…' : '손익 변동 요인 분석 실행'}
+            </button>
+            <button type="button" className="btn btn-secondary" disabled={isSubmitting || isJobActive(job)} onClick={() => {
+              window.sessionStorage.removeItem(ACTIVE_JOB_STORAGE_KEY);
+              logicalRequest.current = null; setJob(null); setResult(null); setViewerState('EMPTY'); setError(null);
+            }}>
+              <RefreshCw size={14} />새 분석
+            </button>
+          </div>
         </div>
       </form>
       {error && !['ERROR', 'JOB_FAILED', 'FORBIDDEN', 'INVALID_PAYLOAD'].includes(viewerState) && <div role="alert" style={{ color: '#b91c1c', marginTop: 10 }}>{error}</div>}
@@ -358,21 +362,36 @@ function AnalysisPageHeading({ role }: { role: Role }) {
 }
 
 function ModelSelect({ label, value, models, disabled, onChange }: { label: string; value: string; models: AnalysisModelDto[]; disabled: boolean; onChange: (value: string) => void }) {
-  return <label><span className="filter-label">{label}</span><select className="filter-select" style={{ width: '100%' }} value={value} disabled={disabled} onChange={(event) => onChange(event.target.value)}>
-    <option value="">선택</option>{models.map((model) => <option key={model.model_id} value={model.model_id}>[{model.model_type}] {model.display_name} ({model.model_year})</option>)}
-  </select></label>;
+  return (
+    <div className="variance-control-field">
+      <label>
+        <span className="filter-label">{label}</span>
+        <select className="filter-select" style={{ width: '100%' }} value={value} disabled={disabled} onChange={(event) => onChange(event.target.value)}>
+          <option value="">선택</option>
+          {models.map((model) => <option key={model.model_id} value={model.model_id}>[{model.model_type}] {model.display_name} ({model.model_year})</option>)}
+        </select>
+      </label>
+    </div>
+  );
 }
 
 function NumberInput({ mode, label, value, disabled, onChange }: { mode: 'month' | 'decimal'; label: string; value: string; disabled: boolean; onChange: (value: string) => void }) {
-  return <label><span className="filter-label">{label}</span><EditableNumericInput
-    className="filter-select"
-    style={{ width: '100%' }}
-    mode={mode}
-    value={value}
-    disabled={disabled}
-    onChange={onChange}
-    onValueBlur={mode === 'month' ? (nextValue) => onChange(normalizeMonthInput(nextValue)) : undefined}
-  /></label>;
+  return (
+    <div className="variance-control-field">
+      <label>
+        <span className="filter-label">{label}</span>
+        <EditableNumericInput
+          className="filter-select"
+          style={{ width: '100%' }}
+          mode={mode}
+          value={value}
+          disabled={disabled}
+          onChange={onChange}
+          onValueBlur={mode === 'month' ? (nextValue) => onChange(normalizeMonthInput(nextValue)) : undefined}
+        />
+      </label>
+    </div>
+  );
 }
 
 function ResultState({ state, error, result, role, onUnavailable }: {
