@@ -85,9 +85,9 @@ export const ModelUploadArea: React.FC<ModelUploadAreaProps> = ({ onUploadSucces
       {/* Header */}
       <div className="section-header" style={{ marginBottom: 12 }}>
         <div className="section-title-wrap">
-          <span className="section-title">
-            <UploadCloud size={15} color="#2563eb" />
-            손익 데이터 모델 등록
+          <span className="section-title" style={{ fontSize: '14.5px', fontWeight: 800, color: '#0f172a', display: 'flex', alignItems: 'center', gap: 8 }}>
+            <UploadCloud size={16} color="#2563eb" />
+            손익 데이터 모형 등록
           </span>
         </div>
         <div>
@@ -123,6 +123,7 @@ export const ModelUploadArea: React.FC<ModelUploadAreaProps> = ({ onUploadSucces
               className={`segmented-btn ${modelType === 'PLAN' ? 'active' : ''}`}
               onClick={() => setModelType('PLAN')}
               disabled={isUploading}
+              style={{ minWidth: '42px' }}
             >
               계획
             </button>
@@ -131,6 +132,7 @@ export const ModelUploadArea: React.FC<ModelUploadAreaProps> = ({ onUploadSucces
               className={`segmented-btn ${modelType === 'ACTUAL' ? 'active' : ''}`}
               onClick={() => setModelType('ACTUAL')}
               disabled={isUploading}
+              style={{ minWidth: '42px' }}
             >
               실적
             </button>
@@ -139,6 +141,7 @@ export const ModelUploadArea: React.FC<ModelUploadAreaProps> = ({ onUploadSucces
               className={`segmented-btn ${modelType === 'FORECAST' ? 'active' : ''}`}
               onClick={() => setModelType('FORECAST')}
               disabled={isUploading}
+              style={{ minWidth: '42px' }}
             >
               추정
             </button>
