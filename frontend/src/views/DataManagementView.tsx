@@ -175,7 +175,7 @@ export const DataManagementView: React.FC<DataManagementViewProps> = ({
     onOpenCalcModal();
   };
 
-  // Delete Handlers (Triggered by delete selection)
+  // Delete Handlers (Triggered strictly by delete selection)
   const handleRequestDeleteSelected = () => {
     if (deleteSelectedModelIds.length > 0) {
       setIsDeleteModalOpen(true);
@@ -183,26 +183,32 @@ export const DataManagementView: React.FC<DataManagementViewProps> = ({
   };
 
   const handleConfirmDelete = async () => {
-    const count = selectedModelIds.length;
-    await modelService.deleteModels(selectedModelIds);
+    if (deleteSelectedModelIds.length === 0) return;
 
-    // Clear selection states
-    setSelectedModelIds([]);
-    setBaselineModelId('');
-    setComparisonModelId('');
-    setSelectionWarning(null);
+    const count = deleteSelectedModelIds.length;
+    const targetIds = [...deleteSelectedModelIds];
+    await modelService.deleteModels(targetIds);
+
+    // Clear delete selection state
+    setDeleteSelectedModelIds([]);
     setIsDeleteModalOpen(false);
 
+    // If any analysis selected models were deleted, normalize analysis selection
+    setSelectedModelIds(prev => prev.filter(id => !targetIds.includes(id)));
+    if (targetIds.includes(baselineModelId)) setBaselineModelId('');
+    if (targetIds.includes(comparisonModelId)) setComparisonModelId('');
+
     // Set brief toast notice
-    const msg = count === 2 ? '선택한 모형 2개를 삭제했습니다.' : '선택한 모형을 삭제했습니다.';
+    const msg = count > 1 ? `선택한 모형 ${count}개를 삭제했습니다.` : '선택한 모형을 삭제했습니다.';
     setToastNotice(msg);
     setTimeout(() => setToastNotice(null), 3500);
 
     fetchModels();
   };
 
-  // Selected Model objects and derived analysis label
+  // Selected Model objects for Analysis & Delete
   const selectedModels = models.filter(m => selectedModelIds.includes(m.id));
+  const deleteSelectedModels = models.filter(m => deleteSelectedModelIds.includes(m.id));
   const baseModelObj = models.find(m => m.id === baselineModelId);
   const compModelObj = models.find(m => m.id === comparisonModelId);
 
@@ -502,7 +508,7 @@ export const DataManagementView: React.FC<DataManagementViewProps> = ({
       {/* Delete Confirmation Modal */}
       <ModelDeleteConfirmModal
         isOpen={isDeleteModalOpen}
-        selectedModels={selectedModels}
+        selectedModels={deleteSelectedModels}
         onConfirm={handleConfirmDelete}
         onCancel={() => setIsDeleteModalOpen(false)}
       />
