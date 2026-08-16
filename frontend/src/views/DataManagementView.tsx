@@ -204,7 +204,7 @@ export const DataManagementView: React.FC<DataManagementViewProps> = ({
       <div className="view-header-bar">
         <div className="filter-group">
           <div className="filter-item">
-            <span className="filter-label">모델 구분:</span>
+            <span className="filter-label">모형 구분:</span>
             <div className="segmented-control">
               {(['ALL', 'PLAN', 'ACTUAL', 'FORECAST'] as const).map((t) => (
                 <button
@@ -235,7 +235,7 @@ export const DataManagementView: React.FC<DataManagementViewProps> = ({
           <div className="filter-item" style={{ position: 'relative' }}>
             <input
               type="text"
-              placeholder="모델명/등록자 검색..."
+              placeholder="모형명/등록자 검색..."
               className="filter-select"
               style={{ width: '180px', paddingLeft: '26px' }}
               value={searchKeyword}
@@ -319,11 +319,11 @@ export const DataManagementView: React.FC<DataManagementViewProps> = ({
 
       {/* 2. Model List Table with Checkboxes */}
       {isLoading ? (
-        <LoadingSpinner message="손익 모델 목록을 불러오는 중..." />
+        <LoadingSpinner message="손익 모형 목록을 불러오는 중..." />
       ) : simulateEmpty || models.length === 0 ? (
         <EmptyState
-          title="등록된 데이터 모델이 없습니다"
-          description="선택한 필터 조건에 일치하는 손익 모델이 없습니다. 필터를 초기화하거나 상단에서 신규 모델을 업로드하십시오."
+          title="등록된 데이터 모형이 없습니다"
+          description="선택한 필터 조건에 일치하는 손익 모형이 없습니다. 필터를 초기화하거나 상단에서 신규 모형을 등록하십시오."
           actionText="필터 초기화"
           onAction={() => {
             setTypeFilter('ALL');
