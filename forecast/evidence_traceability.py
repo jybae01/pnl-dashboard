@@ -78,6 +78,7 @@ def write_sales_evidence(
     trace = list(sales.get("trace_rows") or [])
     pool_trace = list(sales.get("pool_trace_rows") or [])
     freight_trace = list(sales.get("freight_trace_rows") or [])
+    new_business_trace = list(sales.get("new_business_trace_rows") or [])
     legacy_trace = not trace
     if not trace:
         for source in sales_rows:
@@ -245,7 +246,53 @@ def write_sales_evidence(
         ).fill = _CHECK_FILL
     freight_end = freight_start + len(freight_trace) - 1
 
-    summary_header = max(detail_end, freight_end) + 3
+    new_business_header = max(detail_end, freight_end) + 3
+    _headers(ws, new_business_header, [
+        "분석월", "원천 항목", "Canonical field", "기준 원천 위치", "비교 원천 위치",
+        "기술 추적(숨김)", "기술 추적(숨김)",
+        "기준 신사업 매출", "비교 신사업 매출", "기준 신사업 COGS", "비교 신사업 COGS",
+        "기준 GP 수식", "비교 GP 수식", "기준 GP율 수식", "비교 GP율 수식",
+        "신사업 매출증가 효과 수식", "매출증가 효과 Engine", "신사업 GP율 변화효과 수식",
+        "GP율 변화효과 Engine", "두 효과 합계 수식", "실제 GP 차이 수식", "정합성 확인",
+        "신사업 매출환율 효과", "신사업 Mix 효과",
+    ])
+    new_business_start = new_business_header + 1
+    for index, item in enumerate(new_business_trace):
+        r = new_business_start + index
+        ws.append([
+            item.get("period"), item.get("business_source"), item.get("canonical_fields"),
+            item.get("base_source_reference"), item.get("comparison_source_reference"),
+            None, None,
+            _number(item.get("base_revenue")), _number(item.get("comparison_revenue")),
+            _number(item.get("base_cogs")), _number(item.get("comparison_cogs")),
+            None, None, None, None, None, _number(item.get("revenue_effect")), None,
+            _number(item.get("gp_rate_effect")), None, None, None,
+            "적용하지 않음", "적용하지 않음",
+        ])
+        ws.cell(r, 12, f"=H{r}-J{r}").fill = _FORMULA_FILL
+        ws.cell(r, 13, f"=I{r}-K{r}").fill = _FORMULA_FILL
+        ws.cell(r, 14, f"=L{r}/H{r}").fill = _FORMULA_FILL
+        ws.cell(r, 15, f"=M{r}/I{r}").fill = _FORMULA_FILL
+        ws.cell(r, 16, f"=(I{r}-H{r})*N{r}").fill = _FORMULA_FILL
+        ws.cell(r, 18, f"=I{r}*(O{r}-N{r})").fill = _FORMULA_FILL
+        ws.cell(r, 20, f"=P{r}+R{r}").fill = _FORMULA_FILL
+        ws.cell(r, 21, f"=M{r}-L{r}").fill = _FORMULA_FILL
+        ws.cell(
+            r,
+            22,
+            f'=IF(MAX(ABS(P{r}-Q{r}),ABS(R{r}-S{r}),ABS(T{r}-U{r}))<=1,"PASS","FAIL")',
+        ).fill = _CHECK_FILL
+    new_business_end = new_business_start + len(new_business_trace) - 1
+    new_business_quantity_formula = (
+        f"SUM(P{new_business_start}:P{new_business_end})"
+        if new_business_trace else "0"
+    )
+    new_business_price_formula = (
+        f"SUM(R{new_business_start}:R{new_business_end})"
+        if new_business_trace else "0"
+    )
+
+    summary_header = max(new_business_header, new_business_end) + 3
     _headers(ws, summary_header, ["Effect", "Evidence Formula", "Engine Output", "Validation", "부호/정책"])
     summary_start = summary_header + 1
     pool_header = summary_header
@@ -272,13 +319,15 @@ def write_sales_evidence(
         ws.cell(r, 18, f'=IF(MAX(ABS(M{r}-N{r}),ABS(P{r}-Q{r}))<=1,"PASS","FAIL")').fill = _CHECK_FILL
     pool_end = pool_start + len(pool_trace) - 1
     summary = [
-        ("sales_quantity", f"=SUM(M{pool_start}:M{pool_end})", totals.get("quantity_effect"), "Pool별 합산"),
+        ("sales_quantity", f"=SUM(M{pool_start}:M{pool_end})+{new_business_quantity_formula}", totals.get("quantity_effect"), "제조제품 Pool + 신사업 매출증가 효과"),
         ("sales_mix", f"=SUM(P{pool_start}:P{pool_end})", totals.get("mix_effect"), "제품군 간 Mix만"),
-        ("displayed_sales_price", f"=SUM(AC{detail_start}:AC{detail_end})", totals.get("displayed_sales_price_effect", totals.get("pure_price_effect")), "Freight 반영 전"),
+        ("displayed_sales_price", f"=SUM(AC{detail_start}:AC{detail_end})+{new_business_price_formula}", totals.get("displayed_sales_price_effect", totals.get("pure_price_effect")), "제조제품 Price + 신사업 GP율 변화효과"),
         ("freight_adjustment", f"=SUM(BK{freight_start}:BK{freight_end})", totals.get("transport_effect"), "Price에 1회 포함"),
         ("sales_price", f"=B{summary_start + 2}+B{summary_start + 3}", totals.get("sales_price_effect"), "Displayed Price + Freight"),
         ("sales_fx", f"=SUM(AE{detail_start}:AE{detail_end})", totals.get("sales_fx_effect"), "Price와 symmetric 분리"),
         ("tariff", f"=SUM(AW{freight_start}:AW{freight_end})", totals.get("tariff_effect"), "Price/Freight와 분리"),
+        ("new_business_revenue_effect", f"={new_business_quantity_formula}", totals.get("new_business_revenue_effect"), "Quantity에 1회 포함"),
+        ("new_business_gp_rate_effect", f"={new_business_price_formula}", totals.get("new_business_gp_rate_effect"), "Price에 1회 포함"),
     ]
     cells: dict[str, str] = {}
     for index, (code, formula, engine, policy) in enumerate(summary):
@@ -296,11 +345,44 @@ def write_sales_evidence(
     ws.cell(validation_start + 1, 2, f'=IF(AND(B{summary_start + 6}=SUM(AW{freight_start}:AW{freight_end}),B{summary_start + 4}=B{summary_start + 2}+B{summary_start + 3}),"PASS","FAIL")').fill = _CHECK_FILL
     ws.cell(validation_start + 2, 1, "Freight unit denominator / PCS+LENGTH policy")
     ws.cell(validation_start + 2, 2, f'=IF(AND(COUNTIF(BE{freight_start}:BE{freight_end},"DIRECT_AMOUNT_NO_DENOMINATOR")=ROWS(BE{freight_start}:BE{freight_end}),SUM(BH{freight_start}:BH{freight_end})=0,COUNTIF(BL{freight_start}:BL{freight_end},"PASS")=ROWS(BL{freight_start}:BL{freight_end})),"PASS","FAIL")').fill = _CHECK_FILL
+    ws.cell(validation_start + 3, 1, "신사업 GP 항등식")
+    ws.cell(
+        validation_start + 3,
+        2,
+        (
+            f'=IF(COUNTIF(V{new_business_start}:V{new_business_end},"PASS")='
+            f'ROWS(V{new_business_start}:V{new_business_end}),"PASS","FAIL")'
+            if new_business_trace else '="PASS"'
+        ),
+    ).fill = _CHECK_FILL
+    ws.cell(validation_start + 4, 1, "신사업 매출환율 효과 제외")
+    ws.cell(
+        validation_start + 4,
+        2,
+        (
+            f'=IF(COUNTIF(W{new_business_start}:W{new_business_end},"적용하지 않음")='
+            f'ROWS(W{new_business_start}:W{new_business_end}),"PASS","FAIL")'
+            if new_business_trace else '="PASS"'
+        ),
+    ).fill = _CHECK_FILL
+    ws.cell(validation_start + 5, 1, "신사업 Mix 효과 제외")
+    ws.cell(
+        validation_start + 5,
+        2,
+        (
+            f'=IF(COUNTIF(X{new_business_start}:X{new_business_end},"적용하지 않음")='
+            f'ROWS(X{new_business_start}:X{new_business_end}),"PASS","FAIL")'
+            if new_business_trace else '="PASS"'
+        ),
+    ).fill = _CHECK_FILL
     cells["detail_range"] = (detail_start, detail_end)
     cells["pool_range"] = (pool_start, pool_end)
     cells["freight_range"] = (freight_start, freight_end)
     cells["summary_range"] = (summary_start, summary_start + len(summary) - 1)
-    cells["validation_rows"] = (validation_start, validation_start + 2)
+    cells["new_business_range"] = (
+        (new_business_start, new_business_end) if new_business_trace else None
+    )
+    cells["validation_rows"] = (validation_start, validation_start + 5)
     _finish(ws)
     return cells
 
@@ -1012,6 +1094,7 @@ def write_sales_cogs_basis(
     ws,
     result: dict[str, Any],
     bridge_cells: dict[str, Any],
+    sales_cells: dict[str, Any],
 ) -> None:
     """Write formula-bearing Sales GP/COGS overlap counterfactual evidence."""
     analysis = dict(result.get("sales_cogs_basis_analysis") or {})
@@ -1238,15 +1321,31 @@ def write_sales_cogs_basis(
                     ws.cell(row, 6, f"=F{current_row}-{overlap_cell}").fill = _FORMULA_FILL
                     ws.cell(row, 8, f"=H{current_row}-{overlap_cell}").fill = _FORMULA_FILL
                 elif option == "OPTION_B":
+                    new_business_range = sales_cells.get("new_business_range")
+                    new_business_formula = "0"
+                    if new_business_range:
+                        new_business_start, new_business_end = new_business_range
+                        if period != cumulative_period:
+                            new_business_formula = (
+                                "SUMIFS('판매효과_근거'!$P$"
+                                f"{new_business_start}:$P${new_business_end},"
+                                "'판매효과_근거'!$A$"
+                                f"{new_business_start}:$A${new_business_end},A{row})"
+                            )
+                        else:
+                            new_business_formula = (
+                                "SUM('판매효과_근거'!$P$"
+                                f"{new_business_start}:$P${new_business_end})"
+                            )
                     period_formula = (
                         f'$A${detail_start}:$A${detail_end},A{row}'
                         if period != cumulative_period else None
                     )
                     if period_formula:
-                        ws.cell(row, 3, f'=SUMIFS($R${detail_start}:$R${detail_end},{period_formula})').fill = _FORMULA_FILL
+                        ws.cell(row, 3, f'=SUMIFS($R${detail_start}:$R${detail_end},{period_formula})+{new_business_formula}').fill = _FORMULA_FILL
                         ws.cell(row, 4, f'=SUMIFS($U${detail_start}:$U${detail_end},{period_formula})').fill = _FORMULA_FILL
                     else:
-                        ws.cell(row, 3, f"=SUM($R${detail_start}:$R${detail_end})").fill = _FORMULA_FILL
+                        ws.cell(row, 3, f"=SUM($R${detail_start}:$R${detail_end})+{new_business_formula}").fill = _FORMULA_FILL
                         ws.cell(row, 4, f"=SUM($U${detail_start}:$U${detail_end})").fill = _FORMULA_FILL
                     ws.cell(row, 5, f"=E{current_row}-C{current_row}-D{current_row}+C{row}+D{row}").fill = _FORMULA_FILL
                     ws.cell(row, 6, f"=F{current_row}").fill = _FORMULA_FILL

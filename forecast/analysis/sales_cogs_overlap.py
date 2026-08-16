@@ -286,6 +286,15 @@ def analyze_sales_cogs_basis_overlap(
     fx_months = _monthly_amounts(
         all_trace_rows, period_key="period", amount_key="sales_fx_effect"
     )
+    new_business_rows = [
+        dict(row) for row in sales_analysis.get("new_business_trace_rows") or []
+    ]
+    new_business_revenue_months = _monthly_amounts(
+        new_business_rows, period_key="period", amount_key="revenue_effect"
+    )
+    new_business_gp_rate_months = _monthly_amounts(
+        new_business_rows, period_key="period", amount_key="gp_rate_effect"
+    )
     freight_rows = [dict(row) for row in sales_analysis.get("freight_trace_rows") or []]
     freight_months = _monthly_amounts(
         freight_rows, period_key="period", amount_key="freight_effect"
@@ -346,13 +355,17 @@ def analyze_sales_cogs_basis_overlap(
 
         official_quantity = sum(_number(row.get("official_gp_quantity")) for row in pools)
         official_mix = sum(_number(row.get("official_gp_mix")) for row in pools)
+        new_business_revenue_effect = new_business_revenue_months.get(period, 0.0)
+        new_business_gp_rate_effect = new_business_gp_rate_months.get(period, 0.0)
+        production_quantity = official_quantity + new_business_revenue_effect
         revenue_quantity = sum(
             _number(row.get("revenue_basis_quantity")) for row in pools
         )
         revenue_mix = sum(_number(row.get("revenue_basis_mix")) for row in pools)
         current_sales_total = (
-            official_quantity + official_mix
+            production_quantity + official_mix
             + price_months.get(period, 0.0)
+            + new_business_gp_rate_effect
             + freight_months.get(period, 0.0)
             + fx_months.get(period, 0.0)
         )
@@ -393,11 +406,11 @@ def analyze_sales_cogs_basis_overlap(
             })
 
         add_option(
-            "CURRENT", official_quantity, official_mix, current_sales_total,
+            "CURRENT", production_quantity, official_mix, current_sales_total,
             inventory_timing, current_effects,
         )
         add_option(
-            "OPTION_A", official_quantity, official_mix, current_sales_total,
+            "OPTION_A", production_quantity, official_mix, current_sales_total,
             inventory_timing - overlap_profit, current_effects - overlap_profit,
         )
         option_b_sales = (
@@ -409,11 +422,12 @@ def analyze_sales_cogs_basis_overlap(
             + revenue_quantity + revenue_mix
         )
         add_option(
-            "OPTION_B", revenue_quantity, revenue_mix, option_b_sales,
+            "OPTION_B", revenue_quantity + new_business_revenue_effect,
+            revenue_mix, option_b_sales,
             inventory_timing, option_b_effects,
         )
         add_option(
-            "OPTION_C", official_quantity, official_mix, current_sales_total,
+            "OPTION_C", production_quantity, official_mix, current_sales_total,
             inventory_timing, current_effects,
         )
 

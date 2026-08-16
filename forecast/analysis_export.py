@@ -173,6 +173,10 @@ def _write_raw_formula_audit(
               (45, 46, 47, 49, 51, 58, 59, 60, 61, 62, 63, 64), expected)
     add_cells("판매효과_근거", sales_cells.get("freight_range"),
               (39, 40, 41, 42, 52, 53, 54, 55), raw)
+    add_cells("판매효과_근거", sales_cells.get("new_business_range"),
+              (12, 13, 14, 15, 16, 18, 20, 21, 22), expected)
+    add_cells("판매효과_근거", sales_cells.get("new_business_range"),
+              (8, 9, 10, 11), raw)
     add_cells("판매효과_근거", sales_cells.get("summary_range"), (2, 4), expected)
     add_cells("판매효과_근거", sales_cells.get("validation_rows"), (2,), expected)
 
@@ -1349,6 +1353,14 @@ def _write_stored_source_provenance(ws, result: dict[str, Any]) -> None:
             add_raw("FREIGHT", item, side, "tariff", value_key=f"{prefix}_tariff", source_key=source_key, unit="KRW", product="ALL")
             add_raw("FREIGHT", item, side, "sales_quantity_pcs", value_key=f"{prefix}_pcs_quantity", source_key=f"{prefix}_quantity_source_reference", unit="PCS", product="PCS_POOL")
             add_raw("FREIGHT", item, side, "sales_quantity_length", value_key=f"{prefix}_length_quantity", source_key=f"{prefix}_quantity_source_reference", unit="LENGTH(m)", product="LENGTH_POOL")
+    for item in sales.get("new_business_trace_rows") or []:
+        item = dict(item)
+        for side, prefix, source_key in (
+            ("BASE", "base", "base_source_reference"),
+            ("COMPARISON", "comparison", "comparison_source_reference"),
+        ):
+            add_raw("NEW_BUSINESS_SALES", item, side, "sales_revenue", value_key=f"{prefix}_revenue", source_key=source_key, unit="KRW", product="신사업")
+            add_raw("NEW_BUSINESS_SALES", item, side, "sales_cogs", value_key=f"{prefix}_cogs", source_key=source_key, unit="KRW", product="신사업")
 
     material = dict(result.get("material_analysis") or {})
     for item in material.get("trace_rows") or []:
@@ -1505,6 +1517,7 @@ def build_comparison_audit_workbook(
         workbook.create_sheet("Sales_COGS_Basis"),
         result,
         final_bridge_cells,
+        sales_cells,
     )
     write_sales_cogs_scope(
         workbook.create_sheet("Sales_COGS_Scope"),

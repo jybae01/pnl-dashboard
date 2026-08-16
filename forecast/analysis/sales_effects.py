@@ -21,10 +21,13 @@ class SalesEffects:
     transport_quantity: float = 0.0
     transport_unit: float = 0.0
     tariff: float = 0.0
+    new_business_revenue_effect: float = 0.0
+    new_business_gp_rate_effect: float = 0.0
     issues: list[str] = field(default_factory=list)
     details: list[dict[str, float | str]] = field(default_factory=list)
     pool_details: list[dict[str, float | str]] = field(default_factory=list)
     freight_details: list[dict[str, float | str | bool]] = field(default_factory=list)
+    new_business_details: list[dict[str, float | str]] = field(default_factory=list)
 
     @property
     def total(self) -> float:
@@ -109,10 +112,83 @@ def calculate_sales_effects(
 
     for month in months:
         codes = sorted({code for ym, code in left if ym == month} | {code for ym, code in right if ym == month})
+        new_business_codes = [
+            code
+            for code in codes
+            if str((right.get((month, code)) or left.get((month, code))).product_group).strip()
+            == "신사업"
+        ]
+        for code in new_business_codes:
+            lrow = left.get((month, code))
+            rrow = right.get((month, code))
+            base_revenue = float(lrow.sales_amount) if lrow else 0.0
+            comparison_revenue = float(rrow.sales_amount) if rrow else 0.0
+            if base_revenue <= 0:
+                raise ValueError(
+                    f"{month} 신사업: 기준 매출액이 0 이하이므로 GP율 효과를 계산할 수 없습니다."
+                )
+            if comparison_revenue <= 0:
+                raise ValueError(
+                    f"{month} 신사업: 비교 매출액이 0 이하이므로 GP율 효과를 계산할 수 없습니다."
+                )
+            base_cogs = float(lrow.product_cogs) if lrow else 0.0
+            comparison_cogs = float(rrow.product_cogs) if rrow else 0.0
+            base_gp = base_revenue - base_cogs
+            comparison_gp = comparison_revenue - comparison_cogs
+            base_gp_rate = base_gp / base_revenue
+            comparison_gp_rate = comparison_gp / comparison_revenue
+            revenue_effect = (comparison_revenue - base_revenue) * base_gp_rate
+            gp_rate_effect = comparison_revenue * (comparison_gp_rate - base_gp_rate)
+            identity_difference = (
+                revenue_effect + gp_rate_effect - (comparison_gp - base_gp)
+            )
+            tolerance = max(1.0, abs(comparison_gp - base_gp) * 1e-9)
+            if abs(identity_difference) > tolerance:
+                raise ValueError(
+                    f"{month} 신사업: 매출증가/GP율 변화 효과 항등식이 일치하지 않습니다."
+                )
+
+            result.new_business_revenue_effect += revenue_effect
+            result.new_business_gp_rate_effect += gp_rate_effect
+            result.quantity += revenue_effect
+            result.displayed_price += gp_rate_effect
+            result.new_business_details.append({
+                "period": month,
+                "product_group": "신사업",
+                "business_source": "신사업 매출액·매출원가",
+                "canonical_fields": "sales_amount / product_cogs",
+                "base_revenue": base_revenue,
+                "comparison_revenue": comparison_revenue,
+                "base_cogs": base_cogs,
+                "comparison_cogs": comparison_cogs,
+                "base_gp": base_gp,
+                "comparison_gp": comparison_gp,
+                "base_gp_rate": base_gp_rate,
+                "comparison_gp_rate": comparison_gp_rate,
+                "revenue_effect": revenue_effect,
+                "gp_rate_effect": gp_rate_effect,
+                "effect_total": revenue_effect + gp_rate_effect,
+                "gp_difference": comparison_gp - base_gp,
+                "sales_fx_effect": 0.0,
+                "mix_effect": 0.0,
+                "analysis_method": "REVENUE_AND_GP_RATE",
+                "base_source_reference": " | ".join(filter(None, (
+                    getattr(lrow, "sales_amount_source", "") if lrow else "",
+                    getattr(lrow, "product_cogs_source", "") if lrow else "",
+                ))),
+                "comparison_source_reference": " | ".join(filter(None, (
+                    getattr(rrow, "sales_amount_source", "") if rrow else "",
+                    getattr(rrow, "product_cogs_source", "") if rrow else "",
+                ))),
+                "validation_status": "PASS",
+            })
+
         for unit_basis in ("PCS", "LENGTH"):
             rows: list[tuple[ProductRecord | None, ProductRecord | None]] = []
             for code in codes:
                 lrow, rrow = left.get((month, code)), right.get((month, code))
+                if code in new_business_codes:
+                    continue
                 basis = (rrow or lrow).unit_basis.upper() if (rrow or lrow) else "PCS"
                 if basis == unit_basis:
                     rows.append((lrow, rrow))

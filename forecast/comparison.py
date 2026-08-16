@@ -206,6 +206,19 @@ class GenericComparisonEngine:
             calculated_analysis_sales = calculate_sales_effects(
                 base_scenario, comparison_scenario, self.analysis_config
             )
+            for row in sales_analysis["rows"]:
+                if str(row.get("product_group") or "").strip() != "신사업":
+                    continue
+                row.update({
+                    "quantity_effect": calculated_analysis_sales.new_business_revenue_effect,
+                    "pure_price_effect": calculated_analysis_sales.new_business_gp_rate_effect,
+                    "sales_fx_effect": 0.0,
+                    "total_sales_effect": (
+                        calculated_analysis_sales.new_business_revenue_effect
+                        + calculated_analysis_sales.new_business_gp_rate_effect
+                    ),
+                    "analysis_method": "REVENUE_AND_GP_RATE",
+                })
             calculated_analysis_material = calculate_material_effects(
                 base_scenario, comparison_scenario
             )
@@ -265,6 +278,8 @@ class GenericComparisonEngine:
                 "transport_quantity_effect": calculated_analysis_sales.transport_quantity,
                 "transport_unit_effect": calculated_analysis_sales.transport_unit,
                 "tariff_effect": calculated_analysis_sales.tariff,
+                "new_business_revenue_effect": calculated_analysis_sales.new_business_revenue_effect,
+                "new_business_gp_rate_effect": calculated_analysis_sales.new_business_gp_rate_effect,
                 "total_sales_effect": (
                     calculated_analysis_sales.quantity
                     + calculated_analysis_sales.mix
@@ -278,6 +293,9 @@ class GenericComparisonEngine:
             )
             sales_analysis["freight_trace_rows"] = list(
                 calculated_analysis_sales.freight_details
+            )
+            sales_analysis["new_business_trace_rows"] = list(
+                calculated_analysis_sales.new_business_details
             )
             effects = [
                 {
