@@ -38,11 +38,14 @@ export const DataManagementView: React.FC<DataManagementViewProps> = ({
   const [statusFilter, setStatusFilter] = useState<PublishedStatus | 'ALL'>('ALL');
   const [searchKeyword, setSearchKeyword] = useState<string>('');
 
-  // 2-Model Selection States for Variance Analysis
+  // 2-Model Selection States for Variance Analysis (Max 2 items)
   const [selectedModelIds, setSelectedModelIds] = useState<string[]>([]);
   const [baselineModelId, setBaselineModelId] = useState<string>('');
   const [comparisonModelId, setComparisonModelId] = useState<string>('');
   const [selectionWarning, setSelectionWarning] = useState<string | null>(null);
+
+  // 0~N Independent Delete Selection State (No 2-item limit)
+  const [deleteSelectedModelIds, setDeleteSelectedModelIds] = useState<string[]>([]);
 
   const fetchModels = () => {
     setIsLoading(true);
@@ -67,6 +70,7 @@ export const DataManagementView: React.FC<DataManagementViewProps> = ({
   };
 
   useEffect(() => {
+    setDeleteSelectedModelIds([]);
     fetchModels();
   }, [typeFilter, statusFilter, searchKeyword]);
 
@@ -109,6 +113,21 @@ export const DataManagementView: React.FC<DataManagementViewProps> = ({
           setComparisonModelId(modelId);
         }
       }
+    }
+  };
+
+  // Independent Delete Selection Handlers (0~N items, no analysis limits)
+  const handleToggleDeleteSelectModel = (modelId: string) => {
+    setDeleteSelectedModelIds(prev =>
+      prev.includes(modelId) ? prev.filter(id => id !== modelId) : [...prev, modelId]
+    );
+  };
+
+  const handleToggleSelectAllDelete = () => {
+    if (deleteSelectedModelIds.length === models.length && models.length > 0) {
+      setDeleteSelectedModelIds([]);
+    } else {
+      setDeleteSelectedModelIds(models.map(m => m.id));
     }
   };
 
@@ -156,9 +175,9 @@ export const DataManagementView: React.FC<DataManagementViewProps> = ({
     onOpenCalcModal();
   };
 
-  // Delete Handlers
+  // Delete Handlers (Triggered by delete selection)
   const handleRequestDeleteSelected = () => {
-    if (selectedModelIds.length > 0) {
+    if (deleteSelectedModelIds.length > 0) {
       setIsDeleteModalOpen(true);
     }
   };
@@ -334,6 +353,9 @@ export const DataManagementView: React.FC<DataManagementViewProps> = ({
       ) : (
         <ModelTable
           models={models}
+          deleteSelectedModelIds={deleteSelectedModelIds}
+          onToggleDeleteSelectModel={handleToggleDeleteSelectModel}
+          onToggleSelectAllDelete={handleToggleSelectAllDelete}
           selectedModelIds={selectedModelIds}
           onToggleSelectModel={handleToggleSelectModel}
           onSelectModel={handleSelectModelForDetail}

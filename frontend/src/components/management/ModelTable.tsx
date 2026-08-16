@@ -5,8 +5,12 @@ import { Eye, Filter, Trash2 } from 'lucide-react';
 
 interface ModelTableProps {
   models: DataModelItem[];
-  selectedModelIds: string[];
-  onToggleSelectModel: (modelId: string) => void;
+  deleteSelectedModelIds?: string[];
+  onToggleDeleteSelectModel?: (modelId: string) => void;
+  onToggleSelectAllDelete?: () => void;
+  // Backward compatibility
+  selectedModelIds?: string[];
+  onToggleSelectModel?: (modelId: string) => void;
   onSelectModel: (model: DataModelItem) => void;
   onRunAnalysisWithModel?: (model: DataModelItem) => void;
   onRequestDeleteSelected?: () => void;
@@ -14,11 +18,19 @@ interface ModelTableProps {
 
 export const ModelTable: React.FC<ModelTableProps> = ({
   models,
-  selectedModelIds,
+  deleteSelectedModelIds,
+  onToggleDeleteSelectModel,
+  onToggleSelectAllDelete,
+  selectedModelIds = [],
   onToggleSelectModel,
   onSelectModel,
   onRequestDeleteSelected,
 }) => {
+  // Use delete selection if provided, otherwise fallback to legacy selectedModelIds
+  const effectiveDeleteIds = deleteSelectedModelIds ?? selectedModelIds;
+  const handleToggle = onToggleDeleteSelectModel ?? onToggleSelectModel ?? (() => {});
+  const isAllSelected = models.length > 0 && effectiveDeleteIds.length === models.length;
+
   // Helper to extract year and applied period (적용기간)
   const getYearAndPeriod = (m: DataModelItem) => {
     let year = '2026';
@@ -72,16 +84,16 @@ export const ModelTable: React.FC<ModelTableProps> = ({
       }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontWeight: 700, fontSize: '13px' }}>
           <Filter size={15} color="#2563eb" />
-          손익 데이터 모델 목록 (Data Models)
+          손익 데이터 모형 목록 (Data Models)
           <span style={{ fontSize: '11px', color: 'var(--text-muted)', fontWeight: 500 }}>
-            총 {models.length}개 모델 등록됨
+            총 {models.length}개 모형 등록됨
           </span>
         </div>
 
         {/* Selection Status & Delete Action */}
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          <span className="unit-tag" style={{ color: selectedModelIds.length > 0 ? '#2563eb' : '#64748b', fontWeight: selectedModelIds.length > 0 ? 700 : 500 }}>
-            {selectedModelIds.length > 0 ? `${selectedModelIds.length}개 모형 선택됨` : '선택된 모형: 0개'}
+          <span className="unit-tag" style={{ color: effectiveDeleteIds.length > 0 ? '#2563eb' : '#64748b', fontWeight: effectiveDeleteIds.length > 0 ? 700 : 500 }}>
+            {effectiveDeleteIds.length > 0 ? `${effectiveDeleteIds.length}개 모형 선택됨` : '선택된 모형: 0개'}
           </span>
 
           {onRequestDeleteSelected && (
@@ -89,24 +101,24 @@ export const ModelTable: React.FC<ModelTableProps> = ({
               type="button"
               className="btn btn-secondary btn-sm"
               onClick={onRequestDeleteSelected}
-              disabled={selectedModelIds.length === 0}
+              disabled={effectiveDeleteIds.length === 0}
               style={{
                 padding: '3px 9px',
                 fontSize: '11px',
-                color: selectedModelIds.length > 0 ? '#b91c1c' : '#94a3b8',
-                borderColor: selectedModelIds.length > 0 ? '#fca5a5' : '#e2e8f0',
-                backgroundColor: selectedModelIds.length > 0 ? '#fef2f2' : '#f8fafc',
-                cursor: selectedModelIds.length > 0 ? 'pointer' : 'not-allowed',
-                opacity: selectedModelIds.length > 0 ? 1 : 0.6,
+                color: effectiveDeleteIds.length > 0 ? '#b91c1c' : '#94a3b8',
+                borderColor: effectiveDeleteIds.length > 0 ? '#fca5a5' : '#e2e8f0',
+                backgroundColor: effectiveDeleteIds.length > 0 ? '#fef2f2' : '#f8fafc',
+                cursor: effectiveDeleteIds.length > 0 ? 'pointer' : 'not-allowed',
+                opacity: effectiveDeleteIds.length > 0 ? 1 : 0.6,
                 display: 'inline-flex',
                 alignItems: 'center',
                 gap: 4,
                 fontWeight: 600,
               }}
-              title={selectedModelIds.length === 0 ? '삭제할 모형을 목록에서 먼저 선택해 주세요' : '선택된 모형 삭제'}
+              title={effectiveDeleteIds.length === 0 ? '삭제할 모형을 목록에서 먼저 선택해 주세요' : '선택된 모형 삭제'}
             >
               <Trash2 size={12} />
-              선택 삭제
+              선택 삭제{effectiveDeleteIds.length > 0 ? ` (${effectiveDeleteIds.length})` : ''}
             </button>
           )}
         </div>
@@ -115,8 +127,17 @@ export const ModelTable: React.FC<ModelTableProps> = ({
       <table className="financial-table">
         <thead>
           <tr>
-            <th className="text-center" style={{ width: '4%', minWidth: '38px' }}>선택</th>
-            <th style={{ width: '22%' }}>모델명 (Model Name)</th>
+            <th className="text-center" style={{ width: '4%', minWidth: '38px' }}>
+              <input
+                type="checkbox"
+                checked={isAllSelected}
+                onChange={onToggleSelectAllDelete}
+                disabled={models.length === 0}
+                style={{ cursor: 'pointer', width: '15px', height: '15px', accentColor: '#2563eb', verticalAlign: 'middle' }}
+                title="전체 선택/해제"
+              />
+            </th>
+            <th style={{ width: '22%' }}>모형명 (Model Name)</th>
             <th className="text-center" style={{ width: '8%' }}>구분</th>
             <th className="text-center" style={{ width: '7%' }}>기준년도</th>
             <th className="text-center" style={{ width: '8%' }}>적용기간</th>
@@ -130,7 +151,7 @@ export const ModelTable: React.FC<ModelTableProps> = ({
         </thead>
         <tbody>
           {models.map((m) => {
-            const isSelected = selectedModelIds.includes(m.id);
+            const isSelected = effectiveDeleteIds.includes(m.id);
             const { year, period } = getYearAndPeriod(m);
 
             return (
@@ -146,7 +167,7 @@ export const ModelTable: React.FC<ModelTableProps> = ({
                   <input
                     type="checkbox"
                     checked={isSelected}
-                    onChange={() => onToggleSelectModel(m.id)}
+                    onChange={() => handleToggle(m.id)}
                     style={{
                       cursor: 'pointer',
                       width: '15px',
@@ -154,7 +175,7 @@ export const ModelTable: React.FC<ModelTableProps> = ({
                       accentColor: '#2563eb',
                       verticalAlign: 'middle',
                     }}
-                    title={isSelected ? '선택 해제' : '비교 분석 모형으로 선택'}
+                    title={isSelected ? '선택 해제' : '삭제 대상 모형으로 선택'}
                   />
                 </td>
 
