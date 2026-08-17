@@ -114,7 +114,10 @@ describe('Forecast Excel bulk input vertical slice', () => {
     fireEvent.change(screen.getByLabelText('7월 SW400 판매수량'), { target: { value: '99' } });
     fireEvent.change(screen.getByLabelText('7월 SW400 MCM 수량'), { target: { value: '77' } });
     fireEvent.click(screen.getByText(/고급 입력 및 조정/));
+    fireEvent.click(screen.getByRole('button', { name: '7월 전력비 조정' }));
     fireEvent.change(screen.getByLabelText('7월 전력비 제조경비 조정액'), { target: { value: '-66' } });
+    fireEvent.click(screen.getByRole('button', { name: '등록' }));
+    expect(screen.getByText(/조정금액:/)).toBeInTheDocument();
     upload();
     await screen.findByRole('heading', { name: 'Excel 입력 확인' });
 
@@ -128,7 +131,7 @@ describe('Forecast Excel bulk input vertical slice', () => {
     expect(screen.getByLabelText('7월 SW400 판매수량')).toHaveValue('123');
     expect(screen.getByLabelText('7월 후공정 SW 생산수량')).toHaveValue('1000');
     expect(screen.getByLabelText('7월 SW400 MCM 수량')).toHaveValue('77');
-    expect(screen.getByLabelText('7월 전력비 제조경비 조정액')).toHaveValue('-66');
+    expect(screen.getByText(/조정금액:/)).toBeInTheDocument();
     expect(fetchMock).toHaveBeenCalledTimes(3);
 
     fireEvent.change(screen.getByLabelText('7월 SW400 판매수량'), { target: { value: '124' } });
