@@ -289,7 +289,21 @@ export function ModelManagementView({ onNavigateToForecast, onNavigateToAnalysis
     </header>
 
     {uploadOpen && listState !== 'FORBIDDEN' && <section className="data-management__upload-card" aria-labelledby="model-upload-heading">
-      <div className="data-management__section-heading"><div><p className="data-management__eyebrow">01 · REGISTER</p><h2 id="model-upload-heading">새 모형 등록</h2></div><span className="data-management__badge">.xlsx · 최대 50MB</span></div>
+      <div className="data-management__section-heading">
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <div style={{
+            width: 28, height: 28, borderRadius: 6, backgroundColor: '#eff6ff',
+            display: 'flex', alignItems: 'center', justifyContent: 'center', border: '1px solid #bfdbfe',
+          }}>
+            <FileUp size={15} color="#2563eb" />
+          </div>
+          <div>
+            <p className="data-management__eyebrow" style={{ margin: 0 }}>01 · REGISTER</p>
+            <h2 id="model-upload-heading" style={{ margin: 0, fontSize: '15px' }}>새 모형 등록</h2>
+          </div>
+        </div>
+        <span className="data-management__badge">.xlsx · 최대 50MB</span>
+      </div>
       <form onSubmit={upload} className="data-management__upload-form">
         <div className="data-management__metadata-grid">
           <label>모형명<input aria-label="모형명" value={name} disabled={uploadBusy} onChange={(event) => changeMetadata(() => setName(event.target.value))} required /></label>
@@ -304,7 +318,21 @@ export function ModelManagementView({ onNavigateToForecast, onNavigateToAnalysis
     </section>}
 
     <section className="data-management__list-card" aria-labelledby="management-list-heading">
-      <div className="data-management__section-heading"><div><p className="data-management__eyebrow">02 · LIBRARY</p><h2 id="management-list-heading">등록 모형 목록</h2></div><button type="button" className="data-management__icon-button" onClick={() => void refresh()} aria-label="모형 목록 새로고침"><RefreshCw size={15} /></button></div>
+      <div className="data-management__section-heading">
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <div style={{
+            width: 28, height: 28, borderRadius: 6, backgroundColor: '#eff6ff',
+            display: 'flex', alignItems: 'center', justifyContent: 'center', border: '1px solid #bfdbfe',
+          }}>
+            <Database size={15} color="#2563eb" />
+          </div>
+          <div>
+            <p className="data-management__eyebrow" style={{ margin: 0 }}>02 · LIBRARY</p>
+            <h2 id="management-list-heading" style={{ margin: 0, fontSize: '15px' }}>등록 모형 목록</h2>
+          </div>
+        </div>
+        <button type="button" className="data-management__icon-button" onClick={() => void refresh()} aria-label="모형 목록 새로고침"><RefreshCw size={15} /></button>
+      </div>
       <div className="data-management__filters"><label className="data-management__search"><Search size={15} /><input aria-label="모형 검색" placeholder="모형명·파일명·기간 검색" value={search} onChange={(event) => setSearch(event.target.value)} /></label><label>유형<select aria-label="유형 필터" value={typeFilter} onChange={(event) => setTypeFilter(event.target.value as typeof typeFilter)}><option value="ALL">전체 유형</option><option value="PLAN">계획</option><option value="ACTUAL">실적</option><option value="FORECAST">추정</option></select></label><label>공개 상태<select aria-label="공개 상태 필터" value={publicationFilter} onChange={(event) => setPublicationFilter(event.target.value as PublicationFilter)}><option value="ALL">전체 상태</option><option value="PUBLISHED">공개</option><option value="UNPUBLISHED">비공개</option></select></label></div>
       {listState !== 'FORBIDDEN' && <div className="data-management__bulk-actions"><span>{models.length > 0 ? `${deleteSelection.size}건 선택` : '완료되지 않은 삭제 작업을 확인할 수 있습니다.'}</span><button type="button" className="data-management__secondary" disabled={deletePending} onClick={() => void checkDeleteRecovery()}>삭제 복구 상태 확인</button>{models.length > 0 && <button type="button" className="data-management__danger" disabled={deleteSelection.size === 0 || deletePending} onClick={() => { setDeleteResult(null); setDeleteError(null); setDeleteConfirmationOpen(true); }}><Trash2 size={14} />선택 삭제</button>}</div>}
       {deleteResult && <div className="data-management__delete-result" role="status"><strong>{persistentDeleteSummary(deleteResult)}</strong>{deleteResult.items.some((item) => item.status !== 'DELETED') && <ul>{deleteResult.items.filter((item) => item.status !== 'DELETED').map((item) => <li key={item.resource_id}><code>{item.resource_id}</code> · {persistentDeleteReason(item)}</li>)}</ul>}{deleteResult.items.some((item) => item.status === 'CLEANUP_REQUIRED' || item.status === 'STORAGE_CLEANUP_FAILED') && <button type="button" className="data-management__secondary" disabled={deletePending} onClick={() => void retryDeleteCleanup(deleteResult.items.filter((item) => item.status === 'CLEANUP_REQUIRED' || item.status === 'STORAGE_CLEANUP_FAILED').map((item) => item.resource_id))}>Storage 정리 재시도</button>}</div>}
