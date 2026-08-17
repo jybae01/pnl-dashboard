@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { AlertCircle, Calculator, CheckCircle2, Database, Download, FileSpreadsheet, LockKeyhole, RotateCcw, ShieldCheck, Upload } from 'lucide-react';
+import { AlertCircle, Calculator, CheckCircle2, Database, Download, FileSpreadsheet, Layers, LockKeyhole, RotateCcw, ShieldCheck, Upload } from 'lucide-react';
 import { bffClient } from '../integration/client';
 import {
   AnalysisModelDto,
@@ -660,7 +660,21 @@ export const ForecastGenerationView: React.FC<ForecastGenerationViewProps> = ({
 
     <div className="forecast-workflow__grid">
       <section className="forecast-workflow__card forecast-workflow__card--setup" aria-labelledby="forecast-setup-title">
-        <div className="forecast-workflow__card-heading"><div><p className="forecast-workflow__eyebrow">01 · SETUP</p><h2 id="forecast-setup-title">모형과 산출 기간</h2></div><span className="forecast-workflow__step-state">필수</span></div>
+        <div className="forecast-workflow__card-heading">
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <div style={{
+              width: 28, height: 28, borderRadius: 6, backgroundColor: '#eff6ff',
+              display: 'flex', alignItems: 'center', justifyContent: 'center', border: '1px solid #bfdbfe',
+            }}>
+              <Database size={15} color="#2563eb" />
+            </div>
+            <div>
+              <p className="forecast-workflow__eyebrow" style={{ margin: 0 }}>01 · SETUP</p>
+              <h2 id="forecast-setup-title" style={{ margin: 0, fontSize: '15px' }}>모형과 산출 기간</h2>
+            </div>
+          </div>
+          <span className="forecast-workflow__step-state">필수</span>
+        </div>
         <div className="forecast-workflow__form-grid">
           <label className="forecast-workflow__field forecast-workflow__field--wide">기준 모형
             <select disabled={controlsDisabled} value={baseModelId} onChange={(event) => updateBaseModel(event.target.value)}>
@@ -703,7 +717,21 @@ export const ForecastGenerationView: React.FC<ForecastGenerationViewProps> = ({
       </section>
 
       <section className="forecast-workflow__card forecast-workflow__card--bulk" aria-labelledby="forecast-bulk-title">
-        <div className="forecast-workflow__card-heading"><div><p className="forecast-workflow__eyebrow">02 · BULK INPUT</p><h2 id="forecast-bulk-title">대량 입력</h2></div><span className="forecast-workflow__step-state">선택</span></div>
+        <div className="forecast-workflow__card-heading">
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <div style={{
+              width: 28, height: 28, borderRadius: 6, backgroundColor: '#eff6ff',
+              display: 'flex', alignItems: 'center', justifyContent: 'center', border: '1px solid #bfdbfe',
+            }}>
+              <FileSpreadsheet size={15} color="#2563eb" />
+            </div>
+            <div>
+              <p className="forecast-workflow__eyebrow" style={{ margin: 0 }}>02 · BULK INPUT</p>
+              <h2 id="forecast-bulk-title" style={{ margin: 0, fontSize: '15px' }}>대량 입력</h2>
+            </div>
+          </div>
+          <span className="forecast-workflow__step-state">선택</span>
+        </div>
         <p className="forecast-workflow__helper">판매계획과 생산계획을 엑셀로 확인한 뒤 화면 입력값으로 적용합니다. 업로드만으로 추정 계산은 실행되지 않습니다.</p>
         <div className="forecast-workflow__bulk-actions">
           <button type="button" className="forecast-workflow__secondary" disabled={controlsDisabled || templateDownloading} onClick={downloadInputTemplate}>
@@ -763,7 +791,21 @@ export const ForecastGenerationView: React.FC<ForecastGenerationViewProps> = ({
       </section>
 
       <section className="forecast-workflow__card forecast-workflow__card--inputs" aria-labelledby="forecast-inputs-title">
-        <div className="forecast-workflow__card-heading"><div><p className="forecast-workflow__eyebrow">03 · DIRECT INPUT</p><h2 id="forecast-inputs-title">판매·생산 계획 직접입력</h2></div><span className="forecast-workflow__step-state">월별 입력</span></div>
+        <div className="forecast-workflow__card-heading">
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <div style={{
+              width: 28, height: 28, borderRadius: 6, backgroundColor: '#eff6ff',
+              display: 'flex', alignItems: 'center', justifyContent: 'center', border: '1px solid #bfdbfe',
+            }}>
+              <Layers size={15} color="#2563eb" />
+            </div>
+            <div>
+              <p className="forecast-workflow__eyebrow" style={{ margin: 0 }}>03 · DIRECT INPUT</p>
+              <h2 id="forecast-inputs-title" style={{ margin: 0, fontSize: '15px' }}>판매·생산 계획 직접입력</h2>
+            </div>
+          </div>
+          <span className="forecast-workflow__step-state">월별 입력</span>
+        </div>
         <p className="forecast-workflow__helper">제품코드는 정해진 입력 순서를 따릅니다. LC는 4인치/PCS, FS는 LENGTH/m이며 서로 다른 수량 단위를 합산하지 않습니다.</p>
         {metadataState === 'LOADING' && <p className="forecast-workflow__metadata-note" aria-live="polite">선택한 기준 모형의 고급 입력 항목을 불러오는 중입니다.</p>}
         {metadataState === 'ERROR' && <p className="forecast-workflow__metadata-note is-error" role="alert">고급 입력 항목을 불러오지 못했습니다. 기준 모형을 다시 선택하거나 잠시 후 다시 시도하세요.</p>}
