@@ -108,6 +108,9 @@ export const ForecastGenerationView: React.FC<ForecastGenerationViewProps> = ({
   const [inputMetadata, setInputMetadata] = useState<ForecastInputMetadataDto | null>(null);
   const [metadataState, setMetadataState] = useState<'LOADING' | 'READY' | 'ERROR'>('LOADING');
   const [metadataMessage, setMetadataMessage] = useState('');
+  const [editingMfgKey, setEditingMfgKey] = useState<string | null>(null);
+  const [mfgDraftAmount, setMfgDraftAmount] = useState<string>('0');
+  const [mfgDraftReason, setMfgDraftReason] = useState<string>('');
   const idempotencyKey = useRef(crypto.randomUUID());
   const submittingRef = useRef(false);
   const downloadPendingRef = useRef(false);
@@ -206,6 +209,46 @@ export const ForecastGenerationView: React.FC<ForecastGenerationViewProps> = ({
     setInputs((old) => ensureForecastMonths(old, months, inputMetadata ?? undefined));
     setActiveInputMonth((current) => months.includes(current) ? current : (months[0] ?? current));
   }, [months]);
+
+  useEffect(() => {
+    setEditingMfgKey(null);
+    setMfgDraftAmount('0');
+    setMfgDraftReason('');
+  }, [activeInputMonth]);
+
+  const openMfgEditor = (key: string, currentAmount: string, currentReason: string) => {
+    setEditingMfgKey(key);
+    setMfgDraftAmount(currentAmount);
+    setMfgDraftReason(currentReason);
+  };
+
+  const cancelMfgEditor = () => {
+    setEditingMfgKey(null);
+    setMfgDraftAmount('0');
+    setMfgDraftReason('');
+  };
+
+  const saveMfgEditor = (key: string) => {
+    setInputs((old) => {
+      const current = old[activeInputMonth] ?? createForecastMonthFormState(activeInputMonth, inputMetadata ?? undefined);
+      const rows = current.manufacturingAdjustments;
+      const row = rows[key] ?? { amount: '0', reason: '' };
+      return {
+        ...old,
+        [activeInputMonth]: {
+          ...current,
+          manufacturingAdjustments: {
+            ...rows,
+            [key]: { ...row, amount: mfgDraftAmount, reason: mfgDraftReason },
+          },
+        },
+      };
+    });
+    setEditingMfgKey(null);
+    setMfgDraftAmount('0');
+    setMfgDraftReason('');
+    markDraftChanged();
+  };
 
   const clearExcelPreview = () => {
     setExcelState('IDLE');
@@ -745,23 +788,105 @@ export const ForecastGenerationView: React.FC<ForecastGenerationViewProps> = ({
             <p className="forecast-workflow__advanced-help">조정액·사유와 원시 가정값만 서버에 직접 전달합니다. 계획 대비 차이, 관세·운송·포장·환급 기준값은 화면에서 계산하지 않습니다.</p>
             <div className="forecast-workflow__adjustment-grid">
               <section className="forecast-workflow__input-section" aria-labelledby="forecast-manufacturing-adjustments-title">
-                <div className="forecast-workflow__input-heading"><div><h3 id="forecast-manufacturing-adjustments-title">제조경비 조정액</h3><p>선택 월의 제조 계정별 계획금액, 조정액과 사유입니다.</p></div><span>{inputMetadata?.manufacturing.length ?? 0}개 항목</span></div>
+                <div className="forecast-workflow__input-heading"><div><h3 id="forecast-manufacturing-adjustments-title">제조경비 조정액</h3><p>선택 월의 제조 계정별 계획 예상금액 및 조정액입니다.</p></div><span>{inputMetadata?.manufacturing.length ?? 0}개 항목</span></div>
                 <div className="forecast-workflow__table-scroll">
                   <table className="forecast-workflow__input-table forecast-workflow__input-table--advanced">
-                    <thead><tr><th scope="col">항목</th><th scope="col">계획 예상금액</th><th scope="col">단위</th><th scope="col">조정액</th><th scope="col">사유</th></tr></thead>
+                    <thead><tr><th scope="col">계정명</th><th scope="col">계획 예상금액</th><th scope="col">조정액</th><th scope="col" style={{ width: '80px', textAlign: 'center' }}>조정</th></tr></thead>
                     <tbody>{(inputMetadata?.manufacturing ?? []).map((item) => {
                       const row = activeMonthInput.manufacturingAdjustments[item.adjustment_key] ?? { amount: '0', reason: '' };
                       const baselineRaw = item.monthly_baseline_amounts?.[String(activeInputMonth)];
                       const baselineDisplay = typeof baselineRaw === 'number' && Number.isFinite(baselineRaw)
                         ? baselineRaw.toLocaleString('ko-KR')
                         : '—';
-                      return <tr key={item.adjustment_key}>
-                        <th scope="row">{item.display_name}</th>
-                        <td style={{ textAlign: 'right' }}>{baselineDisplay}</td>
-                        <td>{item.unit || '금액'}</td>
-                        <td><EditableNumericInput mode="decimal" disabled={advancedControlsDisabled} aria-label={`${activeInputMonth}월 ${item.display_name} 제조경비 조정액`} value={row.amount} onChange={(value) => updateAdjustment(activeInputMonth, 'manufacturingAdjustments', item.adjustment_key, 'amount', value)} /></td>
-                        <td><input disabled={advancedControlsDisabled} aria-label={`${activeInputMonth}월 ${item.display_name} 제조경비 조정 사유`} value={row.reason} maxLength={500} onChange={(event) => updateAdjustment(activeInputMonth, 'manufacturingAdjustments', item.adjustment_key, 'reason', event.target.value)} /></td>
-                      </tr>;
+                      const adjNum = Number(row.amount.replace(/,/g, '').trim()) || 0;
+                      const hasAdjustment = (row.amount.trim() !== '' && row.amount.trim() !== '0') || row.reason.trim() !== '';
+                      const isEditing = editingMfgKey === item.adjustment_key;
+
+                      return (
+                        <React.Fragment key={item.adjustment_key}>
+                          <tr>
+                            <th scope="row">{item.display_name}</th>
+                            <td style={{ textAlign: 'right' }}>{baselineDisplay}</td>
+                            <td style={{
+                              textAlign: 'right',
+                              fontWeight: hasAdjustment ? 700 : 400,
+                              color: adjNum > 0 ? '#047857' : adjNum < 0 ? '#b91c1c' : undefined,
+                            }}>
+                              {hasAdjustment ? (adjNum > 0 ? `+${adjNum.toLocaleString('ko-KR')}` : adjNum.toLocaleString('ko-KR')) : '0'}
+                            </td>
+                            <td style={{ textAlign: 'center' }}>
+                              <button
+                                type="button"
+                                className={`forecast-workflow__btn-adjust ${hasAdjustment ? 'is-active' : ''}`}
+                                disabled={advancedControlsDisabled}
+                                aria-label={`${activeInputMonth}월 ${item.display_name} ${hasAdjustment ? '수정' : '조정'}`}
+                                onClick={() => isEditing ? cancelMfgEditor() : openMfgEditor(item.adjustment_key, row.amount, row.reason)}
+                              >
+                                {hasAdjustment ? '수정' : '조정'}
+                              </button>
+                            </td>
+                          </tr>
+                          {hasAdjustment && !isEditing && (
+                            <tr key={`${item.adjustment_key}-summary`} className="forecast-workflow__summary-row">
+                              <td colSpan={4} style={{ paddingLeft: '24px', fontSize: '0.85em', color: '#64748b' }}>
+                                <span>↳ 조정금액: <strong>{adjNum > 0 ? `+${adjNum.toLocaleString('ko-KR')}` : adjNum.toLocaleString('ko-KR')}원</strong></span>
+                                {row.reason.trim() && <span style={{ marginLeft: '12px' }}>↳ 사유: {row.reason}</span>}
+                              </td>
+                            </tr>
+                          )}
+                          {isEditing && (
+                            <tr key={`${item.adjustment_key}-drawer`} className="forecast-workflow__drawer-row">
+                              <td colSpan={4}>
+                                <div className="forecast-workflow__inline-drawer">
+                                  <div className="forecast-workflow__inline-drawer-header">
+                                    <strong>📝 [{item.display_name}] 비용 조정 입력</strong>
+                                  </div>
+                                  <div className="forecast-workflow__inline-drawer-body">
+                                    <label className="forecast-workflow__drawer-field">
+                                      <span>조정액 (KRW)</span>
+                                      <EditableNumericInput
+                                        mode="decimal"
+                                        disabled={advancedControlsDisabled}
+                                        aria-label={`${activeInputMonth}월 ${item.display_name} 제조경비 조정액`}
+                                        value={mfgDraftAmount}
+                                        onChange={setMfgDraftAmount}
+                                        placeholder="0"
+                                      />
+                                    </label>
+                                    <label className="forecast-workflow__drawer-field forecast-workflow__drawer-field--reason">
+                                      <span>조정 사유 (최대 500자)</span>
+                                      <input
+                                        disabled={advancedControlsDisabled}
+                                        aria-label={`${activeInputMonth}월 ${item.display_name} 제조경비 조정 사유`}
+                                        value={mfgDraftReason}
+                                        maxLength={500}
+                                        placeholder="조정 사유를 입력하세요"
+                                        onChange={(e) => setMfgDraftReason(e.target.value)}
+                                      />
+                                    </label>
+                                    <div className="forecast-workflow__drawer-actions">
+                                      <button
+                                        type="button"
+                                        className="forecast-workflow__drawer-btn-save"
+                                        onClick={() => saveMfgEditor(item.adjustment_key)}
+                                      >
+                                        등록
+                                      </button>
+                                      <button
+                                        type="button"
+                                        className="forecast-workflow__drawer-btn-cancel"
+                                        onClick={cancelMfgEditor}
+                                      >
+                                        취소
+                                      </button>
+                                    </div>
+                                  </div>
+                                </div>
+                              </td>
+                            </tr>
+                          )}
+                        </React.Fragment>
+                      );
                     })}</tbody>
                   </table>
                 </div>
