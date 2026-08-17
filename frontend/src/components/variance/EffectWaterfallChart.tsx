@@ -26,9 +26,13 @@ function toneForBar(bar: AnalysisWaterfallBar): BarTone {
   return 'zero';
 }
 
-function formatAmount(value: number, signed = false): string {
-  const amount = value.toLocaleString('ko-KR', { maximumFractionDigits: 1 });
-  return `${signed && value > 0 ? '+' : ''}${amount}`;
+function formatEokWon(krwValue: number, signed = false): string {
+  const eok = krwValue / 100_000_000;
+  const formatted = eok.toLocaleString('ko-KR', {
+    minimumFractionDigits: 1,
+    maximumFractionDigits: 1,
+  });
+  return `${signed && eok > 0 ? '+' : ''}${formatted}억원`;
 }
 
 function categoryLabel(category: AnalysisWaterfallBar['category']): string {
@@ -91,7 +95,7 @@ export function EffectWaterfallChart({
             <BarChart3 size={16} aria-hidden="true" />
             영업이익 변동 Waterfall
           </h3>
-          <p className="variance-analysis__chart-subtitle">단위: KRW · 막대를 선택하면 Effect 상세가 강조됩니다.</p>
+          <p className="variance-analysis__chart-subtitle">단위: 억원 · 막대를 선택하면 Effect 상세가 강조됩니다.</p>
         </div>
         <div className="variance-analysis__chart-legend" aria-label="Waterfall 범례">
           <Legend color={BAR_COLORS.baseline} label="기준" />
@@ -116,7 +120,7 @@ export function EffectWaterfallChart({
               <g key={ratio} aria-hidden="true">
                 <line x1={paddingLeft} y1={y} x2={svgWidth - paddingRight} y2={y} className="variance-analysis__waterfall-gridline" />
                 <text x={paddingLeft - 10} y={y + 3.5} textAnchor="end" className="variance-analysis__waterfall-axis-label">
-                  {formatAmount(value)}
+                  {formatEokWon(value)}
                 </text>
               </g>
             );
@@ -144,7 +148,7 @@ export function EffectWaterfallChart({
                 data-testid={`waterfall-bar-${bar.id}`}
                 className={`variance-analysis__waterfall-bar variance-analysis__waterfall-bar--${tone}`}
                 role={selectable ? 'button' : 'img'}
-                aria-label={`${bar.name}: ${formatAmount(bar.delta, !bar.isTotal)} KRW`}
+                aria-label={`${bar.name}: ${formatEokWon(bar.delta, !bar.isTotal)}`}
                 aria-pressed={selectable ? selected : undefined}
                 tabIndex={selectable ? 0 : -1}
                 onClick={() => selectBar(bar)}
@@ -183,7 +187,7 @@ export function EffectWaterfallChart({
                   textAnchor="middle"
                   className={`variance-analysis__waterfall-value variance-analysis__waterfall-value--${tone}`}
                 >
-                  {formatAmount(bar.delta, !bar.isTotal)}
+                  {formatEokWon(bar.delta, !bar.isTotal)}
                 </text>
                 <text x={xCenter} y={paddingTop + chartHeight + 20} textAnchor="middle" className={`variance-analysis__waterfall-name ${selected ? 'is-selected' : ''}`}>
                   {bar.name}
@@ -200,7 +204,7 @@ export function EffectWaterfallChart({
       {hoveredBar && (
         <div className="variance-analysis__waterfall-hover" role="status" aria-live="polite">
           <strong>{hoveredBar.name}</strong>
-          <span>{formatAmount(hoveredBar.delta, !hoveredBar.isTotal)} KRW</span>
+          <span>{formatEokWon(hoveredBar.delta, !hoveredBar.isTotal)}</span>
           {!hoveredBar.isTotal && <span className="variance-analysis__waterfall-hover-hint">Enter/Space 또는 클릭으로 선택</span>}
         </div>
       )}
