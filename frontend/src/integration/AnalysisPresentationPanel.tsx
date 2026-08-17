@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { AlertTriangle, ArrowRight, ChevronDown, ChevronRight } from 'lucide-react';
+import { AlertTriangle, ArrowRight, ChevronDown, ChevronRight, Sparkles, TrendingDown, TrendingUp, Package } from 'lucide-react';
 import { EffectWaterfallChart } from '../components/variance/EffectWaterfallChart';
 import { AnalysisPresentationDto, Role } from './types';
 import {
@@ -35,11 +35,12 @@ export function AnalysisPresentationPanel({
 
   return (
     <article className="variance-analysis" data-testid="analysis-presentation">
-      <PresentationHeader value={value} />
+      <PresentationHeader value={value} role={role} onUnavailable={onUnavailable} />
       <ExecutiveFacts
         positiveEffects={mapping.topPositiveEffects}
         negativeEffects={mapping.topNegativeEffects}
         residual={mapping.residual}
+        kpiDelta={value.kpis.operating_profit_delta}
         selectedEffect={selectedEffect}
         onSelectEffect={setSelectedEffect}
       />
@@ -62,16 +63,21 @@ export function AnalysisPresentationPanel({
   );
 }
 
-function PresentationHeader({ value }: { value: AnalysisPresentationDto }) {
+function PresentationHeader({ value, role, onUnavailable }: { value: AnalysisPresentationDto; role: Role; onUnavailable?: () => void }) {
   const kpi = value.kpis;
   const tone = profitEffectTone(kpi.operating_profit_delta);
+  const isPositive = kpi.operating_profit_delta >= 0;
+  const varianceRate = kpi.baseline_operating_profit !== 0
+    ? (kpi.operating_profit_delta / Math.abs(kpi.baseline_operating_profit)) * 100
+    : 0;
+
   return (
     <section className="variance-analysis__hero" aria-labelledby="variance-result-title">
       <div className="variance-analysis__hero-main">
         <div className="variance-analysis__model-line" id="variance-result-title">
-          <span className="variance-analysis__model-pill">기준 모형: {value.identity.baseline_model_name}</span>
-          <ArrowRight size={14} aria-hidden="true" />
-          <span className="variance-analysis__model-pill">비교 모형: {value.identity.comparison_model_name}</span>
+          <span className="variance-analysis__model-pill model-pill-plan">기준 모형: {value.identity.baseline_model_name}</span>
+          <ArrowRight size={14} aria-hidden="true" color="#94a3b8" />
+          <span className="variance-analysis__model-pill model-pill-actual">비교 모형: {value.identity.comparison_model_name}</span>
         </div>
         <div className="variance-analysis__identity-meta">
           {value.identity.start_month}월–{value.identity.end_month}월 · {value.currency_unit} · 결과 스키마 {value.identity.result_schema_version}
@@ -81,6 +87,19 @@ function PresentationHeader({ value }: { value: AnalysisPresentationDto }) {
           <strong className={`variance-analysis__summary-value variance-analysis__tone--${tone}`}>
             {formatMillions(kpi.operating_profit_delta, true)}
           </strong>
+          <span
+            className={isPositive ? 'badge-favorable' : 'badge-unfavorable'}
+            style={{
+              fontSize: '12px',
+              padding: '2px 8px',
+              borderRadius: '4px',
+              fontWeight: 700,
+              backgroundColor: isPositive ? '#dcfce7' : '#fee2e2',
+              color: isPositive ? '#15803d' : '#b91c1c',
+            }}
+          >
+            {isPositive ? `+${varianceRate.toFixed(1)}% 초과` : `${varianceRate.toFixed(1)}% 미달`}
+          </span>
         </div>
       </div>
       <div className="variance-analysis__hero-kpis" aria-label="영업이익 요약">
@@ -107,28 +126,88 @@ function ExecutiveFacts({
   positiveEffects,
   negativeEffects,
   residual,
+  kpiDelta,
   selectedEffect,
   onSelectEffect,
 }: {
   positiveEffects: MappedPresentationEffect[];
   negativeEffects: MappedPresentationEffect[];
   residual: MappedResidual;
+  kpiDelta: number;
   selectedEffect?: string;
   onSelectEffect: (code: string) => void;
 }) {
+  const totalPositive = positiveEffects.reduce((sum, e) => sum + e.profit_effect, 0);
+  const totalNegative = negativeEffects.reduce((sum, e) => sum + e.profit_effect, 0);
+  const isNetPositive = kpiDelta >= 0;
+
   return (
     <section className="variance-analysis__executive" aria-labelledby="executive-facts-title">
-      <div className="variance-analysis__section-header">
-        <h2 id="executive-facts-title">경영진 분석 요약</h2>
-        <span>서버가 제공한 주요 요인과 기타 요인만 표시</span>
+      <div className="variance-analysis__section-header" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderBottom: '1px solid #f1f5f9', paddingBottom: 14, marginBottom: 16, flexWrap: 'wrap', gap: 12 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <div style={{
+            width: 28, height: 28, borderRadius: 6, backgroundColor: '#eff6ff',
+            display: 'flex', alignItems: 'center', justifyContent: 'center', border: '1px solid #bfdbfe',
+          }}>
+            <Sparkles size={15} color="#2563eb" />
+          </div>
+          <h2 id="executive-facts-title" style={{ fontSize: '15px', fontWeight: 800, color: '#0f172a', margin: 0 }}>손익 분석 요약</h2>
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+          <span style={{
+            fontSize: '12px', fontWeight: 700, padding: '3px 10px', borderRadius: 6,
+            backgroundColor: '#f0fdf4', color: '#15803d', border: '1px solid #bbf7d0',
+            display: 'inline-flex', alignItems: 'center', gap: 4,
+          }}>
+            <TrendingUp size={12} />
+            증익 요인: +{totalPositive.toLocaleString()} 백만원 ({positiveEffects.length}건)
+          </span>
+          <span style={{
+            fontSize: '12px', fontWeight: 700, padding: '3px 10px', borderRadius: 6,
+            backgroundColor: '#fef2f2', color: '#b91c1c', border: '1px solid #fecaca',
+            display: 'inline-flex', alignItems: 'center', gap: 4,
+          }}>
+            <TrendingDown size={12} />
+            감익 요인: {totalNegative.toLocaleString()} 백만원 ({negativeEffects.length}건)
+          </span>
+          <span style={{
+            fontSize: '12px', fontWeight: 800, padding: '3px 10px', borderRadius: 6,
+            backgroundColor: isNetPositive ? '#1e3a8a' : '#991b1b', color: '#ffffff',
+          }}>
+            순 손익 효과: {kpiDelta > 0 ? `+${kpiDelta.toLocaleString()}` : kpiDelta.toLocaleString()} 백만원
+          </span>
+        </div>
       </div>
       <div className="variance-analysis__factor-grid">
         <FactorList title="긍정 요인" effects={positiveEffects} selectedEffect={selectedEffect} onSelectEffect={onSelectEffect} />
         <FactorList title="부정 요인" effects={negativeEffects} selectedEffect={selectedEffect} onSelectEffect={onSelectEffect} />
       </div>
-      <div className={`variance-analysis__residual-summary variance-analysis__tone--${profitEffectTone(residual.amount)}`}>
-        <strong>{residual.uiLabel}</strong>
-        <span>{formatMillions(residual.amount, true)}</span>
+      <div
+        className={`variance-analysis__residual-summary variance-analysis__tone--${profitEffectTone(residual.amount)} ${selectedEffect === residual.code ? 'is-selected' : ''}`}
+        style={{
+          marginTop: '12px', padding: '8px 16px', backgroundColor: '#f8fafc',
+          border: selectedEffect === residual.code ? '1.5px solid #2563eb' : '1px dashed #cbd5e1',
+          borderRadius: '6px', display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 12,
+        }}
+      >
+        <button
+          type="button"
+          aria-pressed={selectedEffect === residual.code}
+          onClick={() => onSelectEffect(residual.code)}
+          style={{
+            display: 'inline-flex', alignItems: 'center', gap: 8, padding: '4px 12px',
+            borderRadius: '4px', backgroundColor: selectedEffect === residual.code ? '#eff6ff' : '#ffffff',
+            border: selectedEffect === residual.code ? '1.5px solid #2563eb' : '1px solid #cbd5e1',
+            cursor: 'pointer', fontSize: '12.5px', fontWeight: 700, color: '#334155',
+          }}
+        >
+          <Package size={13} color="#64748b" />
+          <strong>{residual.uiLabel}</strong>
+          <span style={{ fontSize: '11px', color: '#64748b', fontWeight: 500 }}>손익 영향</span>
+          <span className={`variance-analysis__tone variance-analysis__tone--${profitEffectTone(residual.amount)}`}>
+            {formatMillions(residual.amount, true)}
+          </span>
+        </button>
       </div>
     </section>
   );
@@ -150,16 +229,29 @@ function FactorList({
       <h3 className="variance-analysis__factor-title">{title}</h3>
       {effects.length ? effects.map((effect) => {
         const tone = profitEffectTone(effect.profit_effect);
+        const isSelected = selectedEffect === effect.code;
         return (
           <button
             key={effect.code}
             type="button"
-            className={`variance-analysis__factor-item variance-analysis__tone--${tone} ${selectedEffect === effect.code ? 'is-selected' : ''}`}
-            aria-pressed={selectedEffect === effect.code}
+            className={`variance-analysis__factor-item variance-analysis__tone--${tone} ${isSelected ? 'is-selected' : ''}`}
+            aria-pressed={isSelected}
             onClick={() => onSelectEffect(effect.code)}
           >
-            <span>{effect.uiLabel}</span>
-            <strong>{formatMillions(effect.profit_effect, true)}</strong>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+              <span style={{
+                width: 7, height: 7, borderRadius: '50%',
+                backgroundColor: tone === 'positive' ? '#10b981' : tone === 'negative' ? '#f43f5e' : '#94a3b8',
+                display: 'inline-block', flexShrink: 0,
+              }} />
+              <span>{effect.uiLabel}</span>
+            </div>
+            <div style={{ display: 'flex', alignItems: 'baseline', gap: 4 }}>
+              <span style={{ fontSize: '11px', color: '#64748b', fontWeight: 500 }}>손익 영향</span>
+              <strong className={`variance-analysis__tone variance-analysis__tone--${tone}`}>
+                {formatMillions(effect.profit_effect, true)}
+              </strong>
+            </div>
           </button>
         );
       }) : <div className="variance-analysis__factor-empty">해당 Effect 없음</div>}

@@ -310,13 +310,45 @@ export function CoreAnalysisView({ role, modelRefreshKey = 0, initialResultId }:
     );
   }
 
+  const baseModelObj = models.find((m) => m.model_id === form.baseline_model_id);
+  const compModelObj = models.find((m) => m.model_id === form.comparison_model_id);
+  let analysisTypeLabel = '';
+  if (baseModelObj && compModelObj) {
+    if (baseModelObj.model_type === 'PLAN' && compModelObj.model_type === 'ACTUAL') {
+      analysisTypeLabel = '계획 대비 실적';
+    } else if (baseModelObj.model_type === 'PLAN' && compModelObj.model_type === 'FORECAST') {
+      analysisTypeLabel = '계획 대비 추정';
+    } else if (baseModelObj.model_type === 'ACTUAL' && compModelObj.model_type === 'ACTUAL') {
+      analysisTypeLabel = '실적 간 비교';
+    } else {
+      analysisTypeLabel = '모형 비교';
+    }
+  }
+
   return (
     <section className="variance-analysis-page">
       <AnalysisPageHeading role={role} />
       <form onSubmit={submit} className="variance-analysis-controls">
-        <div className="variance-control-heading">
-          <div><strong>분석 조건</strong><span>기준 모형과 비교 모형의 저장 결과를 생성합니다.</span></div>
-          <span className="unit-tag">실제 Job 상태만 표시</span>
+        <div className="variance-control-heading" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16, flexWrap: 'wrap', gap: 10 }}>
+          <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, flexWrap: 'wrap' }}>
+            <strong style={{ fontSize: '15px', fontWeight: 800, color: '#0f172a' }}>분석 조건</strong>
+            <span style={{ fontSize: '13px', color: '#64748b' }}>기준 모형과 비교 모형의 손익 변동 요인을 분석합니다.</span>
+          </div>
+          {analysisTypeLabel ? (
+            <span style={{
+              fontSize: '12px',
+              fontWeight: 700,
+              backgroundColor: '#eff6ff',
+              color: '#1d4ed8',
+              padding: '4px 12px',
+              borderRadius: '4px',
+              border: '1px solid #bfdbfe',
+            }}>
+              {analysisTypeLabel}
+            </span>
+          ) : (
+            <span className="unit-tag">실제 Job 상태만 표시</span>
+          )}
         </div>
         <div className="variance-control-grid">
           <ModelSelect label="기준 모형" value={form.baseline_model_id} models={models} disabled={isSubmitting || isJobActive(job)}
@@ -329,7 +361,7 @@ export function CoreAnalysisView({ role, modelRefreshKey = 0, initialResultId }:
           <NumberInput mode="decimal" label="비교 매출환율 (KRW/USD)" value={form.comparison_sales_fx} disabled={isSubmitting || isJobActive(job)} onChange={(value) => setForm({ ...form, comparison_sales_fx: value })} />
           <div className="variance-control-actions">
             <button className="btn btn-primary" disabled={!formValid || isSubmitting || isJobActive(job)}>
-              <Play size={14} />{isSubmitting ? '요청 중…' : '손익 변동 요인 분석 실행'}
+              <Play size={14} fill="currentColor" />{isSubmitting ? '요청 중…' : '손익 변동 요인 분석 실행'}
             </button>
             <button type="button" className="btn btn-secondary" disabled={isSubmitting || isJobActive(job)} onClick={() => {
               window.sessionStorage.removeItem(ACTIVE_JOB_STORAGE_KEY);
