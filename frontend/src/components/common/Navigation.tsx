@@ -29,7 +29,7 @@ export const Navigation: React.FC<NavigationProps> = ({
         >
           <Calculator size={14} />
           2. 추정 산출
-          <span className="nav-tab-badge" style={{ backgroundColor: '#f1f5f9', color: '#64748b' }}>Placeholder</span>
+          <span className="nav-tab-badge" style={{ backgroundColor: '#f5f3ff', color: '#7c3aed', borderColor: '#ddd6fe' }}>Forecast</span>
         </button>
 
         <button

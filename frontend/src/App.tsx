@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { Calculator, Database, GitCompare, LayoutDashboard, Sliders } from 'lucide-react';
 import { Header } from './components/common/Header';
 import { PnlStatusView } from './views/PnlStatusView';
 import { ForecastGenerationView } from './views/ForecastGenerationView';
@@ -62,21 +63,40 @@ export function App() {
   }
 
   function navigateToAnalysisResult(resultId: string) {
-    if (session?.role !== 'admin' || !resultId) return;
     setAnalysisResultId(resultId);
     window.location.hash = 'variance';
     setRoute('variance');
   }
 
   function navigateToHistory() {
-    if (session?.role !== 'admin') return;
     setAnalysisResultId(null);
     window.location.hash = 'management?section=history';
     setRoute('management');
   }
 
-  if (sessionState === 'LOADING') return <main role="status" className="app-content">세션 확인 중…</main>;
-  if (sessionState === 'ERROR') return <main role="alert" className="app-content">서버 세션을 확인할 수 없습니다.</main>;
+  if (sessionState === 'LOADING') {
+    return (
+      <main className="login-shell" role="status" aria-live="polite">
+        <div className="login-card">
+          <h1>세션 확인 중…</h1>
+          <p>사용자 권한 및 세션 상태를 확인하고 있습니다.</p>
+        </div>
+      </main>
+    );
+  }
+
+  if (sessionState === 'ERROR') {
+    return (
+      <main className="login-shell" role="alert">
+        <div className="login-card">
+          <h1>서버 세션을 확인할 수 없습니다</h1>
+          <p>네트워크 상태를 확인하고 잠시 후 다시 시도해 주세요.</p>
+          <button className="login-submit" onClick={() => window.location.reload()}>다시 시도</button>
+        </div>
+      </main>
+    );
+  }
+
   if (!session) return <LoginView onAuthenticated={(value) => { setSession(value); setSessionState('READY'); navigate(value.role === 'admin' ? 'management' : 'variance'); }} />;
 
   return <div style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column' }}>
@@ -94,13 +114,52 @@ export function App() {
     />
     <nav className="app-nav" aria-label="주요 화면">
       <div className="nav-tabs">
-        <button className={`nav-tab-btn ${route === 'pnl' ? 'active' : ''}`} onClick={() => navigate('pnl')}>1. 손익 현황</button>
-        {session.role === 'admin' && <>
-          <button className={`nav-tab-btn ${route === 'forecast' ? 'active' : ''}`} onClick={() => navigate('forecast')}>2. Forecast</button>
-          <button className={`nav-tab-btn ${route === 'management' ? 'active' : ''}`} onClick={() => navigate('management')}>3. 데이터 관리 / 분석 실행</button>
-        </>}
-        <button className={`nav-tab-btn ${route === 'variance' ? 'active' : ''}`} onClick={() => navigate('variance')}>4. 손익 분석 결과</button>
-        {session.role === 'admin' && <button className={`nav-tab-btn ${route === 'operations' ? 'active' : ''}`} onClick={() => navigate('operations')}>5. 운영 관리</button>}
+        <button
+          className={`nav-tab-btn ${route === 'pnl' ? 'active' : ''}`}
+          onClick={() => navigate('pnl')}
+        >
+          <LayoutDashboard size={14} aria-hidden="true" />
+          <span>1. 손익 현황</span>
+          <span className="nav-tab-badge">KPI & Trend</span>
+        </button>
+        {session.role === 'admin' && (
+          <button
+            className={`nav-tab-btn ${route === 'forecast' ? 'active' : ''}`}
+            onClick={() => navigate('forecast')}
+          >
+            <Calculator size={14} aria-hidden="true" />
+            <span>2. Forecast</span>
+            <span className="nav-tab-badge" style={{ backgroundColor: '#f5f3ff', color: '#7c3aed', borderColor: '#ddd6fe' }}>Forecast</span>
+          </button>
+        )}
+        {session.role === 'admin' && (
+          <button
+            className={`nav-tab-btn ${route === 'management' ? 'active' : ''}`}
+            onClick={() => navigate('management')}
+          >
+            <Database size={14} aria-hidden="true" />
+            <span>3. 데이터 관리 / 분석 실행</span>
+            <span className="nav-tab-badge">Model & Calc</span>
+          </button>
+        )}
+        <button
+          className={`nav-tab-btn ${route === 'variance' ? 'active' : ''}`}
+          onClick={() => navigate('variance')}
+        >
+          <GitCompare size={14} aria-hidden="true" />
+          <span>4. 손익 분석 결과</span>
+          <span className="nav-tab-badge">Waterfall & Effect</span>
+        </button>
+        {session.role === 'admin' && (
+          <button
+            className={`nav-tab-btn ${route === 'operations' ? 'active' : ''}`}
+            onClick={() => navigate('operations')}
+          >
+            <Sliders size={14} aria-hidden="true" />
+            <span>5. 운영 관리</span>
+            <span className="nav-tab-badge">Operations</span>
+          </button>
+        )}
       </div>
     </nav>
     <main className="app-content">
