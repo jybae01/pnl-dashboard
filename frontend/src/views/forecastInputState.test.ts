@@ -10,10 +10,39 @@ import {
 } from './forecastInputState';
 
 describe('forecast direct-input adapter', () => {
+  const baselineAmounts = {
+    '1': 1000000,
+    '2': 2000000,
+    '3': 3000000,
+    '4': 4000000,
+    '5': 5000000,
+    '6': 6000000,
+    '7': 7000000,
+    '8': 8000000,
+    '9': 9000000,
+    '10': 10000000,
+    '11': 11000000,
+    '12': 12000000,
+  };
+
   const metadata = {
     base_model_id: '11111111-1111-4111-8111-111111111111',
-    manufacturing: [{ adjustment_key: 'mfg-energy', display_name: '전력비', unit: 'KRW', category: 'manufacturing' as const, section: null }],
-    sga: [{ adjustment_key: 'sga-selling', display_name: '운송비', unit: 'KRW', category: 'sga' as const, section: 'selling' }],
+    manufacturing: [{
+      adjustment_key: 'mfg-energy',
+      display_name: '전력비',
+      unit: 'KRW',
+      category: 'manufacturing' as const,
+      section: null,
+      monthly_baseline_amounts: baselineAmounts,
+    }],
+    sga: [{
+      adjustment_key: 'sga-selling',
+      display_name: '운송비',
+      unit: 'KRW',
+      category: 'sga' as const,
+      section: 'selling',
+      monthly_baseline_amounts: baselineAmounts,
+    }],
     reason_max_length: 500 as const,
     dto_version: '1' as const,
   };

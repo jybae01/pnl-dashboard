@@ -92,6 +92,7 @@ export interface ForecastAdjustmentMetadataDto {
   unit: string;
   category: 'manufacturing' | 'sga';
   section: string | null;
+  monthly_baseline_amounts: Record<string, number>;
 }
 
 export interface ForecastInputMetadataDto {
