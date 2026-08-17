@@ -20,35 +20,36 @@ describe('analysis presentation vertical slice', () => {
     expect(screen.getByText('영업이익 증감')).toBeInTheDocument();
     expect(screen.getByText('4인치 LC')).toBeInTheDocument();
     expect(screen.queryByText('미설명 잔여차이')).not.toBeInTheDocument();
-    for (const label of ['판매수량', '제품 Mix', '판가', '매출환율', '원재료', '제조', '변동 판매관리비', '고정 판매관리비', '관세', '기타 요인']) {
+    for (const label of ['수량', '판가', '매출환율', '원재료', '변동비', '고정비', '제조', '재고·원가 반영시차', '기타 요인']) {
       expect(screen.getAllByText(label).length).toBeGreaterThan(0);
     }
     expect(screen.queryByText('판매단가')).not.toBeInTheDocument();
     expect(screen.queryByText('제조경비 손익실현')).not.toBeInTheDocument();
-    expect(screen.queryByText('고정비')).not.toBeInTheDocument();
     expect(screen.queryByText('UNEXPLAINED')).not.toBeInTheDocument();
     for (const category of ['내부', '외부', '비용']) {
       expect(screen.getAllByText(category).length).toBeGreaterThan(0);
     }
     expect(screen.getByText('Effect 총액 (서버)')).toBeInTheDocument();
-    expect(screen.getByText('persisted detail unavailable')).toBeInTheDocument();
+    expect(screen.getByText('판매수량 및 제품 Mix 변동 영향')).toBeInTheDocument();
     expect(screen.getAllByText('PCS').length).toBeGreaterThan(0);
     expect(screen.getAllByText('m').length).toBeGreaterThan(0);
     expect(screen.queryByText(/MCM.*Effect/i)).not.toBeInTheDocument();
     expect(screen.getAllByRole('button', { name: '분석 근거 엑셀 내려받기' })).toHaveLength(1);
-    expect(screen.getAllByText('+20 KRW').length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/백만원/).length).toBeGreaterThan(0);
   });
 
   it('maps canonical order and labels without deriving totals', () => {
     const value = presentationFixture();
     value.effects = [...value.effects].reverse();
     const mapping = mapAnalysisPresentation(value);
-    expect(mapping.effects.map((effect) => effect.code)).toEqual([...CANONICAL_EFFECT_ORDER]);
+    expect(mapping.effects.map((effect) => effect.code)).toEqual([
+      'sales_quantity', 'sales_price', 'sales_fx', 'material_total', 'sga_variable', 'sga_fixed', 'manufacturing_realized', 'inventory_timing',
+    ]);
     expect(mapping.effects.map((effect) => effect.uiLabel)).toEqual([
-      '판매수량', '제품 Mix', '판가', '매출환율', '원재료', '제조', '재고·원가 반영시차', '변동 판매관리비', '고정 판매관리비', '관세',
+      '수량', '판가', '매출환율', '원재료', '변동비', '고정비', '제조', '재고·원가 반영시차',
     ]);
     expect(mapping.effects.map((effect) => effect.uiCategoryLabel)).toEqual([
-      '내부', '내부', '내부', '외부', '비용', '비용', '비용', '비용', '비용', '외부',
+      '내부', '내부', '외부', '비용', '비용', '비용', '비용', '비용',
     ]);
     expect(mapping.residual.uiLabel).toBe('기타 요인');
     expect(mapping.residual.amount).toBe(value.residual.amount);
@@ -57,10 +58,10 @@ describe('analysis presentation vertical slice', () => {
 
   it('keeps selection synchronized between Effect table and Waterfall, including residual', () => {
     render(<AnalysisPresentationPanel value={presentationFixture()} role="admin" />);
-    const mixBar = screen.getByTestId('waterfall-bar-sales_mix');
-    fireEvent.click(mixBar);
-    expect(screen.getByTestId('effect-select-sales_mix')).toHaveAttribute('aria-pressed', 'true');
-    expect(screen.getByTestId('effect-row-sales_mix')).toHaveClass('row-active');
+    const qtyBar = screen.getByTestId('waterfall-bar-sales_quantity');
+    fireEvent.click(qtyBar);
+    expect(screen.getByTestId('effect-select-sales_quantity')).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByTestId('effect-row-sales_quantity')).toHaveClass('row-active');
 
     fireEvent.click(screen.getByTestId('effect-select-residual'));
     expect(screen.getByTestId('waterfall-bar-residual')).toHaveAttribute('aria-pressed', 'true');
@@ -70,9 +71,10 @@ describe('analysis presentation vertical slice', () => {
   it('uses profit-effect sign classes for positive, negative and zero values', () => {
     const value = presentationFixture();
     value.effects[0] = { ...value.effects[0], profit_effect: 0 };
+    value.effects[1] = { ...value.effects[1], profit_effect: 0 };
     render(<AnalysisPresentationPanel value={value} role="admin" />);
     expect(screen.getByTestId('effect-tone-sales_quantity')).toHaveClass('variance-analysis__tone--zero');
-    expect(screen.getByTestId('effect-tone-sales_mix')).toHaveClass('variance-analysis__tone--positive');
+    expect(screen.getByTestId('effect-tone-sales_price')).toHaveClass('variance-analysis__tone--positive');
     expect(screen.getByTestId('effect-tone-sales_fx')).toHaveClass('variance-analysis__tone--negative');
     expect(screen.getByTestId('effect-tone-residual')).toHaveClass('variance-analysis__tone--positive');
   });
