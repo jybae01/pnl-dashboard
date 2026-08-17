@@ -28,8 +28,9 @@ function signedPercent(value: number | null): string {
   return value === null ? '미산출' : `${value > 0 ? '+' : ''}${decimalFormatter.format(value)}%p`;
 }
 
-function tone(value: number): 'positive' | 'negative' | 'neutral' {
-  return value > 0 ? 'positive' : value < 0 ? 'negative' : 'neutral';
+function tone(value: number | null): 'positive' | 'negative' | 'neutral' {
+  if (value === null || Number.isNaN(value) || value === 0) return 'neutral';
+  return value > 0 ? 'positive' : 'negative';
 }
 
 function ToneValue({ value, format = 'money', signed = false }: {
@@ -42,7 +43,7 @@ function ToneValue({ value, format = 'money', signed = false }: {
     : format === 'percent'
       ? signedPercent(value)
       : signed ? signedMoney(value) : money(value);
-  return <span className={`pnl-dashboard__tone pnl-dashboard__tone--${value === null ? 'neutral' : tone(value)}`}>{label}</span>;
+  return <span className={`pnl-dashboard__tone pnl-dashboard__tone--${tone(value)}`}>{label}</span>;
 }
 
 function NeutralAmount({ value }: { value: number }) {
@@ -268,16 +269,60 @@ export function PnlDashboardPanel({ dashboard, onNavigateToVariance }: PnlDashbo
     <section className="pnl-dashboard__summary" aria-labelledby="pnl-summary-title">
       <div className="pnl-dashboard__section-heading"><div><p className="pnl-dashboard__eyebrow">AT A GLANCE</p><h2 id="pnl-summary-title">핵심 손익 요약</h2></div><span className="pnl-dashboard__unit-note">금액 단위: KRW</span></div>
       <div className="pnl-dashboard__kpi-grid">
-        <article className="pnl-dashboard__kpi"><p>매출액</p><strong>{money(kpis.revenue.period.comparison)}</strong><span>{identity.comparison_model_name} · 기준 {money(kpis.revenue.period.baseline)}</span><small>기준 대비 <NeutralAmount value={kpis.revenue.period.delta} /></small></article>
-        <article className="pnl-dashboard__kpi pnl-dashboard__kpi--primary"><p>영업이익</p><strong>{money(kpis.operating_profit.period.comparison)}</strong><span>{identity.comparison_model_name} · 기준 {money(kpis.operating_profit.period.baseline)}</span><small>기준 대비 <ToneValue value={kpis.operating_profit.period.delta} signed /></small></article>
-        <article className="pnl-dashboard__kpi"><p>영업이익률</p><strong>{percent(kpis.period_operating_margin.comparison)}</strong><span>{identity.comparison_model_name} · 기준 {percent(kpis.period_operating_margin.baseline)}</span><small>차이 <ToneValue value={kpis.period_operating_margin.delta_percentage_points} format="percent" signed /></small></article>
-        <article className="pnl-dashboard__kpi"><p>기준 대비 영업이익 증감</p><strong className={`pnl-dashboard__tone pnl-dashboard__tone--${tone(kpis.operating_profit.period.delta)}`}>{signedMoney(kpis.operating_profit.period.delta)}</strong><span>{identity.baseline_model_name} → {identity.comparison_model_name}</span><small>영업이익 영향 기준</small></article>
+        <article className="pnl-dashboard__kpi">
+          <p>매출액</p>
+          <strong>{money(kpis.revenue.period.comparison)}</strong>
+          <span>{identity.comparison_model_name} · 기준 {money(kpis.revenue.period.baseline)}</span>
+          <small className="pnl-dashboard__kpi-pill">
+            <span>기준 대비</span> <NeutralAmount value={kpis.revenue.period.delta} />
+          </small>
+        </article>
+        <article className="pnl-dashboard__kpi pnl-dashboard__kpi--primary">
+          <p>영업이익</p>
+          <strong>{money(kpis.operating_profit.period.comparison)}</strong>
+          <span>{identity.comparison_model_name} · 기준 {money(kpis.operating_profit.period.baseline)}</span>
+          <small className={`pnl-dashboard__kpi-pill pnl-dashboard__kpi-pill--${tone(kpis.operating_profit.period.delta)}`}>
+            <span>{kpis.operating_profit.period.delta > 0 ? '↑' : kpis.operating_profit.period.delta < 0 ? '↓' : '—'}</span>
+            <span>기준 대비</span> <ToneValue value={kpis.operating_profit.period.delta} signed />
+          </small>
+        </article>
+        <article className="pnl-dashboard__kpi">
+          <p>영업이익률</p>
+          <strong>{percent(kpis.period_operating_margin.comparison)}</strong>
+          <span>{identity.comparison_model_name} · 기준 {percent(kpis.period_operating_margin.baseline)}</span>
+          <small className={`pnl-dashboard__kpi-pill pnl-dashboard__kpi-pill--${tone(kpis.period_operating_margin.delta_percentage_points)}`}>
+            <span>{kpis.period_operating_margin.delta_percentage_points !== null && kpis.period_operating_margin.delta_percentage_points > 0 ? '↑' : kpis.period_operating_margin.delta_percentage_points !== null && kpis.period_operating_margin.delta_percentage_points < 0 ? '↓' : '—'}</span>
+            <span>차이</span> <ToneValue value={kpis.period_operating_margin.delta_percentage_points} format="percent" signed />
+          </small>
+        </article>
+        <article className="pnl-dashboard__kpi">
+          <p>기준 대비 영업이익 증감</p>
+          <strong className={`pnl-dashboard__tone pnl-dashboard__tone--${tone(kpis.operating_profit.period.delta)}`}>
+            {signedMoney(kpis.operating_profit.period.delta)}
+          </strong>
+          <span>{identity.baseline_model_name} → {identity.comparison_model_name}</span>
+          <small className="pnl-dashboard__kpi-pill">
+            <span>영업이익 영향 기준</span>
+          </small>
+        </article>
       </div>
     </section>
 
     <section className="pnl-dashboard__trend-section" aria-labelledby="pnl-trend-title">
-      <div className="pnl-dashboard__section-heading"><div><p className="pnl-dashboard__eyebrow">MONTHLY TREND</p><h2 id="pnl-trend-title">월별 추세</h2></div><div className="pnl-dashboard__legend"><span><i className="pnl-dashboard__legend-dot pnl-dashboard__legend-dot--plan" />기준 모형</span>{scenarioTypes.map((scenario) => <span key={scenario}><i className={`pnl-dashboard__legend-dot pnl-dashboard__legend-dot--${scenario === '실적' ? 'actual' : scenario === '추정' ? 'forecast' : 'plan'}`} />{scenario}</span>)}{hasUnclassifiedScenario && <span><i className="pnl-dashboard__legend-dot pnl-dashboard__legend-dot--neutral" />미지정</span>}</div></div>
-      <div className="pnl-dashboard__trend-grid">{trendMetrics.map((metric) => <TrendChart key={metric.key} rows={dashboard.monthly_series} metric={metric} baselineName={identity.baseline_model_name} comparisonName={identity.comparison_model_name} />)}</div>
+      <div className="pnl-dashboard__section-heading">
+        <div>
+          <p className="pnl-dashboard__eyebrow">MONTHLY TREND</p>
+          <h2 id="pnl-trend-title">월별 추세</h2>
+        </div>
+        <div className="pnl-dashboard__legend">
+          <span><i className="pnl-dashboard__legend-dot pnl-dashboard__legend-dot--plan" />기준 모형</span>
+          {scenarioTypes.map((scenario) => <span key={scenario}><i className={`pnl-dashboard__legend-dot pnl-dashboard__legend-dot--${scenario === '실적' ? 'actual' : scenario === '추정' ? 'forecast' : 'plan'}`} />{scenario}</span>)}
+          {hasUnclassifiedScenario && <span><i className="pnl-dashboard__legend-dot pnl-dashboard__legend-dot--neutral" />미지정</span>}
+        </div>
+      </div>
+      <div className="pnl-dashboard__trend-grid">
+        {trendMetrics.map((metric) => <TrendChart key={metric.key} rows={dashboard.monthly_series} metric={metric} baselineName={identity.baseline_model_name} comparisonName={identity.comparison_model_name} />)}
+      </div>
     </section>
 
     <section className="pnl-dashboard__details" aria-labelledby="pnl-detail-title">
