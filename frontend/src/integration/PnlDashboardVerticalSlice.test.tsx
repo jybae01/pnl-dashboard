@@ -94,7 +94,10 @@ describe('P&L Dashboard seven-source vertical slice', () => {
 
     expect(await screen.findByRole('heading', { name: '손익 현황' })).toBeInTheDocument();
     expect(screen.getAllByText('₩365').length).toBeGreaterThan(0);
-    expect(screen.getByText('기준 대비 영업이익 증감')).toBeInTheDocument();
+    expect(screen.getByTestId('revenue-trend-card')).toBeInTheDocument();
+    expect(screen.getByTestId('composite-trend-card')).toBeInTheDocument();
+    expect(screen.getByText('월별 매출액 추이')).toBeInTheDocument();
+    expect(screen.getByText('월별 영업이익 / 영업이익률 추이')).toBeInTheDocument();
     expect(screen.getByText('실적')).toBeInTheDocument();
     expect(screen.getByText('추정')).toBeInTheDocument();
     expect(screen.getByText('계획')).toBeInTheDocument();
@@ -134,9 +137,9 @@ describe('P&L Dashboard seven-source vertical slice', () => {
     vi.stubGlobal('fetch', vi.fn(() => json(fixture())));
     render(<PnlStatusView />);
     await screen.findByRole('heading', { name: '손익 현황' });
-    expect(screen.getAllByText('+₩11').some((node) => node.className.includes('pnl-dashboard__tone--positive'))).toBe(true);
-    expect(screen.getAllByText('-₩2').some((node) => node.className.includes('pnl-dashboard__tone--negative'))).toBe(true);
-    expect(screen.getAllByText('₩0').some((node) => node.className.includes('pnl-dashboard__tone--neutral'))).toBe(true);
+    expect(screen.getAllByText('+₩11').some((node) => String(node.className).includes('pnl-dashboard__tone--positive'))).toBe(true);
+    expect(screen.getAllByText('-₩2').some((node) => String(node.className).includes('pnl-dashboard__tone--negative'))).toBe(true);
+    expect(screen.getAllByText('₩0').some((node) => String(node.className).includes('pnl-dashboard__tone--neutral'))).toBe(true);
   });
 
   it('keeps EMPTY, ERROR, FORBIDDEN, and invalid payload distinct', async () => {

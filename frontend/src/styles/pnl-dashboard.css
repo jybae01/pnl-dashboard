@@ -344,8 +344,14 @@
 
 .pnl-dashboard__trend-grid {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 12px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+}
+
+@media (max-width: 1024px) {
+  .pnl-dashboard__trend-grid {
+    grid-template-columns: 1fr;
+  }
 }
 
 .pnl-dashboard__trend-card {

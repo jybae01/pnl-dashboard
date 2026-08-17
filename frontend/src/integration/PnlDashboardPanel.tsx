@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from 'react';
-import { ArrowRight, Factory, FileSpreadsheet, Landmark, Package } from 'lucide-react';
+import { ArrowRight, DollarSign, Factory, FileSpreadsheet, Landmark, Package, TrendingUp } from 'lucide-react';
 import { PnlDashboardDto, DashboardFinancialLineDto, DashboardAccountDto } from './types';
 
 type DashboardTab = 'pnl' | 'manufacturing' | 'sga' | 'groups';
@@ -61,61 +61,46 @@ function ScenarioBadge({ scenario }: { scenario: '기준 모형' | '비교 모�
   return <span className={`pnl-dashboard__scenario pnl-dashboard__scenario--${scenarioClass}`}>{scenario}</span>;
 }
 
-function metricValue(row: PnlDashboardDto['monthly_series'][number], metric: TrendMetric['key'], side: 'baseline' | 'comparison'): number | null {
-  if (metric === 'revenue') return row.revenue[side];
-  if (metric === 'operating_profit') return row.operating_profit[side];
-  return side === 'baseline' ? row.baseline_operating_margin : row.comparison_operating_margin;
-}
-
-type TrendMetric = {
-  key: 'revenue' | 'operating_profit' | 'operating_margin';
-  label: string;
-  format: 'money' | 'percent';
-};
-
-const trendMetrics: TrendMetric[] = [
-  { key: 'revenue', label: '매출액', format: 'money' },
-  { key: 'operating_profit', label: '영업이익', format: 'money' },
-  { key: 'operating_margin', label: '영업이익률', format: 'percent' },
-];
-
-function chartValueLabel(value: number | null, format: TrendMetric['format']): string {
+function chartValueLabel(value: number | null, format: 'money' | 'percent'): string {
   if (value === null) return '미산출';
   return format === 'money' ? money(value) : percent(value);
 }
 
-function chartAxisLabel(value: number, format: TrendMetric['format']): string {
+function chartAxisLabel(value: number, format: 'money' | 'percent'): string {
   return format === 'money'
     ? `${value < 0 ? '-' : ''}₩${compactMoneyFormatter.format(Math.abs(value))}`
     : percent(value);
 }
 
-function TrendChart({ rows, metric, baselineName, comparisonName }: {
+function RevenueTrendCard({ rows, baselineName, comparisonName }: {
   rows: PnlDashboardDto['monthly_series'];
-  metric: TrendMetric;
   baselineName: string;
   comparisonName: string;
 }) {
   const width = 760;
   const height = 214;
-  const plot = { left: 48, right: 16, top: 18, bottom: 34 };
-  const values = rows.flatMap((row) => [metricValue(row, metric.key, 'baseline'), metricValue(row, metric.key, 'comparison')])
+  const plot = { left: 52, right: 16, top: 18, bottom: 34 };
+  const values = rows.flatMap((row) => [row.revenue.baseline, row.revenue.comparison])
     .filter((value): value is number => value !== null && Number.isFinite(value));
   const rawMin = values.length ? Math.min(...values) : 0;
   const rawMax = values.length ? Math.max(...values) : 1;
   const range = rawMax - rawMin || Math.max(Math.abs(rawMax), 1);
-  const min = rawMin - range * 0.12;
+  const min = Math.min(0, rawMin - range * 0.08);
   const max = rawMax + range * 0.12;
   const innerWidth = width - plot.left - plot.right;
   const innerHeight = height - plot.top - plot.bottom;
   const x = (index: number) => rows.length <= 1 ? plot.left + innerWidth / 2 : plot.left + (index / (rows.length - 1)) * innerWidth;
   const y = (value: number) => plot.top + ((max - value) / (max - min)) * innerHeight;
-  const points = (side: 'baseline' | 'comparison') => rows.map((row, index) => {
-    const value = metricValue(row, metric.key, side);
+
+  const baselinePoints = rows.map((row, index) => {
+    const value = row.revenue.baseline;
     return value === null ? null : { x: x(index), y: y(value), value, row, index };
   });
-  const baselinePoints = points('baseline');
-  const comparisonPoints = points('comparison');
+  const comparisonPoints = rows.map((row, index) => {
+    const value = row.revenue.comparison;
+    return value === null ? null : { x: x(index), y: y(value), value, row, index };
+  });
+
   const pathSegments = (series: Array<{ x: number; y: number } | null>) => {
     const paths: string[] = [];
     let current: Array<{ x: number; y: number }> = [];
@@ -137,39 +122,162 @@ function TrendChart({ rows, metric, baselineName, comparisonName }: {
     period === '추정' ? 'var(--pnl-forecast)' : period === '계획' ? 'var(--pnl-plan)' : period === '실적' ? 'var(--pnl-actual)' : 'var(--pnl-neutral)'
   );
 
-  return <article className="pnl-dashboard__trend-card">
+  return <article className="pnl-dashboard__trend-card" data-testid="revenue-trend-card">
     <div className="pnl-dashboard__trend-card-header">
       <div>
-        <h3>{metric.label}</h3>
-        <p>월별 기준 모형과 비교 모형 추이</p>
+        <h3><DollarSign size={14} aria-hidden="true" style={{ color: '#2563eb', verticalAlign: 'middle', marginRight: 4 }} />월별 매출액 추이</h3>
+        <p>월별 기준 모형과 비교 모형 매출 추이</p>
       </div>
       <span className="pnl-dashboard__trend-range">{rows[0]?.month}월–{rows[rows.length - 1]?.month}월</span>
     </div>
     <div className="pnl-dashboard__trend-chart-scroll">
-      <svg className="pnl-dashboard__trend-chart" viewBox={`0 0 ${width} ${height}`} role="img" aria-label={`${metric.label} 월별 추이`}>
+      <svg className="pnl-dashboard__trend-chart" viewBox={`0 0 ${width} ${height}`} role="img" aria-label="월별 매출액 추이">
         {[0, 0.5, 1].map((fraction) => {
           const gridY = plot.top + innerHeight * fraction;
           const gridValue = max - (max - min) * fraction;
           return <g key={fraction}>
             <line x1={plot.left} x2={width - plot.right} y1={gridY} y2={gridY} className="pnl-dashboard__trend-grid" />
-            <text x={plot.left - 8} y={gridY + 4} textAnchor="end" className="pnl-dashboard__trend-axis">{chartAxisLabel(gridValue, metric.format)}</text>
+            <text x={plot.left - 8} y={gridY + 4} textAnchor="end" className="pnl-dashboard__trend-axis">{chartAxisLabel(gridValue, 'money')}</text>
           </g>;
         })}
-        {baselinePaths.map((path, index) => <path key={`baseline-path-${index}`} d={path} className="pnl-dashboard__trend-line pnl-dashboard__trend-line--baseline" />)}
+        {baselinePaths.map((path, index) => <path key={`baseline-rev-path-${index}`} d={path} className="pnl-dashboard__trend-line pnl-dashboard__trend-line--baseline" />)}
         {comparisonPoints.map((point, index) => {
           const previous = comparisonPoints[index - 1];
           if (!point) return null;
           const color = scenarioColor(point.row.comparison_period_type);
-          return <g key={`comparison-${point.row.month}`}>
+          return <g key={`comparison-rev-${point.row.month}`}>
             {previous && <line x1={previous.x} y1={previous.y} x2={point.x} y2={point.y} className="pnl-dashboard__trend-line" style={{ stroke: color }} />}
             <circle cx={point.x} cy={point.y} r="4" className="pnl-dashboard__trend-point" style={{ fill: color }}>
-              <title>{`${point.row.month}월 ${comparisonName}: ${chartValueLabel(point.value, metric.format)}`}</title>
+              <title>{`${point.row.month}월 ${comparisonName} 매출: ${chartValueLabel(point.value, 'money')}`}</title>
             </circle>
           </g>;
         })}
-        {baselinePoints.map((point) => point && <circle key={`baseline-${point.row.month}`} cx={point.x} cy={point.y} r="3" className="pnl-dashboard__trend-point pnl-dashboard__trend-point--baseline">
-          <title>{`${point.row.month}월 ${baselineName}: ${chartValueLabel(point.value, metric.format)}`}</title>
+        {baselinePoints.map((point) => point && <circle key={`baseline-rev-${point.row.month}`} cx={point.x} cy={point.y} r="3" className="pnl-dashboard__trend-point pnl-dashboard__trend-point--baseline">
+          <title>{`${point.row.month}월 ${baselineName} 매출: ${chartValueLabel(point.value, 'money')}`}</title>
         </circle>)}
+        {rows.map((row, index) => <text key={row.month} x={x(index)} y={height - 10} textAnchor="middle" className="pnl-dashboard__trend-axis">{row.month}월</text>)}
+      </svg>
+    </div>
+  </article>;
+}
+
+function CompositeProfitMarginTrendCard({ rows, baselineName, comparisonName }: {
+  rows: PnlDashboardDto['monthly_series'];
+  baselineName: string;
+  comparisonName: string;
+}) {
+  const width = 760;
+  const height = 214;
+  const plot = { left: 52, right: 48, top: 18, bottom: 34 };
+
+  const opValues = rows.flatMap((row) => [row.operating_profit.baseline, row.operating_profit.comparison])
+    .filter((value): value is number => value !== null && Number.isFinite(value));
+  const rawOpMin = opValues.length ? Math.min(...opValues) : 0;
+  const rawOpMax = opValues.length ? Math.max(...opValues) : 1;
+  const opRange = rawOpMax - rawOpMin || Math.max(Math.abs(rawOpMax), 1);
+  const minOp = rawOpMin - opRange * 0.12;
+  const maxOp = rawOpMax + opRange * 0.12;
+
+  const marginValues = rows.flatMap((row) => [row.baseline_operating_margin, row.comparison_operating_margin])
+    .filter((value): value is number => value !== null && Number.isFinite(value));
+  const rawMarginMin = marginValues.length ? Math.min(...marginValues) : 0;
+  const rawMarginMax = marginValues.length ? Math.max(...marginValues) : 10;
+  const marginRange = rawMarginMax - rawMarginMin || 10;
+  const minMargin = Math.min(0, rawMarginMin - marginRange * 0.1);
+  const maxMargin = rawMarginMax + marginRange * 0.15;
+
+  const innerWidth = width - plot.left - plot.right;
+  const innerHeight = height - plot.top - plot.bottom;
+  const x = (index: number) => rows.length <= 1 ? plot.left + innerWidth / 2 : plot.left + (index / (rows.length - 1)) * innerWidth;
+  const yOp = (value: number) => plot.top + ((maxOp - value) / (maxOp - minOp)) * innerHeight;
+  const yMargin = (value: number) => plot.top + ((maxMargin - value) / (maxMargin - minMargin)) * innerHeight;
+
+  const opBaselinePoints = rows.map((row, index) => {
+    const value = row.operating_profit.baseline;
+    return value === null ? null : { x: x(index), y: yOp(value), value, row, index };
+  });
+  const opComparisonPoints = rows.map((row, index) => {
+    const value = row.operating_profit.comparison;
+    return value === null ? null : { x: x(index), y: yOp(value), value, row, index };
+  });
+  const marginComparisonPoints = rows.map((row, index) => {
+    const value = row.comparison_operating_margin;
+    return value === null ? null : { x: x(index), y: yMargin(value), value, row, index };
+  });
+
+  const pathSegments = (series: Array<{ x: number; y: number } | null>) => {
+    const paths: string[] = [];
+    let current: Array<{ x: number; y: number }> = [];
+    const flush = () => {
+      if (current.length > 0) {
+        paths.push(current.map((point, index) => `${index === 0 ? 'M' : 'L'} ${point.x.toFixed(2)} ${point.y.toFixed(2)}`).join(' '));
+      }
+      current = [];
+    };
+    series.forEach((point) => {
+      if (point === null) flush();
+      else current.push(point);
+    });
+    flush();
+    return paths;
+  };
+  const opBaselinePaths = pathSegments(opBaselinePoints);
+  const scenarioColor = (period: PnlDashboardDto['monthly_series'][number]['comparison_period_type']) => (
+    period === '추정' ? 'var(--pnl-forecast)' : period === '계획' ? 'var(--pnl-plan)' : period === '실적' ? 'var(--pnl-actual)' : 'var(--pnl-neutral)'
+  );
+
+  return <article className="pnl-dashboard__trend-card" data-testid="composite-trend-card">
+    <div className="pnl-dashboard__trend-card-header">
+      <div>
+        <h3><TrendingUp size={14} aria-hidden="true" style={{ color: '#ff5f1f', verticalAlign: 'middle', marginRight: 4 }} />월별 영업이익 / 영업이익률 추이</h3>
+        <p>월별 영업이익(금액) 및 영업이익률(%) 복합 추이</p>
+      </div>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+        <span style={{ fontSize: '10.5px', color: 'var(--brand-orange)', fontWeight: 700 }}>● 영업이익</span>
+        <span style={{ fontSize: '10.5px', color: '#6366f1', fontWeight: 700 }}>◆ 이익률(%)</span>
+        <span className="pnl-dashboard__trend-range">{rows[0]?.month}월–{rows[rows.length - 1]?.month}월</span>
+      </div>
+    </div>
+    <div className="pnl-dashboard__trend-chart-scroll">
+      <svg className="pnl-dashboard__trend-chart" viewBox={`0 0 ${width} ${height}`} role="img" aria-label="월별 영업이익 및 영업이익률 복합 추이">
+        {[0, 0.5, 1].map((fraction) => {
+          const gridY = plot.top + innerHeight * fraction;
+          const gridOpValue = maxOp - (maxOp - minOp) * fraction;
+          const gridMarginValue = maxMargin - (maxMargin - minMargin) * fraction;
+          return <g key={fraction}>
+            <line x1={plot.left} x2={width - plot.right} y1={gridY} y2={gridY} className="pnl-dashboard__trend-grid" />
+            <text x={plot.left - 8} y={gridY + 4} textAnchor="end" className="pnl-dashboard__trend-axis">{chartAxisLabel(gridOpValue, 'money')}</text>
+            <text x={width - plot.right + 8} y={gridY + 4} textAnchor="start" className="pnl-dashboard__trend-axis" style={{ fill: '#6366f1' }}>{percent(gridMarginValue)}</text>
+          </g>;
+        })}
+        {opBaselinePaths.map((path, index) => <path key={`baseline-op-path-${index}`} d={path} className="pnl-dashboard__trend-line pnl-dashboard__trend-line--baseline" />)}
+        {opComparisonPoints.map((point, index) => {
+          const previous = opComparisonPoints[index - 1];
+          if (!point) return null;
+          const color = scenarioColor(point.row.comparison_period_type);
+          return <g key={`comparison-op-${point.row.month}`}>
+            {previous && <line x1={previous.x} y1={previous.y} x2={point.x} y2={point.y} className="pnl-dashboard__trend-line" style={{ stroke: color, strokeWidth: 2.2 }} />}
+            <circle cx={point.x} cy={point.y} r="4" className="pnl-dashboard__trend-point" style={{ fill: color }}>
+              <title>{`${point.row.month}월 ${comparisonName} 영업이익: ${chartValueLabel(point.value, 'money')}`}</title>
+            </circle>
+          </g>;
+        })}
+        {opBaselinePoints.map((point) => point && <circle key={`baseline-op-${point.row.month}`} cx={point.x} cy={point.y} r="3" className="pnl-dashboard__trend-point pnl-dashboard__trend-point--baseline">
+          <title>{`${point.row.month}월 ${baselineName} 영업이익: ${chartValueLabel(point.value, 'money')}`}</title>
+        </circle>)}
+        {marginComparisonPoints.map((point, index) => {
+          const previous = marginComparisonPoints[index - 1];
+          if (!point) return null;
+          return <g key={`comparison-margin-${point.row.month}`}>
+            {previous && <line x1={previous.x} y1={previous.y} x2={point.x} y2={point.y} stroke="#6366f1" strokeWidth="1.8" strokeDasharray="3 2" />}
+            <polygon
+              points={`${point.x},${point.y - 4} ${point.x + 4},${point.y} ${point.x},${point.y + 4} ${point.x - 4},${point.y}`}
+              fill="#6366f1"
+            >
+              <title>{`${point.row.month}월 ${comparisonName} 영업이익률: ${chartValueLabel(point.value, 'percent')}`}</title>
+            </polygon>
+          </g>;
+        })}
         {rows.map((row, index) => <text key={row.month} x={x(index)} y={height - 10} textAnchor="middle" className="pnl-dashboard__trend-axis">{row.month}월</text>)}
       </svg>
     </div>
@@ -321,7 +429,8 @@ export function PnlDashboardPanel({ dashboard, onNavigateToVariance }: PnlDashbo
         </div>
       </div>
       <div className="pnl-dashboard__trend-grid">
-        {trendMetrics.map((metric) => <TrendChart key={metric.key} rows={dashboard.monthly_series} metric={metric} baselineName={identity.baseline_model_name} comparisonName={identity.comparison_model_name} />)}
+        <RevenueTrendCard rows={dashboard.monthly_series} baselineName={identity.baseline_model_name} comparisonName={identity.comparison_model_name} />
+        <CompositeProfitMarginTrendCard rows={dashboard.monthly_series} baselineName={identity.baseline_model_name} comparisonName={identity.comparison_model_name} />
       </div>
     </section>
 
