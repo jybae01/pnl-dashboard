@@ -49,16 +49,17 @@
 .variance-analysis-controls,
 .variance-job-status,
 .variance-state-message {
-  border: 1px solid var(--border-default);
-  border-radius: var(--radius-md);
-  background: var(--bg-surface);
+  border: 1px solid var(--border-default, #e2e8f0);
+  border-radius: 12px;
+  background: var(--bg-surface, #fff);
+  box-shadow: 0 4px 16px rgba(15, 23, 42, .04);
 }
 
 .variance-query-card {
   display: flex;
   align-items: flex-end;
   gap: 8px;
-  padding: 14px 16px;
+  padding: 16px 18px;
 }
 
 .variance-result-query {
@@ -67,7 +68,7 @@
   gap: 5px;
 }
 
-.variance-analysis-controls { padding: 14px 16px; }
+.variance-analysis-controls { padding: 16px 18px; }
 
 .variance-control-heading {
   display: flex;
