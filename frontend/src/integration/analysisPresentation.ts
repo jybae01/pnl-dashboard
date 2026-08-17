@@ -37,15 +37,15 @@ export const CANONICAL_EFFECT_ORDER = [
 ] as const satisfies readonly PresentationEffectCode[];
 
 export const CANONICAL_EFFECT_LABELS: Record<PresentationEffectCode, string> = {
-  sales_quantity: '판매수량',
+  sales_quantity: '수량',
   sales_mix: '제품 Mix',
   sales_price: '판가',
   sales_fx: '매출환율',
   material_total: '원재료',
   manufacturing_realized: '제조',
   inventory_timing: '재고·원가 반영시차',
-  sga_variable: '변동 판매관리비',
-  sga_fixed: '고정 판매관리비',
+  sga_variable: '변동비',
+  sga_fixed: '고정비',
   tariff: '관세',
 };
 
@@ -98,6 +98,151 @@ export function mapCanonicalEffects(effects: AnalysisPresentationEffectDto[]): M
       - (effectOrder.get(right.code) ?? Number.MAX_SAFE_INTEGER));
 }
 
+/**
+ * User-facing regrouping of the 10 canonical effects into 8 presentation groups:
+ * 1. 수량 = sales_quantity + sales_mix
+ * 2. 판가 = sales_price
+ * 3. 매출환율 = sales_fx
+ * 4. 원재료 = material_total
+ * 5. 변동비 = sga_variable + tariff
+ * 6. 고정비 = sga_fixed
+ * 7. 제조 = manufacturing_realized (Temporary Fallback)
+ * 8. 재고·원가 반영시차 = inventory_timing
+ *
+ * Residual ('기타 요인') is maintained separately.
+ * Mathematical identity: sum(regrouped.profit_effect) === kpis.effects_total
+ */
+export function mapGroupedPresentationEffects(
+  canonicalEffects: AnalysisPresentationEffectDto[],
+): MappedPresentationEffect[] {
+  const effectMap = new Map<string, AnalysisPresentationEffectDto>();
+  canonicalEffects.forEach((e) => effectMap.set(e.code, e));
+
+  const grouped: MappedPresentationEffect[] = [];
+  const processedCodes = new Set<string>();
+
+  // 1. 수량 (sales_quantity + sales_mix)
+  const qty = effectMap.get('sales_quantity');
+  const mix = effectMap.get('sales_mix');
+  if (qty || mix) {
+    const qtyEffect = qty?.profit_effect ?? 0;
+    const mixEffect = mix?.profit_effect ?? 0;
+    const combinedRows = [...(qty?.drilldown.rows ?? []), ...(mix?.drilldown.rows ?? [])];
+    grouped.push({
+      code: 'sales_quantity' as PresentationEffectCode,
+      label: '수량',
+      category: 'INTERNAL',
+      profit_effect: qtyEffect + mixEffect,
+      description: '판매수량 및 제품 Mix 변동 영향',
+      drilldown: {
+        kind: 'sales',
+        available: combinedRows.length > 0,
+        rows: combinedRows,
+        unavailable_reason: null,
+      },
+      uiLabel: '수량',
+      uiCategoryLabel: '내부',
+    });
+    processedCodes.add('sales_quantity');
+    processedCodes.add('sales_mix');
+  }
+
+  // 2. 판가 (sales_price)
+  const price = effectMap.get('sales_price');
+  if (price) {
+    grouped.push({
+      ...mapEffect(price),
+      uiLabel: '판가',
+    });
+    processedCodes.add('sales_price');
+  }
+
+  // 3. 매출환율 (sales_fx)
+  const fx = effectMap.get('sales_fx');
+  if (fx) {
+    grouped.push({
+      ...mapEffect(fx),
+      uiLabel: '매출환율',
+    });
+    processedCodes.add('sales_fx');
+  }
+
+  // 4. 원재료 (material_total)
+  const material = effectMap.get('material_total');
+  if (material) {
+    grouped.push({
+      ...mapEffect(material),
+      uiLabel: '원재료',
+    });
+    processedCodes.add('material_total');
+  }
+
+  // 5. 변동비 (sga_variable + tariff)
+  const sgaVar = effectMap.get('sga_variable');
+  const tariff = effectMap.get('tariff');
+  if (sgaVar || tariff) {
+    const varEffect = sgaVar?.profit_effect ?? 0;
+    const tariffEffect = tariff?.profit_effect ?? 0;
+    const combinedRows = [...(sgaVar?.drilldown.rows ?? []), ...(tariff?.drilldown.rows ?? [])];
+    grouped.push({
+      code: 'sga_variable' as PresentationEffectCode,
+      label: '변동비',
+      category: 'COST',
+      profit_effect: varEffect + tariffEffect,
+      description: '변동 판매관리비 및 관세 변동 영향',
+      drilldown: {
+        kind: 'sga',
+        available: combinedRows.length > 0,
+        rows: combinedRows,
+        unavailable_reason: null,
+      },
+      uiLabel: '변동비',
+      uiCategoryLabel: '비용',
+    });
+    processedCodes.add('sga_variable');
+    processedCodes.add('tariff');
+  }
+
+  // 6. 고정비 (sga_fixed)
+  const sgaFixed = effectMap.get('sga_fixed');
+  if (sgaFixed) {
+    grouped.push({
+      ...mapEffect(sgaFixed),
+      uiLabel: '고정비',
+    });
+    processedCodes.add('sga_fixed');
+  }
+
+  // 7. 제조 (manufacturing_realized)
+  const mfg = effectMap.get('manufacturing_realized');
+  if (mfg) {
+    grouped.push({
+      ...mapEffect(mfg),
+      uiLabel: '제조',
+    });
+    processedCodes.add('manufacturing_realized');
+  }
+
+  // 8. 재고·원가 반영시차 (inventory_timing)
+  const invTiming = effectMap.get('inventory_timing');
+  if (invTiming) {
+    grouped.push({
+      ...mapEffect(invTiming),
+      uiLabel: '재고·원가 반영시차',
+    });
+    processedCodes.add('inventory_timing');
+  }
+
+  // 9. Unknown/Unmapped canonical effects safe preservation
+  canonicalEffects.forEach((e) => {
+    if (!processedCodes.has(e.code)) {
+      grouped.push(mapEffect(e));
+    }
+  });
+
+  return grouped;
+}
+
 export function mapResidual(residual: AnalysisResidualDto): MappedResidual {
   return { ...residual, code: RESIDUAL_CODE, uiLabel: RESIDUAL_LABEL };
 }
@@ -115,7 +260,7 @@ export function profitEffectTone(value: number): ProfitEffectTone {
  */
 export function mapWaterfallBars(
   value: AnalysisPresentationDto,
-  effects: MappedPresentationEffect[] = mapCanonicalEffects(value.effects),
+  effects: MappedPresentationEffect[] = mapGroupedPresentationEffects(value.effects),
   residual: MappedResidual = mapResidual(value.residual),
 ): AnalysisWaterfallBar[] {
   let running = value.kpis.baseline_operating_profit;
@@ -188,7 +333,7 @@ export function mapWaterfallBars(
 }
 
 export function mapAnalysisPresentation(value: AnalysisPresentationDto): AnalysisPresentationMapping {
-  const effects = mapCanonicalEffects(value.effects);
+  const effects = mapGroupedPresentationEffects(value.effects);
   const residual = mapResidual(value.residual);
   return {
     effects,
