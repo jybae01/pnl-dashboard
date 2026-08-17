@@ -953,7 +953,7 @@ export const ForecastGenerationView: React.FC<ForecastGenerationViewProps> = ({
                         const adjNum = Number(row.amount.replace(/,/g, '').trim()) || 0;
                         const hasAdjustment = (row.amount.trim() !== '' && row.amount.trim() !== '0') || row.reason.trim() !== '';
                         const isEditing = editingSgaKey === item.adjustment_key;
-                        const isTariffAccount = item.display_name.includes('관세');
+                        const isSellingFreightAccount = item.section === 'selling' && (item.display_name.includes('운송비') || item.display_name.includes('운반비'));
 
                         return (
                           <React.Fragment key={item.adjustment_key}>
@@ -980,7 +980,7 @@ export const ForecastGenerationView: React.FC<ForecastGenerationViewProps> = ({
                                         item.adjustment_key,
                                         row.amount,
                                         row.reason,
-                                        isTariffAccount ? helperAdjustments.tariffAdjustment : undefined,
+                                        isSellingFreightAccount ? helperAdjustments.tariffAdjustment : undefined,
                                       )}
                                 >
                                   {hasAdjustment ? '수정' : '조정'}
@@ -1003,7 +1003,7 @@ export const ForecastGenerationView: React.FC<ForecastGenerationViewProps> = ({
                                       <strong>📝 [{item.display_name}] 비용 조정 입력</strong>
                                     </div>
                                     <div className="forecast-workflow__inline-drawer-body">
-                                      {isTariffAccount && (
+                                      {isSellingFreightAccount && (
                                         <div style={{
                                           marginBottom: '12px',
                                           padding: '8px 12px',
