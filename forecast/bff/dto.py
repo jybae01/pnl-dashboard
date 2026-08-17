@@ -114,6 +114,7 @@ class ForecastAdjustmentMetadataResponse:
     category: str
     section: str | None
     unit: str = "KRW"
+    monthly_baseline_amounts: Mapping[int, float] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)

@@ -48,8 +48,11 @@ def fixture(tmp_path: Path):
     data = workbook.active
     data.title = "Data"
     data["D10"] = "노무비"
+    data["E10"] = 1000
+    data["F10"] = 2000
     data["B19"] = "판매비"
     data["D20"] = "운반비"
+    data["E20"] = 500
     workbook.save(path)
     sessions = AccessCodeSessionService(
         viewer_code="viewer-code",
@@ -72,16 +75,23 @@ def test_admin_metadata_uses_opaque_keys_and_private_workbook_labels(tmp_path: P
     response = service.get(session, BASE)
     payload = asdict(response)
 
+    expected_mfg_monthly = {month: (1000.0 if month == 1 else (2000.0 if month == 2 else 0.0)) for month in range(1, 13)}
+    expected_sga_monthly = {month: (500.0 if month == 1 else 0.0) for month in range(1, 13)}
+
     assert payload["manufacturing"] == ({
         "adjustment_key": "manufacturing:000",
         "display_name": "노무비",
         "category": "manufacturing",
         "section": None,
         "unit": "KRW",
+        "monthly_baseline_amounts": expected_mfg_monthly,
     },)
     assert payload["sga"][0]["adjustment_key"] == "sga:000"
     assert payload["sga"][0]["display_name"] == "운반비"
     assert payload["sga"][0]["section"] == "selling"
+    assert payload["sga"][0]["monthly_baseline_amounts"] == expected_sga_monthly
+    assert set(payload["manufacturing"][0]["monthly_baseline_amounts"].keys()) == set(range(1, 13))
+    assert set(payload["sga"][0]["monthly_baseline_amounts"].keys()) == set(range(1, 13))
     serialized = json.dumps(payload, ensure_ascii=False)
     assert "row" not in serialized and "Data!" not in serialized
     assert "workbook" not in serialized.lower() and "sha" not in serialized.lower()

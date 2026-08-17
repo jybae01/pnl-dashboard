@@ -51,6 +51,7 @@ class ForecastInputMetadataService:
                     display_name=self._label(workbook, int(row)),
                     category="manufacturing",
                     section=None,
+                    monthly_baseline_amounts=self._monthly_baseline_amounts(workbook, int(row)),
                 )
                 for index, row in enumerate(self._rows("manufacturing"))
             )
@@ -60,6 +61,7 @@ class ForecastInputMetadataService:
                     display_name=self._label(workbook, int(row)),
                     category="sga",
                     section=self._sga_section(workbook, int(row)),
+                    monthly_baseline_amounts=self._monthly_baseline_amounts(workbook, int(row)),
                 )
                 for index, row in enumerate(self._rows("sga"))
             )
@@ -163,3 +165,15 @@ class ForecastInputMetadataService:
             if value == "일반관리비":
                 return "general_admin"
         return "sga"
+
+    @staticmethod
+    def _monthly_baseline_amounts(workbook: GoldenWorkbook, row: int) -> dict[int, float]:
+        amounts: dict[int, float] = {}
+        for month in range(1, 13):
+            col = chr(ord("E") + month - 1)
+            raw = workbook.value(f"{col}{row}")
+            try:
+                amounts[month] = float(raw or 0.0)
+            except (TypeError, ValueError):
+                amounts[month] = 0.0
+        return amounts
