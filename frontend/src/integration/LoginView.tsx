@@ -1,4 +1,5 @@
 import React, { FormEvent, useEffect, useState } from 'react';
+import { AlertCircle, Loader2 } from 'lucide-react';
 import { NanoH2oLogo } from '../components/common/NanoH2oLogo';
 import { ApiClientError, SessionDto } from './types';
 import { bffClient } from './client';
@@ -48,8 +49,10 @@ export function LoginView({ onAuthenticated }: { onAuthenticated: (session: Sess
     <main className="login-shell">
       <div className="login-frame">
         <section className="login-brand-card" aria-label="NanoH2O 브랜드">
-          <NanoH2oLogo height={38} textColor="#ffffff" />
-          <div>
+          <div className="login-brand-top">
+            <NanoH2oLogo height={38} textColor="#ffffff" />
+          </div>
+          <div className="login-brand-bottom">
             <p className="login-brand-kicker">MANAGEMENT ACCOUNTING</p>
             <p className="login-brand-copy">정확한 데이터와 검증된 계산으로 손익 의사결정을 지원합니다.</p>
           </div>
@@ -73,10 +76,22 @@ export function LoginView({ onAuthenticated }: { onAuthenticated: (session: Sess
             className="login-input"
             disabled={loading || locked}
           />
-          {error && <div className="login-error" role="alert">{error}</div>}
+          {error && (
+            <div className="login-error" role="alert">
+              <AlertCircle size={15} aria-hidden="true" style={{ flexShrink: 0, marginTop: '2px' }} />
+              <span>{error}</span>
+            </div>
+          )}
           {locked && <p className="login-lockout" role="status">남은 잠금시간: {remainingSeconds}초</p>}
           <button className="login-submit" disabled={loading || locked || !code}>
-            {loading ? '확인 중…' : '접속'}
+            {loading ? (
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: '8px' }}>
+                <Loader2 size={16} className="spinner" style={{ animation: 'spin 1s linear infinite' }} />
+                <span>확인 중…</span>
+              </span>
+            ) : (
+              '접속'
+            )}
           </button>
           <p className="login-help">접속 권한이 필요하면 시스템 관리자에게 문의하세요.</p>
         </form>
