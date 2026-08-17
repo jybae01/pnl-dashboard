@@ -745,14 +745,20 @@ export const ForecastGenerationView: React.FC<ForecastGenerationViewProps> = ({
             <p className="forecast-workflow__advanced-help">조정액·사유와 원시 가정값만 서버에 직접 전달합니다. 계획 대비 차이, 관세·운송·포장·환급 기준값은 화면에서 계산하지 않습니다.</p>
             <div className="forecast-workflow__adjustment-grid">
               <section className="forecast-workflow__input-section" aria-labelledby="forecast-manufacturing-adjustments-title">
-                <div className="forecast-workflow__input-heading"><div><h3 id="forecast-manufacturing-adjustments-title">제조경비 조정액</h3><p>선택 월의 제조 계정별 조정액과 사유입니다.</p></div><span>{inputMetadata?.manufacturing.length ?? 0}개 항목</span></div>
+                <div className="forecast-workflow__input-heading"><div><h3 id="forecast-manufacturing-adjustments-title">제조경비 조정액</h3><p>선택 월의 제조 계정별 계획금액, 조정액과 사유입니다.</p></div><span>{inputMetadata?.manufacturing.length ?? 0}개 항목</span></div>
                 <div className="forecast-workflow__table-scroll">
                   <table className="forecast-workflow__input-table forecast-workflow__input-table--advanced">
-                    <thead><tr><th scope="col">항목</th><th scope="col">단위</th><th scope="col">조정액</th><th scope="col">사유</th></tr></thead>
+                    <thead><tr><th scope="col">항목</th><th scope="col">계획 예상금액</th><th scope="col">단위</th><th scope="col">조정액</th><th scope="col">사유</th></tr></thead>
                     <tbody>{(inputMetadata?.manufacturing ?? []).map((item) => {
                       const row = activeMonthInput.manufacturingAdjustments[item.adjustment_key] ?? { amount: '0', reason: '' };
+                      const baselineRaw = item.monthly_baseline_amounts?.[String(activeInputMonth)];
+                      const baselineDisplay = typeof baselineRaw === 'number' && Number.isFinite(baselineRaw)
+                        ? baselineRaw.toLocaleString('ko-KR')
+                        : '—';
                       return <tr key={item.adjustment_key}>
-                        <th scope="row">{item.display_name}</th><td>{item.unit || '금액'}</td>
+                        <th scope="row">{item.display_name}</th>
+                        <td style={{ textAlign: 'right' }}>{baselineDisplay}</td>
+                        <td>{item.unit || '금액'}</td>
                         <td><EditableNumericInput mode="decimal" disabled={advancedControlsDisabled} aria-label={`${activeInputMonth}월 ${item.display_name} 제조경비 조정액`} value={row.amount} onChange={(value) => updateAdjustment(activeInputMonth, 'manufacturingAdjustments', item.adjustment_key, 'amount', value)} /></td>
                         <td><input disabled={advancedControlsDisabled} aria-label={`${activeInputMonth}월 ${item.display_name} 제조경비 조정 사유`} value={row.reason} maxLength={500} onChange={(event) => updateAdjustment(activeInputMonth, 'manufacturingAdjustments', item.adjustment_key, 'reason', event.target.value)} /></td>
                       </tr>;
@@ -761,14 +767,21 @@ export const ForecastGenerationView: React.FC<ForecastGenerationViewProps> = ({
                 </div>
               </section>
               <section className="forecast-workflow__input-section" aria-labelledby="forecast-sga-adjustments-title">
-                <div className="forecast-workflow__input-heading"><div><h3 id="forecast-sga-adjustments-title">판관비 조정액</h3><p>구분과 계정명은 기준 모형 정보에서 제공합니다.</p></div><span>{inputMetadata?.sga.length ?? 0}개 항목</span></div>
+                <div className="forecast-workflow__input-heading"><div><h3 id="forecast-sga-adjustments-title">판관비 조정액</h3><p>구분과 계정명 및 계획금액은 기준 모형 정보에서 제공합니다.</p></div><span>{inputMetadata?.sga.length ?? 0}개 항목</span></div>
                 <div className="forecast-workflow__table-scroll">
                   <table className="forecast-workflow__input-table forecast-workflow__input-table--advanced">
-                    <thead><tr><th scope="col">항목</th><th scope="col">구분</th><th scope="col">단위</th><th scope="col">조정액</th><th scope="col">사유</th></tr></thead>
+                    <thead><tr><th scope="col">항목</th><th scope="col">구분</th><th scope="col">계획 예상금액</th><th scope="col">단위</th><th scope="col">조정액</th><th scope="col">사유</th></tr></thead>
                     <tbody>{(inputMetadata?.sga ?? []).map((item) => {
                       const row = activeMonthInput.sgaAdjustments[item.adjustment_key] ?? { amount: '0', reason: '' };
+                      const baselineRaw = item.monthly_baseline_amounts?.[String(activeInputMonth)];
+                      const baselineDisplay = typeof baselineRaw === 'number' && Number.isFinite(baselineRaw)
+                        ? baselineRaw.toLocaleString('ko-KR')
+                        : '—';
                       return <tr key={item.adjustment_key}>
-                        <th scope="row">{item.display_name}</th><td>{sectionLabel(item.section)}</td><td>{item.unit || '금액'}</td>
+                        <th scope="row">{item.display_name}</th>
+                        <td>{sectionLabel(item.section)}</td>
+                        <td style={{ textAlign: 'right' }}>{baselineDisplay}</td>
+                        <td>{item.unit || '금액'}</td>
                         <td><EditableNumericInput mode="decimal" disabled={advancedControlsDisabled} aria-label={`${activeInputMonth}월 ${item.display_name} 판관비 조정액`} value={row.amount} onChange={(value) => updateAdjustment(activeInputMonth, 'sgaAdjustments', item.adjustment_key, 'amount', value)} /></td>
                         <td><input disabled={advancedControlsDisabled} aria-label={`${activeInputMonth}월 ${item.display_name} 판관비 조정 사유`} value={row.reason} maxLength={500} onChange={(event) => updateAdjustment(activeInputMonth, 'sgaAdjustments', item.adjustment_key, 'reason', event.target.value)} /></td>
                       </tr>;
