@@ -17,6 +17,7 @@ import {
   adaptForecastInput,
   applyForecastExcelPreview,
   BUSINESS_PRODUCTION_ROWS,
+  calculateForecastBusinessHelperAdjustments,
   createForecastMonthFormState,
   ensureForecastMonths,
   MCM_PRODUCTS,
@@ -256,9 +257,14 @@ export const ForecastGenerationView: React.FC<ForecastGenerationViewProps> = ({
     markDraftChanged();
   };
 
-  const openSgaEditor = (key: string, currentAmount: string, currentReason: string) => {
+  const openSgaEditor = (key: string, currentAmount: string, currentReason: string, defaultSuggestion?: number) => {
     setEditingSgaKey(key);
-    setSgaDraftAmount(currentAmount);
+    const hasExisting = (currentAmount.trim() !== '' && currentAmount.trim() !== '0') || currentReason.trim() !== '';
+    if (!hasExisting && typeof defaultSuggestion === 'number' && Number.isFinite(defaultSuggestion) && defaultSuggestion !== 0) {
+      setSgaDraftAmount(String(Math.round(defaultSuggestion)));
+    } else {
+      setSgaDraftAmount(currentAmount);
+    }
     setSgaDraftReason(currentReason);
   };
 
@@ -936,103 +942,133 @@ export const ForecastGenerationView: React.FC<ForecastGenerationViewProps> = ({
                 <div className="forecast-workflow__table-scroll">
                   <table className="forecast-workflow__input-table forecast-workflow__input-table--advanced">
                     <thead><tr><th scope="col">계정명</th><th scope="col">구분</th><th scope="col">계획 예상금액</th><th scope="col">조정액</th><th scope="col" style={{ width: '80px', textAlign: 'center' }}>조정</th></tr></thead>
-                    <tbody>{(inputMetadata?.sga ?? []).map((item) => {
-                      const row = activeMonthInput.sgaAdjustments[item.adjustment_key] ?? { amount: '0', reason: '' };
-                      const baselineRaw = item.monthly_baseline_amounts?.[String(activeInputMonth)];
-                      const baselineDisplay = typeof baselineRaw === 'number' && Number.isFinite(baselineRaw)
-                        ? baselineRaw.toLocaleString('ko-KR')
-                        : '—';
-                      const adjNum = Number(row.amount.replace(/,/g, '').trim()) || 0;
-                      const hasAdjustment = (row.amount.trim() !== '' && row.amount.trim() !== '0') || row.reason.trim() !== '';
-                      const isEditing = editingSgaKey === item.adjustment_key;
+                    <tbody>{(() => {
+                      const helperAdjustments = calculateForecastBusinessHelperAdjustments(activeMonthInput);
+                      return (inputMetadata?.sga ?? []).map((item) => {
+                        const row = activeMonthInput.sgaAdjustments[item.adjustment_key] ?? { amount: '0', reason: '' };
+                        const baselineRaw = item.monthly_baseline_amounts?.[String(activeInputMonth)];
+                        const baselineDisplay = typeof baselineRaw === 'number' && Number.isFinite(baselineRaw)
+                          ? baselineRaw.toLocaleString('ko-KR')
+                          : '—';
+                        const adjNum = Number(row.amount.replace(/,/g, '').trim()) || 0;
+                        const hasAdjustment = (row.amount.trim() !== '' && row.amount.trim() !== '0') || row.reason.trim() !== '';
+                        const isEditing = editingSgaKey === item.adjustment_key;
+                        const isTariffAccount = item.display_name.includes('관세');
 
-                      return (
-                        <React.Fragment key={item.adjustment_key}>
-                          <tr>
-                            <th scope="row">{item.display_name}</th>
-                            <td>{sectionLabel(item.section)}</td>
-                            <td style={{ textAlign: 'right' }}>{baselineDisplay}</td>
-                            <td style={{
-                              textAlign: 'right',
-                              fontWeight: hasAdjustment ? 700 : 400,
-                              color: adjNum > 0 ? '#047857' : adjNum < 0 ? '#b91c1c' : undefined,
-                            }}>
-                              {hasAdjustment ? (adjNum > 0 ? `+${adjNum.toLocaleString('ko-KR')}` : adjNum.toLocaleString('ko-KR')) : '0'}
-                            </td>
-                            <td style={{ textAlign: 'center' }}>
-                              <button
-                                type="button"
-                                className={`forecast-workflow__btn-adjust ${hasAdjustment ? 'is-active' : ''}`}
-                                disabled={advancedControlsDisabled}
-                                aria-label={`${activeInputMonth}월 ${item.display_name} ${hasAdjustment ? '수정' : '조정'}`}
-                                onClick={() => isEditing ? cancelSgaEditor() : openSgaEditor(item.adjustment_key, row.amount, row.reason)}
-                              >
-                                {hasAdjustment ? '수정' : '조정'}
-                              </button>
-                            </td>
-                          </tr>
-                          {hasAdjustment && !isEditing && (
-                            <tr key={`${item.adjustment_key}-summary`} className="forecast-workflow__summary-row">
-                              <td colSpan={5} style={{ paddingLeft: '24px', fontSize: '0.85em', color: '#64748b' }}>
-                                <span>↳ 조정금액: <strong>{adjNum > 0 ? `+${adjNum.toLocaleString('ko-KR')}` : adjNum.toLocaleString('ko-KR')}원</strong></span>
-                                {row.reason.trim() && <span style={{ marginLeft: '12px' }}>↳ 사유: {row.reason}</span>}
+                        return (
+                          <React.Fragment key={item.adjustment_key}>
+                            <tr>
+                              <th scope="row">{item.display_name}</th>
+                              <td>{sectionLabel(item.section)}</td>
+                              <td style={{ textAlign: 'right' }}>{baselineDisplay}</td>
+                              <td style={{
+                                textAlign: 'right',
+                                fontWeight: hasAdjustment ? 700 : 400,
+                                color: adjNum > 0 ? '#047857' : adjNum < 0 ? '#b91c1c' : undefined,
+                              }}>
+                                {hasAdjustment ? (adjNum > 0 ? `+${adjNum.toLocaleString('ko-KR')}` : adjNum.toLocaleString('ko-KR')) : '0'}
+                              </td>
+                              <td style={{ textAlign: 'center' }}>
+                                <button
+                                  type="button"
+                                  className={`forecast-workflow__btn-adjust ${hasAdjustment ? 'is-active' : ''}`}
+                                  disabled={advancedControlsDisabled}
+                                  aria-label={`${activeInputMonth}월 ${item.display_name} ${hasAdjustment ? '수정' : '조정'}`}
+                                  onClick={() => isEditing
+                                    ? cancelSgaEditor()
+                                    : openSgaEditor(
+                                        item.adjustment_key,
+                                        row.amount,
+                                        row.reason,
+                                        isTariffAccount ? helperAdjustments.tariffAdjustment : undefined,
+                                      )}
+                                >
+                                  {hasAdjustment ? '수정' : '조정'}
+                                </button>
                               </td>
                             </tr>
-                          )}
-                          {isEditing && (
-                            <tr key={`${item.adjustment_key}-drawer`} className="forecast-workflow__drawer-row">
-                              <td colSpan={5}>
-                                <div className="forecast-workflow__inline-drawer">
-                                  <div className="forecast-workflow__inline-drawer-header">
-                                    <strong>📝 [{item.display_name}] 비용 조정 입력</strong>
-                                  </div>
-                                  <div className="forecast-workflow__inline-drawer-body">
-                                    <label className="forecast-workflow__drawer-field">
-                                      <span>조정액 (KRW)</span>
-                                      <EditableNumericInput
-                                        mode="decimal"
-                                        disabled={advancedControlsDisabled}
-                                        aria-label={`${activeInputMonth}월 ${item.display_name} 판관비 조정액`}
-                                        value={sgaDraftAmount}
-                                        onChange={setSgaDraftAmount}
-                                        placeholder="0"
-                                      />
-                                    </label>
-                                    <label className="forecast-workflow__drawer-field forecast-workflow__drawer-field--reason">
-                                      <span>조정 사유 (최대 500자)</span>
-                                      <input
-                                        disabled={advancedControlsDisabled}
-                                        aria-label={`${activeInputMonth}월 ${item.display_name} 판관비 조정 사유`}
-                                        value={sgaDraftReason}
-                                        maxLength={500}
-                                        placeholder="조정 사유를 입력하세요"
-                                        onChange={(e) => setSgaDraftReason(e.target.value)}
-                                      />
-                                    </label>
-                                    <div className="forecast-workflow__drawer-actions">
-                                      <button
-                                        type="button"
-                                        className="forecast-workflow__drawer-btn-save"
-                                        onClick={() => saveSgaEditor(item.adjustment_key)}
-                                      >
-                                        등록
-                                      </button>
-                                      <button
-                                        type="button"
-                                        className="forecast-workflow__drawer-btn-cancel"
-                                        onClick={cancelSgaEditor}
-                                      >
-                                        취소
-                                      </button>
+                            {hasAdjustment && !isEditing && (
+                              <tr key={`${item.adjustment_key}-summary`} className="forecast-workflow__summary-row">
+                                <td colSpan={5} style={{ paddingLeft: '24px', fontSize: '0.85em', color: '#64748b' }}>
+                                  <span>↳ 조정금액: <strong>{adjNum > 0 ? `+${adjNum.toLocaleString('ko-KR')}` : adjNum.toLocaleString('ko-KR')}원</strong></span>
+                                  {row.reason.trim() && <span style={{ marginLeft: '12px' }}>↳ 사유: {row.reason}</span>}
+                                </td>
+                              </tr>
+                            )}
+                            {isEditing && (
+                              <tr key={`${item.adjustment_key}-drawer`} className="forecast-workflow__drawer-row">
+                                <td colSpan={5}>
+                                  <div className="forecast-workflow__inline-drawer">
+                                    <div className="forecast-workflow__inline-drawer-header">
+                                      <strong>📝 [{item.display_name}] 비용 조정 입력</strong>
+                                    </div>
+                                    <div className="forecast-workflow__inline-drawer-body">
+                                      {isTariffAccount && (
+                                        <div style={{
+                                          marginBottom: '12px',
+                                          padding: '8px 12px',
+                                          background: '#f8fafc',
+                                          border: '1px solid #e2e8f0',
+                                          borderRadius: '6px',
+                                          fontSize: '0.85em',
+                                          color: '#334155',
+                                          display: 'flex',
+                                          justifyContent: 'space-between',
+                                          alignItems: 'center',
+                                        }}>
+                                          <span>💡 <strong>자동 산출</strong>: 북미·남미 관세 조정</span>
+                                          <strong style={{ color: helperAdjustments.tariffAdjustment > 0 ? '#047857' : helperAdjustments.tariffAdjustment < 0 ? '#b91c1c' : '#475569' }}>
+                                            {helperAdjustments.tariffAdjustment > 0 ? `+${Math.round(helperAdjustments.tariffAdjustment).toLocaleString('ko-KR')}` : Math.round(helperAdjustments.tariffAdjustment).toLocaleString('ko-KR')}원
+                                          </strong>
+                                        </div>
+                                      )}
+                                      <label className="forecast-workflow__drawer-field">
+                                        <span>조정액 (KRW)</span>
+                                        <EditableNumericInput
+                                          mode="decimal"
+                                          disabled={advancedControlsDisabled}
+                                          aria-label={`${activeInputMonth}월 ${item.display_name} 판관비 조정액`}
+                                          value={sgaDraftAmount}
+                                          onChange={setSgaDraftAmount}
+                                          placeholder="0"
+                                        />
+                                      </label>
+                                      <label className="forecast-workflow__drawer-field forecast-workflow__drawer-field--reason">
+                                        <span>조정 사유 (최대 500자)</span>
+                                        <input
+                                          disabled={advancedControlsDisabled}
+                                          aria-label={`${activeInputMonth}월 ${item.display_name} 판관비 조정 사유`}
+                                          value={sgaDraftReason}
+                                          maxLength={500}
+                                          placeholder="조정 사유를 입력하세요"
+                                          onChange={(e) => setSgaDraftReason(e.target.value)}
+                                        />
+                                      </label>
+                                      <div className="forecast-workflow__drawer-actions">
+                                        <button
+                                          type="button"
+                                          className="forecast-workflow__drawer-btn-save"
+                                          onClick={() => saveSgaEditor(item.adjustment_key)}
+                                        >
+                                          등록
+                                        </button>
+                                        <button
+                                          type="button"
+                                          className="forecast-workflow__drawer-btn-cancel"
+                                          onClick={cancelSgaEditor}
+                                        >
+                                          취소
+                                        </button>
+                                      </div>
                                     </div>
                                   </div>
-                                </div>
-                              </td>
-                            </tr>
-                          )}
-                        </React.Fragment>
-                      );
-                    })}</tbody>
+                                </td>
+                              </tr>
+                            )}
+                          </React.Fragment>
+                        );
+                      });
+                    })()}</tbody>
                   </table>
                 </div>
               </section>
