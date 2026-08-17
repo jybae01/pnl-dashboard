@@ -53,7 +53,7 @@ describe('React core vertical slice', () => {
     expect(await screen.findByRole('heading', { name: '데이터 관리' })).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: '손익분석 결과' }));
     expect(await screen.findByText('분석 조건')).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: '분석 실행' }));
+    fireEvent.click(screen.getByRole('button', { name: '손익 변동 요인 분석 실행' }));
     expect(await screen.findByTestId('stored-result', {}, { timeout: 3500 })).toHaveTextContent('영업이익 증감');
     expect(screen.getAllByRole('button', { name: '분석 근거 엑셀 내려받기' })).toHaveLength(1);
     expect(calls.some((value) => value.includes(`/api/jobs/${JOB}`))).toBe(true);
@@ -110,7 +110,7 @@ describe('React core vertical slice', () => {
     expect(baselineFx).toHaveValue('');
     fireEvent.change(baselineFx, { target: { value: '1450.25' } });
     fireEvent.change(screen.getByLabelText('비교 매출환율 (KRW/USD)'), { target: { value: '1450.5' } });
-    fireEvent.click(screen.getByRole('button', { name: '분석 실행' }));
+    fireEvent.click(screen.getByRole('button', { name: '손익 변동 요인 분석 실행' }));
 
     await waitFor(() => expect(fetchMock.mock.calls.some(([input]) => String(input).endsWith('/api/analyses'))).toBe(true));
     const submitCall = fetchMock.mock.calls.find(([input]) => String(input).endsWith('/api/analyses'));
@@ -165,7 +165,7 @@ describe('React core vertical slice', () => {
     }));
     render(<CoreAnalysisView role="admin" />);
     expect(await screen.findByText('분석 조건')).toBeInTheDocument();
-    const run = screen.getByRole('button', { name: '분석 실행' });
+    const run = screen.getByRole('button', { name: '손익 변동 요인 분석 실행' });
     fireEvent.click(run);
     expect(await screen.findByText('서버에 연결할 수 없습니다.')).toBeInTheDocument();
     fireEvent.click(run);
@@ -235,7 +235,7 @@ describe('React core vertical slice', () => {
     render(<CoreAnalysisView role="admin" />);
     expect(await screen.findByText('손익 분석 중')).toBeInTheDocument();
     expect(screen.queryByText('PROCESSING')).not.toBeInTheDocument();
-    expect(screen.getByRole('button', { name: '분석 실행' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: '손익 변동 요인 분석 실행' })).toBeDisabled();
     expect(screen.getByRole('button', { name: '새 분석' })).toBeDisabled();
   });
 
