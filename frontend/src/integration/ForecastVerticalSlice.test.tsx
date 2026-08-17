@@ -520,4 +520,52 @@ describe('Forecast React vertical slice', () => {
     expect(screen.getByRole('heading', { name: 'MCM 유상사급' })).toBeInTheDocument();
     expect(screen.queryByText('월별 입력 JSON')).not.toBeInTheDocument();
   });
+
+  it('suggests tariff adjustment on selling freight row, isolates draft, serializes standard DTO, and preserves registered amount', async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(response(modelPayload()))
+      .mockResolvedValueOnce(response(metadataPayload()))
+      .mockResolvedValueOnce(response(successPayload()));
+    vi.stubGlobal('fetch', fetchMock);
+
+    render(<ForecastGenerationView />);
+    await screen.findByRole('heading', { name: '추정 산출' });
+    await waitForForecastReady();
+
+    fireEvent.click(screen.getByText(/고급 입력 및 조정/));
+    fireEvent.change(screen.getByLabelText('7월 기준 북미·남미 매출'), { target: { value: '500000' } });
+    fireEvent.change(screen.getByLabelText('7월 추정 북미·남미 매출'), { target: { value: '1000000' } });
+
+    fireEvent.click(screen.getByRole('button', { name: '7월 운송비 조정' }));
+    expect(screen.getByText(/북미·남미 관세 조정/)).toBeInTheDocument();
+    expect(screen.getByText('+6,500원')).toBeInTheDocument();
+    const freightAmountInput = screen.getByLabelText('7월 운송비 판관비 조정액') as HTMLInputElement;
+    expect(freightAmountInput.value).toBe('6500');
+
+    fireEvent.click(screen.getByRole('button', { name: '취소' }));
+    expect(screen.queryByText(/북미·남미 관세 조정/)).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '7월 운송비 조정' })).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: '7월 운송비 조정' }));
+    fireEvent.change(screen.getByLabelText('7월 운송비 판관비 조정 사유'), { target: { value: '미주 관세 변동분 반영' } });
+    fireEvent.click(screen.getByRole('button', { name: '등록' }));
+    expect(screen.getByText(/조정금액:/)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '7월 운송비 수정' })).toBeInTheDocument();
+
+    fireEvent.change(screen.getByLabelText('7월 추정 북미·남미 매출'), { target: { value: '2000000' } });
+
+    fireEvent.click(screen.getByRole('button', { name: '7월 운송비 수정' }));
+    expect(screen.getByText('+19,500원')).toBeInTheDocument();
+    const editingFreightInput = screen.getByLabelText('7월 운송비 판관비 조정액') as HTMLInputElement;
+    expect(editingFreightInput.value).toBe('6500');
+    fireEvent.click(screen.getByRole('button', { name: '취소' }));
+
+    fireEvent.click(screen.getByRole('button', { name: '추정 모형 생성' }));
+    await screen.findByText('추정 모형 생성 완료');
+
+    const body = JSON.parse(String((fetchMock.mock.calls[2][1] as RequestInit).body));
+    expect(body.months[0].sga_adjustments).toEqual([
+      { adjustment_key: 'sga-selling', amount: 6500, reason: '미주 관세 변동분 반영' },
+    ]);
+  });
 });
