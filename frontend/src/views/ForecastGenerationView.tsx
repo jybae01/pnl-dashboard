@@ -111,6 +111,9 @@ export const ForecastGenerationView: React.FC<ForecastGenerationViewProps> = ({
   const [editingMfgKey, setEditingMfgKey] = useState<string | null>(null);
   const [mfgDraftAmount, setMfgDraftAmount] = useState<string>('0');
   const [mfgDraftReason, setMfgDraftReason] = useState<string>('');
+  const [editingSgaKey, setEditingSgaKey] = useState<string | null>(null);
+  const [sgaDraftAmount, setSgaDraftAmount] = useState<string>('0');
+  const [sgaDraftReason, setSgaDraftReason] = useState<string>('');
   const idempotencyKey = useRef(crypto.randomUUID());
   const submittingRef = useRef(false);
   const downloadPendingRef = useRef(false);
@@ -214,6 +217,9 @@ export const ForecastGenerationView: React.FC<ForecastGenerationViewProps> = ({
     setEditingMfgKey(null);
     setMfgDraftAmount('0');
     setMfgDraftReason('');
+    setEditingSgaKey(null);
+    setSgaDraftAmount('0');
+    setSgaDraftReason('');
   }, [activeInputMonth]);
 
   const openMfgEditor = (key: string, currentAmount: string, currentReason: string) => {
@@ -247,6 +253,40 @@ export const ForecastGenerationView: React.FC<ForecastGenerationViewProps> = ({
     setEditingMfgKey(null);
     setMfgDraftAmount('0');
     setMfgDraftReason('');
+    markDraftChanged();
+  };
+
+  const openSgaEditor = (key: string, currentAmount: string, currentReason: string) => {
+    setEditingSgaKey(key);
+    setSgaDraftAmount(currentAmount);
+    setSgaDraftReason(currentReason);
+  };
+
+  const cancelSgaEditor = () => {
+    setEditingSgaKey(null);
+    setSgaDraftAmount('0');
+    setSgaDraftReason('');
+  };
+
+  const saveSgaEditor = (key: string) => {
+    setInputs((old) => {
+      const current = old[activeInputMonth] ?? createForecastMonthFormState(activeInputMonth, inputMetadata ?? undefined);
+      const rows = current.sgaAdjustments;
+      const row = rows[key] ?? { amount: '0', reason: '' };
+      return {
+        ...old,
+        [activeInputMonth]: {
+          ...current,
+          sgaAdjustments: {
+            ...rows,
+            [key]: { ...row, amount: sgaDraftAmount, reason: sgaDraftReason },
+          },
+        },
+      };
+    });
+    setEditingSgaKey(null);
+    setSgaDraftAmount('0');
+    setSgaDraftReason('');
     markDraftChanged();
   };
 
@@ -892,24 +932,106 @@ export const ForecastGenerationView: React.FC<ForecastGenerationViewProps> = ({
                 </div>
               </section>
               <section className="forecast-workflow__input-section" aria-labelledby="forecast-sga-adjustments-title">
-                <div className="forecast-workflow__input-heading"><div><h3 id="forecast-sga-adjustments-title">판관비 조정액</h3><p>구분과 계정명 및 계획금액은 기준 모형 정보에서 제공합니다.</p></div><span>{inputMetadata?.sga.length ?? 0}개 항목</span></div>
+                <div className="forecast-workflow__input-heading"><div><h3 id="forecast-sga-adjustments-title">판관비 조정액</h3><p>구분과 계정명 및 계획 예상금액은 기준 모형 정보에서 제공합니다.</p></div><span>{inputMetadata?.sga.length ?? 0}개 항목</span></div>
                 <div className="forecast-workflow__table-scroll">
                   <table className="forecast-workflow__input-table forecast-workflow__input-table--advanced">
-                    <thead><tr><th scope="col">항목</th><th scope="col">구분</th><th scope="col">계획 예상금액</th><th scope="col">단위</th><th scope="col">조정액</th><th scope="col">사유</th></tr></thead>
+                    <thead><tr><th scope="col">계정명</th><th scope="col">구분</th><th scope="col">계획 예상금액</th><th scope="col">조정액</th><th scope="col" style={{ width: '80px', textAlign: 'center' }}>조정</th></tr></thead>
                     <tbody>{(inputMetadata?.sga ?? []).map((item) => {
                       const row = activeMonthInput.sgaAdjustments[item.adjustment_key] ?? { amount: '0', reason: '' };
                       const baselineRaw = item.monthly_baseline_amounts?.[String(activeInputMonth)];
                       const baselineDisplay = typeof baselineRaw === 'number' && Number.isFinite(baselineRaw)
                         ? baselineRaw.toLocaleString('ko-KR')
                         : '—';
-                      return <tr key={item.adjustment_key}>
-                        <th scope="row">{item.display_name}</th>
-                        <td>{sectionLabel(item.section)}</td>
-                        <td style={{ textAlign: 'right' }}>{baselineDisplay}</td>
-                        <td>{item.unit || '금액'}</td>
-                        <td><EditableNumericInput mode="decimal" disabled={advancedControlsDisabled} aria-label={`${activeInputMonth}월 ${item.display_name} 판관비 조정액`} value={row.amount} onChange={(value) => updateAdjustment(activeInputMonth, 'sgaAdjustments', item.adjustment_key, 'amount', value)} /></td>
-                        <td><input disabled={advancedControlsDisabled} aria-label={`${activeInputMonth}월 ${item.display_name} 판관비 조정 사유`} value={row.reason} maxLength={500} onChange={(event) => updateAdjustment(activeInputMonth, 'sgaAdjustments', item.adjustment_key, 'reason', event.target.value)} /></td>
-                      </tr>;
+                      const adjNum = Number(row.amount.replace(/,/g, '').trim()) || 0;
+                      const hasAdjustment = (row.amount.trim() !== '' && row.amount.trim() !== '0') || row.reason.trim() !== '';
+                      const isEditing = editingSgaKey === item.adjustment_key;
+
+                      return (
+                        <React.Fragment key={item.adjustment_key}>
+                          <tr>
+                            <th scope="row">{item.display_name}</th>
+                            <td>{sectionLabel(item.section)}</td>
+                            <td style={{ textAlign: 'right' }}>{baselineDisplay}</td>
+                            <td style={{
+                              textAlign: 'right',
+                              fontWeight: hasAdjustment ? 700 : 400,
+                              color: adjNum > 0 ? '#047857' : adjNum < 0 ? '#b91c1c' : undefined,
+                            }}>
+                              {hasAdjustment ? (adjNum > 0 ? `+${adjNum.toLocaleString('ko-KR')}` : adjNum.toLocaleString('ko-KR')) : '0'}
+                            </td>
+                            <td style={{ textAlign: 'center' }}>
+                              <button
+                                type="button"
+                                className={`forecast-workflow__btn-adjust ${hasAdjustment ? 'is-active' : ''}`}
+                                disabled={advancedControlsDisabled}
+                                aria-label={`${activeInputMonth}월 ${item.display_name} ${hasAdjustment ? '수정' : '조정'}`}
+                                onClick={() => isEditing ? cancelSgaEditor() : openSgaEditor(item.adjustment_key, row.amount, row.reason)}
+                              >
+                                {hasAdjustment ? '수정' : '조정'}
+                              </button>
+                            </td>
+                          </tr>
+                          {hasAdjustment && !isEditing && (
+                            <tr key={`${item.adjustment_key}-summary`} className="forecast-workflow__summary-row">
+                              <td colSpan={5} style={{ paddingLeft: '24px', fontSize: '0.85em', color: '#64748b' }}>
+                                <span>↳ 조정금액: <strong>{adjNum > 0 ? `+${adjNum.toLocaleString('ko-KR')}` : adjNum.toLocaleString('ko-KR')}원</strong></span>
+                                {row.reason.trim() && <span style={{ marginLeft: '12px' }}>↳ 사유: {row.reason}</span>}
+                              </td>
+                            </tr>
+                          )}
+                          {isEditing && (
+                            <tr key={`${item.adjustment_key}-drawer`} className="forecast-workflow__drawer-row">
+                              <td colSpan={5}>
+                                <div className="forecast-workflow__inline-drawer">
+                                  <div className="forecast-workflow__inline-drawer-header">
+                                    <strong>📝 [{item.display_name}] 비용 조정 입력</strong>
+                                  </div>
+                                  <div className="forecast-workflow__inline-drawer-body">
+                                    <label className="forecast-workflow__drawer-field">
+                                      <span>조정액 (KRW)</span>
+                                      <EditableNumericInput
+                                        mode="decimal"
+                                        disabled={advancedControlsDisabled}
+                                        aria-label={`${activeInputMonth}월 ${item.display_name} 판관비 조정액`}
+                                        value={sgaDraftAmount}
+                                        onChange={setSgaDraftAmount}
+                                        placeholder="0"
+                                      />
+                                    </label>
+                                    <label className="forecast-workflow__drawer-field forecast-workflow__drawer-field--reason">
+                                      <span>조정 사유 (최대 500자)</span>
+                                      <input
+                                        disabled={advancedControlsDisabled}
+                                        aria-label={`${activeInputMonth}월 ${item.display_name} 판관비 조정 사유`}
+                                        value={sgaDraftReason}
+                                        maxLength={500}
+                                        placeholder="조정 사유를 입력하세요"
+                                        onChange={(e) => setSgaDraftReason(e.target.value)}
+                                      />
+                                    </label>
+                                    <div className="forecast-workflow__drawer-actions">
+                                      <button
+                                        type="button"
+                                        className="forecast-workflow__drawer-btn-save"
+                                        onClick={() => saveSgaEditor(item.adjustment_key)}
+                                      >
+                                        등록
+                                      </button>
+                                      <button
+                                        type="button"
+                                        className="forecast-workflow__drawer-btn-cancel"
+                                        onClick={cancelSgaEditor}
+                                      >
+                                        취소
+                                      </button>
+                                    </div>
+                                  </div>
+                                </div>
+                              </td>
+                            </tr>
+                          )}
+                        </React.Fragment>
+                      );
                     })}</tbody>
                   </table>
                 </div>
