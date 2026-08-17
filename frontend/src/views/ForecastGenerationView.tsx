@@ -954,6 +954,7 @@ export const ForecastGenerationView: React.FC<ForecastGenerationViewProps> = ({
                         const hasAdjustment = (row.amount.trim() !== '' && row.amount.trim() !== '0') || row.reason.trim() !== '';
                         const isEditing = editingSgaKey === item.adjustment_key;
                         const isSellingFreightAccount = item.section === 'selling' && (item.display_name.includes('운송비') || item.display_name.includes('운반비'));
+                        const sellingFreightSuggestion = helperAdjustments.tariffAdjustment + helperAdjustments.ufMbrFreightAdjustment;
 
                         return (
                           <React.Fragment key={item.adjustment_key}>
@@ -980,7 +981,7 @@ export const ForecastGenerationView: React.FC<ForecastGenerationViewProps> = ({
                                         item.adjustment_key,
                                         row.amount,
                                         row.reason,
-                                        isSellingFreightAccount ? helperAdjustments.tariffAdjustment : undefined,
+                                        isSellingFreightAccount ? sellingFreightSuggestion : undefined,
                                       )}
                                 >
                                   {hasAdjustment ? '수정' : '조정'}
@@ -1006,20 +1007,34 @@ export const ForecastGenerationView: React.FC<ForecastGenerationViewProps> = ({
                                       {isSellingFreightAccount && (
                                         <div style={{
                                           marginBottom: '12px',
-                                          padding: '8px 12px',
+                                          padding: '10px 12px',
                                           background: '#f8fafc',
                                           border: '1px solid #e2e8f0',
                                           borderRadius: '6px',
                                           fontSize: '0.85em',
                                           color: '#334155',
                                           display: 'flex',
-                                          justifyContent: 'space-between',
-                                          alignItems: 'center',
+                                          flexDirection: 'column',
+                                          gap: '6px',
                                         }}>
-                                          <span>💡 <strong>자동 산출</strong>: 북미·남미 관세 조정</span>
-                                          <strong style={{ color: helperAdjustments.tariffAdjustment > 0 ? '#047857' : helperAdjustments.tariffAdjustment < 0 ? '#b91c1c' : '#475569' }}>
-                                            {helperAdjustments.tariffAdjustment > 0 ? `+${Math.round(helperAdjustments.tariffAdjustment).toLocaleString('ko-KR')}` : Math.round(helperAdjustments.tariffAdjustment).toLocaleString('ko-KR')}원
-                                          </strong>
+                                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                            <span>💡 <strong>자동 산출</strong>: 북미·남미 관세 조정</span>
+                                            <strong style={{ color: helperAdjustments.tariffAdjustment > 0 ? '#047857' : helperAdjustments.tariffAdjustment < 0 ? '#b91c1c' : '#475569' }}>
+                                              {helperAdjustments.tariffAdjustment > 0 ? `+${Math.round(helperAdjustments.tariffAdjustment).toLocaleString('ko-KR')}` : Math.round(helperAdjustments.tariffAdjustment).toLocaleString('ko-KR')}원
+                                            </strong>
+                                          </div>
+                                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                            <span>💡 <strong>자동 산출</strong>: UF/MBR 신사업 운반비</span>
+                                            <strong style={{ color: helperAdjustments.ufMbrFreightAdjustment > 0 ? '#047857' : helperAdjustments.ufMbrFreightAdjustment < 0 ? '#b91c1c' : '#475569' }}>
+                                              {helperAdjustments.ufMbrFreightAdjustment > 0 ? `+${Math.round(helperAdjustments.ufMbrFreightAdjustment).toLocaleString('ko-KR')}` : Math.round(helperAdjustments.ufMbrFreightAdjustment).toLocaleString('ko-KR')}원
+                                            </strong>
+                                          </div>
+                                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderTop: '1px dashed #cbd5e1', paddingTop: '6px', marginTop: '2px' }}>
+                                            <span><strong>자동 제안 합계</strong></span>
+                                            <strong style={{ color: sellingFreightSuggestion > 0 ? '#047857' : sellingFreightSuggestion < 0 ? '#b91c1c' : '#475569' }}>
+                                              {sellingFreightSuggestion > 0 ? `+${Math.round(sellingFreightSuggestion).toLocaleString('ko-KR')}` : Math.round(sellingFreightSuggestion).toLocaleString('ko-KR')}원
+                                            </strong>
+                                          </div>
                                         </div>
                                       )}
                                       <label className="forecast-workflow__drawer-field">
