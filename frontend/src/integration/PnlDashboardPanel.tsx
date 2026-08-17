@@ -4,12 +4,12 @@ import { PnlDashboardDto, DashboardFinancialLineDto, DashboardAccountDto } from 
 
 type DashboardTab = 'pnl' | 'manufacturing' | 'sga' | 'groups';
 
-const moneyFormatter = new Intl.NumberFormat('ko-KR', { maximumFractionDigits: 0 });
-const compactMoneyFormatter = new Intl.NumberFormat('ko-KR', { notation: 'compact', maximumFractionDigits: 1 });
+const moneyFormatter = new Intl.NumberFormat('ko-KR', { maximumFractionDigits: 1 });
 const decimalFormatter = new Intl.NumberFormat('ko-KR', { maximumFractionDigits: 1 });
 
 function money(value: number): string {
-  return `${value < 0 ? '-' : ''}₩${moneyFormatter.format(Math.abs(value))}`;
+  const millions = value / 1_000_000;
+  return `${millions < 0 ? '-' : ''}${moneyFormatter.format(Math.abs(millions))} 백만원`;
 }
 
 function nullableMoney(value: number | null): string {
@@ -50,17 +50,6 @@ function NeutralAmount({ value }: { value: number }) {
   return <span className="pnl-dashboard__amount">{signedMoney(value)}</span>;
 }
 
-function ScenarioBadge({ scenario }: { scenario: '기준 모형' | '비교 모형' | '실적' | '추정' | '계획' }) {
-  const scenarioClass = scenario === '실적'
-    ? 'actual'
-    : scenario === '추정'
-      ? 'forecast'
-      : scenario === '계획' || scenario === '기준 모형'
-        ? 'plan'
-        : 'neutral';
-  return <span className={`pnl-dashboard__scenario pnl-dashboard__scenario--${scenarioClass}`}>{scenario}</span>;
-}
-
 function chartValueLabel(value: number | null, format: 'money' | 'percent'): string {
   if (value === null) return '미산출';
   return format === 'money' ? money(value) : percent(value);
@@ -68,7 +57,7 @@ function chartValueLabel(value: number | null, format: 'money' | 'percent'): str
 
 function chartAxisLabel(value: number, format: 'money' | 'percent'): string {
   return format === 'money'
-    ? `${value < 0 ? '-' : ''}₩${compactMoneyFormatter.format(Math.abs(value))}`
+    ? `${value < 0 ? '-' : ''}${decimalFormatter.format(Math.abs(value) / 1_000_000)}`
     : percent(value);
 }
 
@@ -166,6 +155,7 @@ function CompositeProfitMarginTrendCard({ rows, baselineName, comparisonName }: 
   baselineName: string;
   comparisonName: string;
 }) {
+  const [mode, setMode] = useState<'operating-profit' | 'table'>('operating-profit');
   const width = 760;
   const height = 214;
   const plot = { left: 52, right: 48, top: 18, bottom: 34 };
@@ -229,16 +219,21 @@ function CompositeProfitMarginTrendCard({ rows, baselineName, comparisonName }: 
   return <article className="pnl-dashboard__trend-card" data-testid="composite-trend-card">
     <div className="pnl-dashboard__trend-card-header">
       <div>
-        <h3><TrendingUp size={14} aria-hidden="true" style={{ color: '#ff5f1f', verticalAlign: 'middle', marginRight: 4 }} />월별 영업이익 / 영업이익률 추이</h3>
-        <p>월별 영업이익(금액) 및 영업이익률(%) 복합 추이</p>
+        <h3><TrendingUp size={14} aria-hidden="true" style={{ color: '#ff5f1f', verticalAlign: 'middle', marginRight: 4 }} />월별 손익 추이</h3>
+        <p>영업이익과 월별 데이터표를 전환하여 확인합니다.</p>
       </div>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-        <span style={{ fontSize: '10.5px', color: 'var(--brand-orange)', fontWeight: 700 }}>● 영업이익</span>
-        <span style={{ fontSize: '10.5px', color: '#6366f1', fontWeight: 700 }}>◆ 이익률(%)</span>
-        <span className="pnl-dashboard__trend-range">{rows[0]?.month}월–{rows[rows.length - 1]?.month}월</span>
+      <div className="pnl-dashboard__trend-modes" role="tablist" aria-label="월별 손익 추이 표시 방식">
+        <button type="button" role="tab" aria-selected={mode === 'operating-profit'} className={mode === 'operating-profit' ? 'is-active' : ''} onClick={() => setMode('operating-profit')}>영업이익</button>
+        <button type="button" role="tab" aria-selected="false" disabled title="Reporting Backend Contract에서 조정 영업이익이 제공되면 사용할 수 있습니다.">조정 영업이익</button>
+        <button type="button" role="tab" aria-selected={mode === 'table'} className={mode === 'table' ? 'is-active' : ''} onClick={() => setMode('table')}>월별 데이터표</button>
       </div>
     </div>
-    <div className="pnl-dashboard__trend-chart-scroll">
+    {mode === 'table' ? <div className="pnl-dashboard__table-scroll">
+      <table className="pnl-dashboard__table pnl-dashboard__monthly-table">
+        <thead><tr><th>월</th><th className="is-number">기준 영업이익</th><th className="is-number">비교 영업이익</th><th className="is-number">증감</th><th className="is-number">비교 영업이익률</th></tr></thead>
+        <tbody>{rows.map((row) => <tr key={row.month}><th scope="row">{row.month}월</th><td className="is-number">{money(row.operating_profit.baseline)}</td><td className="is-number">{money(row.operating_profit.comparison)}</td><td className="is-number"><NeutralAmount value={row.operating_profit.delta} /></td><td className="is-number">{percent(row.comparison_operating_margin)}</td></tr>)}</tbody>
+      </table>
+    </div> : <div className="pnl-dashboard__trend-chart-scroll">
       <svg className="pnl-dashboard__trend-chart" viewBox={`0 0 ${width} ${height}`} role="img" aria-label="월별 영업이익 및 영업이익률 복합 추이">
         {[0, 0.5, 1].map((fraction) => {
           const gridY = plot.top + innerHeight * fraction;
@@ -280,7 +275,7 @@ function CompositeProfitMarginTrendCard({ rows, baselineName, comparisonName }: 
         })}
         {rows.map((row, index) => <text key={row.month} x={x(index)} y={height - 10} textAnchor="middle" className="pnl-dashboard__trend-axis">{row.month}월</text>)}
       </svg>
-    </div>
+    </div>}
   </article>;
 }
 
@@ -292,7 +287,7 @@ function FinancialLinesTable({ title, rows, baselineName, comparisonName, embedd
   embedded?: boolean;
 }) {
   const content = <>
-    <div className="pnl-dashboard__section-header"><h3>{title}</h3><span>금액 단위: KRW</span></div>
+    <div className="pnl-dashboard__section-header"><h3>{title}</h3><span>금액 단위: 백만원</span></div>
     <div className="pnl-dashboard__table-scroll">
       <table className="pnl-dashboard__table">
         <thead><tr><th scope="col">항목</th><th scope="col" className="is-number">{baselineName}</th><th scope="col" className="is-number">{comparisonName}</th><th scope="col" className="is-number">증감</th><th scope="col" className="is-number">비교 매출 대비</th></tr></thead>
@@ -362,20 +357,8 @@ export function PnlDashboardPanel({ dashboard, onNavigateToVariance }: PnlDashbo
   ];
 
   return <div className="pnl-dashboard" data-testid="pnl-dashboard">
-    <section className="pnl-dashboard__identity" aria-label="손익 현황 조건">
-      <div className="pnl-dashboard__identity-heading">
-        <div><p className="pnl-dashboard__eyebrow">P&amp;L STATUS</p><h1>손익 현황</h1></div>
-        <span className="pnl-dashboard__identity-year">{identity.model_year}년</span>
-      </div>
-      <div className="pnl-dashboard__identity-meta">
-        <span className="pnl-dashboard__model-pair"><ScenarioBadge scenario="기준 모형" /> <strong>{identity.baseline_model_name}</strong><span aria-hidden="true">↔</span><ScenarioBadge scenario="비교 모형" /> <strong>{identity.comparison_model_name}</strong></span>
-        <span>{identity.start_month}월–{identity.end_month}월</span>
-        <span>실적 확정 {identity.actual_through_month === null ? '없음' : `${identity.actual_through_month}월`}</span>
-      </div>
-    </section>
-
     <section className="pnl-dashboard__summary" aria-labelledby="pnl-summary-title">
-      <div className="pnl-dashboard__section-heading"><div><p className="pnl-dashboard__eyebrow">AT A GLANCE</p><h2 id="pnl-summary-title">핵심 손익 요약</h2></div><span className="pnl-dashboard__unit-note">금액 단위: KRW</span></div>
+      <div className="pnl-dashboard__section-heading"><h2 id="pnl-summary-title">핵심 손익 요약</h2><span className="pnl-dashboard__unit-note">금액 단위: 백만원</span></div>
       <div className="pnl-dashboard__kpi-grid">
         <article className="pnl-dashboard__kpi">
           <p>매출액</p>
@@ -394,23 +377,12 @@ export function PnlDashboardPanel({ dashboard, onNavigateToVariance }: PnlDashbo
             <span>기준 대비</span> <ToneValue value={kpis.operating_profit.period.delta} signed />
           </small>
         </article>
-        <article className="pnl-dashboard__kpi">
-          <p>영업이익률</p>
-          <strong>{percent(kpis.period_operating_margin.comparison)}</strong>
-          <span>{identity.comparison_model_name} · 기준 {percent(kpis.period_operating_margin.baseline)}</span>
-          <small className={`pnl-dashboard__kpi-pill pnl-dashboard__kpi-pill--${tone(kpis.period_operating_margin.delta_percentage_points)}`}>
-            <span>{kpis.period_operating_margin.delta_percentage_points !== null && kpis.period_operating_margin.delta_percentage_points > 0 ? '↑' : kpis.period_operating_margin.delta_percentage_points !== null && kpis.period_operating_margin.delta_percentage_points < 0 ? '↓' : '—'}</span>
-            <span>차이</span> <ToneValue value={kpis.period_operating_margin.delta_percentage_points} format="percent" signed />
-          </small>
-        </article>
-        <article className="pnl-dashboard__kpi">
-          <p>기준 대비 영업이익 증감</p>
-          <strong className={`pnl-dashboard__tone pnl-dashboard__tone--${tone(kpis.operating_profit.period.delta)}`}>
-            {signedMoney(kpis.operating_profit.period.delta)}
-          </strong>
-          <span>{identity.baseline_model_name} → {identity.comparison_model_name}</span>
+        <article className="pnl-dashboard__kpi pnl-dashboard__kpi--unavailable">
+          <p>조정 영업이익</p>
+          <strong>미제공</strong>
+          <span>Reporting Backend Contract 필요</span>
           <small className="pnl-dashboard__kpi-pill">
-            <span>영업이익 영향 기준</span>
+            Production fallback 없음
           </small>
         </article>
       </div>
@@ -435,7 +407,7 @@ export function PnlDashboardPanel({ dashboard, onNavigateToVariance }: PnlDashbo
     </section>
 
     <section className="pnl-dashboard__details" aria-labelledby="pnl-detail-title">
-      <div className="pnl-dashboard__section-heading"><div><p className="pnl-dashboard__eyebrow">DETAILS</p><h2 id="pnl-detail-title">상세 손익</h2></div><span className="pnl-dashboard__unit-note">업무용 고밀도 표 · 금액 단위: KRW</span></div>
+      <div className="pnl-dashboard__section-heading"><h2 id="pnl-detail-title">상세 손익</h2><span className="pnl-dashboard__unit-note">금액 단위: 백만원</span></div>
       <div className="pnl-dashboard__tabs-row" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderBottom: '1px solid var(--border-default)', marginBottom: 9, flexWrap: 'wrap', gap: 8 }}>
         <div className="pnl-dashboard__tabs" role="tablist" aria-label="손익 상세 영역" style={{ borderBottom: 'none', marginBottom: 0 }}>
           {tabs.map((item) => <button key={item.key} type="button" role="tab" aria-selected={tab === item.key} aria-controls={`pnl-dashboard-tabpanel-${item.key}`} className={`pnl-dashboard__tab ${tab === item.key ? 'is-active' : ''}`} onClick={() => setTab(item.key)}>{item.icon}{item.label}</button>)}
@@ -452,16 +424,17 @@ export function PnlDashboardPanel({ dashboard, onNavigateToVariance }: PnlDashbo
           </button>
         )}
       </div>
-      <div id="pnl-dashboard-tabpanel-pnl" role="tabpanel" hidden={tab !== 'pnl'}>{tab === 'pnl' && <FinancialLinesTable title="손익계산서" rows={dashboard.pnl_statement} baselineName={identity.baseline_model_name} comparisonName={identity.comparison_model_name} />}</div>
+      <div id="pnl-dashboard-tabpanel-pnl" role="tabpanel" hidden={tab !== 'pnl'}>{tab === 'pnl' && <>
+        <FinancialLinesTable title="손익계산서" rows={dashboard.pnl_statement} baselineName={identity.baseline_model_name} comparisonName={identity.comparison_model_name} />
+        <section className="pnl-dashboard__factors" aria-labelledby="pnl-factors-title">
+          <div className="pnl-dashboard__section-heading"><h3 id="pnl-factors-title">주요 손익 변동요인</h3><span className="pnl-dashboard__unit-note">Backend 제공 순서</span></div>
+          <div className="pnl-dashboard__factor-grid">{dashboard.key_facts.effects.map((effect) => <div className="pnl-dashboard__factor" key={effect.code}><span>{effect.label}</span><ToneValue value={effect.profit_effect} signed /></div>)}<div className="pnl-dashboard__factor pnl-dashboard__factor--residual"><span>기타 요인</span><ToneValue value={dashboard.key_facts.residual} signed /></div></div>
+        </section>
+      </>}</div>
       <div id="pnl-dashboard-tabpanel-manufacturing" role="tabpanel" hidden={tab !== 'manufacturing'}>{tab === 'manufacturing' && <section className="pnl-dashboard__section-card"><div className="pnl-dashboard__section-header"><h3>제조원가</h3><span>환율 단위: {dashboard.manufacturing.material_components.jpy_fx_unit}</span></div><FinancialLinesTable title="제조원가 구성" rows={dashboard.manufacturing.cost_lines} baselineName={identity.baseline_model_name} comparisonName={identity.comparison_model_name} embedded /><div className="pnl-dashboard__subsection"><h4>원재료 구성</h4><div className="pnl-dashboard__material-grid"><span>비직물 가격 (환율 제외)<strong>{nullableMoney(dashboard.manufacturing.material_components.nonwoven_price_ex_fx)}</strong></span><span>비직물 JPY<strong>{nullableMoney(dashboard.manufacturing.material_components.nonwoven_jpy)}</strong></span><span>비직물 외 재료<strong>{nullableMoney(dashboard.manufacturing.material_components.materials_ex_nonwoven)}</strong></span><span>합계<strong>{nullableMoney(dashboard.manufacturing.material_components.total)}</strong></span></div></div><div className="pnl-dashboard__subsection"><h4>제조원가 계정</h4><AccountTable rows={dashboard.manufacturing.accounts} baselineName={identity.baseline_model_name} comparisonName={identity.comparison_model_name} /></div></section>}</div>
       <div id="pnl-dashboard-tabpanel-sga" role="tabpanel" hidden={tab !== 'sga'}>{tab === 'sga' && <section className="pnl-dashboard__section-card"><div className="pnl-dashboard__section-header"><h3>판매관리비</h3><span>계정별 비교</span></div><AccountTable rows={dashboard.sga.accounts} baselineName={identity.baseline_model_name} comparisonName={identity.comparison_model_name} /></section>}</div>
       <div id="pnl-dashboard-tabpanel-groups" role="tabpanel" hidden={tab !== 'groups'}>{tab === 'groups' && <ProductGroupTable dashboard={dashboard} />}</div>
     </section>
 
-    <section className="pnl-dashboard__factors" aria-labelledby="pnl-factors-title">
-      <div className="pnl-dashboard__section-heading"><div><p className="pnl-dashboard__eyebrow">KEY VARIANCES</p><h2 id="pnl-factors-title">주요 손익 변동요인</h2></div><span className="pnl-dashboard__unit-note">결과 제공 순서</span></div>
-      <div className="pnl-dashboard__factor-grid">{dashboard.key_facts.effects.map((effect) => <div className="pnl-dashboard__factor" key={effect.code}><span>{effect.label}</span><ToneValue value={effect.profit_effect} signed /></div>)}<div className="pnl-dashboard__factor pnl-dashboard__factor--residual"><span>기타 요인</span><ToneValue value={dashboard.key_facts.residual} signed /></div></div>
-      <div className="pnl-dashboard__cta"><div><h3>기준 대비 변동원인을 더 확인해야 하나요?</h3><p>손익분석에서 변동요인과 세부 근거를 확인할 수 있습니다.</p></div>{onNavigateToVariance && <button type="button" className="pnl-dashboard__cta-button" onClick={onNavigateToVariance}>손익분석 상세 보기 <ArrowRight size={15} /></button>}</div>
-    </section>
   </div>;
 }

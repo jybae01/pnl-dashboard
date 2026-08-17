@@ -473,6 +473,11 @@ function validateForecastInputMetadata(value: unknown): ForecastInputMetadataDto
     || value.dto_version !== '1') invalidPayload();
 
   const validateItems = (items: unknown[], requireSection: boolean) => items.map((item) => {
+    const baseline = isRecord(item) ? item.monthly_baseline_amounts : null;
+    const hasValidBaseline = isRecord(baseline)
+      && Object.keys(baseline).length === 12
+      && Array.from({ length: 12 }, (_, index) => String(index + 1))
+        .every((month) => typeof baseline[month] === 'number' && Number.isFinite(baseline[month]));
     if (!isRecord(item)
       || typeof item.adjustment_key !== 'string'
       || item.adjustment_key.trim() === ''
@@ -481,6 +486,7 @@ function validateForecastInputMetadata(value: unknown): ForecastInputMetadataDto
       || typeof item.unit !== 'string'
       || !['manufacturing', 'sga'].includes(String(item.category))
       || !(item.section === null || typeof item.section === 'string')
+      || !hasValidBaseline
       || 'row' in item
       || 'cell' in item
       || (requireSection && item.category !== 'sga')

@@ -16,13 +16,11 @@ export const NanoH2oLogo: React.FC<NanoH2oLogoProps> = ({
     <div
       className={className}
       style={{
-        backgroundColor: '#ffffff',
-        padding: '4px 10px',
-        borderRadius: '6px',
+        backgroundColor: 'transparent',
+        padding: 0,
         display: 'inline-flex',
         alignItems: 'center',
         justifyContent: 'center',
-        boxShadow: '0 2px 6px rgba(0, 0, 0, 0.18)',
       }}
     >
       <img

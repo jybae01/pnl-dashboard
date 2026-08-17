@@ -21,6 +21,14 @@ export function AnalysisPresentationPanel({
   onUnavailable?: () => void;
 }) {
   const mapping = useMemo(() => mapAnalysisPresentation(value), [value]);
+  const positiveEffects = useMemo(
+    () => mapping.effects.filter((effect) => effect.profit_effect > 0),
+    [mapping.effects],
+  );
+  const negativeEffects = useMemo(
+    () => mapping.effects.filter((effect) => effect.profit_effect < 0),
+    [mapping.effects],
+  );
   const [selectedEffect, setSelectedEffect] = useState<string | undefined>(undefined);
 
   useEffect(() => {
@@ -37,8 +45,8 @@ export function AnalysisPresentationPanel({
     <article className="variance-analysis" data-testid="analysis-presentation">
       <PresentationHeader value={value} role={role} onUnavailable={onUnavailable} />
       <ExecutiveFacts
-        positiveEffects={mapping.topPositiveEffects}
-        negativeEffects={mapping.topNegativeEffects}
+        positiveEffects={positiveEffects}
+        negativeEffects={negativeEffects}
         residual={mapping.residual}
         kpiDelta={value.kpis.operating_profit_delta}
         selectedEffect={selectedEffect}
@@ -58,7 +66,6 @@ export function AnalysisPresentationPanel({
       />
       <ProductGroupTable value={value} />
       <ManufacturingActivityTable value={value} />
-      <EvidenceAccess value={value} role={role} onUnavailable={onUnavailable} />
     </article>
   );
 }
@@ -67,9 +74,6 @@ function PresentationHeader({ value, role, onUnavailable }: { value: AnalysisPre
   const kpi = value.kpis;
   const tone = profitEffectTone(kpi.operating_profit_delta);
   const isPositive = kpi.operating_profit_delta >= 0;
-  const varianceRate = kpi.baseline_operating_profit !== 0
-    ? (kpi.operating_profit_delta / Math.abs(kpi.baseline_operating_profit)) * 100
-    : 0;
 
   return (
     <section className="variance-analysis__hero" aria-labelledby="variance-result-title">
@@ -98,7 +102,7 @@ function PresentationHeader({ value, role, onUnavailable }: { value: AnalysisPre
               color: isPositive ? '#15803d' : '#b91c1c',
             }}
           >
-            {isPositive ? `+${varianceRate.toFixed(1)}% 초과` : `${varianceRate.toFixed(1)}% 미달`}
+            {isPositive ? '증익' : '감익'}
           </span>
         </div>
       </div>
@@ -108,6 +112,9 @@ function PresentationHeader({ value, role, onUnavailable }: { value: AnalysisPre
         <KpiLine label="매출 증감" value={kpi.revenue_delta} signed />
         <KpiLine label="기준 영업이익" value={kpi.baseline_operating_profit} />
         <KpiLine label="비교 영업이익" value={kpi.comparison_operating_profit} />
+        <div className="variance-analysis__hero-evidence">
+          <EvidenceDownloadButton resultId={value.identity.result_id} role={role} onUnavailable={onUnavailable} />
+        </div>
       </div>
     </section>
   );
@@ -137,8 +144,6 @@ function ExecutiveFacts({
   selectedEffect?: string;
   onSelectEffect: (code: string) => void;
 }) {
-  const totalPositive = positiveEffects.reduce((sum, e) => sum + e.profit_effect, 0);
-  const totalNegative = negativeEffects.reduce((sum, e) => sum + e.profit_effect, 0);
   const isNetPositive = kpiDelta >= 0;
 
   return (
@@ -160,7 +165,7 @@ function ExecutiveFacts({
             display: 'inline-flex', alignItems: 'center', gap: 4,
           }}>
             <TrendingUp size={12} />
-            증익 요인: +{totalPositive.toLocaleString()} 백만원 ({positiveEffects.length}건)
+            증익 요인 {positiveEffects.length}건
           </span>
           <span style={{
             fontSize: '12px', fontWeight: 700, padding: '3px 10px', borderRadius: 6,
@@ -168,13 +173,13 @@ function ExecutiveFacts({
             display: 'inline-flex', alignItems: 'center', gap: 4,
           }}>
             <TrendingDown size={12} />
-            감익 요인: {totalNegative.toLocaleString()} 백만원 ({negativeEffects.length}건)
+            감익 요인 {negativeEffects.length}건
           </span>
           <span style={{
             fontSize: '12px', fontWeight: 800, padding: '3px 10px', borderRadius: 6,
             backgroundColor: isNetPositive ? '#1e3a8a' : '#991b1b', color: '#ffffff',
           }}>
-            순 손익 효과: {kpiDelta > 0 ? `+${kpiDelta.toLocaleString()}` : kpiDelta.toLocaleString()} 백만원
+            순 손익 효과: {formatMillions(kpiDelta, true)}
           </span>
         </div>
       </div>
@@ -282,7 +287,7 @@ function EffectTable({
       <div className="variance-analysis__table-scroll">
         <table className="financial-table variance-analysis__effect-table">
           <thead><tr>
-            <th>Effect</th><th>분류</th><th className="text-right">손익 영향</th><th>근거</th>
+            <th>구분</th><th>손익 변동 원인</th><th>단위</th><th className="text-right">기준</th><th className="text-right">비교</th><th className="text-right">원인변동</th><th className="text-right">손익 영향 금액</th><th>근거</th>
           </tr></thead>
           <tbody>
             {effects.map((effect) => {
@@ -299,11 +304,12 @@ function EffectTable({
               );
             })}
             <tr className="row-total">
-              <td colSpan={2}>Effect 총액 (서버)</td>
+              <td colSpan={6}>Effect 총액 (서버)</td>
               <td className="text-right tabular-nums">{formatMillions(effectsTotal, true)}</td>
               <td>서버 제공 effects_total</td>
             </tr>
             <tr data-testid="effect-row-residual" className={selectedEffect === residual.code ? 'row-active' : ''}>
+              <td>기타</td>
               <td>
                 <button
                   type="button"
@@ -315,7 +321,10 @@ function EffectTable({
                   {residual.uiLabel}
                 </button>
               </td>
-              <td>—</td>
+              <td>백만원</td>
+              <td className="text-right">—</td>
+              <td className="text-right">—</td>
+              <td className="text-right">—</td>
               <td data-testid="effect-tone-residual" className={`text-right tabular-nums variance-analysis__tone--${profitEffectTone(residual.amount)}`}>{formatMillions(residual.amount, true)}</td>
               <td>—</td>
             </tr>
@@ -344,6 +353,7 @@ function EffectRow({
   return (
     <>
       <tr data-testid={`effect-row-${effect.code}`} className={`${selected ? 'row-active' : ''} variance-analysis__effect-row--${tone}`}>
+        <td>{effect.uiCategoryLabel}</td>
         <td>
           <button
             type="button"
@@ -364,24 +374,28 @@ function EffectRow({
             {effect.uiLabel}
           </button>
         </td>
-        <td>{effect.uiCategoryLabel}</td>
+        <td>백만원</td>
+        <td className="text-right">—</td>
+        <td className="text-right">—</td>
+        <td className="text-right">—</td>
         <td data-testid={`effect-tone-${effect.code}`} className={`text-right tabular-nums variance-analysis__tone--${tone}`}>{formatMillions(effect.profit_effect, true)}</td>
         <td>{available ? effect.description : effect.drilldown.unavailable_reason}</td>
       </tr>
       {open && available && (
         <tr>
-          <td colSpan={4} className="variance-analysis__drilldown-cell">
+          <td colSpan={8} className="variance-analysis__drilldown-cell">
             <table className="drilldown-table variance-analysis__drilldown-table">
               <thead><tr>
-                <th>근거 항목</th><th>단위</th><th className="text-right">기준</th><th className="text-right">비교</th><th className="text-right">증감</th><th className="text-right">손익 영향</th><th>비고</th>
+                <th>구분</th><th>근거 항목</th><th>단위</th><th className="text-right">기준</th><th className="text-right">비교</th><th className="text-right">증감</th><th className="text-right">손익 영향</th><th>비고</th>
               </tr></thead>
               <tbody>{effect.drilldown.rows.map((row) => (
                 <tr key={row.row_id}>
+                  <td>{effect.uiCategoryLabel}</td>
                   <td>{effect.code.startsWith('sga') ? formatSgaLabel(row.label) : row.label}</td>
-                  <td>{row.unit}</td>
-                  <td className="text-right">{displayNullable(row.baseline)}</td>
-                  <td className="text-right">{displayNullable(row.comparison)}</td>
-                  <td className="text-right">{displayNullable(row.delta, true)}</td>
+                  <td>{row.unit === 'KRW' ? '백만원' : row.unit}</td>
+                  <td className="text-right">{displayDrilldownValue(row.baseline, row.unit)}</td>
+                  <td className="text-right">{displayDrilldownValue(row.comparison, row.unit)}</td>
+                  <td className="text-right">{displayDrilldownValue(row.delta, row.unit, true)}</td>
                   <td className={`text-right ${row.profit_effect === null ? '' : `variance-analysis__tone--${profitEffectTone(row.profit_effect)}`}`}>{row.profit_effect === null ? '—' : formatMillions(row.profit_effect, true)}</td>
                   <td>{row.note}</td>
                 </tr>
@@ -422,15 +436,6 @@ function ManufacturingActivityTable({ value }: { value: AnalysisPresentationDto 
   );
 }
 
-function EvidenceAccess({ value, role, onUnavailable }: { value: AnalysisPresentationDto; role: Role; onUnavailable?: () => void }) {
-  return (
-    <section className="variance-analysis__evidence-access" aria-labelledby="evidence-access-title">
-      <div><h2 id="evidence-access-title">분석 근거 접근</h2><p>현재 결과에 연결된 Backend 증빙을 내려받습니다.</p></div>
-      <EvidenceDownloadButton resultId={value.identity.result_id} role={role} onUnavailable={onUnavailable} />
-    </section>
-  );
-}
-
 function formatMillions(krwValue: number, signed = false): string {
   const millions = Math.round(krwValue / 1_000_000);
   const formatted = millions.toLocaleString('ko-KR');
@@ -456,4 +461,9 @@ function formatNumber(value: number, signed = false): string {
 
 function displayNullable(value: number | null, signed = false): string {
   return value === null ? '—' : formatNumber(value, signed);
+}
+
+function displayDrilldownValue(value: number | null, unit: string, signed = false): string {
+  if (value === null) return '—';
+  return unit === 'KRW' ? formatMillions(value, signed) : formatNumber(value, signed);
 }

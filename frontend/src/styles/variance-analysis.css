@@ -13,8 +13,7 @@
 .variance-analysis__executive,
 .variance-analysis__waterfall-card,
 .variance-analysis__effect-section,
-.variance-analysis__evidence-table,
-.variance-analysis__evidence-access {
+.variance-analysis__evidence-table {
   min-width: 0;
   background: var(--bg-surface, #fff);
   border: 1px solid var(--border-default, #e2e8f0);
@@ -105,6 +104,14 @@
   font-variant-numeric: tabular-nums;
   font-weight: 700;
   white-space: nowrap;
+}
+
+.variance-analysis__hero-evidence {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 4px;
+  padding-top: 8px;
+  border-top: 1px solid var(--border-subtle, #e2e8f0);
 }
 
 .variance-analysis__tone--positive {
@@ -456,29 +463,9 @@
   overflow-x: auto;
 }
 
-.variance-analysis__evidence-access {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 14px;
-  padding: 14px 16px;
-}
-
-.variance-analysis__evidence-access h2 {
-  margin: 0 0 3px;
-  font-size: 13px;
-}
-
-.variance-analysis__evidence-access p {
-  margin: 0;
-  color: var(--text-muted, #64748b);
-  font-size: 11px;
-}
-
 @media (max-width: 900px) {
   .variance-analysis__hero,
-  .variance-analysis__chart-header,
-  .variance-analysis__evidence-access {
+  .variance-analysis__chart-header {
     align-items: stretch;
     flex-direction: column;
   }

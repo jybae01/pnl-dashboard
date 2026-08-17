@@ -128,18 +128,8 @@ export function App() {
             onClick={() => navigate('forecast')}
           >
             <Calculator size={14} aria-hidden="true" />
-            <span>2. Forecast</span>
+            <span>2. 추정 산출</span>
             <span className="nav-tab-badge" style={{ backgroundColor: '#f5f3ff', color: '#7c3aed', borderColor: '#ddd6fe' }}>Forecast</span>
-          </button>
-        )}
-        {session.role === 'admin' && (
-          <button
-            className={`nav-tab-btn ${route === 'management' ? 'active' : ''}`}
-            onClick={() => navigate('management')}
-          >
-            <Database size={14} aria-hidden="true" />
-            <span>3. 데이터 관리 / 분석 실행</span>
-            <span className="nav-tab-badge">Model & Calc</span>
           </button>
         )}
         <button
@@ -147,9 +137,19 @@ export function App() {
           onClick={() => navigate('variance')}
         >
           <GitCompare size={14} aria-hidden="true" />
-          <span>4. 손익 분석 결과</span>
-          <span className="nav-tab-badge">Waterfall & Effect</span>
+          <span>3. 손익 분석</span>
+          <span className="nav-tab-badge">Waterfall &amp; Effect</span>
         </button>
+        {session.role === 'admin' && (
+          <button
+            className={`nav-tab-btn ${route === 'management' ? 'active' : ''}`}
+            onClick={() => navigate('management')}
+          >
+            <Database size={14} aria-hidden="true" />
+            <span>4. 데이터 관리</span>
+            <span className="nav-tab-badge">Model & Calc</span>
+          </button>
+        )}
         {session.role === 'admin' && (
           <button
             className={`nav-tab-btn ${route === 'operations' ? 'active' : ''}`}

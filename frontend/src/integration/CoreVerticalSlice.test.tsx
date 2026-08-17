@@ -50,7 +50,7 @@ describe('React core vertical slice', () => {
     expect(await screen.findByText('손익 데이터 모니터링')).toBeInTheDocument();
     fireEvent.change(screen.getByLabelText('Access Code'), { target: { value: 'admin-code' } });
     fireEvent.click(screen.getByRole('button', { name: '접속' }));
-    expect(await screen.findByRole('heading', { name: '데이터 관리' })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: '손익 모형 데이터 관리' })).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: '손익분석 결과' }));
     expect(await screen.findByText('분석 조건')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: '손익 변동 요인 분석 실행' }));

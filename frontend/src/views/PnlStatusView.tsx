@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { RefreshCw } from 'lucide-react';
+import { Calendar, RefreshCw } from 'lucide-react';
 import { bffClient } from '../integration/client';
 import { PnlDashboardPanel } from '../integration/PnlDashboardPanel';
 import { ApiClientError, PnlDashboardDto } from '../integration/types';
@@ -70,7 +70,20 @@ export function PnlStatusView({ onNavigateToVariance }: PnlStatusViewProps) {
     {state === 'LOADING' && <section className="pnl-dashboard-state" role="status" aria-live="polite"><span className="pnl-dashboard__loading-spinner" aria-hidden="true" /><div className="pnl-dashboard-state__title">손익 현황을 불러오는 중…</div></section>}
     {state !== 'LOADING' && state !== 'READY' && <StateMessage state={state} onRetry={() => void load()} />}
     {state === 'READY' && dashboard && <>
-      <div className="pnl-dashboard__toolbar"><div><span className="pnl-dashboard__toolbar-kicker">P&amp;L STATUS</span><span className="pnl-dashboard__toolbar-copy">게시된 결과 기준</span></div><button type="button" className="pnl-dashboard__toolbar-refresh" onClick={() => void load()}><RefreshCw size={13} /> 새로고침</button></div>
+      <div className="filter-bar pnl-dashboard__filter-bar">
+        <div className="filter-item">
+          <span className="filter-label"><Calendar size={13} aria-hidden="true" /> 기준년도</span>
+          <select className="filter-select" aria-label="기준년도" value={dashboard.identity.model_year} disabled>
+            <option value={dashboard.identity.model_year}>{dashboard.identity.model_year}년</option>
+          </select>
+          <span className="pnl-dashboard__filter-models">
+            {dashboard.identity.baseline_model_name} ↔ {dashboard.identity.comparison_model_name}
+            {' · '}{dashboard.identity.start_month}월–{dashboard.identity.end_month}월
+            {' · '}실적 확정 {dashboard.identity.actual_through_month === null ? '없음' : `${dashboard.identity.actual_through_month}월`}
+          </span>
+        </div>
+        <button type="button" className="btn btn-secondary btn-sm" aria-label="손익 현황 새로고침" title="새로고침" onClick={() => void load()}><RefreshCw size={13} /></button>
+      </div>
       <PnlDashboardPanel dashboard={dashboard} onNavigateToVariance={onNavigateToVariance} />
     </>}
   </div>;

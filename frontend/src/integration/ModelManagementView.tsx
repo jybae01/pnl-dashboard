@@ -1,5 +1,5 @@
 import { ChangeEvent, FormEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Check, ChevronDown, Clipboard, Database, FileUp, LockKeyhole, RefreshCw, Search, ShieldCheck, Trash2, X } from 'lucide-react';
+import { Check, ChevronDown, Clipboard, Database, FileUp, LockKeyhole, RefreshCw, Search, Settings2, ShieldCheck, Trash2, X } from 'lucide-react';
 import { ApiClientError, AdminModelDto, PersistentDeleteBatchDto } from './types';
 import { bffClient } from './client';
 import { CalculationHistoryView } from './CalculationHistoryView';
@@ -73,7 +73,6 @@ export function ModelManagementView({ onNavigateToForecast, onNavigateToAnalysis
   const [models, setModels] = useState<AdminModelDto[]>([]);
   const [listState, setListState] = useState<ListState>('LOADING');
   const [listMessage, setListMessage] = useState<string | null>(null);
-  const [uploadOpen, setUploadOpen] = useState(false);
   const [uploadState, setUploadState] = useState<UploadState>('IDLE');
   const [file, setFile] = useState<File | null>(null);
   const [name, setName] = useState('');
@@ -91,7 +90,6 @@ export function ModelManagementView({ onNavigateToForecast, onNavigateToAnalysis
   const [publicationMessage, setPublicationMessage] = useState<string | null>(null);
   const [publicationError, setPublicationError] = useState(false);
   const [copiedSha, setCopiedSha] = useState(false);
-  const [historyOpen, setHistoryOpen] = useState(initialHistoryOpen);
   const [deleteSelection, setDeleteSelection] = useState<Set<string>>(new Set());
   const [deleteConfirmationOpen, setDeleteConfirmationOpen] = useState(false);
   const [deletePending, setDeletePending] = useState(false);
@@ -100,10 +98,6 @@ export function ModelManagementView({ onNavigateToForecast, onNavigateToAnalysis
   const uploadSubmittingRef = useRef(false);
 
   const publicationPendingRef = useRef(false);
-
-  useEffect(() => {
-    setHistoryOpen(initialHistoryOpen);
-  }, [initialHistoryOpen]);
 
   const refresh = useCallback(async () => {
     setListState('LOADING');
@@ -136,6 +130,10 @@ export function ModelManagementView({ onNavigateToForecast, onNavigateToAnalysis
       return matchesSearch && matchesType && matchesPublication;
     });
   }, [models, publicationFilter, search, typeFilter]);
+
+  useEffect(() => {
+    setDeleteSelection(new Set());
+  }, [publicationFilter, search, typeFilter]);
 
   const visibleListState: ListState = listState === 'READY' && filteredModels.length === 0 ? 'FILTER_EMPTY' : listState;
 
@@ -279,16 +277,15 @@ export function ModelManagementView({ onNavigateToForecast, onNavigateToAnalysis
   const uploadBusy = uploadState === 'UPLOADING';
 
   return <div className="data-management" aria-labelledby="management-page-heading">
-    <header className="data-management__header">
-      <div><p className="data-management__eyebrow">ADMIN · DATA MANAGEMENT</p><h1 id="management-page-heading">데이터 관리</h1><p>손익 모형을 등록하고 공개 상태를 관리합니다.</p></div>
+    <header className="view-header-bar data-management__header">
+      <div className="data-management__title"><Settings2 size={16} aria-hidden="true" /><h1 id="management-page-heading">손익 모형 데이터 관리</h1></div>
       <div className="data-management__header-actions">
         {onNavigateToForecast && <button type="button" className="data-management__secondary" onClick={onNavigateToForecast}>추정 산출</button>}
         {onNavigateToAnalysis && <button type="button" className="data-management__secondary" onClick={onNavigateToAnalysis}>손익분석 결과</button>}
-        {listState !== 'FORBIDDEN' && <button type="button" className="data-management__primary" disabled={uploadBusy} onClick={() => setUploadOpen((value) => !value)} aria-expanded={uploadOpen}><FileUp size={15} />{uploadOpen ? '업로드 닫기' : '새 모형 업로드'}</button>}
       </div>
     </header>
 
-    {uploadOpen && listState !== 'FORBIDDEN' && <section className="data-management__upload-card" aria-labelledby="model-upload-heading">
+    {listState !== 'FORBIDDEN' && <section className="data-management__upload-card" aria-labelledby="model-upload-heading">
       <div className="data-management__section-heading">
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
           <div style={{
@@ -298,7 +295,6 @@ export function ModelManagementView({ onNavigateToForecast, onNavigateToAnalysis
             <FileUp size={15} color="#2563eb" />
           </div>
           <div>
-            <p className="data-management__eyebrow" style={{ margin: 0 }}>01 · REGISTER</p>
             <h2 id="model-upload-heading" style={{ margin: 0, fontSize: '15px' }}>새 모형 등록</h2>
           </div>
         </div>
@@ -327,15 +323,14 @@ export function ModelManagementView({ onNavigateToForecast, onNavigateToAnalysis
             <Database size={15} color="#2563eb" />
           </div>
           <div>
-            <p className="data-management__eyebrow" style={{ margin: 0 }}>02 · LIBRARY</p>
             <h2 id="management-list-heading" style={{ margin: 0, fontSize: '15px' }}>등록 모형 목록</h2>
           </div>
         </div>
         <button type="button" className="data-management__icon-button" onClick={() => void refresh()} aria-label="모형 목록 새로고침"><RefreshCw size={15} /></button>
       </div>
       <div className="data-management__filters"><label className="data-management__search"><Search size={15} /><input aria-label="모형 검색" placeholder="모형명·파일명·기간 검색" value={search} onChange={(event) => setSearch(event.target.value)} /></label><label>유형<select aria-label="유형 필터" value={typeFilter} onChange={(event) => setTypeFilter(event.target.value as typeof typeFilter)}><option value="ALL">전체 유형</option><option value="PLAN">계획</option><option value="ACTUAL">실적</option><option value="FORECAST">추정</option></select></label><label>공개 상태<select aria-label="공개 상태 필터" value={publicationFilter} onChange={(event) => setPublicationFilter(event.target.value as PublicationFilter)}><option value="ALL">전체 상태</option><option value="PUBLISHED">공개</option><option value="UNPUBLISHED">비공개</option></select></label></div>
-      {listState !== 'FORBIDDEN' && <div className="data-management__bulk-actions"><span>{models.length > 0 ? `${deleteSelection.size}건 선택` : '완료되지 않은 삭제 작업을 확인할 수 있습니다.'}</span><button type="button" className="data-management__secondary" disabled={deletePending} onClick={() => void checkDeleteRecovery()}>삭제 복구 상태 확인</button>{models.length > 0 && <button type="button" className="data-management__danger" disabled={deleteSelection.size === 0 || deletePending} onClick={() => { setDeleteResult(null); setDeleteError(null); setDeleteConfirmationOpen(true); }}><Trash2 size={14} />선택 삭제</button>}</div>}
-      {deleteResult && <div className="data-management__delete-result" role="status"><strong>{persistentDeleteSummary(deleteResult)}</strong>{deleteResult.items.some((item) => item.status !== 'DELETED') && <ul>{deleteResult.items.filter((item) => item.status !== 'DELETED').map((item) => <li key={item.resource_id}><code>{item.resource_id}</code> · {persistentDeleteReason(item)}</li>)}</ul>}{deleteResult.items.some((item) => item.status === 'CLEANUP_REQUIRED' || item.status === 'STORAGE_CLEANUP_FAILED') && <button type="button" className="data-management__secondary" disabled={deletePending} onClick={() => void retryDeleteCleanup(deleteResult.items.filter((item) => item.status === 'CLEANUP_REQUIRED' || item.status === 'STORAGE_CLEANUP_FAILED').map((item) => item.resource_id))}>Storage 정리 재시도</button>}</div>}
+      {listState !== 'FORBIDDEN' && <div className="data-management__bulk-actions"><span>{models.length > 0 ? `${deleteSelection.size}건 선택` : '완료되지 않은 삭제 작업을 확인할 수 있습니다.'}</span><button type="button" className="data-management__secondary" disabled={deletePending} onClick={() => void checkDeleteRecovery()}>모형 삭제 복구 상태 확인</button>{models.length > 0 && <button type="button" className="data-management__danger" aria-label="선택 모형 삭제" disabled={deleteSelection.size === 0 || deletePending} onClick={() => { setDeleteResult(null); setDeleteError(null); setDeleteConfirmationOpen(true); }}><Trash2 size={14} />선택 삭제</button>}</div>}
+      {deleteResult && <div className="data-management__delete-result" role="status"><strong>{persistentDeleteSummary(deleteResult)}</strong>{deleteResult.items.some((item) => item.status !== 'DELETED') && <ul>{deleteResult.items.filter((item) => item.status !== 'DELETED').map((item) => <li key={item.resource_id}><code>{item.resource_id}</code> · {persistentDeleteReason(item)}</li>)}</ul>}{deleteResult.items.some((item) => item.status === 'CLEANUP_REQUIRED' || item.status === 'STORAGE_CLEANUP_FAILED') && <button type="button" className="data-management__secondary" disabled={deletePending} onClick={() => void retryDeleteCleanup(deleteResult.items.filter((item) => item.status === 'CLEANUP_REQUIRED' || item.status === 'STORAGE_CLEANUP_FAILED').map((item) => item.resource_id))}>모형 Storage 정리 재시도</button>}</div>}
       {deleteError && <p className="data-management__message" role="alert">{deleteError}</p>}
       {listState === 'LOADING' && <div className="data-management__state" role="status">모형 목록을 확인하고 있습니다…</div>}
       {listState === 'EMPTY' && <div className="data-management__state"><Database size={24} /><h3>등록된 모형이 없습니다.</h3><p>업무에 사용할 .xlsx 모형을 등록하면 이 목록에서 관리할 수 있습니다.</p></div>}
@@ -348,12 +343,9 @@ export function ModelManagementView({ onNavigateToForecast, onNavigateToAnalysis
     {selectedModel && <section className="data-management__detail-card" aria-labelledby="model-detail-heading"><div className="data-management__section-heading"><div><p className="data-management__eyebrow">SELECTED MODEL</p><h2 id="model-detail-heading">{selectedModel.display_name}</h2></div><button type="button" className="data-management__icon-button" aria-label="선택 해제" onClick={() => setSelectedModel(null)}><X size={16} /></button></div><div className="data-management__detail-summary"><div><span>구분</span><strong className={`data-management__scenario data-management__scenario--${modelTypeClass(selectedModel.model_type)}`}>{modelTypeLabel(selectedModel.model_type)}</strong></div><div><span>적용 기간</span><strong>{periodLabel(selectedModel)}</strong></div><div><span>공개 상태</span><strong>{selectedModel.is_published ? '공개' : '비공개'}</strong>{selectedModel.is_default && <span className="data-management__default">기본 모형</span>}</div><div><span>버전</span><strong>{selectedModel.version}</strong></div></div><div className="data-management__detail-actions">{!selectedModel.is_published && <><button type="button" className="data-management__primary" disabled={publicationPending} onClick={() => requestPublication(selectedModel, true, false, '공개')}>공개</button><button type="button" className="data-management__secondary" disabled={publicationPending} onClick={() => requestPublication(selectedModel, true, true, '공개 및 기본 지정')}>공개 + 기본</button></>}{selectedModel.is_published && !selectedModel.is_default && <button type="button" className="data-management__secondary" disabled={publicationPending} onClick={() => requestPublication(selectedModel, true, true, '기본 모형 지정')}>기본 모형 지정</button>}{selectedModel.is_published && <button type="button" className="data-management__danger" disabled={publicationPending} onClick={() => requestPublication(selectedModel, false, false, '공개 해제')}>공개 해제</button>}</div><details className="data-management__technical"><summary>관리자 기술 정보 <ChevronDown size={15} /></summary><dl><div><dt>모형 ID</dt><dd>{selectedModel.model_id}</dd></div><div><dt>파일명</dt><dd>{selectedModel.file_name}</dd></div><div><dt>등록일</dt><dd>{dateLabel(selectedModel.uploaded_at)}</dd></div><div><dt>SHA-256</dt><dd>{selectedModel.workbook_sha256 ? <span className="data-management__sha"><code>{selectedModel.workbook_sha256}</code><button type="button" className="data-management__copy" onClick={() => void copySha(selectedModel.workbook_sha256!)}>{copiedSha ? <Check size={13} /> : <Clipboard size={13} />} {copiedSha ? '복사됨' : '복사'}</button></span> : '제공되지 않음'}</dd></div></dl></details></section>}
 
     {publicationMessage && <p className={`data-management__global-message ${publicationError ? 'is-error' : ''}`} role={publicationError ? 'alert' : 'status'}>{publicationMessage}</p>}
-    <section className="data-management__history-card" aria-labelledby="management-history-heading">
-      <details open={historyOpen} onToggle={(event) => setHistoryOpen(event.currentTarget.open)}>
-        <summary id="management-history-heading">계산 이력 <ChevronDown size={15} /></summary>
-        {historyOpen && <CalculationHistoryView onOpenResult={onNavigateToAnalysisResult} />}
-      </details>
-    </section>
+    {listState !== 'LOADING' && listState !== 'FORBIDDEN' && <section className="data-management__history-card" aria-label="계산 이력" data-history-requested={initialHistoryOpen || undefined}>
+      <CalculationHistoryView onOpenResult={onNavigateToAnalysisResult} />
+    </section>}
     {pendingPublication && <div className="data-management__modal-backdrop" role="presentation"><section className="data-management__modal" role="dialog" aria-modal="true" aria-labelledby="publication-confirm-heading"><p className="data-management__eyebrow">PUBLICATION CONFIRMATION</p><h2 id="publication-confirm-heading">{pendingPublication.label}</h2><p><strong>{pendingPublication.model.display_name}</strong><br />{periodLabel(pendingPublication.model)}</p><p className="data-management__modal-copy">{pendingPublication.is_published ? (pendingPublication.is_default ? '이 모형을 공개하고 기본 모형으로 지정합니다.' : '이 모형을 공개합니다.') : '이 모형의 공개를 해제하고 기본 모형 지정도 함께 해제합니다.'}</p><div className="data-management__modal-actions"><button type="button" className="data-management__secondary" disabled={publicationPending} onClick={() => setPendingPublication(null)}>취소</button><button type="button" className={pendingPublication.is_published ? 'data-management__primary' : 'data-management__danger'} disabled={publicationPending} onClick={() => void confirmPublication()}>{publicationPending ? '처리 중…' : '확인'}</button></div></section></div>}
     {deleteConfirmationOpen && <div className="data-management__modal-backdrop" role="presentation"><section className="data-management__modal" role="dialog" aria-modal="true" aria-labelledby="model-delete-confirm-heading"><p className="data-management__eyebrow">HARD DELETE</p><h2 id="model-delete-confirm-heading">선택한 모형 {deleteSelection.size}건을 삭제할까요?</h2><p className="data-management__modal-copy">삭제 후 복구할 수 없습니다. 분석·Forecast 이력에서 참조 중인 모형은 삭제가 차단되며, 차단된 항목의 DB와 Storage는 유지됩니다.</p><div className="data-management__modal-actions"><button type="button" className="data-management__secondary" disabled={deletePending} onClick={() => setDeleteConfirmationOpen(false)}>취소</button><button type="button" className="data-management__danger" disabled={deletePending} onClick={() => void confirmDelete()}>{deletePending ? '삭제 중…' : '영구 삭제'}</button></div></section></div>}
   </div>;

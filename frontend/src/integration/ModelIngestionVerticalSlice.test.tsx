@@ -25,8 +25,17 @@ function model(overrides: Partial<Record<string, unknown>> = {}) {
 
 function list(rows: unknown[]) { return response({ models: rows, dto_version: '1' }); }
 
+function withEmptyHistory(fetcher: (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>) {
+  return vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+    if (String(input).includes('/api/admin/calculation-history')) {
+      return response({ items: [], next_before_created_at: null, next_before_job_id: null, dto_version: '1' });
+    }
+    return fetcher(input, init);
+  });
+}
+
 function openUpload() {
-  fireEvent.click(screen.getByRole('button', { name: /^새 모형 업로드$/ }));
+  expect(screen.getByRole('heading', { name: '새 모형 등록' })).toBeInTheDocument();
 }
 
 function apiError(code: string, status = 422) {
@@ -42,7 +51,7 @@ describe('model management vertical slice', () => {
       model({ model_id: OTHER, display_name: '2026 Forecast', model_type: 'FORECAST', start_month: 7, end_month: 12, is_published: true }),
       model({ model_id: THIRD, display_name: '2026 Actual', model_type: 'ACTUAL', is_published: true }),
     ];
-    vi.stubGlobal('fetch', vi.fn().mockResolvedValueOnce(list(rows)));
+    vi.stubGlobal('fetch', withEmptyHistory(vi.fn().mockResolvedValueOnce(list(rows))));
     render(<ModelManagementView />);
     expect(await screen.findByText('Plan Base')).toBeInTheDocument();
     expect(screen.getAllByText('계획').some((element) => element.classList.contains('data-management__scenario--plan'))).toBe(true);
@@ -61,7 +70,7 @@ describe('model management vertical slice', () => {
       model({ display_name: 'Plan Budget', model_type: 'PLAN', file_name: 'budget.xlsx', is_published: true }),
       model({ model_id: OTHER, display_name: 'Forecast July', model_type: 'FORECAST', file_name: 'july.xlsx', start_month: 7, end_month: 12, is_published: false }),
     ];
-    vi.stubGlobal('fetch', vi.fn().mockResolvedValueOnce(list(rows)));
+    vi.stubGlobal('fetch', withEmptyHistory(vi.fn().mockResolvedValueOnce(list(rows))));
     render(<ModelManagementView />);
     await screen.findByText('Plan Budget');
     fireEvent.change(screen.getByLabelText('모형 검색'), { target: { value: 'july' } });
@@ -76,14 +85,14 @@ describe('model management vertical slice', () => {
   });
 
   it('distinguishes full empty from filter empty', async () => {
-    vi.stubGlobal('fetch', vi.fn().mockResolvedValueOnce(list([])));
+    vi.stubGlobal('fetch', withEmptyHistory(vi.fn().mockResolvedValueOnce(list([]))));
     render(<ModelManagementView />);
     expect(await screen.findByText('등록된 모형이 없습니다.')).toBeInTheDocument();
     expect(screen.queryByText('조건에 맞는 모형이 없습니다.')).not.toBeInTheDocument();
 
     cleanup();
     vi.unstubAllGlobals();
-    vi.stubGlobal('fetch', vi.fn().mockResolvedValueOnce(list([model()])));
+    vi.stubGlobal('fetch', withEmptyHistory(vi.fn().mockResolvedValueOnce(list([model()]))));
     render(<ModelManagementView />);
     await screen.findByText('2026 Actual');
     fireEvent.change(screen.getByLabelText('모형 검색'), { target: { value: '없는 이름' } });
@@ -103,7 +112,7 @@ describe('model management vertical slice', () => {
       }
       throw new Error(`unexpected request ${path}`);
     });
-    vi.stubGlobal('fetch', fetchMock);
+    vi.stubGlobal('fetch', withEmptyHistory(fetchMock));
     render(<ModelManagementView />);
     await screen.findByText('등록된 모형이 없습니다.');
     openUpload();
@@ -130,7 +139,7 @@ describe('model management vertical slice', () => {
     const fetchMock = vi.fn()
       .mockResolvedValueOnce(list([]))
       .mockResolvedValueOnce(apiError('IDEMPOTENCY_CONFLICT', 409));
-    vi.stubGlobal('fetch', fetchMock);
+    vi.stubGlobal('fetch', withEmptyHistory(fetchMock));
     render(<ModelManagementView />);
     await screen.findByText('등록된 모형이 없습니다.');
     openUpload();
@@ -147,7 +156,7 @@ describe('model management vertical slice', () => {
     let resolveUpload: (value: Response) => void = () => undefined;
     const pending = new Promise<Response>((resolve) => { resolveUpload = resolve; });
     const fetchMock = vi.fn().mockResolvedValueOnce(list([])).mockReturnValueOnce(pending).mockResolvedValueOnce(list([model({ display_name: 'Uploaded Forecast', model_type: 'FORECAST', is_published: true })]));
-    vi.stubGlobal('fetch', fetchMock);
+    vi.stubGlobal('fetch', withEmptyHistory(fetchMock));
     render(<ModelManagementView />);
     await screen.findByText('등록된 모형이 없습니다.');
     openUpload();
@@ -165,7 +174,7 @@ describe('model management vertical slice', () => {
       .mockResolvedValueOnce(list([model()]))
       .mockResolvedValueOnce(response({ model: model({ is_published: true, is_default: true }), dto_version: '1' }))
       .mockResolvedValueOnce(list([model({ is_published: true, is_default: true })]));
-    vi.stubGlobal('fetch', fetchMock);
+    vi.stubGlobal('fetch', withEmptyHistory(fetchMock));
     render(<ModelManagementView />);
     await screen.findByText('2026 Actual');
     fireEvent.click(screen.getByRole('button', { name: /^2026 Actual/ }));
@@ -183,7 +192,7 @@ describe('model management vertical slice', () => {
       .mockResolvedValueOnce(list([model()]))
       .mockResolvedValueOnce(response({ model: model({ is_published: true, is_default: false }), dto_version: '1' }))
       .mockResolvedValueOnce(list([model({ is_published: true, is_default: false })]));
-    vi.stubGlobal('fetch', fetchMock);
+    vi.stubGlobal('fetch', withEmptyHistory(fetchMock));
     render(<ModelManagementView />);
     await screen.findByText('2026 Actual');
     fireEvent.click(screen.getByRole('button', { name: /^2026 Actual/ }));
@@ -201,7 +210,7 @@ describe('model management vertical slice', () => {
       .mockResolvedValueOnce(list([published]))
       .mockResolvedValueOnce(response({ model: model(), dto_version: '1' }))
       .mockResolvedValueOnce(list([model()]));
-    vi.stubGlobal('fetch', fetchMock);
+    vi.stubGlobal('fetch', withEmptyHistory(fetchMock));
     render(<ModelManagementView />);
     await screen.findByText('2026 Actual');
     fireEvent.click(screen.getByRole('button', { name: /^2026 Actual/ }));
@@ -217,7 +226,7 @@ describe('model management vertical slice', () => {
     const fetchMock = vi.fn()
       .mockResolvedValueOnce(list([model()]))
       .mockResolvedValueOnce(apiError('MODEL_NOT_FOUND', 404));
-    vi.stubGlobal('fetch', fetchMock);
+    vi.stubGlobal('fetch', withEmptyHistory(fetchMock));
     render(<ModelManagementView />);
     await screen.findByText('2026 Actual');
     fireEvent.click(screen.getByRole('button', { name: /^2026 Actual/ }));
@@ -229,7 +238,7 @@ describe('model management vertical slice', () => {
   });
 
   it('supports CTA callbacks without inferring model context', async () => {
-    vi.stubGlobal('fetch', vi.fn().mockResolvedValueOnce(list([])));
+    vi.stubGlobal('fetch', withEmptyHistory(vi.fn().mockResolvedValueOnce(list([]))));
     const onForecast = vi.fn();
     const onAnalysis = vi.fn();
     render(<ModelManagementView onNavigateToForecast={onForecast} onNavigateToAnalysis={onAnalysis} />);
@@ -241,7 +250,7 @@ describe('model management vertical slice', () => {
   });
 
   it('separates forbidden list state from empty state', async () => {
-    vi.stubGlobal('fetch', vi.fn().mockResolvedValueOnce(apiError('FORBIDDEN', 403)));
+    vi.stubGlobal('fetch', withEmptyHistory(vi.fn().mockResolvedValueOnce(apiError('FORBIDDEN', 403))));
     render(<ModelManagementView />);
     expect(await screen.findByRole('heading', { name: '데이터 관리 권한이 없습니다.' })).toBeInTheDocument();
     expect(screen.queryByText('등록된 모형이 없습니다.')).not.toBeInTheDocument();
@@ -266,11 +275,11 @@ describe('model management vertical slice', () => {
       }
       throw new Error(path);
     });
-    vi.stubGlobal('fetch', fetchMock);
+    vi.stubGlobal('fetch', withEmptyHistory(fetchMock));
     render(<ModelManagementView />);
     await screen.findByText('Referenced Model');
     fireEvent.click(screen.getByLabelText('표시된 모형 전체 선택'));
-    fireEvent.click(screen.getByRole('button', { name: '선택 삭제' }));
+    fireEvent.click(screen.getByRole('button', { name: '선택 모형 삭제' }));
     expect(screen.getByRole('dialog', { name: /선택한 모형 2건/ })).toHaveTextContent('복구할 수 없습니다');
     fireEvent.click(screen.getByRole('button', { name: '영구 삭제' }));
 
@@ -312,14 +321,14 @@ describe('model management vertical slice', () => {
       if (path.endsWith('/api/admin/models')) { reads += 1; return list(reads === 1 ? [model()] : []); }
       throw new Error(path);
     });
-    vi.stubGlobal('fetch', fetchMock);
+    vi.stubGlobal('fetch', withEmptyHistory(fetchMock));
     render(<ModelManagementView />);
     await screen.findByText('2026 Actual');
     fireEvent.click(screen.getByLabelText('2026 Actual 삭제 선택'));
-    fireEvent.click(screen.getByRole('button', { name: '선택 삭제' }));
+    fireEvent.click(screen.getByRole('button', { name: '선택 모형 삭제' }));
     fireEvent.click(screen.getByRole('button', { name: '영구 삭제' }));
-    expect(await screen.findByRole('button', { name: 'Storage 정리 재시도' })).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: 'Storage 정리 재시도' }));
+    expect(await screen.findByRole('button', { name: '모형 Storage 정리 재시도' })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: '모형 Storage 정리 재시도' }));
     expect(await screen.findByText('1건 요청 / 1건 삭제 / 0건 Storage 정리 필요 / 0건 차단 / 0건 상태 확인 필요 / 0건 실패')).toBeInTheDocument();
     expect(deletes).toBe(2);
   });
@@ -343,12 +352,12 @@ describe('model management vertical slice', () => {
       if (path.endsWith('/api/admin/models')) return list([]);
       throw new Error(`${init?.method || 'GET'} ${path}`);
     });
-    vi.stubGlobal('fetch', fetchMock);
+    vi.stubGlobal('fetch', withEmptyHistory(fetchMock));
     render(<ModelManagementView />);
     await screen.findByText('등록된 모형이 없습니다.');
-    fireEvent.click(screen.getByRole('button', { name: '삭제 복구 상태 확인' }));
-    expect(await screen.findByRole('button', { name: 'Storage 정리 재시도' })).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: 'Storage 정리 재시도' }));
+    fireEvent.click(screen.getByRole('button', { name: '모형 삭제 복구 상태 확인' }));
+    expect(await screen.findByRole('button', { name: '모형 Storage 정리 재시도' })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: '모형 Storage 정리 재시도' }));
     expect(await screen.findByText('1건 요청 / 1건 삭제 / 0건 Storage 정리 필요 / 0건 차단 / 0건 상태 확인 필요 / 0건 실패')).toBeInTheDocument();
     const retry = fetchMock.mock.calls.find(([url]) => String(url).endsWith('/api/admin/models/delete/retry'));
     expect(JSON.parse(String(retry?.[1]?.body))).toEqual({ ids: [MODEL] });

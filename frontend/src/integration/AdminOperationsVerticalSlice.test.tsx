@@ -174,12 +174,12 @@ describe('admin operations vertical slice', () => {
     }));
     render(<App />);
     expect(await screen.findByText('VIEWER · 공개 결과 조회')).toBeInTheDocument();
-    expect(screen.getByRole('heading', { name: '손익 분석' })).toBeInTheDocument();
+    expect(screen.getByText('공개 분석 결과 조회')).toBeInTheDocument();
     expect(screen.queryByText('분석 엔진 운영')).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /운영 관리/ })).not.toBeInTheDocument();
   });
 
-  it('opens the existing Calculation History section only when explicitly requested', async () => {
+  it('keeps the Calculation History section visible in the mockup hierarchy', async () => {
     vi.stubGlobal('fetch', vi.fn((input: RequestInfo | URL) => {
       const path = String(input);
       if (path.endsWith('/api/admin/models')) return json({ models: [], dto_version: '1' });

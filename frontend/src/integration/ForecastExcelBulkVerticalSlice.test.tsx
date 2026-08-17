@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { ForecastGenerationView } from '../views/ForecastGenerationView';
 
 const BASE = '11111111-1111-4111-8111-111111111111';
+const monthlyBaselineAmounts = Object.fromEntries(Array.from({ length: 12 }, (_, index) => [String(index + 1), 0]));
 
 const models = { models: [{
   model_id: BASE, display_name: 'Base', model_type: 'ACTUAL', model_year: 2026,
@@ -10,8 +11,8 @@ const models = { models: [{
 }] };
 const metadata = {
   base_model_id: BASE,
-  manufacturing: [{ adjustment_key: 'mfg-energy', display_name: '전력비', unit: 'KRW', category: 'manufacturing', section: null }],
-  sga: [{ adjustment_key: 'sga-selling', display_name: '운송비', unit: 'KRW', category: 'sga', section: 'selling' }],
+  manufacturing: [{ adjustment_key: 'mfg-energy', display_name: '전력비', unit: 'KRW', category: 'manufacturing', section: null, monthly_baseline_amounts: monthlyBaselineAmounts }],
+  sga: [{ adjustment_key: 'sga-selling', display_name: '운송비', unit: 'KRW', category: 'sga', section: 'selling', monthly_baseline_amounts: monthlyBaselineAmounts }],
   reason_max_length: 500, dto_version: '1',
 };
 const preview = {
@@ -41,6 +42,12 @@ function upload(fileName = 'forecast_input.xlsx') {
   })] } });
 }
 
+async function waitForForecastReady() {
+  await waitFor(() => expect(screen.getByRole('button', { name: '모형 적용' })).not.toBeDisabled());
+  fireEvent.click(screen.getByRole('button', { name: '모형 적용' }));
+  await screen.findByRole('heading', { name: /^판매계획/ });
+}
+
 afterEach(() => vi.unstubAllGlobals());
 
 describe('Forecast Excel bulk input vertical slice', () => {
@@ -58,9 +65,8 @@ describe('Forecast Excel bulk input vertical slice', () => {
     vi.stubGlobal('fetch', fetchMock);
     render(<ForecastGenerationView />);
 
-    await screen.findByRole('heading', { name: '판매계획' });
-    await waitFor(() => expect(screen.getByRole('button', { name: '추정 모형 생성' })).not.toBeDisabled());
-    fireEvent.click(screen.getByRole('button', { name: '엑셀 양식 다운로드' }));
+    await waitForForecastReady();
+    fireEvent.click(screen.getByRole('button', { name: /^엑셀 양식 다운로드/ }));
     await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(3));
     expect(fetchMock.mock.calls[2][0]).toBe('/api/admin/forecasts/input-template');
     expect(anchorClick).toHaveBeenCalledTimes(1);
@@ -76,11 +82,11 @@ describe('Forecast Excel bulk input vertical slice', () => {
       .mockResolvedValueOnce(json(preview));
     vi.stubGlobal('fetch', fetchMock);
     render(<ForecastGenerationView />);
-    await screen.findByRole('heading', { name: '판매계획' });
+    await waitForForecastReady();
     fireEvent.change(screen.getByLabelText('7월 SW400 판매수량'), { target: { value: '99' } });
 
     upload();
-    await screen.findByRole('heading', { name: 'Excel 입력 확인' });
+    await screen.findByRole('heading', { name: 'Excel 데이터 검증 및 Preview' });
     expect(screen.getByText('완제품 판매')).toBeInTheDocument();
     expect(screen.getByText('123 PCS')).toBeInTheDocument();
     expect(screen.getByText('후공정 생산')).toBeInTheDocument();
@@ -110,16 +116,16 @@ describe('Forecast Excel bulk input vertical slice', () => {
       .mockResolvedValueOnce(json(success));
     vi.stubGlobal('fetch', fetchMock);
     render(<ForecastGenerationView />);
-    await screen.findByRole('heading', { name: '판매계획' });
+    await waitForForecastReady();
     fireEvent.change(screen.getByLabelText('7월 SW400 판매수량'), { target: { value: '99' } });
     fireEvent.change(screen.getByLabelText('7월 SW400 MCM 수량'), { target: { value: '77' } });
-    fireEvent.click(screen.getByText(/고급 입력 및 조정/));
+    fireEvent.click(screen.getByText(/비용 및 원가 조정/));
     fireEvent.click(await screen.findByRole('button', { name: '7월 전력비 조정' }));
     fireEvent.change(screen.getByLabelText('7월 전력비 제조경비 조정액'), { target: { value: '-66' } });
     fireEvent.click(screen.getByRole('button', { name: '등록' }));
-    expect(screen.getByText(/조정금액:/)).toBeInTheDocument();
+    expect(screen.getByText(/제조경비 조정 내역 \(1건\)/)).toBeInTheDocument();
     upload();
-    await screen.findByRole('heading', { name: 'Excel 입력 확인' });
+    await screen.findByRole('heading', { name: 'Excel 데이터 검증 및 Preview' });
 
     fireEvent.click(screen.getByRole('button', { name: '추정 입력값으로 적용' }));
     expect(screen.getByRole('dialog')).toBeInTheDocument();
@@ -131,7 +137,7 @@ describe('Forecast Excel bulk input vertical slice', () => {
     expect(screen.getByLabelText('7월 SW400 판매수량')).toHaveValue('123');
     expect(screen.getByLabelText('7월 후공정 SW 생산수량')).toHaveValue('1000');
     expect(screen.getByLabelText('7월 SW400 MCM 수량')).toHaveValue('77');
-    expect(screen.getByText(/조정금액:/)).toBeInTheDocument();
+    expect(screen.getByText(/제조경비 조정 내역 \(1건\)/)).toBeInTheDocument();
     expect(fetchMock).toHaveBeenCalledTimes(3);
 
     fireEvent.change(screen.getByLabelText('7월 SW400 판매수량'), { target: { value: '124' } });
@@ -159,7 +165,7 @@ describe('Forecast Excel bulk input vertical slice', () => {
       .mockResolvedValueOnce(json(metadata))
       .mockResolvedValueOnce(json(invalid)));
     render(<ForecastGenerationView />);
-    await screen.findByRole('heading', { name: '판매계획' });
+    await waitForForecastReady();
     upload('invalid.xlsx');
 
     expect(await screen.findByText('등록되지 않은 제품코드입니다.')).toBeInTheDocument();
@@ -182,7 +188,7 @@ describe('Forecast Excel bulk input vertical slice', () => {
       .mockResolvedValueOnce(json(metadata))
       .mockResolvedValueOnce(json(inconsistent)));
     render(<ForecastGenerationView />);
-    await screen.findByRole('heading', { name: '판매계획' });
+    await waitForForecastReady();
     upload();
 
     expect(await screen.findByRole('alert')).toHaveTextContent('파일 형식과 입력 내용을 확인');
@@ -198,7 +204,7 @@ describe('Forecast Excel bulk input vertical slice', () => {
       .mockReturnValueOnce(pending);
     vi.stubGlobal('fetch', fetchMock);
     render(<ForecastGenerationView />);
-    await screen.findByRole('heading', { name: '판매계획' });
+    await waitForForecastReady();
     upload();
     upload('second.xlsx');
     expect(await screen.findByText('업로드 및 확인 중...')).toBeInTheDocument();

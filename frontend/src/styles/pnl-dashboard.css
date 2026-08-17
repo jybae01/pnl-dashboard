@@ -12,6 +12,29 @@
   min-width: 0;
 }
 
+.pnl-dashboard__filter-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+
+.pnl-dashboard__filter-bar .filter-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.pnl-dashboard__filter-models {
+  overflow: hidden;
+  color: var(--text-muted);
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .pnl-dashboard__toolbar {
   display: flex;
   align-items: center;
@@ -190,7 +213,7 @@
 
 .pnl-dashboard__kpi-grid {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 12px;
 }
 
@@ -379,6 +402,42 @@
   margin: 3px 0 0;
   color: var(--text-muted);
   font-size: 9.5px;
+}
+
+.pnl-dashboard__trend-modes {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 2px;
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-sm);
+  background: #fff;
+}
+
+.pnl-dashboard__trend-modes button {
+  padding: 4px 7px;
+  border: 0;
+  border-radius: 3px;
+  color: var(--text-muted);
+  background: transparent;
+  font: inherit;
+  font-size: 10px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.pnl-dashboard__trend-modes button.is-active {
+  color: #1d4ed8;
+  background: #eff6ff;
+}
+
+.pnl-dashboard__trend-modes button:disabled {
+  opacity: .45;
+  cursor: not-allowed;
+}
+
+.pnl-dashboard__monthly-table {
+  min-width: 620px;
 }
 
 .pnl-dashboard__trend-chart-scroll {
@@ -690,13 +749,16 @@
 .pnl-dashboard-state__retry:focus-visible { border-color: var(--brand-orange); outline: 2px solid rgba(255, 95, 31, .16); outline-offset: 1px; }
 
 @media (max-width: 1450px) {
-  .pnl-dashboard__kpi-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .pnl-dashboard__kpi-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
   .pnl-dashboard__trend-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .pnl-dashboard__trend-card:last-child { grid-column: 1 / -1; }
   .pnl-dashboard__factor-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 }
 
 @media (max-width: 760px) {
+  .pnl-dashboard__kpi-grid { grid-template-columns: 1fr; }
+  .pnl-dashboard__filter-bar,
+  .pnl-dashboard__filter-bar .filter-item { align-items: flex-start; flex-direction: column; }
   .pnl-dashboard__identity { align-items: flex-start; flex-direction: column; }
   .pnl-dashboard__identity-meta { justify-content: flex-start; text-align: left; }
   .pnl-dashboard__trend-grid { grid-template-columns: 1fr; }

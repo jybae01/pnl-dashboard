@@ -157,6 +157,7 @@
 .data-management__history-card > details[open] > summary { border-bottom: 1px solid #e2e8f0; }
 .data-management__history-card > details[open] > summary svg { transform: rotate(180deg); }
 .data-management__history-card > details > .content-card { margin: 0 !important; border: 0; border-radius: 0 0 12px 12px; box-shadow: none; }
+.data-management__history-card > .content-card { margin: 0 !important; border: 0; border-radius: 12px; box-shadow: none; }
 .data-management__modal-backdrop { position: fixed; inset: 0; z-index: 200; display: grid; place-items: center; padding: 18px; background: rgba(15, 23, 42, .42); }
 .data-management__modal { width: min(430px, 100%); padding: 22px; border: 1px solid #e2e8f0; border-radius: 14px; background: #fff; box-shadow: 0 22px 55px rgba(15, 23, 42, .24); }
 .data-management__modal h2 { margin-top: 4px; font-size: 18px; }
@@ -177,4 +178,16 @@
   .data-management__filters { align-items: stretch; flex-direction: column; }
   .data-management__filters > label, .data-management__filters .data-management__search { min-width: 0; }
   .data-management__upload-actions { align-items: stretch; flex-direction: column; }
+}
+.data-management__title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--text-primary);
+}
+
+.data-management__title h1 {
+  margin: 0;
+  font-size: 14.5px;
+  font-weight: 800;
 }

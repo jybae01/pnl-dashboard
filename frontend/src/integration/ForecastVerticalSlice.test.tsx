@@ -5,6 +5,7 @@ import { ForecastGenerationView } from '../views/ForecastGenerationView';
 const BASE = '11111111-1111-4111-8111-111111111111';
 const MODEL = '22222222-2222-4222-8222-222222222222';
 const GENERATION = '33333333-3333-4333-8333-333333333333';
+const monthlyBaselineAmounts = Object.fromEntries(Array.from({ length: 12 }, (_, index) => [String(index + 1), 0]));
 
 const modelPayload = (name = 'Base') => ({ models: [{
   model_id: BASE,
@@ -20,11 +21,11 @@ const modelPayload = (name = 'Base') => ({ models: [{
 
 const metadataPayload = (extraSga: Array<{ adjustment_key: string; display_name: string; unit: string; category: string; section: string | null }> = []) => ({
   base_model_id: BASE,
-  manufacturing: [{ adjustment_key: 'mfg-energy', display_name: '전력비', unit: 'KRW', category: 'manufacturing', section: null }],
+  manufacturing: [{ adjustment_key: 'mfg-energy', display_name: '전력비', unit: 'KRW', category: 'manufacturing', section: null, monthly_baseline_amounts: monthlyBaselineAmounts }],
   sga: [
-    { adjustment_key: 'sga-selling', display_name: '운송비', unit: 'KRW', category: 'sga', section: 'selling' },
-    { adjustment_key: 'sga-packaging', display_name: '포장비', unit: 'KRW', category: 'sga', section: 'selling' },
-    ...extraSga,
+    { adjustment_key: 'sga-selling', display_name: '운송비', unit: 'KRW', category: 'sga', section: 'selling', monthly_baseline_amounts: monthlyBaselineAmounts },
+    { adjustment_key: 'sga-packaging', display_name: '포장비', unit: 'KRW', category: 'sga', section: 'selling', monthly_baseline_amounts: monthlyBaselineAmounts },
+    ...extraSga.map((item) => ({ ...item, monthly_baseline_amounts: monthlyBaselineAmounts })),
   ],
   reason_max_length: 500,
   dto_version: '1',
@@ -60,6 +61,8 @@ function forbiddenResponse() {
 }
 
 async function waitForForecastReady() {
+  await waitFor(() => expect(screen.getByRole('button', { name: '모형 적용' })).not.toBeDisabled());
+  fireEvent.click(screen.getByRole('button', { name: '모형 적용' }));
   await waitFor(() => expect(screen.getByRole('button', { name: '추정 모형 생성' })).not.toBeDisabled());
 }
 
@@ -95,14 +98,14 @@ describe('Forecast React vertical slice', () => {
     expect(body.months[0].new_business_goods_cogs_mode).toBe('ACTUAL_YTD_DEFAULT');
     expect(body.months[0].new_business_goods_cogs).toBeUndefined();
     expect(body.idempotency_key).toBeTruthy();
-    expect(screen.getByText('비공개')).toBeInTheDocument();
+    expect(screen.getAllByText(/비공개 상태/).length).toBeGreaterThan(0);
     expect(screen.queryByText(GENERATION)).not.toBeInTheDocument();
     expect(screen.queryByText(MODEL)).not.toBeInTheDocument();
     expect(screen.queryByText('SYNCHRONOUS')).not.toBeInTheDocument();
     expect(screen.queryByText(/23%|64%|90%/)).not.toBeInTheDocument();
     expect(screen.queryByText('월별 입력 JSON')).not.toBeInTheDocument();
     expect(document.querySelector('textarea')).not.toBeInTheDocument();
-    expect(screen.getByRole('button', { name: '모형 내려받기' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '생성 모형 내려받기 (.xlsx)' })).toBeInTheDocument();
     expect(screen.getByText(/입력반영내역/)).toBeInTheDocument();
   });
 
@@ -119,7 +122,7 @@ describe('Forecast React vertical slice', () => {
 
     render(<ForecastGenerationView />);
     await waitForForecastReady();
-    expect(screen.queryByRole('button', { name: '모형 내려받기' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: '생성 모형 내려받기 (.xlsx)' })).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: '추정 모형 생성' }));
     await screen.findByText('추정 모형 생성 완료');
 
@@ -129,7 +132,7 @@ describe('Forecast React vertical slice', () => {
       downloadedFilename = this.download;
     });
 
-    const download = screen.getByRole('button', { name: '모형 내려받기' });
+    const download = screen.getByRole('button', { name: '생성 모형 내려받기 (.xlsx)' });
     fireEvent.click(download);
     fireEvent.click(download);
     expect(fetchMock).toHaveBeenCalledTimes(4);
@@ -146,7 +149,7 @@ describe('Forecast React vertical slice', () => {
     }));
     await waitFor(() => expect(revoke).toHaveBeenCalledWith('blob:forecast'));
     expect(downloadedFilename).toBe('Forecast_2026_07.xlsx');
-    expect(screen.getByRole('button', { name: '모형 내려받기' })).not.toBeDisabled();
+    expect(screen.getByRole('button', { name: '생성 모형 내려받기 (.xlsx)' })).not.toBeDisabled();
     anchorClick.mockRestore();
   });
 
@@ -166,7 +169,7 @@ describe('Forecast React vertical slice', () => {
     await waitForForecastReady();
     fireEvent.click(screen.getByRole('button', { name: '추정 모형 생성' }));
     await screen.findByText('추정 모형 생성 완료');
-    fireEvent.click(screen.getByRole('button', { name: '모형 내려받기' }));
+    fireEvent.click(screen.getByRole('button', { name: '생성 모형 내려받기 (.xlsx)' }));
 
     const alert = await screen.findByRole('alert');
     expect(alert).toHaveTextContent('생성된 추정 모형을 내려받을 수 없습니다');
@@ -184,12 +187,13 @@ describe('Forecast React vertical slice', () => {
     fireEvent.change(screen.getByLabelText('시작 월'), { target: { value: '1' } });
     fireEvent.change(screen.getByLabelText('종료 월'), { target: { value: '7' } });
 
-    const submitButton = screen.getByRole('button', { name: '추정 모형 생성' });
-    expect(submitButton).toBeDisabled();
+    expect(screen.queryByRole('button', { name: '추정 모형 생성' })).not.toBeInTheDocument();
+    const applyButton = screen.getByRole('button', { name: '모형 적용' });
+    expect(applyButton).toBeDisabled();
     expect(screen.getAllByText(/7개월/).length).toBeGreaterThan(0);
     expect(screen.getAllByText(/최대 6개월/).length).toBeGreaterThan(0);
     expect(screen.getByLabelText('종료 월')).toHaveValue('7');
-    fireEvent.click(submitButton);
+    fireEvent.click(applyButton);
     expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 
@@ -454,12 +458,12 @@ describe('Forecast React vertical slice', () => {
     await screen.findByRole('heading', { name: '추정 산출' });
     fireEvent.change(screen.getByLabelText('종료 월'), { target: { value: '8' } });
     await waitForForecastReady();
-    fireEvent.click(screen.getByText(/고급 입력 및 조정/));
+    fireEvent.click(screen.getByText(/비용 및 원가 조정/));
     fireEvent.click(screen.getByRole('button', { name: '7월 전력비 조정' }));
     fireEvent.change(screen.getByLabelText('7월 전력비 제조경비 조정액'), { target: { value: '-456789' } });
     fireEvent.change(screen.getByLabelText('7월 전력비 제조경비 조정 사유'), { target: { value: '전력 사유' } });
     fireEvent.click(screen.getByRole('button', { name: '등록' }));
-    expect(screen.getByText(/조정금액:/)).toBeInTheDocument();
+    expect(screen.getByText(/제조경비 조정 내역 \(1건\)/)).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: '7월 운송비 조정' }));
     fireEvent.change(screen.getByLabelText('7월 운송비 판관비 조정액'), { target: { value: '567890' } });
     fireEvent.change(screen.getByLabelText('7월 운송비 판관비 조정 사유'), { target: { value: '운송 사유' } });
@@ -517,10 +521,13 @@ describe('Forecast React vertical slice', () => {
     vi.stubGlobal('fetch', fetchMock);
     render(<ForecastGenerationView />);
     await screen.findByRole('heading', { name: '추정 산출' });
-    expect(screen.getByText(/LC는 4인치\/PCS, FS는 LENGTH\/m/)).toBeInTheDocument();
+    await waitForForecastReady();
+    expect(screen.getAllByText('LC (4인치)').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('PCS').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('m').length).toBeGreaterThan(0);
     expect(screen.queryByText(/16인치|대사/)).not.toBeInTheDocument();
-    expect(screen.getByRole('heading', { name: '판매계획' })).toBeInTheDocument();
-    expect(screen.getByRole('heading', { name: '생산계획' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: /^판매계획/ })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: /^생산계획/ })).toBeInTheDocument();
     expect(screen.getByLabelText('7월 전공정 SW 생산수량')).toBeInTheDocument();
     expect(screen.getByLabelText('7월 전공정 BW 생산수량')).toBeInTheDocument();
     expect(screen.getByLabelText('7월 전공정 TW 생산수량')).toBeInTheDocument();
@@ -528,8 +535,8 @@ describe('Forecast React vertical slice', () => {
     expect(screen.getByLabelText('7월 후공정 BW 생산수량')).toBeInTheDocument();
     expect(screen.getByLabelText('7월 후공정 LC 생산수량')).toBeInTheDocument();
     expect(screen.queryByLabelText('7월 SW400 생산수량')).not.toBeInTheDocument();
-    expect(screen.getByText(/동일 월 400\/440 생산구성비로 서버에서 자동 배부/)).toBeInTheDocument();
-    expect(screen.getByRole('heading', { name: 'MCM 유상사급' })).toBeInTheDocument();
+    expect(screen.getByText(/동일 월 400\/440 생산구성비를 기준으로 서버에서 자동 배부/)).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: /^MCM 유상사급/ })).toBeInTheDocument();
     expect(screen.queryByText('월별 입력 JSON')).not.toBeInTheDocument();
   });
 
@@ -547,7 +554,7 @@ describe('Forecast React vertical slice', () => {
     fireEvent.change(screen.getByLabelText('7월 UF_MBR 매출액'), { target: { value: '1000000' } });
     fireEvent.change(screen.getByLabelText('7월 IX 매출액'), { target: { value: '500000' } });
 
-    fireEvent.click(screen.getByText(/고급 입력 및 조정/));
+    fireEvent.click(screen.getByText(/비용 및 원가 조정/));
     fireEvent.change(screen.getByLabelText('7월 기준 북미·남미 매출'), { target: { value: '500000' } });
     fireEvent.change(screen.getByLabelText('7월 추정 북미·남미 매출'), { target: { value: '1000000' } });
 
@@ -570,7 +577,7 @@ describe('Forecast React vertical slice', () => {
     fireEvent.click(screen.getByRole('button', { name: '7월 운송비 조정' }));
     fireEvent.change(screen.getByLabelText('7월 운송비 판관비 조정 사유'), { target: { value: '관세 및 신사업 운반비 반영' } });
     fireEvent.click(screen.getByRole('button', { name: '등록' }));
-    expect(screen.getByText(/조정금액:/)).toBeInTheDocument();
+    expect(screen.getByText(/판관비 조정 내역 \(1건\)/)).toBeInTheDocument();
     expect(screen.getByRole('button', { name: '7월 운송비 수정' })).toBeInTheDocument();
 
     fireEvent.change(screen.getByLabelText('7월 IX 매출액'), { target: { value: '800000' } });
@@ -606,7 +613,7 @@ describe('Forecast React vertical slice', () => {
     fireEvent.change(screen.getByLabelText('7월 IX 매출액'), { target: { value: '500000' } });
     fireEvent.change(screen.getByLabelText('7월 UF_MBR 매출액'), { target: { value: '1000000' } });
 
-    fireEvent.click(screen.getByText(/고급 입력 및 조정/));
+    fireEvent.click(screen.getByText(/비용 및 원가 조정/));
     fireEvent.change(screen.getByLabelText('7월 기준 북미·남미 매출'), { target: { value: '500000' } });
     fireEvent.change(screen.getByLabelText('7월 추정 북미·남미 매출'), { target: { value: '1000000' } });
 

@@ -295,8 +295,11 @@ export function CoreAnalysisView({ role, modelRefreshKey = 0, initialResultId }:
   if (role === 'viewer') {
     return (
       <section className="variance-analysis-page">
-        <AnalysisPageHeading role={role} />
         <form onSubmit={readViewerResult} className="variance-query-card">
+          <div className="variance-query-card__heading">
+            <strong>공개 분석 결과 조회</strong>
+            <span>게시된 Result ID로 손익 변동 요인과 근거를 확인합니다.</span>
+          </div>
           <label className="variance-result-query">
             <span className="filter-label">공개 결과 ID</span>
             <input aria-label="Result ID" className="filter-select" value={resultId}
@@ -327,7 +330,6 @@ export function CoreAnalysisView({ role, modelRefreshKey = 0, initialResultId }:
 
   return (
     <section className="variance-analysis-page">
-      <AnalysisPageHeading role={role} />
       <form onSubmit={submit} className="variance-analysis-controls">
         <div className="variance-control-heading" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16, flexWrap: 'wrap', gap: 10 }}>
           <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, flexWrap: 'wrap' }}>
@@ -383,14 +385,6 @@ export function CoreAnalysisView({ role, modelRefreshKey = 0, initialResultId }:
       <ResultState state={viewerState} error={error} result={result} role={role} />
     </section>
   );
-}
-
-function AnalysisPageHeading({ role }: { role: Role }) {
-  return <header className="variance-page-heading">
-    <div><span className="variance-page-kicker">PROFIT ANALYSIS</span><h1>손익 분석</h1>
-      <p>기준 모형과 비교 모형의 영업이익 변동을 Effect와 근거 항목으로 확인합니다.</p></div>
-    <span className="variance-access-badge">{role === 'admin' ? 'ADMIN · 분석 실행 및 결과 조회' : 'VIEWER · 결과 조회 전용'}</span>
-  </header>;
 }
 
 function ModelSelect({ label, value, models, disabled, onChange }: { label: string; value: string; models: AnalysisModelDto[]; disabled: boolean; onChange: (value: string) => void }) {

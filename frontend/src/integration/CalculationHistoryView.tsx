@@ -166,6 +166,10 @@ export function CalculationHistoryView({ onOpenResult }: CalculationHistoryViewP
 
   useEffect(() => { void load(); }, [load]);
 
+  useEffect(() => {
+    setDeleteSelection(new Set());
+  }, [search, statusFilter]);
+
   const openPublication = (item: CalculationHistoryItemDto) => {
     setPublicationTarget(item);
     setPublicationSelection(publicationChoice(item));

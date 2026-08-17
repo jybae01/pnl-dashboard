@@ -5,9 +5,12 @@ import { PnlDashboardDto } from './types';
 
 const BASE = '11111111-1111-4111-8111-111111111111';
 const COMP = '22222222-2222-4222-8222-222222222222';
+const MILLION = 1_000_000;
+
+function krw(value: number) { return value * MILLION; }
 
 function line(code: string, label: string, baseline: number, comparison: number, ratio: number | null = null) {
-  return { code, label, baseline, comparison, delta: comparison - baseline, comparison_ratio_to_revenue: ratio };
+  return { code, label, baseline: krw(baseline), comparison: krw(comparison), delta: krw(comparison - baseline), comparison_ratio_to_revenue: ratio };
 }
 
 function fixture(): PnlDashboardDto {
@@ -25,16 +28,16 @@ function fixture(): PnlDashboardDto {
   const periodOp = line('operating_profit', '영업이익', 66, 77);
   const cost = line('cogs', '매출원가', 60, 70);
   const effects = [
-    { code: 'sales_price', label: '판가', profit_effect: 1 },
-    { code: 'material_total', label: '원재료', profit_effect: -2 },
-    { code: 'sales_quantity', label: '판매수량', profit_effect: 2 },
+    { code: 'sales_price', label: '판가', profit_effect: krw(1) },
+    { code: 'material_total', label: '원재료', profit_effect: krw(-2) },
+    { code: 'sales_quantity', label: '판매수량', profit_effect: krw(2) },
     { code: 'sales_mix', label: '제품 Mix', profit_effect: 0 },
     { code: 'sales_fx', label: '매출환율', profit_effect: 0 },
-    { code: 'manufacturing_realized', label: '제조', profit_effect: -2 },
+    { code: 'manufacturing_realized', label: '제조', profit_effect: krw(-2) },
     { code: 'inventory_timing', label: '재고·원가 반영시차', profit_effect: 0 },
-    { code: 'sga_variable', label: '변동 판매관리비', profit_effect: 2 },
-    { code: 'sga_fixed', label: '고정 판매관리비', profit_effect: -2 },
-    { code: 'tariff', label: '관세', profit_effect: -1 },
+    { code: 'sga_variable', label: '변동 판매관리비', profit_effect: krw(2) },
+    { code: 'sga_fixed', label: '고정 판매관리비', profit_effect: krw(-2) },
+    { code: 'tariff', label: '관세', profit_effect: krw(-1) },
   ];
   return {
     result_id: '44444444-4444-4444-8444-444444444444',
@@ -67,16 +70,16 @@ function fixture(): PnlDashboardDto {
     pnl_statement: [periodRevenue, line('cogs', '매출원가', 198, 217), periodGp, periodOp],
     manufacturing: {
       cost_lines: [line('raw_material', '원재료비', 30, 33)],
-      material_components: { nonwoven_price_ex_fx: -1, nonwoven_jpy: -2, materials_ex_nonwoven: -3, total: -6, jpy_fx_unit: 'KRW/JPY', mcm_is_separate_effect: false },
-      accounts: [{ account: '고정 제조경비', classification: 'fixed', section: 'manufacturing', baseline: 4, comparison: 5, delta: 1, profit_effect: -1, inventory_realization_rate: 1, activity_effect: 0, unit_effect: 0, fixed_effect: -1 }],
+      material_components: { nonwoven_price_ex_fx: krw(-1), nonwoven_jpy: krw(-2), materials_ex_nonwoven: krw(-3), total: krw(-6), jpy_fx_unit: 'KRW/JPY', mcm_is_separate_effect: false },
+      accounts: [{ account: '고정 제조경비', classification: 'fixed', section: 'manufacturing', baseline: krw(4), comparison: krw(5), delta: krw(1), profit_effect: krw(-1), inventory_realization_rate: 1, activity_effect: 0, unit_effect: 0, fixed_effect: krw(-1) }],
       fixed_cost_policy: { manufacturing_effect_includes_variable_and_fixed: true, fixed_manufacturing_is_not_a_separate_top_level_effect: true },
     },
-    sga: { fixed_scope: 'internal scope', accounts: [{ account: '판매관리비 계정', classification: 'variable', section: 'sga', baseline: 3, comparison: 4, delta: 1, profit_effect: -1, inventory_realization_rate: null, activity_effect: null, unit_effect: null, fixed_effect: null }] },
+    sga: { fixed_scope: 'internal scope', accounts: [{ account: '판매관리비 계정', classification: 'variable', section: 'sga', baseline: krw(3), comparison: krw(4), delta: krw(1), profit_effect: krw(-1), inventory_realization_rate: null, activity_effect: null, unit_effect: null, fixed_effect: null }] },
     product_groups: [
-      { code: 'LC', display_name: '4인치 LC', quantity_unit: 'PCS', baseline_quantity: 3, comparison_quantity: 4, baseline_revenue: 20, comparison_revenue: 25, revenue_delta: 5, baseline_cogs: 12, comparison_cogs: 14, baseline_gross_profit: 8, comparison_gross_profit: 11 },
-      { code: 'FS', display_name: 'FS', quantity_unit: 'm', baseline_quantity: 100, comparison_quantity: 110, baseline_revenue: 30, comparison_revenue: 35, revenue_delta: 5, baseline_cogs: 15, comparison_cogs: 17, baseline_gross_profit: 15, comparison_gross_profit: 18 },
+      { code: 'LC', display_name: '4인치 LC', quantity_unit: 'PCS', baseline_quantity: 3, comparison_quantity: 4, baseline_revenue: krw(20), comparison_revenue: krw(25), revenue_delta: krw(5), baseline_cogs: krw(12), comparison_cogs: krw(14), baseline_gross_profit: krw(8), comparison_gross_profit: krw(11) },
+      { code: 'FS', display_name: 'FS', quantity_unit: 'm', baseline_quantity: 100, comparison_quantity: 110, baseline_revenue: krw(30), comparison_revenue: krw(35), revenue_delta: krw(5), baseline_cogs: krw(15), comparison_cogs: krw(17), baseline_gross_profit: krw(15), comparison_gross_profit: krw(18) },
     ],
-    key_facts: { effects, effects_total: -2, residual: 9, operating_profit_delta: 7, reconciled: false },
+    key_facts: { effects, effects_total: krw(-2), residual: krw(9), operating_profit_delta: krw(7), reconciled: false },
     result_schema_version: '1', completed_at: '2026-08-11T00:00:00Z', published_at: '2026-08-11T01:00:00Z', currency_unit: 'KRW', dto_version: '1',
   };
 }
@@ -92,16 +95,17 @@ describe('P&L Dashboard seven-source vertical slice', () => {
     vi.stubGlobal('fetch', vi.fn(() => json(fixture())));
     render(<PnlStatusView />);
 
-    expect(await screen.findByRole('heading', { name: '손익 현황' })).toBeInTheDocument();
-    expect(screen.getAllByText('₩365').length).toBeGreaterThan(0);
+    expect(await screen.findByRole('heading', { name: '핵심 손익 요약' })).toBeInTheDocument();
+    expect(screen.getAllByText('365 백만원').length).toBeGreaterThan(0);
     expect(screen.getByTestId('revenue-trend-card')).toBeInTheDocument();
     expect(screen.getByTestId('composite-trend-card')).toBeInTheDocument();
     expect(screen.getByText('월별 매출액 추이')).toBeInTheDocument();
-    expect(screen.getByText('월별 영업이익 / 영업이익률 추이')).toBeInTheDocument();
+    expect(screen.getByText('월별 손익 추이')).toBeInTheDocument();
     expect(screen.getByText('실적')).toBeInTheDocument();
     expect(screen.getByText('추정')).toBeInTheDocument();
     expect(screen.getByText('계획')).toBeInTheDocument();
     expect(screen.getByRole('heading', { name: '손익계산서' })).toBeInTheDocument();
+    expect(screen.getByText('기타 요인')).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole('tab', { name: '제조원가' }));
     expect(screen.getByText('고정 제조경비')).toBeInTheDocument();
@@ -114,8 +118,7 @@ describe('P&L Dashboard seven-source vertical slice', () => {
     expect(screen.getByText('PCS')).toBeInTheDocument();
     expect(screen.getByText('FS')).toBeInTheDocument();
     expect(screen.getByText('m')).toBeInTheDocument();
-    expect(screen.getByText('기타 요인')).toBeInTheDocument();
-    expect(screen.queryByText('백만원')).not.toBeInTheDocument();
+    expect(screen.getAllByText(/백만원/).length).toBeGreaterThan(0);
     expect(screen.queryByText('16인치')).not.toBeInTheDocument();
     expect(screen.queryByText('대사')).not.toBeInTheDocument();
     expect(screen.queryByText(BASE)).not.toBeInTheDocument();
@@ -125,21 +128,21 @@ describe('P&L Dashboard seven-source vertical slice', () => {
     vi.stubGlobal('fetch', vi.fn(() => json(fixture())));
     const onNavigate = vi.fn();
     render(<PnlStatusView onNavigateToVariance={onNavigate} />);
-    await screen.findByRole('heading', { name: '손익 현황' });
+    await screen.findByRole('heading', { name: '핵심 손익 요약' });
     const labels = screen.getAllByText(/^(판가|원재료|판매수량|제품 Mix|매출환율|제조|재고·원가 반영시차|변동 판매관리비|고정 판매관리비|관세)$/).map((node) => node.textContent);
     expect(labels.slice(-10)).toEqual(['판가', '원재료', '판매수량', '제품 Mix', '매출환율', '제조', '재고·원가 반영시차', '변동 판매관리비', '고정 판매관리비', '관세']);
     expect(screen.queryByText(/Top|주요 긍정|주요 부정/)).not.toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: '손익분석 상세 보기' }));
+    fireEvent.click(screen.getByRole('button', { name: '손익 요인 Waterfall 분석 바로가기' }));
     expect(onNavigate).toHaveBeenCalledTimes(1);
   });
 
   it('uses green/red/neutral tones from authoritative profit effects', async () => {
     vi.stubGlobal('fetch', vi.fn(() => json(fixture())));
     render(<PnlStatusView />);
-    await screen.findByRole('heading', { name: '손익 현황' });
-    expect(screen.getAllByText('+₩11').some((node) => String(node.className).includes('pnl-dashboard__tone--positive'))).toBe(true);
-    expect(screen.getAllByText('-₩2').some((node) => String(node.className).includes('pnl-dashboard__tone--negative'))).toBe(true);
-    expect(screen.getAllByText('₩0').some((node) => String(node.className).includes('pnl-dashboard__tone--neutral'))).toBe(true);
+    await screen.findByRole('heading', { name: '핵심 손익 요약' });
+    expect(screen.getAllByText('+11 백만원').some((node) => String(node.className).includes('pnl-dashboard__tone--positive'))).toBe(true);
+    expect(screen.getAllByText('-2 백만원').some((node) => String(node.className).includes('pnl-dashboard__tone--negative'))).toBe(true);
+    expect(screen.getAllByText('0 백만원').some((node) => String(node.className).includes('pnl-dashboard__tone--neutral'))).toBe(true);
   });
 
   it('keeps EMPTY, ERROR, FORBIDDEN, and invalid payload distinct', async () => {
