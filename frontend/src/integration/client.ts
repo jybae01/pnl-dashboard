@@ -519,7 +519,7 @@ const RESIDUAL_CLASSIFICATIONS = new Set([
 
 function validatePresentationEffect(value: unknown): AnalysisPresentationEffectDto {
   if (!isRecord(value)
-    || !PRESENTATION_EFFECT_ORDER.includes(value.code as typeof PRESENTATION_EFFECT_ORDER[number])
+    || typeof value.code !== 'string' || !value.code.trim()
     || !['INTERNAL', 'EXTERNAL', 'COST'].includes(String(value.category))
     || typeof value.label !== 'string'
     || typeof value.description !== 'string'
@@ -579,8 +579,14 @@ function validatePresentation(value: unknown): AnalysisPresentationDto {
     || !close(Number(kpis.comparison_operating_profit) - Number(kpis.baseline_operating_profit), Number(kpis.operating_profit_delta))) invalidPayload();
 
   const effects = value.effects.map(validatePresentationEffect);
-  if (effects.length !== PRESENTATION_EFFECT_ORDER.length
-    || effects.some((effect, index) => effect.code !== PRESENTATION_EFFECT_ORDER[index])) invalidPayload();
+  const effectCodes = new Set<string>();
+  for (const effect of effects) {
+    if (effectCodes.has(effect.code)) invalidPayload();
+    effectCodes.add(effect.code);
+  }
+  for (const requiredCode of PRESENTATION_EFFECT_ORDER) {
+    if (!effectCodes.has(requiredCode)) invalidPayload();
+  }
   const residual = value.residual;
   if (!finite(residual.amount)
     || !RESIDUAL_CLASSIFICATIONS.has(String(residual.classification))
