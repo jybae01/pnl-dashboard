@@ -438,3 +438,47 @@ export function adaptForecastInput(
 
   return { value: result, error: '' };
 }
+
+export interface ForecastBusinessHelperAdjustments {
+  tariffAdjustment: number;
+  ufMbrFreightAdjustment: number;
+  ixFreightAdjustment: number;
+  ixPackagingAdjustment: number;
+}
+
+export function calculateForecastBusinessHelperAdjustments(
+  monthState: ForecastMonthFormState,
+): ForecastBusinessHelperAdjustments {
+  const parseNum = (str: string | undefined, fallback: number) => {
+    const cleaned = (str ?? '').replace(/,/g, '').trim();
+    if (!cleaned) return fallback;
+    const n = Number(cleaned);
+    return Number.isFinite(n) ? n : fallback;
+  };
+
+  const planNaSaSales = parseNum(monthState.planNaSaSales, 0);
+  const naSaSales = parseNum(monthState.naSaSales, 0);
+  const tariffApplicableRate = parseNum(monthState.tariffApplicableRate, 0.1);
+  const tariffRate = parseNum(monthState.tariffRate, 0.13);
+  const tariffAdjustment = (naSaSales - planNaSaSales) * tariffApplicableRate * tariffRate;
+
+  const ufSalesAmount = parseNum(monthState.sales['UF_MBR']?.amount, 0);
+  const ufMbrTransportRate = parseNum(monthState.ufMbrTransportRate, 0.05);
+  const ufMbrFreightAdjustment = ufSalesAmount * ufMbrTransportRate;
+
+  const ixSalesAmount = parseNum(monthState.sales['IX']?.amount, 0);
+  const ixTransportRate = parseNum(monthState.ixTransportRate, 0.05);
+  const ixFreightAdjustment = ixSalesAmount * ixTransportRate;
+
+  const ixQuantity = parseNum(monthState.sales['IX']?.quantity, 0);
+  const ixPackLiters = parseNum(monthState.ixPackLiters, 25);
+  const ixPackCost = parseNum(monthState.ixPackCost, 380);
+  const ixPackagingAdjustment = ixPackLiters > 0 ? (ixQuantity / ixPackLiters) * ixPackCost : 0;
+
+  return {
+    tariffAdjustment,
+    ufMbrFreightAdjustment,
+    ixFreightAdjustment,
+    ixPackagingAdjustment,
+  };
+}

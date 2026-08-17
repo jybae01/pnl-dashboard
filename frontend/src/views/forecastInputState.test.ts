@@ -3,6 +3,7 @@ import {
   adaptForecastInput,
   applyForecastExcelPreview,
   BUSINESS_PRODUCTION_ROWS,
+  calculateForecastBusinessHelperAdjustments,
   createForecastMonthFormState,
   ensureForecastMonths,
   MCM_PRODUCTS,
@@ -234,5 +235,71 @@ describe('forecast direct-input adapter', () => {
       new_business_goods_cogs: 0,
       new_business_goods_cogs_reason: '명시적 0원',
     });
+  });
+
+  it('calculates business helper adjustments accurately with explicit numbers', () => {
+    const month = createForecastMonthFormState(7);
+    month.sales.UF_MBR.amount = '200000000';
+    month.sales.IX.amount = '100000000';
+    month.sales.IX.quantity = '5000';
+    month.planNaSaSales = '500000000';
+    month.naSaSales = '800000000';
+    month.tariffApplicableRate = '0.2';
+    month.tariffRate = '0.15';
+    month.ufMbrTransportRate = '0.06';
+    month.ixTransportRate = '0.04';
+    month.ixPackLiters = '20';
+    month.ixPackCost = '400';
+
+    const result = calculateForecastBusinessHelperAdjustments(month);
+
+    expect(result.tariffAdjustment).toBe(9000000);
+    expect(result.ufMbrFreightAdjustment).toBe(12000000);
+    expect(result.ixFreightAdjustment).toBe(4000000);
+    expect(result.ixPackagingAdjustment).toBe(100000);
+  });
+
+  it('uses official contract defaults when scalar rate or cost strings are empty', () => {
+    const month = createForecastMonthFormState(7);
+    month.sales.UF_MBR.amount = '10000000';
+    month.sales.IX.amount = '20000000';
+    month.sales.IX.quantity = '250';
+    month.planNaSaSales = '1000000';
+    month.naSaSales = '2000000';
+    month.tariffApplicableRate = '';
+    month.tariffRate = '';
+    month.ufMbrTransportRate = '';
+    month.ixTransportRate = '';
+    month.ixPackLiters = '';
+    month.ixPackCost = '';
+
+    const result = calculateForecastBusinessHelperAdjustments(month);
+
+    expect(result.tariffAdjustment).toBeCloseTo(13000);
+    expect(result.ufMbrFreightAdjustment).toBe(500000);
+    expect(result.ixFreightAdjustment).toBe(1000000);
+    expect(result.ixPackagingAdjustment).toBe(3800);
+  });
+
+  it('returns zero for packaging adjustment when ixPackLiters is zero', () => {
+    const month = createForecastMonthFormState(7);
+    month.sales.IX.quantity = '1000';
+    month.ixPackLiters = '0';
+    month.ixPackCost = '380';
+
+    const result = calculateForecastBusinessHelperAdjustments(month);
+    expect(result.ixPackagingAdjustment).toBe(0);
+  });
+
+  it('does not mutate the input month state', () => {
+    const month = createForecastMonthFormState(7);
+    month.sales.UF_MBR.amount = '123456';
+    month.sales.IX.amount = '789012';
+    month.sales.IX.quantity = '500';
+    const snapshot = JSON.stringify(month);
+
+    calculateForecastBusinessHelperAdjustments(month);
+
+    expect(JSON.stringify(month)).toBe(snapshot);
   });
 });
