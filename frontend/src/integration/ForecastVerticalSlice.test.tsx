@@ -18,10 +18,14 @@ const modelPayload = (name = 'Base') => ({ models: [{
   dto_version: '1',
 }] });
 
-const metadataPayload = () => ({
+const metadataPayload = (extraSga: Array<{ adjustment_key: string; display_name: string; unit: string; category: string; section: string | null }> = []) => ({
   base_model_id: BASE,
   manufacturing: [{ adjustment_key: 'mfg-energy', display_name: '전력비', unit: 'KRW', category: 'manufacturing', section: null }],
-  sga: [{ adjustment_key: 'sga-selling', display_name: '운송비', unit: 'KRW', category: 'sga', section: 'selling' }],
+  sga: [
+    { adjustment_key: 'sga-selling', display_name: '운송비', unit: 'KRW', category: 'sga', section: 'selling' },
+    { adjustment_key: 'sga-packaging', display_name: '포장비', unit: 'KRW', category: 'sga', section: 'selling' },
+    ...extraSga,
+  ],
   reason_max_length: 500,
   dto_version: '1',
 });
@@ -576,6 +580,63 @@ describe('Forecast React vertical slice', () => {
     const body = JSON.parse(String((fetchMock.mock.calls[2][1] as RequestInit).body));
     expect(body.months[0].sga_adjustments).toEqual([
       { adjustment_key: 'sga-selling', amount: 81500, reason: '관세 및 신사업 운반비 반영' },
+    ]);
+  });
+
+  it('suggests IX packaging adjustment on selling packaging row, isolates draft, serializes standard DTO, and keeps separated from freight', async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(response(modelPayload()))
+      .mockResolvedValueOnce(response(metadataPayload()))
+      .mockResolvedValueOnce(response(successPayload()));
+    vi.stubGlobal('fetch', fetchMock);
+
+    render(<ForecastGenerationView />);
+    await screen.findByRole('heading', { name: '추정 산출' });
+    await waitForForecastReady();
+
+    fireEvent.change(screen.getByLabelText('7월 IX 판매수량'), { target: { value: '5000' } });
+    fireEvent.change(screen.getByLabelText('7월 IX 매출액'), { target: { value: '500000' } });
+    fireEvent.change(screen.getByLabelText('7월 UF_MBR 매출액'), { target: { value: '1000000' } });
+
+    fireEvent.click(screen.getByText(/고급 입력 및 조정/));
+    fireEvent.change(screen.getByLabelText('7월 기준 북미·남미 매출'), { target: { value: '500000' } });
+    fireEvent.change(screen.getByLabelText('7월 추정 북미·남미 매출'), { target: { value: '1000000' } });
+
+    fireEvent.click(screen.getByRole('button', { name: '7월 포장비 조정' }));
+    expect(screen.getByText(/IX 포장비/)).toBeInTheDocument();
+    expect(screen.getByText('+76,000원')).toBeInTheDocument();
+    const packagingAmountInput = screen.getByLabelText('7월 포장비 판관비 조정액') as HTMLInputElement;
+    expect(packagingAmountInput.value).toBe('76000');
+
+    fireEvent.click(screen.getByRole('button', { name: '취소' }));
+    expect(screen.queryByText(/IX 포장비/)).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '7월 포장비 조정' })).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: '7월 포장비 조정' }));
+    fireEvent.change(screen.getByLabelText('7월 포장비 판관비 조정 사유'), { target: { value: 'IX 신사업 포장비 반영' } });
+    fireEvent.click(screen.getByRole('button', { name: '등록' }));
+    expect(screen.getByText(/IX 신사업 포장비 반영/)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '7월 포장비 수정' })).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: '7월 운송비 조정' }));
+    fireEvent.change(screen.getByLabelText('7월 운송비 판관비 조정 사유'), { target: { value: '운송비 합계 반영' } });
+    fireEvent.click(screen.getByRole('button', { name: '등록' }));
+
+    fireEvent.change(screen.getByLabelText('7월 IX 판매수량'), { target: { value: '10000' } });
+
+    fireEvent.click(screen.getByRole('button', { name: '7월 포장비 수정' }));
+    expect(screen.getByText('+152,000원')).toBeInTheDocument();
+    const editingPackagingInput = screen.getByLabelText('7월 포장비 판관비 조정액') as HTMLInputElement;
+    expect(editingPackagingInput.value).toBe('76000');
+    fireEvent.click(screen.getByRole('button', { name: '취소' }));
+
+    fireEvent.click(screen.getByRole('button', { name: '추정 모형 생성' }));
+    await screen.findByText('추정 모형 생성 완료');
+
+    const body = JSON.parse(String((fetchMock.mock.calls[2][1] as RequestInit).body));
+    expect(body.months[0].sga_adjustments).toEqual([
+      { adjustment_key: 'sga-selling', amount: 81500, reason: '운송비 합계 반영' },
+      { adjustment_key: 'sga-packaging', amount: 76000, reason: 'IX 신사업 포장비 반영' },
     ]);
   });
 });

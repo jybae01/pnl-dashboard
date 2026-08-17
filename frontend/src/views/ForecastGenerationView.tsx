@@ -954,6 +954,7 @@ export const ForecastGenerationView: React.FC<ForecastGenerationViewProps> = ({
                         const hasAdjustment = (row.amount.trim() !== '' && row.amount.trim() !== '0') || row.reason.trim() !== '';
                         const isEditing = editingSgaKey === item.adjustment_key;
                         const isSellingFreightAccount = item.section === 'selling' && (item.display_name.includes('운송비') || item.display_name.includes('운반비'));
+                        const isSellingPackagingAccount = item.section === 'selling' && item.display_name.includes('포장비');
                         const sellingFreightSuggestion = helperAdjustments.tariffAdjustment + helperAdjustments.ufMbrFreightAdjustment + helperAdjustments.ixFreightAdjustment;
 
                         return (
@@ -981,7 +982,11 @@ export const ForecastGenerationView: React.FC<ForecastGenerationViewProps> = ({
                                         item.adjustment_key,
                                         row.amount,
                                         row.reason,
-                                        isSellingFreightAccount ? sellingFreightSuggestion : undefined,
+                                        isSellingFreightAccount
+                                          ? sellingFreightSuggestion
+                                          : isSellingPackagingAccount
+                                            ? helperAdjustments.ixPackagingAdjustment
+                                            : undefined,
                                       )}
                                 >
                                   {hasAdjustment ? '수정' : '조정'}
@@ -1041,6 +1046,25 @@ export const ForecastGenerationView: React.FC<ForecastGenerationViewProps> = ({
                                               {sellingFreightSuggestion > 0 ? `+${Math.round(sellingFreightSuggestion).toLocaleString('ko-KR')}` : Math.round(sellingFreightSuggestion).toLocaleString('ko-KR')}원
                                             </strong>
                                           </div>
+                                        </div>
+                                      )}
+                                      {isSellingPackagingAccount && (
+                                        <div style={{
+                                          marginBottom: '12px',
+                                          padding: '8px 12px',
+                                          background: '#f8fafc',
+                                          border: '1px solid #e2e8f0',
+                                          borderRadius: '6px',
+                                          fontSize: '0.85em',
+                                          color: '#334155',
+                                          display: 'flex',
+                                          justifyContent: 'space-between',
+                                          alignItems: 'center',
+                                        }}>
+                                          <span>💡 <strong>자동 산출</strong>: IX 포장비</span>
+                                          <strong style={{ color: helperAdjustments.ixPackagingAdjustment > 0 ? '#047857' : helperAdjustments.ixPackagingAdjustment < 0 ? '#b91c1c' : '#475569' }}>
+                                            {helperAdjustments.ixPackagingAdjustment > 0 ? `+${Math.round(helperAdjustments.ixPackagingAdjustment).toLocaleString('ko-KR')}` : Math.round(helperAdjustments.ixPackagingAdjustment).toLocaleString('ko-KR')}원
+                                          </strong>
                                         </div>
                                       )}
                                       <label className="forecast-workflow__drawer-field">
