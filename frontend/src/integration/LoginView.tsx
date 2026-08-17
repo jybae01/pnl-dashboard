@@ -50,7 +50,7 @@ export function LoginView({ onAuthenticated }: { onAuthenticated: (session: Sess
       <div className="login-frame">
         <section className="login-brand-card" aria-label="NanoH2O 브랜드">
           <div className="login-brand-top">
-            <NanoH2oLogo height={38} textColor="#ffffff" />
+            <NanoH2oLogo height={30} />
           </div>
           <div className="login-brand-bottom">
             <p className="login-brand-kicker">MANAGEMENT ACCOUNTING</p>

@@ -1,6 +1,6 @@
 import React from 'react';
 import { LogOut, Shield, User } from 'lucide-react';
-import logoImg from '../../assets/nanoh2o-logo.png';
+import { NanoH2oLogo } from './NanoH2oLogo';
 import { SessionDto } from '../../integration/types';
 
 interface HeaderProps {
@@ -14,29 +14,7 @@ export const Header: React.FC<HeaderProps> = ({ session, onLogout }) => {
     <header className="app-header">
       <div className="header-left">
         <div className="system-logo-group" style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
-          {/* Exact original NANOH2O logo image directly displayed without any distortion */}
-          <div
-            style={{
-              backgroundColor: '#ffffff',
-              padding: '3px 8px',
-              borderRadius: '4px',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              boxShadow: '0 1px 3px rgba(0,0,0,0.2)',
-            }}
-          >
-            <img
-              src={logoImg}
-              alt="NANOH2O"
-              style={{
-                height: '18px',
-                width: 'auto',
-                display: 'block',
-                objectFit: 'contain',
-              }}
-            />
-          </div>
+          <NanoH2oLogo height={16} alt="NANOH2O" />
 
           <div style={{ display: 'flex', alignItems: 'center' }}>
             <span className="system-title" style={{ fontSize: '14.5px', fontWeight: 700, letterSpacing: '-0.3px' }}>
