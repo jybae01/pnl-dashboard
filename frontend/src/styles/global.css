@@ -186,6 +186,32 @@ html, body {
   font-size: 11px;
 }
 
+.btn-header-logout {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background-color: rgba(255, 255, 255, 0.08);
+  border: 1px solid #334155;
+  border-radius: var(--radius-sm);
+  color: #cbd5e1;
+  font-size: 12px;
+  font-weight: 600;
+  padding: 4px 10px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.btn-header-logout:hover {
+  background-color: rgba(239, 68, 68, 0.15);
+  border-color: #ef4444;
+  color: #fca5a5;
+}
+
+.btn-header-logout:focus-visible {
+  outline: 2px solid #ef4444;
+  outline-offset: 2px;
+}
+
 /* App Main Navigation Bar */
 .app-nav {
   background-color: var(--bg-nav);
@@ -194,13 +220,16 @@ html, body {
   align-items: center;
   justify-content: space-between;
   border-bottom: 1px solid #334155;
-  height: 42px;
+  height: 44px;
+  overflow-x: auto;
+  scrollbar-width: thin;
 }
 
 .nav-tabs {
   display: flex;
   gap: 4px;
   height: 100%;
+  flex-shrink: 0;
 }
 
 .nav-tab-btn {

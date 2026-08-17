@@ -80,7 +80,18 @@ export function App() {
   if (!session) return <LoginView onAuthenticated={(value) => { setSession(value); setSessionState('READY'); navigate(value.role === 'admin' ? 'management' : 'variance'); }} />;
 
   return <div style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column' }}>
-    <Header />
+    <Header
+      session={session}
+      onLogout={async () => {
+        try {
+          await bffClient.logout();
+          setSession(null);
+          setSessionState('ANONYMOUS');
+        } catch {
+          setSessionState('ERROR');
+        }
+      }}
+    />
     <nav className="app-nav" aria-label="주요 화면">
       <div className="nav-tabs">
         <button className={`nav-tab-btn ${route === 'pnl' ? 'active' : ''}`} onClick={() => navigate('pnl')}>1. 손익 현황</button>
@@ -90,18 +101,6 @@ export function App() {
         </>}
         <button className={`nav-tab-btn ${route === 'variance' ? 'active' : ''}`} onClick={() => navigate('variance')}>4. 손익 분석 결과</button>
         {session.role === 'admin' && <button className={`nav-tab-btn ${route === 'operations' ? 'active' : ''}`} onClick={() => navigate('operations')}>5. 운영 관리</button>}
-        <button className="nav-tab-btn" onClick={async () => {
-          try {
-            await bffClient.logout();
-            setSession(null);
-            setSessionState('ANONYMOUS');
-          } catch {
-            setSessionState('ERROR');
-          }
-        }}>로그아웃</button>
-      </div>
-      <div className="nav-right-actions" aria-label="현재 권한">
-        <span className="env-tag">{session.role === 'admin' ? 'ADMIN · 업로드/공개/분석' : 'VIEWER · 공개 결과 조회'}</span>
       </div>
     </nav>
     <main className="app-content">
