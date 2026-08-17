@@ -78,12 +78,12 @@
   align-items: center;
   justify-content: space-between;
   gap: 18px;
-  padding: 15px 18px;
-  border: 1px solid var(--border-default);
-  border-left: 4px solid var(--brand-orange);
-  border-radius: var(--radius-md);
-  background: var(--bg-surface);
-  box-shadow: var(--shadow-sm);
+  padding: 18px 20px;
+  border: 1px solid var(--border-default, #e2e8f0);
+  border-left: 4px solid var(--brand-orange, #ea580c);
+  border-radius: 12px;
+  background: var(--bg-surface, #fff);
+  box-shadow: 0 4px 16px rgba(15, 23, 42, .04);
 }
 
 .pnl-dashboard__identity-heading,
@@ -197,20 +197,20 @@
 .pnl-dashboard__kpi {
   position: relative;
   display: grid;
-  gap: 5px;
+  gap: 6px;
   min-width: 0;
-  padding: 13px 15px 12px;
-  border: 1px solid var(--border-default);
-  border-radius: var(--radius-md);
-  background: var(--bg-surface);
-  box-shadow: var(--shadow-sm);
+  padding: 16px 18px 14px;
+  border: 1px solid var(--border-default, #e2e8f0);
+  border-radius: 12px;
+  background: var(--bg-surface, #fff);
+  box-shadow: 0 4px 16px rgba(15, 23, 42, .04);
 }
 
 .pnl-dashboard__kpi::before {
   position: absolute;
   inset: 0 auto 0 0;
   width: 4px;
-  border-radius: var(--radius-md) 0 0 var(--radius-md);
+  border-radius: 12px 0 0 12px;
   background: var(--pnl-plan);
   content: '';
 }
@@ -276,11 +276,11 @@
 .pnl-dashboard__trend-section,
 .pnl-dashboard__details,
 .pnl-dashboard__factors {
-  padding: 15px 16px;
-  border: 1px solid var(--border-default);
-  border-radius: var(--radius-md);
-  background: var(--bg-surface);
-  box-shadow: var(--shadow-sm);
+  padding: 18px 20px;
+  border: 1px solid var(--border-default, #e2e8f0);
+  border-radius: 12px;
+  background: var(--bg-surface, #fff);
+  box-shadow: 0 4px 16px rgba(15, 23, 42, .04);
 }
 
 .pnl-dashboard__legend {
