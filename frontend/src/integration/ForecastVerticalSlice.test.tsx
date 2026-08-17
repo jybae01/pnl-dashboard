@@ -521,7 +521,7 @@ describe('Forecast React vertical slice', () => {
     expect(screen.queryByText('월별 입력 JSON')).not.toBeInTheDocument();
   });
 
-  it('suggests tariff and UF MBR freight adjustments on selling freight row, isolates draft, serializes standard DTO, and preserves registered amount', async () => {
+  it('suggests tariff, UF MBR, and IX freight adjustments on selling freight row, isolates draft, serializes standard DTO, and preserves registered amount', async () => {
     const fetchMock = vi.fn()
       .mockResolvedValueOnce(response(modelPayload()))
       .mockResolvedValueOnce(response(metadataPayload()))
@@ -533,6 +533,7 @@ describe('Forecast React vertical slice', () => {
     await waitForForecastReady();
 
     fireEvent.change(screen.getByLabelText('7월 UF_MBR 매출액'), { target: { value: '1000000' } });
+    fireEvent.change(screen.getByLabelText('7월 IX 매출액'), { target: { value: '500000' } });
 
     fireEvent.click(screen.getByText(/고급 입력 및 조정/));
     fireEvent.change(screen.getByLabelText('7월 기준 북미·남미 매출'), { target: { value: '500000' } });
@@ -543,28 +544,30 @@ describe('Forecast React vertical slice', () => {
     expect(screen.getByText('+6,500원')).toBeInTheDocument();
     expect(screen.getByText(/UF\/MBR 신사업 운반비/)).toBeInTheDocument();
     expect(screen.getByText('+50,000원')).toBeInTheDocument();
+    expect(screen.getByText(/IX 신사업 운반비/)).toBeInTheDocument();
+    expect(screen.getByText('+25,000원')).toBeInTheDocument();
     expect(screen.getByText('자동 제안 합계')).toBeInTheDocument();
-    expect(screen.getByText('+56,500원')).toBeInTheDocument();
+    expect(screen.getByText('+81,500원')).toBeInTheDocument();
     const freightAmountInput = screen.getByLabelText('7월 운송비 판관비 조정액') as HTMLInputElement;
-    expect(freightAmountInput.value).toBe('56500');
+    expect(freightAmountInput.value).toBe('81500');
 
     fireEvent.click(screen.getByRole('button', { name: '취소' }));
     expect(screen.queryByText(/북미·남미 관세 조정/)).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: '7월 운송비 조정' })).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole('button', { name: '7월 운송비 조정' }));
-    fireEvent.change(screen.getByLabelText('7월 운송비 판관비 조정 사유'), { target: { value: '관세 및 UF/MBR 운반비 반영' } });
+    fireEvent.change(screen.getByLabelText('7월 운송비 판관비 조정 사유'), { target: { value: '관세 및 신사업 운반비 반영' } });
     fireEvent.click(screen.getByRole('button', { name: '등록' }));
     expect(screen.getByText(/조정금액:/)).toBeInTheDocument();
     expect(screen.getByRole('button', { name: '7월 운송비 수정' })).toBeInTheDocument();
 
-    fireEvent.change(screen.getByLabelText('7월 UF_MBR 매출액'), { target: { value: '2000000' } });
+    fireEvent.change(screen.getByLabelText('7월 IX 매출액'), { target: { value: '800000' } });
 
     fireEvent.click(screen.getByRole('button', { name: '7월 운송비 수정' }));
-    expect(screen.getByText('+100,000원')).toBeInTheDocument();
-    expect(screen.getByText('+106,500원')).toBeInTheDocument();
+    expect(screen.getByText('+40,000원')).toBeInTheDocument();
+    expect(screen.getByText('+96,500원')).toBeInTheDocument();
     const editingFreightInput = screen.getByLabelText('7월 운송비 판관비 조정액') as HTMLInputElement;
-    expect(editingFreightInput.value).toBe('56500');
+    expect(editingFreightInput.value).toBe('81500');
     fireEvent.click(screen.getByRole('button', { name: '취소' }));
 
     fireEvent.click(screen.getByRole('button', { name: '추정 모형 생성' }));
@@ -572,7 +575,7 @@ describe('Forecast React vertical slice', () => {
 
     const body = JSON.parse(String((fetchMock.mock.calls[2][1] as RequestInit).body));
     expect(body.months[0].sga_adjustments).toEqual([
-      { adjustment_key: 'sga-selling', amount: 56500, reason: '관세 및 UF/MBR 운반비 반영' },
+      { adjustment_key: 'sga-selling', amount: 81500, reason: '관세 및 신사업 운반비 반영' },
     ]);
   });
 });
