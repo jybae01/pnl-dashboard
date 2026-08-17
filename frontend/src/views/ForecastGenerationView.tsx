@@ -954,7 +954,7 @@ export const ForecastGenerationView: React.FC<ForecastGenerationViewProps> = ({
                         const hasAdjustment = (row.amount.trim() !== '' && row.amount.trim() !== '0') || row.reason.trim() !== '';
                         const isEditing = editingSgaKey === item.adjustment_key;
                         const isSellingFreightAccount = item.section === 'selling' && (item.display_name.includes('운송비') || item.display_name.includes('운반비'));
-                        const sellingFreightSuggestion = helperAdjustments.tariffAdjustment + helperAdjustments.ufMbrFreightAdjustment;
+                        const sellingFreightSuggestion = helperAdjustments.tariffAdjustment + helperAdjustments.ufMbrFreightAdjustment + helperAdjustments.ixFreightAdjustment;
 
                         return (
                           <React.Fragment key={item.adjustment_key}>
@@ -1027,6 +1027,12 @@ export const ForecastGenerationView: React.FC<ForecastGenerationViewProps> = ({
                                             <span>💡 <strong>자동 산출</strong>: UF/MBR 신사업 운반비</span>
                                             <strong style={{ color: helperAdjustments.ufMbrFreightAdjustment > 0 ? '#047857' : helperAdjustments.ufMbrFreightAdjustment < 0 ? '#b91c1c' : '#475569' }}>
                                               {helperAdjustments.ufMbrFreightAdjustment > 0 ? `+${Math.round(helperAdjustments.ufMbrFreightAdjustment).toLocaleString('ko-KR')}` : Math.round(helperAdjustments.ufMbrFreightAdjustment).toLocaleString('ko-KR')}원
+                                            </strong>
+                                          </div>
+                                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                            <span>💡 <strong>자동 산출</strong>: IX 신사업 운반비</span>
+                                            <strong style={{ color: helperAdjustments.ixFreightAdjustment > 0 ? '#047857' : helperAdjustments.ixFreightAdjustment < 0 ? '#b91c1c' : '#475569' }}>
+                                              {helperAdjustments.ixFreightAdjustment > 0 ? `+${Math.round(helperAdjustments.ixFreightAdjustment).toLocaleString('ko-KR')}` : Math.round(helperAdjustments.ixFreightAdjustment).toLocaleString('ko-KR')}원
                                             </strong>
                                           </div>
                                           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderTop: '1px dashed #cbd5e1', paddingTop: '6px', marginTop: '2px' }}>
