@@ -262,6 +262,14 @@ describe('Forecast React vertical slice', () => {
 
     fireEvent.change(start, { target: { value: '' } });
     expect(start).toHaveValue('');
+    fireEvent.blur(start);
+    expect(start).toHaveValue('');
+
+    fireEvent.change(start, { target: { value: '18' } });
+    expect(start).toHaveValue('18');
+    fireEvent.blur(start);
+    expect(start).toHaveValue('18');
+
     fireEvent.change(start, { target: { value: '8' } });
     expect(start).toHaveValue('8');
     fireEvent.blur(start);
