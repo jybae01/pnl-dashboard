@@ -282,8 +282,21 @@ export function PnlDashboardPanel({ dashboard, onNavigateToVariance }: PnlDashbo
 
     <section className="pnl-dashboard__details" aria-labelledby="pnl-detail-title">
       <div className="pnl-dashboard__section-heading"><div><p className="pnl-dashboard__eyebrow">DETAILS</p><h2 id="pnl-detail-title">상세 손익</h2></div><span className="pnl-dashboard__unit-note">업무용 고밀도 표 · 금액 단위: KRW</span></div>
-      <div className="pnl-dashboard__tabs" role="tablist" aria-label="손익 상세 영역">
-        {tabs.map((item) => <button key={item.key} type="button" role="tab" aria-selected={tab === item.key} aria-controls={`pnl-dashboard-tabpanel-${item.key}`} className={`pnl-dashboard__tab ${tab === item.key ? 'is-active' : ''}`} onClick={() => setTab(item.key)}>{item.icon}{item.label}</button>)}
+      <div className="pnl-dashboard__tabs-row" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderBottom: '1px solid var(--border-default)', marginBottom: 9, flexWrap: 'wrap', gap: 8 }}>
+        <div className="pnl-dashboard__tabs" role="tablist" aria-label="손익 상세 영역" style={{ borderBottom: 'none', marginBottom: 0 }}>
+          {tabs.map((item) => <button key={item.key} type="button" role="tab" aria-selected={tab === item.key} aria-controls={`pnl-dashboard-tabpanel-${item.key}`} className={`pnl-dashboard__tab ${tab === item.key ? 'is-active' : ''}`} onClick={() => setTab(item.key)}>{item.icon}{item.label}</button>)}
+        </div>
+        {onNavigateToVariance && (
+          <button
+            type="button"
+            className="pnl-dashboard__quick-variance-link"
+            onClick={onNavigateToVariance}
+            style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '4px 10px', fontSize: '11.5px', fontWeight: 700, color: '#1d4ed8', backgroundColor: '#eff6ff', border: '1px solid #bfdbfe', borderRadius: '4px', cursor: 'pointer', marginBottom: 4 }}
+          >
+            <span>손익 요인 Waterfall 분석 바로가기</span>
+            <ArrowRight size={13} aria-hidden="true" />
+          </button>
+        )}
       </div>
       <div id="pnl-dashboard-tabpanel-pnl" role="tabpanel" hidden={tab !== 'pnl'}>{tab === 'pnl' && <FinancialLinesTable title="손익계산서" rows={dashboard.pnl_statement} baselineName={identity.baseline_model_name} comparisonName={identity.comparison_model_name} />}</div>
       <div id="pnl-dashboard-tabpanel-manufacturing" role="tabpanel" hidden={tab !== 'manufacturing'}>{tab === 'manufacturing' && <section className="pnl-dashboard__section-card"><div className="pnl-dashboard__section-header"><h3>제조원가</h3><span>환율 단위: {dashboard.manufacturing.material_components.jpy_fx_unit}</span></div><FinancialLinesTable title="제조원가 구성" rows={dashboard.manufacturing.cost_lines} baselineName={identity.baseline_model_name} comparisonName={identity.comparison_model_name} embedded /><div className="pnl-dashboard__subsection"><h4>원재료 구성</h4><div className="pnl-dashboard__material-grid"><span>비직물 가격 (환율 제외)<strong>{nullableMoney(dashboard.manufacturing.material_components.nonwoven_price_ex_fx)}</strong></span><span>비직물 JPY<strong>{nullableMoney(dashboard.manufacturing.material_components.nonwoven_jpy)}</strong></span><span>비직물 외 재료<strong>{nullableMoney(dashboard.manufacturing.material_components.materials_ex_nonwoven)}</strong></span><span>합계<strong>{nullableMoney(dashboard.manufacturing.material_components.total)}</strong></span></div></div><div className="pnl-dashboard__subsection"><h4>제조원가 계정</h4><AccountTable rows={dashboard.manufacturing.accounts} baselineName={identity.baseline_model_name} comparisonName={identity.comparison_model_name} /></div></section>}</div>
