@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { KeyboardEvent, useState } from 'react';
 import { BarChart3 } from 'lucide-react';
 import { AnalysisWaterfallBar } from '../../integration/analysisPresentation';
 
@@ -59,16 +59,16 @@ export function EffectWaterfallChart({
   const minValue = domainMin - domainSpan * 0.08;
   const maxValue = domainMax + domainSpan * 0.12;
 
-  const svgWidth = 1_020;
-  const svgHeight = 320;
-  const paddingLeft = 70;
-  const paddingRight = 28;
-  const paddingTop = 36;
-  const paddingBottom = 78;
+  const svgWidth = 960;
+  const svgHeight = 295;
+  const paddingLeft = 60;
+  const paddingRight = 30;
+  const paddingTop = 38;
+  const paddingBottom = 65;
   const chartWidth = svgWidth - paddingLeft - paddingRight;
   const chartHeight = svgHeight - paddingTop - paddingBottom;
   const colWidth = chartWidth / Math.max(bars.length, 1);
-  const barWidth = Math.min(colWidth * 0.64, 48);
+  const barWidth = Math.min(colWidth * 0.7, 42);
 
   const getY = (value: number) => {
     const ratio = (value - minValue) / (maxValue - minValue);
@@ -79,7 +79,7 @@ export function EffectWaterfallChart({
     if (!bar.isTotal) onSelectEffect?.(bar.id);
   };
 
-  const handleBarKeyDown = (bar: AnalysisWaterfallBar, event: React.KeyboardEvent<SVGGElement>) => {
+  const handleBarKeyDown = (bar: AnalysisWaterfallBar, event: KeyboardEvent<SVGGElement>) => {
     if (bar.isTotal || !onSelectEffect) return;
     if (event.key === 'Enter' || event.key === ' ') {
       event.preventDefault();
@@ -88,7 +88,7 @@ export function EffectWaterfallChart({
   };
 
   return (
-    <section className="variance-analysis__waterfall-card" aria-labelledby="variance-waterfall-title">
+    <section className="variance-analysis__waterfall-card" data-testid="analysis-waterfall-card" aria-labelledby="variance-waterfall-title">
       <div className="variance-analysis__chart-header">
         <div>
           <h3 id="variance-waterfall-title" className="variance-analysis__chart-title">
@@ -101,7 +101,6 @@ export function EffectWaterfallChart({
           <Legend color={BAR_COLORS.baseline} label="기준" />
           <Legend color={BAR_COLORS.positive} label="이익 증가" />
           <Legend color={BAR_COLORS.negative} label="이익 감소" />
-          <Legend color={BAR_COLORS.zero} label="변동 없음" />
           <Legend color={BAR_COLORS.comparison} label="비교" />
         </div>
       </div>

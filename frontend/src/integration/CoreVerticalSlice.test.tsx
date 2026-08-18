@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import App from '../App';
 import { CoreAnalysisView } from './CoreAnalysisView';
@@ -18,6 +18,31 @@ function json(body: unknown, status = 200) {
 afterEach(() => vi.unstubAllGlobals());
 
 describe('React core vertical slice', () => {
+  it('keeps the mockup condition field order and compact primary/secondary actions', async () => {
+    window.sessionStorage.removeItem('pnl.active-analysis-job-id');
+    vi.stubGlobal('fetch', vi.fn((input: RequestInfo | URL) => {
+      if (!String(input).endsWith('/api/models')) throw new Error(`unexpected request ${String(input)}`);
+      return json({ models: [
+        { model_id: BASE, display_name: 'Base', model_type: 'PLAN', model_year: 2026, start_month: 1, end_month: 12, is_published: true, is_default: true, dto_version: '1' },
+        { model_id: COMP, display_name: 'Comparison', model_type: 'ACTUAL', model_year: 2026, start_month: 1, end_month: 12, is_published: true, is_default: false, dto_version: '1' },
+      ], dto_version: '1' });
+    }));
+
+    render(<CoreAnalysisView role="admin" />);
+    expect(await screen.findByText('분석 조건 설정')).toBeInTheDocument();
+    const condition = screen.getByTestId('analysis-condition-card');
+    expect(Array.from(condition.querySelectorAll('.filter-label')).map((node) => node.textContent)).toEqual([
+      '기준 모형',
+      '비교 모형',
+      '시작 월',
+      '종료 월',
+      '기준 매출환율 (KRW/USD)',
+      '비교 매출환율 (KRW/USD)',
+    ]);
+    expect(within(condition).getByRole('button', { name: '분석 실행' })).toBeEnabled();
+    expect(within(condition).getByRole('button', { name: '새 분석' })).toBeEnabled();
+  });
+
   it('runs login -> model selection -> submit -> polling -> stored result', async () => {
     const calls: string[] = [];
     const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -52,9 +77,13 @@ describe('React core vertical slice', () => {
     fireEvent.click(screen.getByRole('button', { name: '접속' }));
     expect(await screen.findByRole('heading', { name: '손익 모형 데이터 관리' })).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: '손익분석 결과' }));
-    expect(await screen.findByText('분석 조건')).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: '손익 변동 요인 분석 실행' }));
+    expect(await screen.findByText('분석 조건 설정')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: '분석 실행' }));
     expect(await screen.findByTestId('stored-result', {}, { timeout: 3500 })).toHaveTextContent('영업이익 증감');
+    const condition = screen.getByTestId('analysis-condition-card');
+    const summary = screen.getByTestId('analysis-summary-header');
+    expect(condition.compareDocumentPosition(summary) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(within(summary).getByRole('button', { name: '분석 근거 엑셀 내려받기' })).toBeInTheDocument();
     expect(screen.getAllByRole('button', { name: '분석 근거 엑셀 내려받기' })).toHaveLength(1);
     expect(calls.some((value) => value.includes(`/api/jobs/${JOB}`))).toBe(true);
     expect(calls.some((value) => value.includes(`/api/admin/results/${RESULT}/presentation`))).toBe(true);
@@ -85,7 +114,7 @@ describe('React core vertical slice', () => {
     });
     vi.stubGlobal('fetch', fetchMock);
     render(<CoreAnalysisView role="admin" />);
-    expect(await screen.findByText('분석 조건')).toBeInTheDocument();
+    expect(await screen.findByText('분석 조건 설정')).toBeInTheDocument();
 
     const start = screen.getByLabelText('시작 월') as HTMLInputElement;
     const baselineFx = screen.getByLabelText('기준 매출환율 (KRW/USD)') as HTMLInputElement;
@@ -110,7 +139,7 @@ describe('React core vertical slice', () => {
     expect(baselineFx).toHaveValue('');
     fireEvent.change(baselineFx, { target: { value: '1450.25' } });
     fireEvent.change(screen.getByLabelText('비교 매출환율 (KRW/USD)'), { target: { value: '1450.5' } });
-    fireEvent.click(screen.getByRole('button', { name: '손익 변동 요인 분석 실행' }));
+    fireEvent.click(screen.getByRole('button', { name: '분석 실행' }));
 
     await waitFor(() => expect(fetchMock.mock.calls.some(([input]) => String(input).endsWith('/api/analyses'))).toBe(true));
     const submitCall = fetchMock.mock.calls.find(([input]) => String(input).endsWith('/api/analyses'));
@@ -164,8 +193,8 @@ describe('React core vertical slice', () => {
       throw new Error(`unexpected request ${path}`);
     }));
     render(<CoreAnalysisView role="admin" />);
-    expect(await screen.findByText('분석 조건')).toBeInTheDocument();
-    const run = screen.getByRole('button', { name: '손익 변동 요인 분석 실행' });
+    expect(await screen.findByText('분석 조건 설정')).toBeInTheDocument();
+    const run = screen.getByRole('button', { name: '분석 실행' });
     fireEvent.click(run);
     expect(await screen.findByText('서버에 연결할 수 없습니다.')).toBeInTheDocument();
     fireEvent.click(run);
@@ -175,7 +204,7 @@ describe('React core vertical slice', () => {
     expect(screen.getByLabelText('비교 모형')).toBeDisabled();
     expect(keys).toHaveLength(2);
     expect(keys[0]).toBe(keys[1]);
-    expect(await screen.findByText('분석 계산에 실패했습니다.')).toBeInTheDocument();
+    expect(await screen.findByText('분석 계산에 실패했습니다.', {}, { timeout: 3_500 })).toBeInTheDocument();
     expect(screen.getAllByText('Job failed')).toHaveLength(1);
     expect(screen.queryByText('분석 결과를 불러오지 못했습니다.')).not.toBeInTheDocument();
   });
@@ -235,7 +264,7 @@ describe('React core vertical slice', () => {
     render(<CoreAnalysisView role="admin" />);
     expect(await screen.findByText('손익 분석 중')).toBeInTheDocument();
     expect(screen.queryByText('PROCESSING')).not.toBeInTheDocument();
-    expect(screen.getByRole('button', { name: '손익 변동 요인 분석 실행' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: '분석 실행' })).toBeDisabled();
     expect(screen.getByRole('button', { name: '새 분석' })).toBeDisabled();
   });
 

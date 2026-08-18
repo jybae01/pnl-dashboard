@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { AnalysisPresentationPanel } from './AnalysisPresentationPanel';
 import { CoreAnalysisView } from './CoreAnalysisView';
@@ -85,6 +85,36 @@ describe('analysis presentation vertical slice', () => {
     render(<AnalysisPresentationPanel value={value} role="admin" />);
     expect(screen.getByTestId('effect-tone-residual')).toHaveClass('variance-analysis__tone--negative');
     expect(screen.getByTestId('waterfall-bar-residual')).toHaveClass('variance-analysis__waterfall-bar--negative');
+  });
+
+  it('uses the mockup result hierarchy and opens the first available drilldown', () => {
+    render(<AnalysisPresentationPanel value={presentationFixture()} role="admin" />);
+    const summary = screen.getByTestId('analysis-summary-header');
+    const narrative = screen.getByTestId('analysis-executive-narrative');
+    const waterfall = screen.getByTestId('analysis-waterfall-card');
+    const detail = screen.getByTestId('analysis-detail-section');
+    const evidence = screen.getByTestId('analysis-additional-evidence');
+
+    expect(summary.compareDocumentPosition(narrative) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(narrative.compareDocumentPosition(waterfall) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(waterfall.compareDocumentPosition(detail) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(detail.compareDocumentPosition(evidence) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(screen.getByTestId('analysis-effect-group-sales')).toBeInTheDocument();
+    expect(screen.getByTestId('analysis-effect-group-fx')).toBeInTheDocument();
+    expect(screen.getByTestId('analysis-effect-group-cost')).toBeInTheDocument();
+    expect(within(screen.getByTestId('analysis-effect-group-sales')).getAllByRole('button').map((button) => button.textContent)).toEqual([
+      expect.stringContaining('수량'),
+      expect.stringContaining('판가'),
+    ]);
+    expect(within(screen.getByTestId('analysis-effect-group-fx')).getAllByRole('button')).toHaveLength(1);
+    expect(within(screen.getByTestId('analysis-effect-group-cost')).getAllByRole('button')).toHaveLength(5);
+    expect(screen.queryByText('긍정 요인')).not.toBeInTheDocument();
+    expect(screen.queryByText('부정 요인')).not.toBeInTheDocument();
+    expect(screen.queryByText(/Residual 서버 값/i)).not.toBeInTheDocument();
+    expect(within(summary).getByRole('button', { name: '분석 근거 엑셀 내려받기' })).toBeInTheDocument();
+    expect(waterfall.querySelector('.variance-analysis__waterfall-svg')).toHaveAttribute('viewBox', '0 0 960 295');
+    expect(detail.querySelector('.variance-analysis__table-scroll')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '수량 상세 접기' })).toHaveAttribute('aria-expanded', 'true');
   });
 
   it('rejects an identity mismatch without correcting the payload or showing Evidence', async () => {

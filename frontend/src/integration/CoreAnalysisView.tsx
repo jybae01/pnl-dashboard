@@ -295,7 +295,7 @@ export function CoreAnalysisView({ role, modelRefreshKey = 0, initialResultId }:
   if (role === 'viewer') {
     return (
       <section className="variance-analysis-page">
-        <form onSubmit={readViewerResult} className="variance-query-card">
+        <form onSubmit={readViewerResult} className="variance-query-card" data-testid="analysis-condition-card">
           <div className="variance-query-card__heading">
             <strong>공개 분석 결과 조회</strong>
             <span>게시된 Result ID로 손익 변동 요인과 근거를 확인합니다.</span>
@@ -330,11 +330,11 @@ export function CoreAnalysisView({ role, modelRefreshKey = 0, initialResultId }:
 
   return (
     <section className="variance-analysis-page">
-      <form onSubmit={submit} className="variance-analysis-controls">
-        <div className="variance-control-heading" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16, flexWrap: 'wrap', gap: 10 }}>
-          <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, flexWrap: 'wrap' }}>
-            <strong style={{ fontSize: '15px', fontWeight: 800, color: '#0f172a' }}>분석 조건</strong>
-            <span style={{ fontSize: '13px', color: '#64748b' }}>기준 모형과 비교 모형의 손익 변동 요인을 분석합니다.</span>
+      <form onSubmit={submit} className="variance-analysis-controls" data-testid="analysis-condition-card">
+        <div className="variance-control-heading">
+          <div>
+            <strong>분석 조건 설정</strong>
+            <span>기준 모형과 비교 모형의 손익 변동 요인을 분석합니다.</span>
           </div>
           {analysisTypeLabel ? (
             <span style={{
@@ -362,8 +362,8 @@ export function CoreAnalysisView({ role, modelRefreshKey = 0, initialResultId }:
           <NumberInput mode="decimal" label="기준 매출환율 (KRW/USD)" value={form.baseline_sales_fx} disabled={isSubmitting || isJobActive(job)} onChange={(value) => setForm({ ...form, baseline_sales_fx: value })} />
           <NumberInput mode="decimal" label="비교 매출환율 (KRW/USD)" value={form.comparison_sales_fx} disabled={isSubmitting || isJobActive(job)} onChange={(value) => setForm({ ...form, comparison_sales_fx: value })} />
           <div className="variance-control-actions">
-            <button className="btn btn-primary" disabled={!formValid || isSubmitting || isJobActive(job)}>
-              <Play size={14} fill="currentColor" />{isSubmitting ? '요청 중…' : '손익 변동 요인 분석 실행'}
+            <button className="btn btn-primary variance-control-run" disabled={!formValid || isSubmitting || isJobActive(job)}>
+              <Play size={14} fill="currentColor" />{isSubmitting ? '요청 중…' : '분석 실행'}
             </button>
             <button type="button" className="btn btn-secondary" disabled={isSubmitting || isJobActive(job)} onClick={() => {
               window.sessionStorage.removeItem(ACTIVE_JOB_STORAGE_KEY);
