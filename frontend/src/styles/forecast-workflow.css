@@ -1,9 +1,11 @@
 .forecast-workflow {
-  width: min(1280px, 100%);
+  width: min(1380px, 100%);
   min-width: 0;
   margin: 0 auto;
-  padding: 26px 0 48px;
+  padding: 4px 0 40px;
   color: #0f172a;
+  font-size: 13.5px;
+  line-height: 1.5;
 }
 
 .forecast-workflow *,
@@ -26,15 +28,15 @@
   height: 46px;
   place-items: center;
   border: 1px solid #fed7aa;
-  border-radius: 14px;
-  color: #ea580c;
+  border-radius: 6px;
+  color: #ff5f1f;
   background: #fff7ed;
 }
 
 .forecast-workflow__eyebrow {
   color: #64748b;
   font-size: 10px;
-  font-weight: 900;
+  font-weight: 800;
   letter-spacing: .12em;
   text-transform: uppercase;
 }
@@ -80,7 +82,7 @@
   margin-bottom: 16px;
   padding: 10px 12px;
   border: 1px solid #bfdbfe;
-  border-radius: 9px;
+  border-radius: 6px;
   color: #1e40af;
   background: #eff6ff;
   font-size: 12px;
@@ -89,22 +91,22 @@
 .forecast-workflow__grid {
   display: grid;
   grid-template-columns: 1fr;
-  gap: 14px;
+  gap: 18px;
   align-items: start;
 }
 
 .forecast-workflow__card,
 .forecast-workflow__success,
 .forecast-workflow__state-card {
-  border: 1px solid #e2e8f0;
-  border-radius: 14px;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
   background: #fff;
-  box-shadow: 0 5px 18px rgba(15, 23, 42, .04);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, .05);
 }
 
 .forecast-workflow__card {
   min-width: 0;
-  padding: 18px;
+  padding: 18px 22px;
 }
 
 .forecast-workflow__card-heading {
@@ -151,8 +153,8 @@
   height: 36px;
   min-width: 0;
   border: 1px solid #cbd5e1;
-  border-radius: 8px;
-  padding: 0 9px;
+  border-radius: 4px;
+  padding: 0 12px;
   color: #0f172a;
   background: #fff;
   font: inherit;
@@ -206,8 +208,8 @@
 }
 
 .forecast-workflow__card--bulk {
-  border-color: #ddd6fe;
-  background: linear-gradient(180deg, #fff 0%, #faf8ff 100%);
+  border-color: #cbd5e1;
+  background: #fff;
 }
 
 .forecast-workflow__bulk-actions {
@@ -219,18 +221,18 @@
 
 .forecast-workflow__upload-button {
   display: inline-flex;
-  min-height: 34px;
+  min-height: 36px;
   align-items: center;
   justify-content: center;
   gap: 6px;
   border: 1px solid #7c3aed;
-  border-radius: 8px;
-  padding: 0 12px;
+  border-radius: 4px;
+  padding: 0 14px;
   color: #6d28d9;
   background: #f5f3ff;
   cursor: pointer;
-  font-size: 11px;
-  font-weight: 800;
+  font-size: 13px;
+  font-weight: 700;
 }
 
 .forecast-workflow__upload-button:hover:not(.is-disabled) { background: #ede9fe; }
@@ -259,10 +261,10 @@
 }
 
 .forecast-workflow__preview {
-  margin-top: 13px;
-  border: 1px solid #e2e8f0;
-  border-radius: 11px;
-  padding: 13px;
+  margin-top: 16px;
+  border: 1px solid #cbd5e1;
+  border-radius: 4px;
+  padding: 16px;
   background: #fff;
 }
 
@@ -346,25 +348,25 @@
   display: flex;
   align-items: center;
   flex-wrap: wrap;
-  gap: 6px;
-  margin-bottom: 14px;
-  padding: 9px;
-  border: 1px solid #e2e8f0;
-  border-radius: 10px;
+  gap: 8px;
+  margin-bottom: 16px;
+  padding: 8px 12px;
+  border: 1px solid #cbd5e1;
+  border-radius: 4px;
   background: #f8fafc;
 }
 
 .forecast-workflow__month-tabs button {
-  min-height: 31px;
+  min-height: 34px;
   border: 1px solid #cbd5e1;
-  border-radius: 7px;
-  padding: 0 11px;
+  border-radius: 4px;
+  padding: 0 14px;
   color: #334155;
   background: #fff;
   cursor: pointer;
   font: inherit;
-  font-size: 11px;
-  font-weight: 800;
+  font-size: 13px;
+  font-weight: 700;
 }
 
 .forecast-workflow__month-tabs button.is-active {
@@ -401,33 +403,34 @@
 .forecast-workflow__input-section {
   min-width: 0;
   overflow: hidden;
-  border: 1px solid #e2e8f0;
-  border-radius: 11px;
+  border: 1px solid #cbd5e1;
+  border-radius: 4px;
   background: #fff;
 }
 
-.forecast-workflow__input-section + .forecast-workflow__input-section { margin-top: 12px; }
+.forecast-workflow__input-section + .forecast-workflow__input-section { margin-top: 16px; }
 
 .forecast-workflow__input-heading {
   display: flex;
-  align-items: flex-start;
+  align-items: flex-end;
   justify-content: space-between;
   gap: 12px;
-  padding: 12px 13px;
-  border-bottom: 1px solid #e2e8f0;
+  min-height: 54px;
+  padding: 10px 16px 6px;
+  border-bottom: 1px solid #cbd5e1;
   background: #f8fafc;
 }
 
 .forecast-workflow__input-heading h3 {
   color: #0f172a;
-  font-size: 13px;
-  font-weight: 900;
+  font-size: 14px;
+  font-weight: 800;
 }
 
 .forecast-workflow__input-heading p {
   margin-top: 3px;
   color: #64748b;
-  font-size: 10px;
+  font-size: 12px;
 }
 
 .forecast-workflow__input-heading > span {
@@ -437,7 +440,7 @@
   color: #475569;
   background: #e2e8f0;
   font-size: 9px;
-  font-weight: 900;
+  font-weight: 800;
 }
 
 .forecast-workflow__table-scroll {
@@ -447,10 +450,8 @@
 
 .forecast-workflow__input-table {
   width: 100%;
-  min-width: 720px;
-  border-collapse: separate;
-  border-spacing: 0;
-  font-size: 11px;
+  border-collapse: collapse;
+  font-size: 13px;
 }
 
 .forecast-workflow__input-table--compact { min-width: 420px; }
@@ -460,25 +461,23 @@
 .forecast-workflow__input-table td {
   height: 38px;
   border-bottom: 1px solid #eef2f7;
-  padding: 5px 9px;
+  padding: 5px 12px;
   text-align: left;
   white-space: nowrap;
 }
 
 .forecast-workflow__input-table thead th {
-  position: sticky;
-  top: 0;
-  z-index: 1;
+  height: 36px;
   color: #475569;
   background: #f8fafc;
-  font-size: 9px;
-  font-weight: 900;
-  letter-spacing: .04em;
+  font-size: 12px;
+  font-weight: 700;
+  text-align: center;
 }
 
 .forecast-workflow__input-table tbody th {
   color: #334155;
-  font-weight: 900;
+  font-weight: 700;
   font-variant-numeric: tabular-nums;
 }
 
@@ -487,11 +486,11 @@
 
 .forecast-workflow__input-table input {
   width: 100%;
-  min-width: 105px;
-  height: 29px;
+  min-width: 80px;
+  height: 30px;
   border: 1px solid #cbd5e1;
-  border-radius: 6px;
-  padding: 0 8px;
+  border-radius: 3px;
+  padding: 0 10px;
   color: #0f172a;
   background: #fff;
   font: inherit;
@@ -509,16 +508,16 @@
   color: #475569;
   background: #f1f5f9;
   font-size: 9px;
-  font-weight: 900;
+  font-weight: 800;
 }
 
 .forecast-workflow__unit--length { color: #0f766e; background: #ccfbf1; }
 
 .forecast-workflow__production-grid {
   display: grid;
-  grid-template-columns: minmax(0, 1.2fr) minmax(0, .8fr);
-  gap: 12px;
-  margin-top: 12px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+  margin-top: 16px;
   align-items: start;
 }
 
@@ -539,19 +538,20 @@
 }
 
 .forecast-workflow__advanced {
-  margin-top: 14px;
-  border: 1px solid #fed7aa;
-  border-radius: 11px;
-  background: #fffaf5;
+  margin-top: 18px;
+  border: 1px solid #cbd5e1;
+  border-radius: 4px;
+  background: #fff;
 }
 
 .forecast-workflow__advanced > summary {
-  padding: 12px 13px;
-  color: #9a3412;
+  padding: 13px 18px;
+  color: #0f172a;
   cursor: pointer;
-  font-size: 12px;
-  font-weight: 900;
+  font-size: 14px;
+  font-weight: 800;
   list-style-position: inside;
+  background: #f8fafc;
 }
 
 .forecast-workflow__advanced-help {
@@ -564,9 +564,22 @@
 .forecast-workflow__adjustment-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 12px;
-  padding: 0 12px 12px;
-  align-items: start;
+  gap: 22px;
+  padding: 20px;
+  align-items: stretch;
+}
+
+.forecast-workflow__adjustment-grid > * {
+  display: flex;
+  min-width: 0;
+  height: 100%;
+  flex-direction: column;
+}
+
+.forecast-workflow__adjustment-grid .forecast-workflow__input-section,
+.forecast-workflow__adjustment-grid .forecast-workflow__input-section + .forecast-workflow__input-section {
+  height: 100%;
+  margin-top: 0;
 }
 
 .forecast-workflow__input-table--advanced th,
@@ -579,40 +592,32 @@
   text-align: left;
 }
 
-.forecast-workflow__advanced-grid {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 12px;
-  padding: 0 12px 12px;
-  align-items: start;
-}
-
 .forecast-workflow__advanced-block {
   min-width: 0;
-  padding: 12px;
-  border: 1px solid #e2e8f0;
-  border-radius: 9px;
-  background: #fff;
+  height: 100%;
+  padding: 14px 16px;
+  border: 1px solid #cbd5e1;
+  border-radius: 4px;
+  background: #f8fafc;
 }
 
 .forecast-workflow__advanced-block h3 {
   color: #334155;
-  font-size: 12px;
-  font-weight: 900;
+  font-size: 13.5px;
+  font-weight: 800;
 }
 
 .forecast-workflow__advanced-block-help {
-  margin-top: 4px;
+  margin: 4px 0 12px;
   color: #64748b;
-  font-size: 10px;
-  line-height: 1.45;
+  font-size: 12px;
+  line-height: 1.5;
 }
 
 .forecast-workflow__advanced-fields {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 9px;
-  margin-top: 10px;
+  gap: 10px;
 }
 
 .forecast-workflow__advanced-fields label {
@@ -703,7 +708,7 @@
   min-width: 0;
   padding: 10px 11px;
   border: 1px solid #e2e8f0;
-  border-radius: 9px;
+  border-radius: 4px;
   background: #fff;
 }
 
@@ -734,20 +739,20 @@
 .forecast-workflow__primary,
 .forecast-workflow__secondary,
 .forecast-workflow__link {
-  min-height: 34px;
-  border-radius: 8px;
-  padding: 0 12px;
+  min-height: 38px;
+  border-radius: 4px;
+  padding: 0 18px;
   font: inherit;
-  font-size: 11px;
-  font-weight: 800;
+  font-size: 13px;
+  font-weight: 700;
   cursor: pointer;
 }
 
 .forecast-workflow__primary {
   flex: 0 0 auto;
-  border: 1px solid #ea580c;
+  border: 1px solid #ff5f1f;
   color: #fff;
-  background: #ea580c;
+  background: #ff5f1f;
 }
 
 .forecast-workflow__primary:hover:not(:disabled) { background: #c2410c; }
@@ -863,13 +868,6 @@
 
 @keyframes forecast-workflow-spin { to { transform: rotate(360deg); } }
 
-@media (max-width: 1450px) {
-  .forecast-workflow__input-table th,
-  .forecast-workflow__input-table td { height: 34px; padding-block: 3px; }
-  .forecast-workflow__adjustment-grid,
-  .forecast-workflow__advanced-grid { grid-template-columns: 1fr; }
-}
-
 .forecast-workflow__download {
   border-color: #86efac;
   color: #166534;
@@ -889,10 +887,10 @@
   min-height: 26px;
   padding: 2px 10px;
   border: 1px solid #cbd5e1;
-  border-radius: 6px;
+  border-radius: 3px;
   background: #ffffff;
   color: #475569;
-  font-size: 11px;
+  font-size: 11.5px;
   font-weight: 700;
   cursor: pointer;
   transition: all 0.15s ease;
@@ -905,9 +903,9 @@
 }
 
 .forecast-workflow__btn-adjust.is-active {
-  border-color: #047857;
-  color: #047857;
-  background: #ecfdf5;
+  border-color: #ff5f1f;
+  color: #fff;
+  background: #ff5f1f;
   font-weight: 800;
 }
 
@@ -924,39 +922,46 @@
 }
 
 .forecast-workflow__inline-drawer {
-  padding: 12px 16px;
-  background: #f8fafc;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 10px 14px;
+  background: #fffaf0;
   border-left: 3px solid #f97316;
 }
 
 .forecast-workflow__inline-drawer-header {
-  margin-bottom: 10px;
-  color: #0f172a;
-  font-size: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+  color: #7c2d12;
+  font-size: 12.5px;
   font-weight: 800;
 }
 
 .forecast-workflow__inline-drawer-body {
   display: flex;
-  flex-direction: column;
+  align-items: flex-end;
+  flex-wrap: wrap;
   gap: 10px;
 }
 
 .forecast-workflow__drawer-field {
   display: flex;
   flex-direction: column;
-  gap: 5px;
+  gap: 4px;
   color: #475569;
-  font-size: 11px;
+  font-size: 11.5px;
   font-weight: 700;
 }
 
 .forecast-workflow__drawer-field input {
   height: 32px;
-  border: 1px solid #cbd5e1;
-  border-radius: 6px;
-  padding: 0 9px;
-  font-size: 12px;
+  border: 1px solid #fed7aa;
+  border-radius: 3px;
+  padding: 0 10px;
+  font-size: 13px;
   background: #ffffff;
   color: #0f172a;
 }
@@ -966,24 +971,25 @@
   outline: 2px solid rgba(249, 115, 22, 0.2);
 }
 
+.forecast-workflow__drawer-field--reason { flex: 1; }
+
 .forecast-workflow__drawer-actions {
   display: flex;
   align-items: center;
-  gap: 8px;
-  margin-top: 4px;
+  gap: 6px;
 }
 
 .forecast-workflow__drawer-btn-save {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  min-height: 30px;
+  height: 32px;
   padding: 0 14px;
   border: 1px solid #ea580c;
-  border-radius: 6px;
+  border-radius: 3px;
   background: #ea580c;
   color: #ffffff;
-  font-size: 11px;
+  font-size: 12.5px;
   font-weight: 800;
   cursor: pointer;
   transition: background 0.15s ease;
@@ -997,13 +1003,13 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  min-height: 30px;
+  height: 32px;
   padding: 0 12px;
   border: 1px solid #cbd5e1;
-  border-radius: 6px;
+  border-radius: 3px;
   background: #ffffff;
   color: #64748b;
-  font-size: 11px;
+  font-size: 12.5px;
   font-weight: 700;
   cursor: pointer;
   transition: all 0.15s ease;
@@ -1016,13 +1022,13 @@
 }
 
 @media (max-width: 900px) {
-  .forecast-workflow { padding: 20px 0 36px; }
+  .forecast-workflow { padding: 12px 0 32px; }
   .forecast-workflow__grid { grid-template-columns: 1fr; }
   .forecast-workflow__production-grid { grid-template-columns: 1fr; }
   .forecast-workflow__selection-summary { grid-template-columns: 1fr 1fr; }
 }
 
-@media (max-width: 620px) {
+@media (max-width: 640px) {
   .forecast-workflow__header { flex-wrap: wrap; }
   .forecast-workflow__contract-badge { margin-left: 60px; }
   .forecast-workflow__form-grid { grid-template-columns: 1fr 1fr; }
@@ -1079,7 +1085,7 @@
 .forecast-workflow__state-card {
   border-color: #cbd5e1;
   border-radius: 6px;
-  box-shadow: 0 1px 2px rgba(0, 0, 0, .04);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, .05);
 }
 
 .forecast-workflow__card { padding: 18px 22px; }
@@ -1170,12 +1176,6 @@
 .forecast-workflow__cost-table { min-width: 520px; }
 .forecast-workflow__cost-table thead th { height: 36px; color: #475569; background: #f8fafc; font-size: 12px; font-weight: 700; text-align: center; }
 
-.forecast-workflow__adjustment-summary-grid {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 12px;
-  margin: 0 12px 12px;
-}
 .forecast-workflow__adjustment-summary-box {
   display: flex;
   min-width: 0;
@@ -1230,7 +1230,25 @@
 .forecast-workflow__expanded-reason-box strong { flex: 0 0 auto; color: #ea580c; font-size: 11.5px; }
 .forecast-workflow__expanded-reason-box span { min-width: 0; white-space: pre-wrap; word-break: break-word; }
 
-.forecast-workflow__block-heading-row { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; }
+.forecast-workflow__block-heading-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.forecast-workflow__block-action-group { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; }
+.forecast-workflow__btn-apply-sga {
+  display: inline-flex;
+  height: 30px;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid #ff5f1f;
+  border-radius: 3px;
+  padding: 0 12px;
+  color: #fff;
+  background: #ff5f1f;
+  cursor: pointer;
+  font-size: 11.5px;
+  font-weight: 800;
+  white-space: nowrap;
+}
+.forecast-workflow__btn-apply-sga:hover:not(:disabled) { border-color: #ea5010; background: #ea5010; }
+.forecast-workflow__btn-apply-sga:disabled { border-color: #cbd5e1; background: #cbd5e1; cursor: not-allowed; opacity: .5; }
 .forecast-workflow__execution-card { display: flex; flex-direction: column; justify-content: space-between; border-color: #fed7aa; background: linear-gradient(180deg, #f8fafc 0%, #f1f5f9 100%); }
 .forecast-workflow__execution-summary-list { display: flex; flex-direction: column; gap: 8px; margin: 10px 0 12px; padding: 10px 14px; border: 1px solid #e2e8f0; border-radius: 4px; background: #fff; }
 .forecast-workflow__execution-summary-item { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: 12.5px; }
@@ -1245,9 +1263,7 @@
 @media (max-width: 1280px) {
   .forecast-workflow__form-grid { grid-template-columns: 1fr 1fr; }
   .forecast-workflow__field--wide { grid-column: span 2; }
-  .forecast-workflow__adjustment-grid,
-  .forecast-workflow__advanced-grid,
-  .forecast-workflow__adjustment-summary-grid { grid-template-columns: 1fr; }
+  .forecast-workflow__adjustment-grid { grid-template-columns: 1fr; }
 }
 
 @media (max-width: 640px) {
@@ -1255,6 +1271,5 @@
   .forecast-workflow__header-badges { width: 100%; margin-left: 0; }
   .forecast-workflow__form-grid { grid-template-columns: 1fr; }
   .forecast-workflow__field--wide { grid-column: span 1; }
-  .forecast-workflow__adjustment-summary-grid { margin-inline: 0; }
   .forecast-workflow__heading-right { align-items: flex-start; flex-direction: column; gap: 6px; }
 }

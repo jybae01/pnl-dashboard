@@ -71,6 +71,80 @@ afterEach(() => {
 });
 
 describe('Forecast React vertical slice', () => {
+  it('uses the source-mockup progressive hierarchy and one ordered adjustment grid', async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(response(modelPayload()))
+      .mockResolvedValueOnce(response(metadataPayload()))
+      .mockResolvedValueOnce(response(successPayload()));
+    vi.stubGlobal('fetch', fetchMock);
+
+    const { container } = render(<ForecastGenerationView />);
+    await screen.findByRole('heading', { name: '추정 산출' });
+    await waitFor(() => expect(screen.getByRole('button', { name: '모형 적용' })).not.toBeDisabled());
+
+    expect(container.querySelector('.forecast-workflow__card--setup')).toBeInTheDocument();
+    expect(container.querySelector('.forecast-workflow__card--bulk')).not.toBeInTheDocument();
+    expect(container.querySelector('.forecast-workflow__card--inputs')).not.toBeInTheDocument();
+    expect(screen.getByText(/기준 모형과 기간을 설정한 후/)).toBeInTheDocument();
+    expect(screen.queryByText(/ADMIN WORKFLOW|01 SETUP|02 MONTHLY_ENTRY|03 RESULT/)).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: '모형 적용' }));
+    await waitFor(() => expect(screen.getByRole('button', { name: '추정 모형 생성' })).not.toBeDisabled());
+    expect(container.querySelector('.forecast-workflow__card--bulk')).toBeInTheDocument();
+    expect(container.querySelector('.forecast-workflow__card--inputs')).toBeInTheDocument();
+
+    const productionInputs = [
+      '7월 전공정 SW 생산수량', '7월 전공정 BW 생산수량', '7월 전공정 TW 생산수량',
+      '7월 후공정 SW 생산수량', '7월 후공정 BW 생산수량', '7월 후공정 LC 생산수량',
+    ];
+    productionInputs.forEach((label) => expect(screen.getByLabelText(label)).toBeInTheDocument());
+
+    fireEvent.click(screen.getByText(/비용 및 원가 조정/));
+    const grid = container.querySelector('.forecast-workflow__adjustment-grid');
+    expect(grid).toBeInTheDocument();
+    expect(container.querySelector('.forecast-workflow__adjustment-summary-grid')).not.toBeInTheDocument();
+    expect(container.querySelector('.forecast-workflow__advanced-grid')).not.toBeInTheDocument();
+    expect(Array.from(grid?.children ?? []).map((node) => node.querySelector('h3')?.textContent)).toEqual([
+      '제조경비 조정액',
+      '판관비 조정액',
+      '제조경비 조정 내역 (0건)',
+      '판관비 조정 내역 (0건)',
+      '매출원가 조정액',
+      '매출원가 조정 내역 (0건)',
+      '북미·남미 관세 참고 기준값',
+      '신사업 입력 및 참고 기준값',
+      '원재료 관세 환급',
+      '추정 모형 생성 실행',
+    ]);
+    expect(screen.queryByText('최종 실행')).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getAllByRole('button', { name: '운반비 조정 열기' })[0]);
+    expect(screen.getByLabelText('7월 운송비 판관비 조정액')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: '취소' }));
+    fireEvent.click(screen.getByRole('button', { name: '포장비 조정 열기' }));
+    expect(screen.getByLabelText('7월 포장비 판관비 조정액')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: '취소' }));
+
+    fireEvent.click(screen.getByRole('button', { name: '7월 제품 폐기손실 조정' }));
+    expect(screen.getByLabelText('7월 제품 폐기손실 매출원가 조정액')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '등록' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '취소' })).toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText('7월 제품 폐기손실 매출원가 조정액'), { target: { value: '-1200' } });
+    fireEvent.change(screen.getByLabelText('7월 제품 폐기손실 매출원가 조정 사유'), { target: { value: '폐기 확인' } });
+    fireEvent.click(screen.getByRole('button', { name: '등록' }));
+    expect(screen.getByRole('button', { name: '7월 제품 폐기손실 수정' })).toBeInTheDocument();
+    expect(screen.getByText('매출원가 조정 내역 (1건)')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: '7월 제품 폐기손실 수정' }));
+    fireEvent.change(screen.getByLabelText('7월 제품 폐기손실 매출원가 조정액'), { target: { value: '-999' } });
+    fireEvent.click(screen.getByRole('button', { name: '취소' }));
+
+    fireEvent.click(screen.getByRole('button', { name: '추정 모형 생성' }));
+    await screen.findByText('추정 모형 생성 완료');
+    const body = JSON.parse(String((fetchMock.mock.calls[2][1] as RequestInit).body));
+    expect(body.months[0].disposal_adjustment).toBe(-1200);
+    expect(body.months[0].disposal_reason).toBe('폐기 확인');
+  });
+
   it('keeps the synchronous POST contract, renders the result, and does not show technical identifiers', async () => {
     const fetchMock = vi.fn()
       .mockResolvedValueOnce(response(modelPayload('2026 Actual')))
