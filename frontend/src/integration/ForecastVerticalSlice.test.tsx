@@ -1,11 +1,20 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { ForecastGenerationView } from '../views/ForecastGenerationView';
+import {
+  aggregateSgaRegisteredEntries,
+  calculateAdjustmentExpectedAmount,
+  ForecastGenerationView,
+  formatCanonicalRatioAsPercentage,
+  formatNumericPresentation,
+  parseFormattedNumericInput,
+  parsePercentageToCanonicalRatio,
+  withLegacySgaAggregateEntry,
+} from '../views/ForecastGenerationView';
 
 const BASE = '11111111-1111-4111-8111-111111111111';
 const MODEL = '22222222-2222-4222-8222-222222222222';
 const GENERATION = '33333333-3333-4333-8333-333333333333';
-const monthlyBaselineAmounts = Object.fromEntries(Array.from({ length: 12 }, (_, index) => [String(index + 1), 0]));
+const monthlyBaselineAmounts = Object.fromEntries(Array.from({ length: 12 }, (_, index) => [String(index + 1), 594_000_000 + ((index + 1) * 1_000)]));
 
 const modelPayload = (name = 'Base') => ({ models: [{
   model_id: BASE,
@@ -118,10 +127,12 @@ describe('Forecast React vertical slice', () => {
     ]);
     expect(screen.queryByText('최종 실행')).not.toBeInTheDocument();
 
-    fireEvent.click(screen.getAllByRole('button', { name: '운반비 조정 열기' })[0]);
+    expect(screen.queryByText('운반비 조정 열기')).not.toBeInTheDocument();
+    expect(screen.queryByText('포장비 조정 열기')).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: '7월 북미·남미 관세 등록' }));
     expect(screen.getByLabelText('7월 운송비 판관비 조정액')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: '취소' }));
-    fireEvent.click(screen.getByRole('button', { name: '포장비 조정 열기' }));
+    fireEvent.click(screen.getByRole('button', { name: '7월 IX 포장비 등록' }));
     expect(screen.getByLabelText('7월 포장비 판관비 조정액')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: '취소' }));
 
@@ -384,6 +395,14 @@ describe('Forecast React vertical slice', () => {
     await screen.findByRole('heading', { name: '추정 산출' });
     await waitForForecastReady();
 
+    fireEvent.click(screen.getByText(/비용 및 원가 조정/));
+    fireEvent.click(screen.getByRole('button', { name: '7월 전력비 조정' }));
+    fireEvent.click(screen.getByRole('button', { name: '7월 제품 폐기손실 조정' }));
+    const manufacturingDrawer = screen.getByLabelText('7월 전력비 제조경비 조정액').closest('.forecast-workflow__inline-drawer');
+    const cogsDrawer = screen.getByLabelText('7월 제품 폐기손실 매출원가 조정액').closest('.forecast-workflow__inline-drawer');
+    expect(manufacturingDrawer).not.toBeNull();
+    expect(cogsDrawer).not.toBeNull();
+
     const submitButton = screen.getByRole('button', { name: '추정 모형 생성' });
     fireEvent.click(submitButton);
     fireEvent.click(submitButton);
@@ -392,6 +411,10 @@ describe('Forecast React vertical slice', () => {
     expect(screen.getByText(/접수하고 계산 중입니다/)).toBeInTheDocument();
     expect(screen.getByLabelText('시작 월')).toBeDisabled();
     expect(screen.getByLabelText('7월 SW400 판매수량')).toBeDisabled();
+    expect(within(manufacturingDrawer as HTMLElement).getByRole('button', { name: '등록' })).toBeDisabled();
+    expect(within(manufacturingDrawer as HTMLElement).getByRole('button', { name: '취소' })).toBeDisabled();
+    expect(within(cogsDrawer as HTMLElement).getByRole('button', { name: '등록' })).toBeDisabled();
+    expect(within(cogsDrawer as HTMLElement).getByRole('button', { name: '취소' })).toBeDisabled();
 
     resolveRequest(response(successPayload()));
     await screen.findByText('추정 모형 생성 완료');
@@ -727,5 +750,161 @@ describe('Forecast React vertical slice', () => {
       { adjustment_key: 'sga-selling', amount: 81500, reason: '운송비 합계 반영' },
       { adjustment_key: 'sga-packaging', amount: 76000, reason: 'IX 신사업 포장비 반영' },
     ]);
+  });
+
+  it('formats every canonical ratio as one-decimal percent and parses it back without changing the DTO unit', () => {
+    expect(formatCanonicalRatioAsPercentage('0.10')).toBe('10.0');
+    expect(formatCanonicalRatioAsPercentage('0.13')).toBe('13.0');
+    expect(formatCanonicalRatioAsPercentage('0.05')).toBe('5.0');
+    expect(formatCanonicalRatioAsPercentage('0.85')).toBe('85.0');
+    expect(formatCanonicalRatioAsPercentage('0.013')).toBe('1.3');
+    expect(parsePercentageToCanonicalRatio('10.0%')).toBe('0.1');
+    expect(parsePercentageToCanonicalRatio('13.0')).toBe('0.13');
+    expect(parsePercentageToCanonicalRatio('1.3%')).toBe('0.013');
+    expect(formatCanonicalRatioAsPercentage(parsePercentageToCanonicalRatio('10.0%'))).toBe('10.0');
+    expect(formatNumericPresentation('12000000')).toBe('12,000,000');
+    expect(parseFormattedNumericInput('12,000,000')).toBe('12000000');
+  });
+
+  it('uses authoritative monthly plans in read-only plan/expected columns and preserves the mockup reference form hierarchy', async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(response(modelPayload()))
+      .mockResolvedValueOnce(response(metadataPayload()));
+    vi.stubGlobal('fetch', fetchMock);
+    const { container } = render(<ForecastGenerationView />);
+    await screen.findByRole('heading', { name: '추정 산출' });
+    fireEvent.change(screen.getByLabelText('종료 월'), { target: { value: '8' } });
+    await waitForForecastReady();
+    fireEvent.click(screen.getByText(/비용 및 원가 조정/));
+
+    const manufacturing = screen.getByRole('region', { name: '제조경비 조정액' });
+    expect(within(manufacturing).getAllByRole('columnheader').map((cell) => cell.textContent)).toEqual([
+      '계정명', '계획', '예상금액(자동)', '조정액', '조정',
+    ]);
+    const sga = screen.getByRole('region', { name: '판관비 조정액' });
+    expect(within(sga).getAllByRole('columnheader').map((cell) => cell.textContent)).toEqual([
+      '구분', '계정명', '계획', '예상금액(자동)', '조정액', '조정',
+    ]);
+
+    const julyPlan = monthlyBaselineAmounts['7'].toLocaleString('ko-KR');
+    const augustPlan = monthlyBaselineAmounts['8'].toLocaleString('ko-KR');
+    fireEvent.click(screen.getByRole('button', { name: '7월 전력비 조정' }));
+    const planOutput = screen.getByLabelText('7월 전력비 제조경비 계획');
+    const expectedOutput = screen.getByLabelText('7월 전력비 제조경비 예상금액');
+    expect(planOutput.tagName).toBe('OUTPUT');
+    expect(planOutput).toHaveAttribute('data-readonly', 'true');
+    expect(planOutput).toHaveTextContent(julyPlan);
+    fireEvent.change(screen.getByLabelText('7월 전력비 제조경비 조정액'), { target: { value: '1250' } });
+    expect(planOutput).toHaveTextContent(julyPlan);
+    const julyExpected = calculateAdjustmentExpectedAmount(monthlyBaselineAmounts['7'], '1250').toLocaleString('ko-KR');
+    expect(expectedOutput).toHaveTextContent(julyExpected);
+    fireEvent.click(screen.getByRole('button', { name: '등록' }));
+    expect(screen.getByRole('region', { name: '제조경비 조정 내역 (1건)' })).toHaveTextContent(julyExpected);
+    fireEvent.click(screen.getByRole('button', { name: '7월 전력비 수정' }));
+    fireEvent.change(screen.getByLabelText('7월 전력비 제조경비 조정액'), { target: { value: '9999' } });
+    fireEvent.click(screen.getByRole('button', { name: '취소' }));
+    expect(screen.getByRole('region', { name: '제조경비 조정 내역 (1건)' })).toHaveTextContent(julyExpected);
+    fireEvent.click(screen.getByRole('tab', { name: '08월' }));
+    fireEvent.click(screen.getByRole('button', { name: '8월 전력비 조정' }));
+    expect(screen.getByLabelText('8월 전력비 제조경비 계획')).toHaveTextContent(augustPlan);
+    fireEvent.click(screen.getByRole('button', { name: '취소' }));
+
+    expect(screen.getByLabelText('8월 관세 적용 비율')).toHaveValue('10.0');
+    expect(screen.getByLabelText('8월 관세율')).toHaveValue('13.0');
+    expect(screen.queryByLabelText(/매출원가 비율/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/신사업 상품원가율|자동 산출 원가율/)).not.toBeInTheDocument();
+    expect(screen.getByLabelText('8월 UF/MBR 운반비율')).toHaveValue('5.0');
+    expect(screen.getByLabelText('8월 원재료 관세 환급률')).toHaveValue('1.3');
+    expect(screen.queryByText(/\(0~1\)/)).not.toBeInTheDocument();
+    expect(screen.queryByText('운반비 조정 열기')).not.toBeInTheDocument();
+    expect(screen.queryByText('포장비 조정 열기')).not.toBeInTheDocument();
+
+    const newBusiness = screen.getByRole('region', { name: '신사업 입력 및 참고 기준값' });
+    expect(newBusiness.querySelector('[data-reference-action="new-business-freight"]')).toContainElement(screen.getByRole('button', { name: '8월 신사업 운반비 등록' }));
+    expect(newBusiness.querySelector('[data-reference-action="ix-packaging"]')).toContainElement(screen.getByRole('button', { name: '8월 IX 포장비 등록' }));
+    const rawRows = screen.getByRole('region', { name: '원재료 관세 환급' }).querySelectorAll('.forecast-workflow__raw-material-row');
+    expect(rawRows).toHaveLength(3);
+    expect(rawRows[0]).toHaveTextContent(/환급 기준.*환급액 직접 입력액/);
+    expect(rawRows[1]).toHaveTextContent(/환급액 조정액 \(모형 기준\).*환급액 사유/);
+    expect(rawRows[2]).toHaveTextContent('원재료 관세 환급률 (%)');
+    const tariffSalesInput = screen.getByLabelText('8월 기준 북미·남미 매출');
+    fireEvent.change(tariffSalesInput, { target: { value: '12000000' } });
+    fireEvent.blur(tariffSalesInput);
+    expect(tariffSalesInput).toHaveValue('12,000,000');
+    const packQuantityInput = screen.getByLabelText('8월 IX 포장 기준량');
+    fireEvent.change(packQuantityInput, { target: { value: '25000' } });
+    fireEvent.blur(packQuantityInput);
+    expect(packQuantityInput).toHaveValue('25,000');
+    const refundAdjustmentInput = screen.getByLabelText('8월 환급액 조정액');
+    fireEvent.change(refundAdjustmentInput, { target: { value: '12000000' } });
+    fireEvent.blur(refundAdjustmentInput);
+    expect(refundAdjustmentInput).toHaveValue('12,000,000');
+    expect(getComputedStyle(tariffSalesInput).textAlign).toBe('right');
+    expect(getComputedStyle(packQuantityInput).textAlign).toBe('right');
+    expect(getComputedStyle(refundAdjustmentInput).textAlign).toBe('right');
+    expect(getComputedStyle(screen.getByLabelText('8월 관세율')).textAlign).toBe('right');
+    expect(container.querySelector('.forecast-workflow__adjustment-node--mfg-list')).toHaveClass('forecast-workflow__adjustment-span');
+    expect(container.querySelector('.forecast-workflow__adjustment-node--sga-list')).toHaveClass('forecast-workflow__adjustment-span');
+  });
+
+  it('accumulates multiple local selling-freight entries while serializing one summed account DTO', async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(response(modelPayload()))
+      .mockResolvedValueOnce(response(metadataPayload()))
+      .mockResolvedValueOnce(response(successPayload()));
+    vi.stubGlobal('fetch', fetchMock);
+    render(<ForecastGenerationView />);
+    await waitForForecastReady();
+    fireEvent.change(screen.getByLabelText('7월 UF_MBR 매출액'), { target: { value: '1000000' } });
+    fireEvent.change(screen.getByLabelText('7월 IX 매출액'), { target: { value: '500000' } });
+    fireEvent.click(screen.getByText(/비용 및 원가 조정/));
+    fireEvent.change(screen.getByLabelText('7월 기준 북미·남미 매출'), { target: { value: '500000' } });
+    fireEvent.change(screen.getByLabelText('7월 추정 북미·남미 매출'), { target: { value: '1000000' } });
+
+    fireEvent.click(screen.getByRole('button', { name: '7월 북미·남미 관세 등록' }));
+    expect(screen.getByText('판관비 조정 내역 (0건)')).toBeInTheDocument();
+    expect(screen.getByLabelText('판매비 운반비 자동 산출 제안 내역')).toHaveTextContent(/북미·남미 관세 조정.*UF\/MBR 신사업 운반비.*IX 신사업 운반비.*자동 제안 합계/);
+    fireEvent.change(screen.getByLabelText('7월 운송비 판관비 조정 사유'), { target: { value: '관세 조정' } });
+    fireEvent.click(screen.getByRole('button', { name: '등록' }));
+    expect(screen.getByText('판관비 조정 내역 (1건)')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: '7월 신사업 운반비 등록' }));
+    expect(screen.getByText('판관비 조정 내역 (1건)')).toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText('7월 운송비 판관비 조정 사유'), { target: { value: '신사업 운반비' } });
+    fireEvent.click(screen.getByRole('button', { name: '등록' }));
+    expect(screen.getByText('판관비 조정 내역 (2건)')).toBeInTheDocument();
+    expect(screen.getByText('북미·남미 관세 조정')).toBeInTheDocument();
+    expect(screen.getAllByText('신사업 운반비').length).toBeGreaterThanOrEqual(1);
+
+    expect(aggregateSgaRegisteredEntries([
+      { id: 'a', adjustmentKey: 'sga-selling', sourceLabel: '관세', amount: '6500', reason: '관세 조정' },
+      { id: 'b', adjustmentKey: 'sga-selling', sourceLabel: '운반비', amount: '75000', reason: '신사업 운반비' },
+    ])).toEqual({ amount: '81500', reason: '관세 조정; 신사업 운반비' });
+
+    fireEvent.click(screen.getByRole('button', { name: '추정 모형 생성' }));
+    await screen.findByText('추정 모형 생성 완료');
+    const body = JSON.parse(String((fetchMock.mock.calls[2][1] as RequestInit).body));
+    expect(body.months[0].sga_adjustments).toEqual([
+      { adjustment_key: 'sga-selling', amount: 81500, reason: '관세 조정; 신사업 운반비' },
+    ]);
+  });
+
+  it('preserves an existing aggregate when a helper action appends the first local entry', () => {
+    const seeded = withLegacySgaAggregateEntry([], 'sga-selling', {
+      amount: '12000',
+      reason: '기존 직접 조정',
+    });
+    const appended = [...seeded, {
+      id: 'tariff-entry',
+      adjustmentKey: 'sga-selling',
+      sourceLabel: '북미·남미 관세 조정',
+      amount: '6500',
+      reason: '관세 조정',
+    }];
+
+    expect(aggregateSgaRegisteredEntries(appended)).toEqual({
+      amount: '18500',
+      reason: '기존 직접 조정; 관세 조정',
+    });
   });
 });
