@@ -3,7 +3,12 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { AnalysisPresentationPanel, formatQuantity } from './AnalysisPresentationPanel';
 import { CoreAnalysisView } from './CoreAnalysisView';
 import { presentationFixture, TEST_RESULT } from './presentationTestFixture';
-import { CANONICAL_EFFECT_ORDER, mapAnalysisPresentation } from './analysisPresentation';
+import {
+  CANONICAL_EFFECT_ORDER,
+  calculateContributionRate,
+  formatContributionRate,
+  mapAnalysisPresentation,
+} from './analysisPresentation';
 
 function json(body: unknown, status = 200) {
   return Promise.resolve(new Response(JSON.stringify(body), {
@@ -29,8 +34,9 @@ describe('analysis presentation vertical slice', () => {
     for (const category of ['내부', '외부', '비용']) {
       expect(screen.getAllByText(category).length).toBeGreaterThan(0);
     }
-    expect(screen.getByText('Effect 총액 (서버)')).toBeInTheDocument();
-    expect(screen.getByText('판매수량 및 제품 Mix 변동 영향')).toBeInTheDocument();
+    expect(screen.getByText('Effect 총액')).toBeInTheDocument();
+    expect(screen.queryByText('Effect 총액 (서버)')).not.toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: '손익 변동 요인 분석표' })).toBeInTheDocument();
     expect(screen.getAllByText('PCS').length).toBeGreaterThan(0);
     expect(screen.getAllByText('m').length).toBeGreaterThan(0);
     expect(screen.queryByText(/MCM.*Effect/i)).not.toBeInTheDocument();
@@ -54,6 +60,72 @@ describe('analysis presentation vertical slice', () => {
     expect(mapping.residual.uiLabel).toBe('기타 요인');
     expect(mapping.residual.amount).toBe(value.residual.amount);
     expect(mapping.waterfallBars.find((bar) => bar.id === 'residual')?.delta).toBe(value.residual.amount);
+  });
+
+  it('derives the approved signed contribution metric once from effect amount and OP delta', () => {
+    expect(calculateContributionRate(250, 320)).toBeCloseTo(78.125);
+    expect(calculateContributionRate(90, 320)).toBeCloseTo(28.125);
+    expect(calculateContributionRate(-30, 320)).toBeCloseTo(-9.375);
+    expect(formatContributionRate(calculateContributionRate(250, 320))).toBe('+78.1%');
+    expect(formatContributionRate(calculateContributionRate(90, 320))).toBe('+28.1%');
+    expect(formatContributionRate(calculateContributionRate(-30, 320))).toBe('-9.4%');
+    expect(formatContributionRate(-0.01)).toBe('0.0%');
+    expect(calculateContributionRate(30, 0)).toBeNull();
+    expect(formatContributionRate(calculateContributionRate(30, 0))).toBe('—');
+  });
+
+  it('builds exactly three executive cards with icons, group totals, dots and a separate residual footer', () => {
+    const value = presentationFixture();
+    const mapping = mapAnalysisPresentation(value);
+    expect(mapping.executiveGroups).toHaveLength(3);
+    expect(mapping.executiveGroups.map((group) => group.title)).toEqual(['판매 효과', '환율 효과', '비용 효과']);
+    expect(mapping.executiveGroups.reduce((sum, group) => sum + group.profitEffect, 0) + mapping.residual.amount)
+      .toBe(value.kpis.operating_profit_delta);
+
+    render(<AnalysisPresentationPanel value={value} role="admin" />);
+    const executive = screen.getByTestId('analysis-executive-narrative');
+    const cards = Array.from(executive.querySelectorAll('.variance-analysis__narrative-group'));
+    expect(cards).toHaveLength(3);
+    for (const card of cards) {
+      expect(card.querySelector('.variance-analysis__narrative-group-icon svg')).toBeInTheDocument();
+      expect(within(card as HTMLElement).getAllByText('손익 영향').length).toBeGreaterThan(0);
+      for (const effect of Array.from(card.querySelectorAll('.variance-analysis__narrative-effect'))) {
+        expect(effect.querySelector('.variance-analysis__effect-dot')).toBeInTheDocument();
+        expect(effect.textContent).toContain('손익 영향');
+      }
+    }
+    expect(executive.querySelector('.variance-analysis__effect-dot.is-positive')).toBeInTheDocument();
+    expect(executive.querySelector('.variance-analysis__effect-dot.is-negative')).toBeInTheDocument();
+    expect(executive.querySelector('.variance-analysis__effect-dot.is-zero')).toBeInTheDocument();
+    const residual = executive.querySelector('.variance-analysis__residual-summary');
+    expect(residual).toBeInTheDocument();
+    expect(residual?.closest('.variance-analysis__narrative-group')).toBeNull();
+  });
+
+  it('uses the exact eight-column main table and separate six-column bordered drilldown table', () => {
+    render(<AnalysisPresentationPanel value={presentationFixture()} role="admin" />);
+    const detail = screen.getByTestId('analysis-detail-section');
+    expect(within(detail).getByRole('heading', { name: '손익 변동 요인 분석표' })).toBeInTheDocument();
+    const main = detail.querySelector('.variance-analysis__effect-table') as HTMLTableElement;
+    expect(Array.from(main.tHead?.rows[0].cells ?? []).map((cell) => cell.textContent)).toEqual([
+      '구분', '손익 변동 원인', '단위', '계획', '실적', '원인변동', '손익 영향 금액', '기여율',
+    ]);
+    expect(within(detail).queryAllByRole('columnheader', { name: '근거' })).toHaveLength(0);
+    expect(within(detail).queryAllByRole('columnheader', { name: '비고' })).toHaveLength(0);
+    expect(detail.querySelector('.variance-analysis__category-pill')).toHaveTextContent('내부');
+
+    const container = screen.getByTestId('drilldown-container-sales_quantity');
+    expect(container).toBeInTheDocument();
+    expect(within(container).getByRole('heading', { name: '↳ [수량] 요인 세부 내역:' }))
+      .toHaveClass('variance-analysis__drilldown-heading');
+    const inner = container.querySelector('table') as HTMLTableElement;
+    expect(inner).not.toBe(main);
+    expect(Array.from(inner.tHead?.rows[0].cells ?? []).map((cell) => cell.textContent)).toEqual([
+      '세부 항목', '단위', '계획', '실적', '차이', '손익 영향 금액',
+    ]);
+    expect(container.closest('td')).toHaveAttribute('colspan', '8');
+    expect(screen.getByTestId('effect-row-sales_quantity').lastElementChild).toHaveTextContent('+75.0%');
+    expect(screen.getByTestId('effect-row-sales_fx').lastElementChild).toHaveTextContent('-20.0%');
   });
 
   it('moves exactly four authoritative manufacturing account effects into variable cost without double counting', () => {
@@ -181,6 +253,10 @@ describe('analysis presentation vertical slice', () => {
     expect(screen.queryAllByRole('columnheader', { name: /^(비고|Remarks|Note)$/i })).toHaveLength(0);
     expect(screen.getByRole('heading', { name: '판매 수량/매출' })).toBeInTheDocument();
     expect(screen.getByRole('heading', { name: '생산 수량' })).toBeInTheDocument();
+    expect(screen.getByText('단위: 백만원, %, PCS, m')).toBeInTheDocument();
+    expect(screen.getByText('수량: PCS, m · 금액: 백만원')).toBeInTheDocument();
+    expect(screen.getByText('단위: PCS, m')).toBeInTheDocument();
+    expect(screen.queryByText(/DTO 값 유지|상세 값은 서버 DTO|서버가 제공한 판매 수량/)).not.toBeInTheDocument();
     expect(screen.queryByRole('heading', { name: '제품군 근거' })).not.toBeInTheDocument();
     expect(screen.queryByRole('heading', { name: '제조 조업도 근거' })).not.toBeInTheDocument();
     const tables = Array.from(screen.getByTestId('analysis-presentation').querySelectorAll('table'));

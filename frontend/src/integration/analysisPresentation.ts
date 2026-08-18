@@ -70,37 +70,85 @@ export type ProfitEffectTone = 'positive' | 'negative' | 'zero';
 export interface MappedPresentationEffect extends AnalysisPresentationEffectDto {
   uiLabel: string;
   uiCategoryLabel: string;
+  contributionRate: number | null;
 }
 
 export interface MappedResidual extends AnalysisResidualDto {
   code: typeof RESIDUAL_CODE;
   uiLabel: typeof RESIDUAL_LABEL;
+  contributionRate: number | null;
+}
+
+export type ExecutiveEffectGroupKey = 'sales' | 'fx' | 'cost';
+
+export interface ExecutiveEffectGroup {
+  key: ExecutiveEffectGroupKey;
+  title: string;
+  effects: MappedPresentationEffect[];
+  profitEffect: number;
 }
 
 export interface AnalysisPresentationMapping {
   effects: MappedPresentationEffect[];
+  executiveGroups: ExecutiveEffectGroup[];
   topPositiveEffects: MappedPresentationEffect[];
   topNegativeEffects: MappedPresentationEffect[];
   residual: MappedResidual;
+  effectsTotalContributionRate: number | null;
   waterfallBars: AnalysisWaterfallBar[];
 }
+
+const EXECUTIVE_GROUP_DEFINITIONS: ReadonlyArray<{
+  key: ExecutiveEffectGroupKey;
+  title: string;
+  codes: readonly PresentationEffectCode[];
+}> = [
+  { key: 'sales', title: '판매 효과', codes: ['sales_quantity', 'sales_price'] },
+  { key: 'fx', title: '환율 효과', codes: ['sales_fx'] },
+  {
+    key: 'cost',
+    title: '비용 효과',
+    codes: ['material_total', 'sga_variable', 'sga_fixed', 'manufacturing_realized', 'inventory_timing'],
+  },
+];
 
 const effectOrder = new Map<PresentationEffectCode, number>(
   CANONICAL_EFFECT_ORDER.map((code, index) => [code, index]),
 );
 
-export function mapEffect(effect: AnalysisPresentationEffectDto): MappedPresentationEffect {
+/**
+ * Presentation-only contribution metric confirmed by the source mockup:
+ * signed effect / signed operating-profit delta. It does not change bridge amounts.
+ */
+export function calculateContributionRate(profitEffect: number, operatingProfitDelta: number): number | null {
+  return operatingProfitDelta === 0 ? null : (profitEffect / operatingProfitDelta) * 100;
+}
+
+export function formatContributionRate(value: number | null): string {
+  if (value === null) return '—';
+  const formatted = Math.abs(value) < 0.05 ? 0 : value;
+  return `${formatted > 0 ? '+' : ''}${formatted.toFixed(1)}%`;
+}
+
+export function mapEffect(
+  effect: AnalysisPresentationEffectDto,
+  operatingProfitDelta = 0,
+): MappedPresentationEffect {
   return {
     ...effect,
     // Backend labels are data, while this is the stable UI vocabulary.
     uiLabel: CANONICAL_EFFECT_LABELS[effect.code] ?? effect.label,
     uiCategoryLabel: EFFECT_CATEGORY_LABELS[effect.category],
+    contributionRate: calculateContributionRate(effect.profit_effect, operatingProfitDelta),
   };
 }
 
-export function mapCanonicalEffects(effects: AnalysisPresentationEffectDto[]): MappedPresentationEffect[] {
+export function mapCanonicalEffects(
+  effects: AnalysisPresentationEffectDto[],
+  operatingProfitDelta: number,
+): MappedPresentationEffect[] {
   return effects
-    .map(mapEffect)
+    .map((effect) => mapEffect(effect, operatingProfitDelta))
     .sort((left, right) => (effectOrder.get(left.code) ?? Number.MAX_SAFE_INTEGER)
       - (effectOrder.get(right.code) ?? Number.MAX_SAFE_INTEGER));
 }
@@ -121,6 +169,7 @@ export function mapCanonicalEffects(effects: AnalysisPresentationEffectDto[]): M
  */
 export function mapGroupedPresentationEffects(
   canonicalEffects: AnalysisPresentationEffectDto[],
+  operatingProfitDelta = 0,
 ): MappedPresentationEffect[] {
   const effectMap = new Map<string, AnalysisPresentationEffectDto>();
   canonicalEffects.forEach((e) => effectMap.set(e.code, e));
@@ -166,6 +215,7 @@ export function mapGroupedPresentationEffects(
       },
       uiLabel: '수량',
       uiCategoryLabel: '내부',
+      contributionRate: calculateContributionRate(qtyEffect + mixEffect, operatingProfitDelta),
     });
     processedCodes.add('sales_quantity');
     processedCodes.add('sales_mix');
@@ -175,7 +225,7 @@ export function mapGroupedPresentationEffects(
   const price = effectMap.get('sales_price');
   if (price) {
     grouped.push({
-      ...mapEffect(price),
+      ...mapEffect(price, operatingProfitDelta),
       uiLabel: '판가',
     });
     processedCodes.add('sales_price');
@@ -185,7 +235,7 @@ export function mapGroupedPresentationEffects(
   const fx = effectMap.get('sales_fx');
   if (fx) {
     grouped.push({
-      ...mapEffect(fx),
+      ...mapEffect(fx, operatingProfitDelta),
       uiLabel: '매출환율',
     });
     processedCodes.add('sales_fx');
@@ -195,7 +245,7 @@ export function mapGroupedPresentationEffects(
   const material = effectMap.get('material_total');
   if (material) {
     grouped.push({
-      ...mapEffect(material),
+      ...mapEffect(material, operatingProfitDelta),
       uiLabel: '원재료',
     });
     processedCodes.add('material_total');
@@ -226,6 +276,10 @@ export function mapGroupedPresentationEffects(
       },
       uiLabel: '변동비',
       uiCategoryLabel: '비용',
+      contributionRate: calculateContributionRate(
+        varEffect + tariffEffect + manufacturingVariableEffect,
+        operatingProfitDelta,
+      ),
     });
     processedCodes.add('sga_variable');
     processedCodes.add('tariff');
@@ -235,7 +289,7 @@ export function mapGroupedPresentationEffects(
   const sgaFixed = effectMap.get('sga_fixed');
   if (sgaFixed) {
     grouped.push({
-      ...mapEffect(sgaFixed),
+      ...mapEffect(sgaFixed, operatingProfitDelta),
       uiLabel: '고정비',
     });
     processedCodes.add('sga_fixed');
@@ -247,8 +301,12 @@ export function mapGroupedPresentationEffects(
     const movedRowIds = new Set(authoritativeManufacturingVariableRows.map((row) => row.row_id));
     const remainderRows = mfg.drilldown.rows.filter((row) => !movedRowIds.has(row.row_id));
     grouped.push({
-      ...mapEffect(mfg),
+      ...mapEffect(mfg, operatingProfitDelta),
       profit_effect: mfg.profit_effect - manufacturingVariableEffect,
+      contributionRate: calculateContributionRate(
+        mfg.profit_effect - manufacturingVariableEffect,
+        operatingProfitDelta,
+      ),
       description: hasAuthoritativeManufacturingVariableSplit
         ? '제조변동비 4개 계정을 제외한 제조 영향'
         : mfg.description,
@@ -269,7 +327,7 @@ export function mapGroupedPresentationEffects(
   const invTiming = effectMap.get('inventory_timing');
   if (invTiming) {
     grouped.push({
-      ...mapEffect(invTiming),
+      ...mapEffect(invTiming, operatingProfitDelta),
       uiLabel: '재고·원가 반영시차',
     });
     processedCodes.add('inventory_timing');
@@ -278,15 +336,35 @@ export function mapGroupedPresentationEffects(
   // 9. Unknown/Unmapped canonical effects safe preservation
   canonicalEffects.forEach((e) => {
     if (!processedCodes.has(e.code)) {
-      grouped.push(mapEffect(e));
+      grouped.push(mapEffect(e, operatingProfitDelta));
     }
   });
 
   return grouped;
 }
 
-export function mapResidual(residual: AnalysisResidualDto): MappedResidual {
-  return { ...residual, code: RESIDUAL_CODE, uiLabel: RESIDUAL_LABEL };
+export function mapResidual(residual: AnalysisResidualDto, operatingProfitDelta = 0): MappedResidual {
+  return {
+    ...residual,
+    code: RESIDUAL_CODE,
+    uiLabel: RESIDUAL_LABEL,
+    contributionRate: calculateContributionRate(residual.amount, operatingProfitDelta),
+  };
+}
+
+export function mapExecutiveEffectGroups(effects: MappedPresentationEffect[]): ExecutiveEffectGroup[] {
+  const byCode = new Map(effects.map((effect) => [effect.code, effect]));
+  return EXECUTIVE_GROUP_DEFINITIONS.map((definition) => {
+    const grouped = definition.codes
+      .map((code) => byCode.get(code))
+      .filter((effect): effect is MappedPresentationEffect => Boolean(effect));
+    return {
+      key: definition.key,
+      title: definition.title,
+      effects: grouped,
+      profitEffect: grouped.reduce((sum, effect) => sum + effect.profit_effect, 0),
+    };
+  });
 }
 
 export function profitEffectTone(value: number): ProfitEffectTone {
@@ -375,13 +453,16 @@ export function mapWaterfallBars(
 }
 
 export function mapAnalysisPresentation(value: AnalysisPresentationDto): AnalysisPresentationMapping {
-  const effects = mapGroupedPresentationEffects(value.effects);
-  const residual = mapResidual(value.residual);
+  const operatingProfitDelta = value.kpis.operating_profit_delta;
+  const effects = mapGroupedPresentationEffects(value.effects, operatingProfitDelta);
+  const residual = mapResidual(value.residual, operatingProfitDelta);
   return {
     effects,
-    topPositiveEffects: value.executive_summary.top_positive_effects.map(mapEffect),
-    topNegativeEffects: value.executive_summary.top_negative_effects.map(mapEffect),
+    executiveGroups: mapExecutiveEffectGroups(effects),
+    topPositiveEffects: value.executive_summary.top_positive_effects.map((effect) => mapEffect(effect, operatingProfitDelta)),
+    topNegativeEffects: value.executive_summary.top_negative_effects.map((effect) => mapEffect(effect, operatingProfitDelta)),
     residual,
+    effectsTotalContributionRate: calculateContributionRate(value.kpis.effects_total, operatingProfitDelta),
     waterfallBars: mapWaterfallBars(value, effects, residual),
   };
 }

@@ -250,13 +250,36 @@
 
 .variance-analysis__narrative-group-header {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   justify-content: space-between;
   gap: 10px;
   padding-bottom: 10px;
   margin-bottom: 8px;
   border-bottom: 1px solid #e2e8f0;
 }
+
+.variance-analysis__narrative-group-title {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  gap: 8px;
+}
+
+.variance-analysis__narrative-group-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  flex: 0 0 26px;
+  border: 1px solid #cbd5e1;
+  border-radius: 4px;
+  background: #fff;
+}
+
+.variance-analysis__narrative-group-icon.is-sales { color: #2563eb; }
+.variance-analysis__narrative-group-icon.is-fx { color: #0284c7; }
+.variance-analysis__narrative-group-icon.is-cost { color: #7c3aed; }
 
 .variance-analysis__narrative-group-header h3 {
   margin: 0;
@@ -265,21 +288,29 @@
   font-weight: 800;
 }
 
-.variance-analysis__narrative-group-header span:not(.variance-analysis__narrative-group-total) {
-  display: block;
-  margin-top: 3px;
-  color: #64748b;
-  font-size: 11px;
-  font-weight: 600;
+.variance-analysis__narrative-group-total {
+  display: flex;
+  align-items: baseline;
+  justify-content: flex-end;
+  flex: 0 0 auto;
+  gap: 5px;
+  white-space: nowrap;
 }
 
-.variance-analysis__narrative-group-total {
+.variance-analysis__narrative-group-total span {
+  color: #64748b;
+  font-size: 11.5px;
+  font-weight: 500;
+}
+
+.variance-analysis__narrative-group-total strong {
   font-size: 13.5px;
+  font-weight: 800;
 }
 
 .variance-analysis__narrative-effect {
   display: grid;
-  grid-template-columns: minmax(72px, 1fr) auto;
+  grid-template-columns: 7px minmax(72px, 1fr) auto;
   align-items: center;
   width: 100%;
   gap: 8px;
@@ -294,6 +325,39 @@
   font-weight: 700;
   text-align: left;
   cursor: pointer;
+}
+
+.variance-analysis__effect-dot {
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+}
+
+.variance-analysis__effect-dot.is-positive { background: #10b981; }
+.variance-analysis__effect-dot.is-negative { background: #f43f5e; }
+.variance-analysis__effect-dot.is-zero { background: #94a3b8; }
+
+.variance-analysis__narrative-effect-label {
+  min-width: 0;
+  overflow: hidden;
+  color: #1e293b;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.variance-analysis__narrative-effect-amount {
+  display: inline-flex;
+  align-items: baseline;
+  justify-content: flex-end;
+  gap: 4px;
+  white-space: nowrap;
+}
+
+.variance-analysis__narrative-effect-amount > span {
+  color: #64748b;
+  font-size: 11px;
+  font-weight: 500;
 }
 
 .variance-analysis__narrative-effect:hover,
@@ -573,6 +637,37 @@
   table-layout: fixed;
 }
 
+.variance-analysis__effect-table {
+  width: 1000px;
+  min-width: 1000px;
+  max-width: 1000px;
+}
+
+.variance-analysis__evidence-table .financial-table {
+  width: 100%;
+  min-width: 600px;
+  max-width: none;
+  margin: 0;
+}
+
+.variance-analysis__evidence-table--activity .financial-table { min-width: 540px; }
+
+.variance-analysis__evidence-table .financial-table th,
+.variance-analysis__evidence-table .financial-table td {
+  white-space: nowrap;
+}
+
+.variance-analysis__evidence-table--product th:nth-child(1) { width: 18%; }
+.variance-analysis__evidence-table--product th:nth-child(2) { width: 12%; }
+.variance-analysis__evidence-table--product th:nth-child(3),
+.variance-analysis__evidence-table--product th:nth-child(4) { width: 17%; }
+.variance-analysis__evidence-table--product th:nth-child(5),
+.variance-analysis__evidence-table--product th:nth-child(6) { width: 18%; }
+.variance-analysis__evidence-table--activity th:nth-child(1) { width: 14%; }
+.variance-analysis__evidence-table--activity th:nth-child(2) { width: 22%; }
+.variance-analysis__evidence-table--activity th:nth-child(3) { width: 10%; }
+.variance-analysis__evidence-table--activity th:nth-child(n+4) { width: 18%; }
+
 .variance-analysis__effect-table th,
 .variance-analysis__effect-table td,
 .variance-analysis__evidence-table .financial-table th,
@@ -592,22 +687,47 @@
   white-space: nowrap;
 }
 
+.variance-analysis__evidence-table .financial-table th,
+.variance-analysis__evidence-table .financial-table td { padding: 0 8px; }
+
 .variance-analysis table thead th {
   text-align: center !important;
 }
 
 .variance-analysis__effect-table th:nth-child(1) { width: 80px; }
-.variance-analysis__effect-table th:nth-child(2) { width: 200px; }
+.variance-analysis__effect-table th:nth-child(2) { width: 250px; }
 .variance-analysis__effect-table th:nth-child(3) { width: 60px; }
 .variance-analysis__effect-table th:nth-child(4),
 .variance-analysis__effect-table th:nth-child(5),
 .variance-analysis__effect-table th:nth-child(6) { width: 120px; }
 .variance-analysis__effect-table th:nth-child(7) { width: 130px; }
-.variance-analysis__effect-table th:nth-child(8) { width: 130px; }
+.variance-analysis__effect-table th:nth-child(8) { width: 110px; }
 
 .variance-analysis__effect-table td:nth-child(1),
 .variance-analysis__effect-table td:nth-child(3) { text-align: center; }
-.variance-analysis__effect-table td:nth-child(8) { text-align: left; }
+.variance-analysis__effect-table td:nth-child(2) { text-align: left; }
+.variance-analysis__effect-table td:nth-child(n+4) { text-align: right; }
+
+.variance-analysis__category-pill {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 42px;
+  padding: 2px 8px;
+  border: 1px solid #cbd5e1;
+  border-radius: 4px;
+  color: #475569;
+  background: #f8fafc;
+  font-size: 11.5px;
+  font-weight: 700;
+  line-height: 1.35;
+  white-space: nowrap;
+}
+
+.variance-analysis__category-pill.is-internal { color: #1d4ed8; border-color: #bfdbfe; background: #eff6ff; }
+.variance-analysis__category-pill.is-external { color: #0f766e; border-color: #99f6e4; background: #f0fdfa; }
+.variance-analysis__category-pill.is-cost { color: #7c3aed; border-color: #ddd6fe; background: #f5f3ff; }
+.variance-analysis__category-pill.is-residual { color: #475569; border-color: #cbd5e1; background: #f8fafc; }
 
 .variance-analysis__effect-table thead,
 .variance-analysis__evidence-table .financial-table thead {
@@ -657,16 +777,45 @@
 .expand-toggle-btn:disabled { cursor: not-allowed; opacity: .55; }
 .expand-toggle-btn:focus-visible { outline: 2px solid #2563eb; outline-offset: 1px; }
 
-.variance-analysis__drilldown-cell { padding: 0 !important; background: #f8fafc; }
-.variance-analysis__drilldown-table { width: 100%; min-width: 780px; margin: 0; table-layout: fixed; }
+.variance-analysis__drilldown-cell { padding: 10px 16px !important; background: #f8fafc; }
+.variance-analysis__drilldown-container {
+  padding: 12px 16px;
+  border: 1px solid #e2e8f0;
+  border-radius: 6px;
+  background: #fff;
+}
+
+.variance-analysis__drilldown-heading {
+  width: 100%;
+  margin: 0 0 8px;
+  color: #475569;
+  font-size: 12.5px;
+  font-weight: 700;
+  text-align: left;
+}
+
+.variance-analysis__drilldown-table {
+  width: 100%;
+  min-width: 760px;
+  margin: 0;
+  border: 1px solid #e2e8f0;
+  border-radius: 4px;
+  border-collapse: separate;
+  border-spacing: 0;
+  table-layout: fixed;
+  overflow: hidden;
+}
 .variance-analysis__drilldown-table th { height: 34px; font-size: 12px; font-weight: 700; }
 .variance-analysis__drilldown-table td { height: 36px; font-size: 12.5px; }
-.variance-analysis__drilldown-table th:nth-child(1) { width: 74px; }
-.variance-analysis__drilldown-table th:nth-child(2) { width: 220px; }
-.variance-analysis__drilldown-table th:nth-child(3) { width: 68px; }
-.variance-analysis__drilldown-table th:nth-child(n+4) { width: 104px; }
-.variance-analysis__drilldown-table td:nth-child(1),
-.variance-analysis__drilldown-table td:nth-child(3) { text-align: center; }
+.variance-analysis__drilldown-table th:nth-child(1) { width: 32%; }
+.variance-analysis__drilldown-table th:nth-child(2) { width: 9%; }
+.variance-analysis__drilldown-table th:nth-child(3),
+.variance-analysis__drilldown-table th:nth-child(4),
+.variance-analysis__drilldown-table th:nth-child(5) { width: 14%; }
+.variance-analysis__drilldown-table th:nth-child(6) { width: 17%; }
+.variance-analysis__drilldown-table td:nth-child(1) { text-align: left; }
+.variance-analysis__drilldown-table td:nth-child(2) { text-align: center; }
+.variance-analysis__drilldown-table td:nth-child(n+3) { text-align: right; }
 .variance-analysis__evidence-table--product tbody td:nth-child(1),
 .variance-analysis__evidence-table--product tbody td:nth-child(2),
 .variance-analysis__evidence-table--activity tbody td:nth-child(1),

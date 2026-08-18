@@ -1,45 +1,34 @@
 import { useEffect, useMemo, useState } from 'react';
-import { AlertTriangle, ArrowRight, ChevronDown, ChevronRight, Package, Sparkles } from 'lucide-react';
+import {
+  AlertTriangle,
+  ArrowRight,
+  ChevronDown,
+  ChevronRight,
+  Globe,
+  Package,
+  PieChart,
+  Sparkles,
+  TrendingUp,
+} from 'lucide-react';
 import { EffectWaterfallChart } from '../components/variance/EffectWaterfallChart';
 import { AnalysisPresentationDto, Role } from './types';
 import {
   MappedPresentationEffect,
   MappedResidual,
+  ExecutiveEffectGroup,
+  ExecutiveEffectGroupKey,
+  formatContributionRate,
   mapAnalysisPresentation,
   profitEffectTone,
 } from './analysisPresentation';
 import { EvidenceDownloadButton } from './EvidenceDownloadButton';
 import '../styles/variance-analysis.css';
 
-type EffectGroupKey = 'sales' | 'fx' | 'cost';
-
-interface EffectGroup {
-  key: EffectGroupKey;
-  title: string;
-  categoryLabel: string;
-  effects: MappedPresentationEffect[];
-}
-
-const EFFECT_GROUPS: Array<{ key: EffectGroupKey; title: string; categoryLabel: string; codes: Array<MappedPresentationEffect['code']> }> = [
-  { key: 'sales', title: '판매 효과', categoryLabel: '내부', codes: ['sales_quantity', 'sales_price'] },
-  { key: 'fx', title: '환율 효과', categoryLabel: '외부', codes: ['sales_fx'] },
-  {
-    key: 'cost',
-    title: '비용 효과',
-    categoryLabel: '비용',
-    codes: ['material_total', 'sga_variable', 'sga_fixed', 'manufacturing_realized', 'inventory_timing'],
-  },
-];
-
-function groupEffects(effects: MappedPresentationEffect[]): EffectGroup[] {
-  const byCode = new Map(effects.map((effect) => [effect.code, effect]));
-  return EFFECT_GROUPS.map((definition) => {
-    const grouped = definition.codes
-      .map((code) => byCode.get(code))
-      .filter((effect): effect is MappedPresentationEffect => Boolean(effect));
-    return { ...definition, effects: grouped };
-  });
-}
+const GROUP_ICONS: Record<ExecutiveEffectGroupKey, typeof TrendingUp> = {
+  sales: TrendingUp,
+  fx: Globe,
+  cost: PieChart,
+};
 
 export function AnalysisPresentationPanel({
   value,
@@ -51,7 +40,6 @@ export function AnalysisPresentationPanel({
   onUnavailable?: () => void;
 }) {
   const mapping = useMemo(() => mapAnalysisPresentation(value), [value]);
-  const groups = useMemo(() => groupEffects(mapping.effects), [mapping.effects]);
   const [selectedEffect, setSelectedEffect] = useState<string | undefined>(undefined);
 
   useEffect(() => {
@@ -68,7 +56,7 @@ export function AnalysisPresentationPanel({
     <article className="variance-analysis" data-testid="analysis-presentation">
       <PresentationHeader value={value} role={role} onUnavailable={onUnavailable} />
       <ExecutiveNarrative
-        groups={groups}
+        groups={mapping.executiveGroups}
         effects={mapping.effects}
         residual={mapping.residual}
         kpiDelta={value.kpis.operating_profit_delta}
@@ -84,6 +72,7 @@ export function AnalysisPresentationPanel({
         effects={mapping.effects}
         residual={mapping.residual}
         effectsTotal={value.kpis.effects_total}
+        effectsTotalContributionRate={mapping.effectsTotalContributionRate}
         selectedEffect={selectedEffect}
         onSelectEffect={setSelectedEffect}
       />
@@ -142,7 +131,7 @@ function ExecutiveNarrative({
   selectedEffect,
   onSelectEffect,
 }: {
-  groups: EffectGroup[];
+  groups: ExecutiveEffectGroup[];
   effects: MappedPresentationEffect[];
   residual: MappedResidual;
   kpiDelta: number;
@@ -172,9 +161,15 @@ function ExecutiveNarrative({
         {groups.map((group) => (
           <section key={group.key} className="variance-analysis__narrative-group" data-testid={`analysis-effect-group-${group.key}`}>
             <div className="variance-analysis__narrative-group-header">
-              <div>
+              <div className="variance-analysis__narrative-group-title">
+                <span className={`variance-analysis__narrative-group-icon is-${group.key}`} aria-hidden="true">
+                  <GroupIcon groupKey={group.key} />
+                </span>
                 <h3>{group.title}</h3>
-                <span>{group.categoryLabel}</span>
+              </div>
+              <div className={`variance-analysis__narrative-group-total variance-analysis__tone--${profitEffectTone(group.profitEffect)}`}>
+                <span>손익 영향</span>
+                <strong>{formatMillions(group.profitEffect, true)}</strong>
               </div>
             </div>
             {group.effects.length ? group.effects.map((effect) => {
@@ -188,8 +183,12 @@ function ExecutiveNarrative({
                   aria-pressed={isSelected}
                   onClick={() => onSelectEffect(effect.code)}
                 >
+                  <span className={`variance-analysis__effect-dot is-${tone}`} aria-hidden="true" />
                   <span className="variance-analysis__narrative-effect-label">{effect.uiLabel}</span>
-                  <strong>{formatMillions(effect.profit_effect, true)}</strong>
+                  <span className="variance-analysis__narrative-effect-amount">
+                    <span>손익 영향</span>
+                    <strong>{formatMillions(effect.profit_effect, true)}</strong>
+                  </span>
                 </button>
               );
             }) : <div className="variance-analysis__narrative-empty">해당 Effect 없음</div>}
@@ -217,12 +216,14 @@ function EffectTable({
   effects,
   residual,
   effectsTotal,
+  effectsTotalContributionRate,
   selectedEffect,
   onSelectEffect,
 }: {
   effects: MappedPresentationEffect[];
   residual: MappedResidual;
   effectsTotal: number;
+  effectsTotalContributionRate: number | null;
   selectedEffect?: string;
   onSelectEffect: (code: string) => void;
 }) {
@@ -245,14 +246,14 @@ function EffectTable({
       <div data-testid="effect-table">
         <div className="variance-analysis__section-header">
           <div>
-            <h2 id="analysis-detail-section-title">손익 변동 상세</h2>
-            <span>금액 단위: 백만원 · 상세 값은 서버 DTO 그대로 표시</span>
+            <h2 id="analysis-detail-section-title">손익 변동 요인 분석표</h2>
+            <span>단위: 백만원, %, PCS, m</span>
           </div>
         </div>
         <div className="variance-analysis__table-scroll">
           <table className="financial-table variance-analysis__effect-table">
             <thead className="variance-analysis__table-head"><tr>
-              <th>구분</th><th>손익 변동 원인</th><th>단위</th><th>기준</th><th>비교</th><th>원인변동</th><th>손익 영향 금액</th><th>근거</th>
+              <th>구분</th><th>손익 변동 원인</th><th>단위</th><th>계획</th><th>실적</th><th>원인변동</th><th>손익 영향 금액</th><th>기여율</th>
             </tr></thead>
             <tbody>
               {effects.map((effect) => {
@@ -269,12 +270,14 @@ function EffectTable({
                 );
               })}
               <tr className="row-total">
-                <td colSpan={6}>Effect 총액 (서버)</td>
+                <td colSpan={6}>Effect 총액</td>
                 <td className="text-right tabular-nums">{formatMillions(effectsTotal, true)}</td>
-                <td>서버 제공 effects_total</td>
+                <td className={`text-right tabular-nums variance-analysis__tone--${contributionTone(effectsTotalContributionRate)}`}>
+                  {formatContributionRate(effectsTotalContributionRate)}
+                </td>
               </tr>
               <tr data-testid="effect-row-residual" className={selectedEffect === residual.code ? 'row-active' : ''}>
-                <td>기타 요인</td>
+                <td><CategoryPill label="기타 요인" tone="residual" /></td>
                 <td>
                   <button
                     type="button"
@@ -291,7 +294,9 @@ function EffectTable({
                 <td className="text-right">—</td>
                 <td className="text-right">—</td>
                 <td data-testid="effect-tone-residual" className={`text-right tabular-nums variance-analysis__tone--${profitEffectTone(residual.amount)}`}>{formatMillions(residual.amount, true)}</td>
-                <td>서버 제공 기타 요인</td>
+                <td className={`text-right tabular-nums variance-analysis__tone--${contributionTone(residual.contributionRate)}`}>
+                  {formatContributionRate(residual.contributionRate)}
+                </td>
               </tr>
             </tbody>
           </table>
@@ -319,7 +324,7 @@ function EffectRow({
   return (
     <>
       <tr data-testid={`effect-row-${effect.code}`} className={`${selected ? 'row-active' : ''} variance-analysis__effect-row--${tone}`}>
-        <td>{effect.uiCategoryLabel}</td>
+        <td><CategoryPill label={effect.uiCategoryLabel || '—'} tone={effect.category.toLowerCase()} /></td>
         <td>
           <button
             type="button"
@@ -346,32 +351,49 @@ function EffectRow({
         <td className="text-right">—</td>
         <td className="text-right">—</td>
         <td data-testid={`effect-tone-${effect.code}`} className={`text-right tabular-nums variance-analysis__tone--${tone}`}>{formatMillions(effect.profit_effect, true)}</td>
-        <td>{available ? effect.description : effect.drilldown.unavailable_reason}</td>
+        <td className={`text-right tabular-nums variance-analysis__tone--${contributionTone(effect.contributionRate)}`}>
+          {formatContributionRate(effect.contributionRate)}
+        </td>
       </tr>
       {open && available && (
         <tr>
           <td colSpan={8} className="variance-analysis__drilldown-cell">
-            <table className="drilldown-table variance-analysis__drilldown-table">
-              <thead className="variance-analysis__table-head"><tr>
-                <th>구분</th><th>근거 항목</th><th>단위</th><th>기준</th><th>비교</th><th>증감</th><th>손익 영향</th>
-              </tr></thead>
-              <tbody>{effect.drilldown.rows.map((row) => (
-                <tr key={row.row_id}>
-                  <td>{effect.uiCategoryLabel}</td>
-                  <td>{effect.code.startsWith('sga') && !row.row_id.startsWith('manufacturing:') ? formatSgaLabel(row.label) : row.label}</td>
-                  <td>{row.unit === 'KRW' ? '백만원' : row.unit}</td>
-                  <td className="text-right">{displayDrilldownValue(row.baseline, row.unit)}</td>
-                  <td className="text-right">{displayDrilldownValue(row.comparison, row.unit)}</td>
-                  <td className="text-right">{displayDrilldownValue(row.delta, row.unit, true)}</td>
-                  <td className={`text-right ${row.profit_effect === null ? '' : `variance-analysis__tone--${profitEffectTone(row.profit_effect)}`}`}>{row.profit_effect === null ? '—' : formatMillions(row.profit_effect, true)}</td>
-                </tr>
-              ))}</tbody>
-            </table>
+            <div className="variance-analysis__drilldown-container" data-testid={`drilldown-container-${effect.code}`}>
+              <h3 className="variance-analysis__drilldown-heading">↳ [{effect.uiLabel}] 요인 세부 내역:</h3>
+              <table className="drilldown-table variance-analysis__drilldown-table">
+                <thead className="variance-analysis__table-head"><tr>
+                  <th>세부 항목</th><th>단위</th><th>계획</th><th>실적</th><th>차이</th><th>손익 영향 금액</th>
+                </tr></thead>
+                <tbody>{effect.drilldown.rows.map((row) => (
+                  <tr key={row.row_id}>
+                    <td>{effect.code.startsWith('sga') && !row.row_id.startsWith('manufacturing:') ? formatSgaLabel(row.label) : row.label}</td>
+                    <td>{row.unit === 'KRW' ? '백만원' : row.unit}</td>
+                    <td className="text-right">{displayDrilldownValue(row.baseline, row.unit)}</td>
+                    <td className="text-right">{displayDrilldownValue(row.comparison, row.unit)}</td>
+                    <td className="text-right">{displayDrilldownValue(row.delta, row.unit, true)}</td>
+                    <td className={`text-right ${row.profit_effect === null ? '' : `variance-analysis__tone--${profitEffectTone(row.profit_effect)}`}`}>{row.profit_effect === null ? '—' : formatMillions(row.profit_effect, true)}</td>
+                  </tr>
+                ))}</tbody>
+              </table>
+            </div>
           </td>
         </tr>
       )}
     </>
   );
+}
+
+function contributionTone(value: number | null) {
+  return value === null || Math.abs(value) < 0.05 ? 'zero' : profitEffectTone(value);
+}
+
+function GroupIcon({ groupKey }: { groupKey: ExecutiveEffectGroupKey }) {
+  const Icon = GROUP_ICONS[groupKey];
+  return <Icon size={14} />;
+}
+
+function CategoryPill({ label, tone }: { label: string; tone: string }) {
+  return <span className={`variance-analysis__category-pill is-${tone}`}>{label}</span>;
 }
 
 function AdditionalEvidence({ value }: { value: AnalysisPresentationDto }) {
@@ -380,7 +402,6 @@ function AdditionalEvidence({ value }: { value: AnalysisPresentationDto }) {
     <section className="variance-analysis__additional-evidence" data-testid="analysis-additional-evidence" aria-labelledby="analysis-additional-evidence-title">
       <div className="variance-analysis__additional-evidence-header">
         <h2 id="analysis-additional-evidence-title">추가 근거</h2>
-        <span>서버가 제공한 판매 수량/매출·생산 수량 근거</span>
       </div>
       <div className="variance-analysis__additional-evidence-grid">
         <ProductGroupTable value={value} />
@@ -394,7 +415,7 @@ function ProductGroupTable({ value }: { value: AnalysisPresentationDto }) {
   if (!value.product_groups.length) return null;
   return (
     <section className="variance-analysis__evidence-table variance-analysis__evidence-table--product" aria-labelledby="product-groups-title">
-      <div className="variance-analysis__section-header"><h3 id="product-groups-title">판매 수량/매출</h3><span>수량 단위는 DTO 값 유지 · 금액 단위: 백만원</span></div>
+      <div className="variance-analysis__section-header"><h3 id="product-groups-title">판매 수량/매출</h3><span>수량: PCS, m · 금액: 백만원</span></div>
       <div className="variance-analysis__table-scroll"><table className="financial-table"><thead className="variance-analysis__table-head"><tr>
         <th>제품군</th><th>수량 단위</th><th>기준 수량</th><th>비교 수량</th><th>기준 매출</th><th>비교 매출</th>
       </tr></thead><tbody>{value.product_groups.map((row) => (
@@ -408,7 +429,7 @@ function ManufacturingActivityTable({ value }: { value: AnalysisPresentationDto 
   if (!value.manufacturing_activities.length) return null;
   return (
     <section className="variance-analysis__evidence-table variance-analysis__evidence-table--activity" aria-labelledby="manufacturing-activity-title">
-      <div className="variance-analysis__section-header"><h3 id="manufacturing-activity-title">생산 수량</h3><span>PCS / m 단위는 DTO 값 유지</span></div>
+      <div className="variance-analysis__section-header"><h3 id="manufacturing-activity-title">생산 수량</h3><span>단위: PCS, m</span></div>
       <div className="variance-analysis__table-scroll"><table className="financial-table"><thead className="variance-analysis__table-head"><tr>
         <th>공정</th><th>Basis</th><th>단위</th><th>기준</th><th>비교</th><th>증감</th>
       </tr></thead><tbody>{value.manufacturing_activities.map((row) => (
