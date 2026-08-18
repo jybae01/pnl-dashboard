@@ -172,7 +172,28 @@ class ForecastEngine:
             raise ValueError("Forecast sales contract identity is invalid")
         col = self.column(request.month)
         wb = GoldenWorkbook(self.model_path)
-        explicit = set(self.mapping["formula_input_exceptions"])
+        try:
+            sales_rows = self.merchandise_mapping["sales_rows"]
+            lc_product_rows = sales_rows["LC_PRODUCT"]
+            lc_merchandise_rows = sales_rows["LC_MERCHANDISE"]
+            lc_product_input_rows = self.mapping["sales"][LC_PRODUCT_CODE]
+            authoritative_rows = {
+                int(lc_product_input_rows["quantity_row"]),
+                int(lc_product_input_rows["amount_row"]),
+                int(lc_merchandise_rows["quantity_row"]),
+                int(lc_merchandise_rows["revenue_row"]),
+                int(self.merchandise_mapping["products"]["LC"]["actual_cogs_row"]),
+                int(self.merchandise_mapping["products"]["NEW_BUSINESS"]["actual_cogs_row"]),
+                int(self.merchandise_mapping["total_forecast_cogs_row"]),
+            }
+        except (KeyError, TypeError, ValueError) as exc:
+            raise MerchandiseSourceValidationError(
+                "source_mapping_invalid",
+                "Forecast LC sales and merchandise output rows are required",
+            ) from exc
+        explicit = set(self.mapping["formula_input_exceptions"]) | {
+            f"*{row}" for row in authoritative_rows
+        }
         new_business_selection = normalize_new_business_goods_cogs(
             request.new_business_goods_cogs_mode,
             request.new_business_goods_cogs,
@@ -195,7 +216,7 @@ class ForecastEngine:
                 "Forecast merchandise output mapping does not match the canonical P&L row",
             )
         expected_revenue_rows = {
-            "LC": int(self.mapping["lc_goods"]["amount_row"]),
+            "LC": int(lc_merchandise_rows["revenue_row"]),
             "NEW_BUSINESS": int(self.mapping["new_business_revenue_row"]),
         }
         if any(
@@ -238,10 +259,10 @@ class ForecastEngine:
         manufactured_qty = lc_product.quantity
         goods_qty = lc_merchandise_sales.quantity
         lc_goods_revenue = lc_merchandise_sales.amount
-        put(self.mapping["sales"][LC_PRODUCT_CODE]["quantity_row"], lc_product.quantity, "sales.LC.product_quantity")
-        put(self.mapping["sales"][LC_PRODUCT_CODE]["amount_row"], lc_product.amount, "sales.LC.product_amount")
-        put(self.mapping["lc_goods"]["quantity_row"], goods_qty, "sales.LC_MERCHANDISE.goods_quantity")
-        put(self.mapping["lc_goods"]["amount_row"], lc_goods_revenue, "sales.LC_MERCHANDISE.goods_amount")
+        put(int(lc_product_input_rows["quantity_row"]), lc_product.quantity, "sales.LC.product_quantity")
+        put(int(lc_product_input_rows["amount_row"]), lc_product.amount, "sales.LC.product_amount")
+        put(int(lc_merchandise_rows["quantity_row"]), goods_qty, "sales.LC_MERCHANDISE.goods_quantity")
+        put(int(lc_merchandise_rows["revenue_row"]), lc_goods_revenue, "sales.LC_MERCHANDISE.goods_amount")
 
         uf = request.sales.get("UF_MBR", SalesInput())
         ix = request.sales.get("IX", SalesInput())
@@ -276,6 +297,19 @@ class ForecastEngine:
 
         # First pass obtains the model LC unit manufacturing cost and raw-material input.
         wb.recalculate()
+        for row_key, expected_value in (
+            ("quantity_row", lc_product.quantity),
+            ("revenue_row", lc_product.amount),
+        ):
+            output_address = f"{col}{int(lc_product_rows[row_key])}"
+            output_value = float(wb.value(output_address) or 0)
+            tolerance = max(1e-6, abs(float(expected_value)) * 1e-9)
+            if abs(output_value - float(expected_value)) > tolerance:
+                raise MerchandiseSourceValidationError(
+                    "lc_product_sales_mapping_mismatch",
+                    f"{output_address} does not reconcile to canonical LC Product input",
+                    product_code="LC",
+                )
         lc_unit_cost = float(wb.value(f"{col}{self.mapping['special_rows']['lc_unit_cost']}") or 0)
         raw_material_rows = self.mapping["special_rows"]["raw_material_process_rows"]
         front_material_row = int(raw_material_rows["front_process"])
@@ -346,6 +380,19 @@ class ForecastEngine:
             lc_merchandise, new_business_merchandise
         )
         put(
+            merchandise_sources["LC"].cogs_row,
+            lc_merchandise.applied_forecast_cogs,
+            "cogs.lc_merchandise",
+        )
+        put(
+            merchandise_sources["NEW_BUSINESS"].cogs_row,
+            new_business_merchandise.applied_forecast_cogs,
+            "cogs.new_business_merchandise",
+            new_business_selection.reason
+            if new_business_selection.mode is NewBusinessGoodsCogsMode.MANUAL_OVERRIDE
+            else "",
+        )
+        put(
             self.mapping["special_rows"]["goods_cogs"],
             goods_cogs,
             "cogs.goods",
@@ -359,7 +406,13 @@ class ForecastEngine:
         )
 
         errors = wb.recalculate()
-        validation = self._validate(wb, col, request, errors)
+        validation = self._validate(
+            wb,
+            col,
+            request,
+            errors,
+            formula_input_exceptions=explicit,
+        )
         validation.extend([
             {
                 "name": f"{item.product_code} 상품원가 Source 및 Mode",
@@ -449,7 +502,15 @@ class ForecastEngine:
             start_month=request.month, end_month=request.month,
         )
 
-    def _validate(self, wb: GoldenWorkbook, col: str, request: ForecastInput, errors: dict[str, str]) -> list[dict[str, Any]]:
+    def _validate(
+        self,
+        wb: GoldenWorkbook,
+        col: str,
+        request: ForecastInput,
+        errors: dict[str, str],
+        *,
+        formula_input_exceptions: set[str] | None = None,
+    ) -> list[dict[str, Any]]:
         checks: list[dict[str, Any]] = []
         for group in self.mapping["allocation_validation"]:
             values = [wb.value(f"{col}{row}") for row in group["rows"]]
@@ -468,7 +529,7 @@ class ForecastEngine:
         op = float(wb.value(f"{col}{pnl_rows['operating_profit']}") or 0)
         checks.append({"name":"영업이익 정합성", "ok":abs(op_bridge-op)<1, "value":op_bridge-op, "message":"허용오차 1원"})
         overwritten = wb.formula_changes()
-        allowed = set(self.mapping["formula_input_exceptions"])
+        allowed = formula_input_exceptions or set(self.mapping["formula_input_exceptions"])
         unexpected = [addr for addr in overwritten if addr not in allowed and f"*{re.search(r'\d+',addr).group(0)}" not in allowed]
         checks.append({"name":"수식 보호", "ok":not unexpected, "value":unexpected, "message":"지정 예외 외 수식 덮어쓰기 없음"})
         checks.append({"name":"수식 재계산", "ok":not errors, "value":len(errors), "message":"서버 계산 오류 수"})

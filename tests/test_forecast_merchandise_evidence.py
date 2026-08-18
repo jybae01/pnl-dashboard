@@ -13,7 +13,7 @@ def _source_workbook(path: Path, *, goods_cogs: float = 800) -> None:
     data = workbook.active
     data.title = "Data"
     for address, value in {
-        "E1659": 100, "F1659": 200, "E1660": 80, "F1660": 160,
+        "E105": 100, "F105": 200, "E1660": 80, "F1660": 160,
         "E1733": 300, "F1733": 100, "E1734": 210, "F1734": 70,
         "K105": 1_000, "K114": 2_000, "K1289": goods_cogs,
     }.items():
@@ -42,7 +42,7 @@ def _record(product: str, *, manual: bool = False) -> dict[str, object]:
         "manual_reason": "명시적 0원 적용" if manual else "",
         "applied_forecast_cogs": 800.0 if lc else (0.0 if manual else 1_400.0),
         "legacy_normalized": False,
-        "revenue_source_reference": "Data!E1659:F1659" if lc else "Data!E1733:F1733",
+        "revenue_source_reference": "Data!E105:F105" if lc else "Data!E1733:F1733",
         "cogs_source_reference": "Data!E1660:F1660" if lc else "Data!E1734:F1734",
         "monthly_rate_source_reference": "Data!E1661:F1661" if lc else "Data!E1736:F1736",
         "forecast_revenue_source_reference": "Data!K105" if lc else "Data!K114",
@@ -52,7 +52,7 @@ def _record(product: str, *, manual: bool = False) -> dict[str, object]:
         "canonical_rate_field": "lc_actual_ytd_merchandise_cogs_rate" if lc else "new_business_actual_ytd_merchandise_cogs_rate",
         "canonical_forecast_revenue_field": "lc_forecast_merchandise_revenue" if lc else "new_business_forecast_merchandise_revenue",
         "canonical_forecast_cogs_field": "lc_forecast_merchandise_cogs" if lc else "new_business_forecast_merchandise_cogs",
-        "source_mapping_version": "forecast-merchandise-v1.0.0",
+        "source_mapping_version": "forecast-merchandise-v1.1.0",
         "source_mapping_hash": "a" * 64,
         "validation_status": "PASS",
         "actual_cutoff_valid": True,
@@ -87,7 +87,7 @@ def test_evidence_formula_trace_manual_zero_reason_and_source_sha(tmp_path):
     assert MERCHANDISE_EVIDENCE_SHEET_NAME in generated.sheetnames
     sheet = generated[MERCHANDISE_EVIDENCE_SHEET_NAME]
     assert sheet["C2"].value == "ACTUAL_YTD_DEFAULT"
-    assert sheet["F2"].value == "=SUM(Data!E1659:F1659)"
+    assert sheet["F2"].value == "=SUM(Data!E105:F105)"
     assert sheet["G2"].value == "=SUM(Data!E1660:F1660)"
     assert sheet["H2"].value == "=IFERROR(G2/F2,NA())"
     assert sheet["J2"].value == "=Data!K105"
@@ -99,7 +99,7 @@ def test_evidence_formula_trace_manual_zero_reason_and_source_sha(tmp_path):
     assert sheet["M3"].value == '=IF(C3="MANUAL_OVERRIDE",K3,L3)'
     assert sheet["M4"].value == "=SUM(M2:M3)"
     assert sheet["N4"].value == "=Data!K1289"
-    assert "forecast-merchandise-v1.0.0" in sheet["AC2"].value
+    assert "forecast-merchandise-v1.1.0" in sheet["AC2"].value
     assert sheet["Q2"].value == sheet["AB2"].value == "PASS"
     generated.close()
 
@@ -127,7 +127,7 @@ def test_chained_evidence_appends_without_expanding_actual_range(tmp_path):
     generated = load_workbook(second, data_only=False)
     sheet = generated[MERCHANDISE_EVIDENCE_SHEET_NAME]
     assert sheet.max_row == 7
-    assert sheet["F5"].value == "=SUM(Data!E1659:F1659)"
+    assert sheet["F5"].value == "=SUM(Data!E105:F105)"
     assert sheet["J5"].value == "=Data!L105"
     assert sheet["N7"].value == "=Data!L1289"
     generated.close()

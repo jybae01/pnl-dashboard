@@ -50,11 +50,22 @@ class FakeWorkbook:
                 revenue_address = f"{column}{spec['actual_revenue_row']}"
                 cogs_address = f"{column}{spec['actual_cogs_row']}"
                 rate_address = f"{column}{spec['actual_monthly_rate_row']}"
+                rate_revenue_row = int(
+                    spec.get(
+                        "monthly_rate_revenue_reference_row",
+                        spec["actual_revenue_row"],
+                    )
+                )
+                rate_revenue_address = f"{column}{rate_revenue_row}"
                 self.values[revenue_address] = revenue
                 self.values[cogs_address] = cogs
                 self.values[rate_address] = rate
-                self.formulas[revenue_address] = f"={column}{spec['forecast_revenue_row']}"
-                self.formulas[rate_address] = f"=IFERROR({cogs_address}/{revenue_address},0)"
+                if rate_revenue_row != spec["actual_revenue_row"]:
+                    self.values[rate_revenue_address] = revenue
+                    self.formulas[rate_revenue_address] = f"={revenue_address}"
+                if spec["actual_revenue_row"] != spec["forecast_revenue_row"]:
+                    self.formulas[revenue_address] = f"={column}{spec['forecast_revenue_row']}"
+                self.formulas[rate_address] = f"=IFERROR({cogs_address}/{rate_revenue_address},0)"
 
     def raw_value(self, address: str):
         return self.values.get(address)
@@ -75,7 +86,7 @@ def test_lc_actual_january_to_june_forecast_july():
     assert result.latest_actual_month == 6
     assert result.actual_ytd_cogs_rate == pytest.approx(0.81)
     assert result.applied_forecast_cogs == pytest.approx(810)
-    assert result.revenue_source_reference == "Data!E1659:J1659"
+    assert result.revenue_source_reference == "Data!E105:J105"
     assert result.monthly_rate_source_reference == "Data!E1661:J1661"
     assert result.calculation_source == "ACTUAL_YTD"
 
@@ -184,6 +195,12 @@ def test_engine_writes_explicit_lc_merchandise_revenue_and_excludes_manufactured
             self.inputs[address] = value
 
         def recalculate(self):
+            if "K56" in self.inputs:
+                self.values["K101"] = self.inputs["K56"]
+                self.values["K1645"] = self.inputs["K56"]
+            if "K57" in self.inputs:
+                self.values["K102"] = self.inputs["K57"]
+                self.values["K1646"] = self.inputs["K57"]
             return {}
 
         def add_merchandise_cogs_evidence(self, _records):
@@ -264,10 +281,26 @@ def test_engine_writes_explicit_lc_merchandise_revenue_and_excludes_manufactured
     first, first_workbook = run(100_000_000, 100, "first")
     changed, changed_workbook = run(900_000_000, 999_999, "changed")
 
+    assert first_workbook.inputs["K56"] == 100
+    assert changed_workbook.inputs["K56"] == 100
     assert first_workbook.inputs["K57"] == 100_000_000
     assert changed_workbook.inputs["K57"] == 900_000_000
+    assert first_workbook.values["K101"] == 100
+    assert changed_workbook.values["K101"] == 100
+    assert first_workbook.values["K102"] == 100_000_000
+    assert changed_workbook.values["K102"] == 900_000_000
+    assert first_workbook.values["K1645"] == 100
+    assert changed_workbook.values["K1645"] == 100
+    assert first_workbook.values["K1646"] == 100_000_000
+    assert changed_workbook.values["K1646"] == 900_000_000
+    assert first_workbook.inputs["K104"] == 20
+    assert changed_workbook.inputs["K104"] == 20
     assert first_workbook.inputs["K105"] == 20_000_000
     assert changed_workbook.inputs["K105"] == 20_000_000
+    assert first_workbook.inputs["K1660"] == pytest.approx(12_000_000)
+    assert changed_workbook.inputs["K1660"] == pytest.approx(12_000_000)
+    assert first_workbook.inputs["K1734"] == pytest.approx(8_000_000)
+    assert changed_workbook.inputs["K1734"] == pytest.approx(8_000_000)
     assert first_workbook.inputs["K1289"] == pytest.approx(20_000_000)
     assert changed_workbook.inputs["K1289"] == pytest.approx(20_000_000)
     assert first.detail["goods_cogs_total"] == pytest.approx(20_000_000)
@@ -295,6 +328,8 @@ def test_engine_writes_explicit_lc_merchandise_revenue_and_excludes_manufactured
     )
     legacy_workbook = EngineWorkbook.instances[-1]
     assert legacy_workbook.inputs["K105"] == 0
+    assert legacy_workbook.inputs["K1660"] == 0
+    assert legacy_workbook.inputs["K1734"] == pytest.approx(8_000_000)
     assert legacy_workbook.inputs["K1289"] == pytest.approx(8_000_000)
     assert legacy.detail["lc_sales_mode"] == "LEGACY_LC_PRODUCT_ONLY"
 
@@ -326,7 +361,7 @@ def test_lc_actual_to_june_forecast_july_to_september_is_actual_only():
         for month in (7, 8, 9)
     ]
     assert {item.latest_actual_month for item in results} == {6}
-    assert {item.revenue_source_reference for item in results} == {"Data!E1659:J1659"}
+    assert {item.revenue_source_reference for item in results} == {"Data!E105:J105"}
     assert {item.applied_forecast_cogs for item in results} == {800.0}
 
 
@@ -338,7 +373,7 @@ def test_lc_cutoff_moves_to_july_for_august_and_september():
             forecast_month=month,
             forecast_merchandise_revenue=2_000,
         )
-        assert result.revenue_source_reference == "Data!E1659:K1659"
+        assert result.revenue_source_reference == "Data!E105:K105"
         assert result.applied_forecast_cogs == pytest.approx(1_680)
 
 
@@ -380,6 +415,63 @@ def test_zero_denominator_and_missing_sources_fail_closed():
     with pytest.raises(MerchandiseSourceValidationError) as captured:
         _sources(missing_cogs, 7)
     assert captured.value.code == "actual_ytd_cogs_missing"
+
+
+def test_paired_blank_actual_month_is_omitted_from_weighted_ytd_sum_without_zero_fallback():
+    workbook = FakeWorkbook(6, lc_rate=0.60, new_rate=0.40)
+    for product_code, month in (("LC", 3), ("NEW_BUSINESS", 4)):
+        spec = SOURCE_MAPPING["products"][product_code]
+        column = MONTH_COLUMNS[month]
+        workbook.values[f"{column}{spec['actual_revenue_row']}"] = None
+        workbook.values[f"{column}{spec['actual_cogs_row']}"] = None
+        workbook.values[f"{column}{spec['actual_monthly_rate_row']}"] = None
+        workbook.formulas.pop(f"{column}{spec['actual_monthly_rate_row']}", None)
+
+    sources = _sources(workbook, 7)
+
+    assert sources["LC"].actual_ytd_cogs_rate == pytest.approx(0.60)
+    assert sources["NEW_BUSINESS"].actual_ytd_cogs_rate == pytest.approx(0.40)
+    assert sources["LC"].revenue_source_reference == "Data!E105:J105"
+
+
+def test_blank_revenue_with_numeric_zero_cogs_is_not_treated_as_a_paired_blank():
+    workbook = FakeWorkbook(6, lc_rate=0.60)
+    lc = SOURCE_MAPPING["products"]["LC"]
+    workbook.values[f"G{lc['actual_revenue_row']}"] = None
+    workbook.values[f"G{lc['actual_cogs_row']}"] = 0.0
+
+    with pytest.raises(MerchandiseSourceValidationError) as captured:
+        _sources(workbook, 7)
+
+    assert captured.value.code == "actual_ytd_revenue_missing"
+
+
+def test_formula_linked_blank_new_business_revenue_with_zero_cogs_is_no_activity():
+    workbook = FakeWorkbook(6, new_rate=0.40)
+    spec = SOURCE_MAPPING["products"]["NEW_BUSINESS"]
+    workbook.values["H114"] = None
+    workbook.values[f"H{spec['actual_revenue_row']}"] = None
+    workbook.values[f"H{spec['actual_cogs_row']}"] = 0
+    workbook.values[f"H{spec['actual_monthly_rate_row']}"] = None
+    workbook.formulas.pop(f"H{spec['actual_monthly_rate_row']}", None)
+
+    source = _sources(workbook, 7)["NEW_BUSINESS"]
+
+    assert source.actual_ytd_cogs_rate == pytest.approx(0.40)
+
+
+def test_formula_linked_blank_new_business_cannot_hide_cogs_self_reference():
+    workbook = FakeWorkbook(6, new_rate=0.40)
+    spec = SOURCE_MAPPING["products"]["NEW_BUSINESS"]
+    workbook.values["H114"] = None
+    workbook.values[f"H{spec['actual_revenue_row']}"] = None
+    workbook.values[f"H{spec['actual_cogs_row']}"] = 0
+    workbook.formulas[f"H{spec['actual_cogs_row']}"] = "=K1289"
+
+    with pytest.raises(MerchandiseSourceValidationError) as captured:
+        _sources(workbook, 7)
+
+    assert captured.value.code == "actual_ytd_revenue_missing"
 
 
 def test_no_cutoff_noncontiguous_and_forecast_self_reference_are_blocked():
@@ -529,13 +621,28 @@ def test_scope_and_source_formula_mismatch_fail_closed():
         _sources(wrong_formula, 7)
     assert captured.value.code == "actual_revenue_formula_mismatch"
 
+    wrong_rate_lineage = FakeWorkbook(6)
+    wrong_rate_lineage.formulas[
+        f"J{lc['monthly_rate_revenue_reference_row']}"
+    ] = "=J102"
+    with pytest.raises(MerchandiseSourceValidationError) as captured:
+        _sources(wrong_rate_lineage, 7)
+    assert captured.value.code == "actual_rate_revenue_lineage_mismatch"
+
 
 def test_forecast_source_mapping_is_additive_and_global_mapping_has_no_slice2_rows():
     global_mapping = json.loads((ROOT / "config" / "model_mapping.json").read_text(encoding="utf-8"))
     assert "forecast_merchandise_cogs" not in global_mapping
-    assert SOURCE_MAPPING["products"]["LC"]["actual_revenue_row"] == 1659
+    assert SOURCE_MAPPING["mapping_version"] == "forecast-merchandise-v1.1.0"
+    assert SOURCE_MAPPING["sales_rows"] == {
+        "LC_PRODUCT": {"quantity_row": 101, "revenue_row": 102},
+        "LC_MERCHANDISE": {"quantity_row": 104, "revenue_row": 105},
+    }
+    assert SOURCE_MAPPING["products"]["LC"]["actual_revenue_row"] == 105
     assert SOURCE_MAPPING["products"]["LC"]["actual_cogs_row"] == 1660
     assert SOURCE_MAPPING["products"]["LC"]["actual_monthly_rate_row"] == 1661
+    assert SOURCE_MAPPING["products"]["LC"]["monthly_rate_revenue_reference_row"] == 1659
     assert SOURCE_MAPPING["products"]["NEW_BUSINESS"]["actual_revenue_row"] == 1733
     assert SOURCE_MAPPING["products"]["NEW_BUSINESS"]["actual_cogs_row"] == 1734
     assert SOURCE_MAPPING["products"]["NEW_BUSINESS"]["actual_monthly_rate_row"] == 1736
+    assert SOURCE_MAPPING["total_forecast_cogs_row"] == 1289

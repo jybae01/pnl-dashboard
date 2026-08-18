@@ -313,6 +313,12 @@ class GoldenForecastMerchandiseAdapter:
         required_rows = ("section_row", "actual_revenue_row", "actual_cogs_row", "actual_monthly_rate_row", "forecast_revenue_row")
         try:
             rows = {key: int(spec[key]) for key in required_rows}
+            monthly_rate_revenue_reference_row = int(
+                spec.get(
+                    "monthly_rate_revenue_reference_row",
+                    rows["actual_revenue_row"],
+                )
+            )
         except (KeyError, TypeError, ValueError) as exc:
             raise MerchandiseSourceValidationError("source_mapping_invalid", "all canonical source rows are required", product_code=product_code) from exc
 
@@ -342,16 +348,57 @@ class GoldenForecastMerchandiseAdapter:
             revenue_address = f"{column}{rows['actual_revenue_row']}"
             cogs_address = f"{column}{rows['actual_cogs_row']}"
             rate_address = f"{column}{rows['actual_monthly_rate_row']}"
+            rate_revenue_address = f"{column}{monthly_rate_revenue_reference_row}"
             expected_revenue_formula = f"={column}{rows['forecast_revenue_row']}"
             revenue_formula = str(workbook.formulas.get(revenue_address) or "").replace("$", "").upper()
-            if revenue_formula != expected_revenue_formula.upper():
+            direct_revenue_source = rows["actual_revenue_row"] == rows["forecast_revenue_row"]
+            if direct_revenue_source and revenue_formula:
+                raise MerchandiseSourceValidationError(
+                    "actual_revenue_formula_mismatch",
+                    f"{revenue_address} must be a direct scoped revenue source",
+                    product_code=product_code,
+                )
+            if not direct_revenue_source and revenue_formula != expected_revenue_formula.upper():
                 raise MerchandiseSourceValidationError(
                     "actual_revenue_formula_mismatch",
                     f"{revenue_address} must reference scoped revenue {expected_revenue_formula}",
                     product_code=product_code,
                 )
+            if monthly_rate_revenue_reference_row != rows["actual_revenue_row"]:
+                rate_revenue_formula = str(
+                    workbook.formulas.get(rate_revenue_address) or ""
+                ).replace("$", "").upper()
+                if rate_revenue_formula != f"={revenue_address}".upper():
+                    raise MerchandiseSourceValidationError(
+                        "actual_rate_revenue_lineage_mismatch",
+                        f"{rate_revenue_address} must reference authoritative revenue {revenue_address}",
+                        product_code=product_code,
+                    )
             revenue = _finite_number(workbook.value(revenue_address))
             cogs = _finite_number(workbook.value(cogs_address))
+            # Excel SUM semantics omit a genuinely inactive month only when
+            # both authoritative cells are physically blank.  No blank value
+            # is coerced to zero; every one-sided source remains a hard error.
+            if revenue is None and cogs is None:
+                continue
+            # The approved New Business source is a formula-linked alias of
+            # its sales input row.  In an inactive month the input is blank,
+            # the alias evaluates blank, and the workbook stores explicit
+            # zero COGS.  Recognize only this traced no-activity shape; LC and
+            # every other one-sided blank remain fail-closed.
+            forecast_revenue_address = f"{column}{rows['forecast_revenue_row']}"
+            formula_linked_new_business_no_activity = (
+                product_code == "NEW_BUSINESS"
+                and revenue is None
+                and cogs is not None
+                and abs(cogs) <= 1e-12
+                and revenue_formula == expected_revenue_formula.upper()
+                and workbook.raw_value(forecast_revenue_address) in (None, "")
+                and workbook.raw_value(cogs_address) == 0
+                and not str(workbook.formulas.get(cogs_address) or "").strip()
+            )
+            if formula_linked_new_business_no_activity:
+                continue
             if revenue is None:
                 raise MerchandiseSourceValidationError("actual_ytd_revenue_missing", f"{revenue_address} is missing", product_code=product_code)
             if cogs is None:
@@ -383,11 +430,16 @@ class GoldenForecastMerchandiseAdapter:
                         product_code=product_code,
                     )
 
+            if abs(revenue) <= 1e-12:
+                ytd_revenue += revenue
+                ytd_cogs += cogs
+                continue
+
             rate_formula = str(workbook.formulas.get(rate_address) or "").replace("$", "").upper()
             if not rate_formula:
                 raise MerchandiseSourceValidationError("actual_rate_formula_missing", f"{rate_address} has no Golden monthly rate formula", product_code=product_code)
-            if cogs_address.upper() not in rate_formula or revenue_address.upper() not in rate_formula:
-                raise MerchandiseSourceValidationError("actual_rate_formula_scope_mismatch", f"{rate_address} must reference {cogs_address} and {revenue_address}", product_code=product_code)
+            if cogs_address.upper() not in rate_formula or rate_revenue_address.upper() not in rate_formula:
+                raise MerchandiseSourceValidationError("actual_rate_formula_scope_mismatch", f"{rate_address} must reference {cogs_address} and {rate_revenue_address}", product_code=product_code)
             if abs(revenue) > 1e-12:
                 observed_rate = _finite_number(workbook.value(rate_address))
                 monthly_rate = cogs / revenue
