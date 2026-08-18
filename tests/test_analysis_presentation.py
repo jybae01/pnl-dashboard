@@ -118,6 +118,24 @@ def presentation_row() -> dict:
                 "calculation_status": "완료",
             },
             {
+                "row": 292, "account": "소모품비", "classification": "variable",
+                "baseline_amount": 0.0, "comparison_amount": 0.0, "delta": 0.0,
+                "final_profit_effect": 0.0, "inventory_realization_rate": 1.0,
+                "calculation_status": "완료",
+            },
+            {
+                "row": 293, "account": "원자재운반비", "classification": "variable",
+                "baseline_amount": 0.0, "comparison_amount": 0.0, "delta": 0.0,
+                "final_profit_effect": 0.0, "inventory_realization_rate": 1.0,
+                "calculation_status": "완료",
+            },
+            {
+                "row": 294, "account": "외주가공비", "classification": "variable",
+                "baseline_amount": 0.0, "comparison_amount": 0.0, "delta": 0.0,
+                "final_profit_effect": 0.0, "inventory_realization_rate": 1.0,
+                "calculation_status": "완료",
+            },
+            {
                 "row": 291, "account": "노무비", "classification": "fixed",
                 "baseline_amount": 5.0, "comparison_amount": 3.0, "delta": -2.0,
                 "final_profit_effect": 2.0, "inventory_realization_rate": 1.2,
@@ -131,17 +149,17 @@ def presentation_row() -> dict:
                 "profit_effect": 0.0,
             },
             {
-                "row": 1190, "account": "시장비", "classification": "variable",
+                "row": 1190, "account": "시장비", "section": "판매비", "classification": "variable",
                 "baseline_amount": 8.0, "comparison_amount": 5.0, "delta": -3.0,
                 "profit_effect": 3.0,
             },
             {
-                "row": 1200, "account": "급여", "classification": "fixed",
+                "row": 1200, "account": "급여", "section": "일반관리비", "classification": "fixed",
                 "baseline_amount": 10.0, "comparison_amount": 6.0, "delta": -4.0,
                 "profit_effect": 4.0,
             },
             {
-                "row": None, "account": "관세", "classification": "tariff",
+                "row": None, "account": "관세", "section": "별도분석", "classification": "tariff",
                 "baseline_amount": 0.0, "comparison_amount": 1.0, "delta": 1.0,
                 "profit_effect": -1.0,
             },
@@ -210,6 +228,35 @@ def test_customer_freight_is_once_tariff_separate_and_material_policy_is_preserv
     assert [row.profit_effect for row in material] == [-2.0, -1.0, -2.0]
     assert "KRW/100JPY" not in str(response)
     assert all("mcm" not in effect.code.casefold() for effect in response.effects)
+
+
+def test_drilldown_preserves_authoritative_sga_and_manufacturing_sections():
+    response = build_analysis_presentation(RESULT_ID, presentation_row(), PROVENANCE, ("1",))
+    by_code = {effect.code: effect for effect in response.effects}
+    assert {row.label: row.section for row in by_code["sga_variable"].drilldown.rows} == {
+        "시장비": "selling",
+    }
+    assert {row.label: row.section for row in by_code["sga_fixed"].drilldown.rows} == {
+        "급여": "general_admin",
+    }
+    assert {row.section for row in by_code["manufacturing_realized"].drilldown.rows} == {"manufacturing"}
+    assert {row.section for row in by_code["tariff"].drilldown.rows} == {"selling"}
+
+
+@pytest.mark.parametrize("mutation", ["missing", "duplicate", "null"])
+def test_manufacturing_variable_partition_is_fail_closed(mutation):
+    row = presentation_row()
+    accounts = row["result_payload"]["comparison_result"]["manufacturing_accounts"]
+    target = next(item for item in accounts if item["account"] == "소모품비")
+    if mutation == "missing":
+        accounts.remove(target)
+    elif mutation == "duplicate":
+        accounts.append(dict(target, row=999))
+    else:
+        target["final_profit_effect"] = None
+    with pytest.raises(BffError) as caught:
+        build_analysis_presentation(RESULT_ID, row, PROVENANCE, ("1",))
+    assert caught.value.code == ApiErrorCode.INPUT_INTEGRITY_MISMATCH
 
 
 def test_product_and_activity_units_never_mix_and_lc_is_four_inch():

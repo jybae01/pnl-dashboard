@@ -298,6 +298,7 @@ class AnalysisDrilldownRowResponse:
     delta: float | None
     profit_effect: float | None
     note: str
+    section: str | None = None
 
 
 @dataclass(frozen=True)

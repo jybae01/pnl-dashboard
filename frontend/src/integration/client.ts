@@ -24,6 +24,7 @@ import {
   WorkerStatusDto,
   PersistentDeleteBatchDto,
   PersistentDeleteItemDto,
+  MANUFACTURING_VARIABLE_ACCOUNT_LABELS,
 } from './types';
 
 const API_ROOT = (import.meta.env.VITE_BFF_BASE_URL || '').replace(/\/$/, '');
@@ -543,7 +544,23 @@ function validatePresentationEffect(value: unknown): AnalysisPresentationEffectD
       || !optionalFinite(row.comparison)
       || !optionalFinite(row.delta)
       || !optionalFinite(row.profit_effect)
+      || !(row.section === undefined || row.section === null || ['selling', 'general_admin', 'manufacturing'].includes(String(row.section)))
       || typeof row.note !== 'string') invalidPayload();
+    if (value.code === 'manufacturing_realized'
+      && (row.section !== 'manufacturing' || !finite(row.profit_effect))) invalidPayload();
+    if (['sga_variable', 'sga_fixed'].includes(String(value.code))
+      && !['selling', 'general_admin'].includes(String(row.section))) invalidPayload();
+    if (value.code === 'tariff' && row.section !== 'selling') invalidPayload();
+  }
+  if (value.code === 'manufacturing_realized') {
+    for (const account of MANUFACTURING_VARIABLE_ACCOUNT_LABELS) {
+      if (value.drilldown.rows.filter((row) => isRecord(row) && row.label === account).length !== 1) invalidPayload();
+    }
+    const manufacturingTotal = value.drilldown.rows.reduce(
+      (sum, row) => sum + (isRecord(row) && finite(row.profit_effect) ? Number(row.profit_effect) : 0),
+      0,
+    );
+    if (!close(manufacturingTotal, Number(value.profit_effect))) invalidPayload();
   }
   if (value.drilldown.available !== (value.drilldown.rows.length > 0)) invalidPayload();
   return value as unknown as AnalysisPresentationEffectDto;

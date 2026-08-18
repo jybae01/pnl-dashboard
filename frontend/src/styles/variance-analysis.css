@@ -595,7 +595,23 @@
   font-size: 12px;
 }
 
-.variance-analysis__additional-evidence-header { border-bottom: 0; }
+.variance-analysis__additional-evidence-header { border-bottom: 0; align-items: center; }
+
+.variance-analysis__evidence-toggle {
+  min-width: 72px;
+  min-height: 34px;
+  padding: 0 14px;
+  border: 1px solid #cbd5e1;
+  border-radius: 4px;
+  color: #334155;
+  background: #fff;
+  font-size: 12.5px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.variance-analysis__evidence-toggle:hover { border-color: #94a3b8; background: #f8fafc; }
+.variance-analysis__evidence-toggle:focus-visible { outline: 2px solid #2563eb; outline-offset: 2px; }
 
 .variance-analysis__additional-evidence-grid {
   display: grid;
@@ -603,6 +619,8 @@
   gap: 16px;
   padding: 0 20px 20px;
 }
+
+.variance-analysis__additional-evidence-grid[hidden] { display: none; }
 
 .variance-analysis__evidence-table {
   min-width: 0;
@@ -728,6 +746,9 @@
 .variance-analysis__category-pill.is-external { color: #0f766e; border-color: #99f6e4; background: #f0fdfa; }
 .variance-analysis__category-pill.is-cost { color: #7c3aed; border-color: #ddd6fe; background: #f5f3ff; }
 .variance-analysis__category-pill.is-residual { color: #475569; border-color: #cbd5e1; background: #f8fafc; }
+.variance-analysis__category-pill.is-selling { color: #1d4ed8; border-color: #bfdbfe; background: #eff6ff; }
+.variance-analysis__category-pill.is-general-admin { color: #7c3aed; border-color: #ddd6fe; background: #f5f3ff; }
+.variance-analysis__category-pill.is-manufacturing { color: #0f766e; border-color: #99f6e4; background: #f0fdfa; }
 
 .variance-analysis__effect-table thead,
 .variance-analysis__evidence-table .financial-table thead {
@@ -776,6 +797,7 @@
 
 .expand-toggle-btn:disabled { cursor: not-allowed; opacity: .55; }
 .expand-toggle-btn:focus-visible { outline: 2px solid #2563eb; outline-offset: 1px; }
+.expand-toggle-spacer { display: inline-block; width: 26px; height: 24px; vertical-align: middle; }
 
 .variance-analysis__drilldown-cell { padding: 10px 16px !important; background: #f8fafc; }
 .variance-analysis__drilldown-container {
@@ -816,6 +838,86 @@
 .variance-analysis__drilldown-table td:nth-child(1) { text-align: left; }
 .variance-analysis__drilldown-table td:nth-child(2) { text-align: center; }
 .variance-analysis__drilldown-table td:nth-child(n+3) { text-align: right; }
+
+.variance-analysis__cost-groups {
+  display: grid;
+  gap: 14px;
+}
+
+.variance-analysis__cost-subgroup {
+  min-width: 0;
+  overflow-x: auto;
+  border: 1px solid #dbe4ee;
+  border-radius: 5px;
+  background: #fff;
+}
+
+.variance-analysis__cost-subgroup-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 46px;
+  padding: 8px 12px;
+  border-bottom: 1px solid #e2e8f0;
+  background: #f8fafc;
+}
+
+.variance-analysis__cost-subgroup-header h4 {
+  margin: 0;
+  color: #334155;
+  font-size: 12.5px;
+  font-weight: 800;
+}
+
+.variance-analysis__sga-toggle {
+  display: inline-grid;
+  grid-template-columns: repeat(2, minmax(88px, 1fr));
+  gap: 3px;
+  padding: 3px;
+  border: 1px solid #cbd5e1;
+  border-radius: 5px;
+  background: #e2e8f0;
+}
+
+.variance-analysis__sga-toggle button {
+  min-height: 28px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 3px;
+  color: #64748b;
+  background: transparent;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.variance-analysis__sga-toggle button[aria-pressed="true"] {
+  color: #1d4ed8;
+  background: #fff;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, .1);
+}
+
+.variance-analysis__sga-toggle button:focus-visible { outline: 2px solid #2563eb; outline-offset: 1px; }
+
+.variance-analysis__cost-account-table {
+  min-width: 840px;
+  border: 0;
+  border-radius: 0;
+}
+
+.variance-analysis__cost-account-table th:nth-child(1) { width: 12%; }
+.variance-analysis__cost-account-table th:nth-child(2) { width: 23%; }
+.variance-analysis__cost-account-table th:nth-child(3) { width: 9%; }
+.variance-analysis__cost-account-table th:nth-child(4),
+.variance-analysis__cost-account-table th:nth-child(5),
+.variance-analysis__cost-account-table th:nth-child(6) { width: 13%; }
+.variance-analysis__cost-account-table th:nth-child(7) { width: 17%; }
+.variance-analysis__cost-account-table td:nth-child(1),
+.variance-analysis__cost-account-table td:nth-child(3) { text-align: center; }
+.variance-analysis__cost-account-table td:nth-child(2) { text-align: left; }
+.variance-analysis__cost-account-table td:nth-child(n+4) { text-align: right; }
+.variance-analysis__cost-account-table .variance-analysis__empty-detail { color: #64748b; text-align: center; }
 .variance-analysis__evidence-table--product tbody td:nth-child(1),
 .variance-analysis__evidence-table--product tbody td:nth-child(2),
 .variance-analysis__evidence-table--activity tbody td:nth-child(1),
@@ -839,4 +941,6 @@
   .variance-analysis__summary-kpis { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
   .variance-analysis__delta-box { grid-column: span 2; }
   .variance-analysis__chart-legend { justify-content: flex-start; }
+  .variance-analysis__cost-subgroup-header { align-items: stretch; flex-direction: column; }
+  .variance-analysis__sga-toggle { width: 100%; }
 }

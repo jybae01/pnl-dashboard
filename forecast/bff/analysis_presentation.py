@@ -35,6 +35,13 @@ EFFECT_ORDER = (
     "tariff",
 )
 
+MANUFACTURING_VARIABLE_ACCOUNTS = (
+    "수도광열비",
+    "소모품비",
+    "원자재운반비",
+    "외주가공비",
+)
+
 EFFECT_METADATA = {
     "sales_quantity": ("판매수량", "INTERNAL", "Base 판매단가·매출총이익률 기준의 판매수량 효과"),
     "sales_mix": ("제품 Mix", "INTERNAL", "제품군 기준의 판매 Mix 효과"),
@@ -483,6 +490,7 @@ def _drilldown(
             rows = (AnalysisDrilldownRowResponse(
                 "tariff:direct", "관세", "KRW", None, None, None,
                 _number(sales_totals.get("tariff_effect")), "persisted sales_analysis 관세 총액",
+                "selling",
             ),)
         return AnalysisDrilldownResponse("tariff", True, rows)
     raise _integrity()
@@ -494,6 +502,15 @@ def _account_row(prefix: str, source: Mapping[str, Any], effect_key: str) -> Ana
         raise _integrity()
     baseline = _number(source.get("baseline_amount"))
     comparison = _number(source.get("comparison_amount"))
+    section = (
+        "manufacturing"
+        if prefix == "manufacturing"
+        else "selling"
+        if prefix == "tariff" or source.get("section") == "판매비"
+        else "general_admin"
+        if source.get("section") == "일반관리비"
+        else None
+    )
     return AnalysisDrilldownRowResponse(
         row_id=f"{prefix}:{source.get('row')}:{account}",
         label=account,
@@ -503,6 +520,7 @@ def _account_row(prefix: str, source: Mapping[str, Any], effect_key: str) -> Ana
         delta=_number(source.get("delta")),
         profit_effect=_optional_number(source.get(effect_key)),
         note=str(source.get("calculation_status") or source.get("classification") or ""),
+        section=section,
     )
 
 
@@ -591,9 +609,17 @@ def _validate_cost_effects(
         sum(_number(value) for value in parts), amounts["material_total"]
     ):
         raise _integrity()
-    if manufacturing_accounts and all(
-        row.get("final_profit_effect") is not None for row in manufacturing_accounts
-    ) and not _close(
+    variable_matches = {
+        account: [row for row in manufacturing_accounts if row.get("account") == account]
+        for account in MANUFACTURING_VARIABLE_ACCOUNTS
+    }
+    if (
+        not manufacturing_accounts
+        or any(len(rows) != 1 for rows in variable_matches.values())
+        or any(row.get("final_profit_effect") is None for row in manufacturing_accounts)
+    ):
+        raise _integrity()
+    if not _close(
         sum(_number(row.get("final_profit_effect")) for row in manufacturing_accounts),
         amounts["manufacturing_realized"],
     ):

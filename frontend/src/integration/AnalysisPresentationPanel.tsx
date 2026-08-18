@@ -11,7 +11,7 @@ import {
   TrendingUp,
 } from 'lucide-react';
 import { EffectWaterfallChart } from '../components/variance/EffectWaterfallChart';
-import { AnalysisPresentationDto, Role } from './types';
+import { AnalysisDrilldownRowDto, AnalysisPresentationDto, Role } from './types';
 import {
   MappedPresentationEffect,
   MappedResidual,
@@ -270,7 +270,7 @@ function EffectTable({
                 );
               })}
               <tr className="row-total">
-                <td colSpan={6}>Effect 총액</td>
+                <td colSpan={6}>손익 영향 총액</td>
                 <td className="text-right tabular-nums">{formatMillions(effectsTotal, true)}</td>
                 <td className={`text-right tabular-nums variance-analysis__tone--${contributionTone(effectsTotalContributionRate)}`}>
                   {formatContributionRate(effectsTotalContributionRate)}
@@ -320,22 +320,24 @@ function EffectRow({
   onToggle: () => void;
 }) {
   const available = effect.drilldown.available;
+  const drilldownRemoved = effect.code === 'sales_fx' || effect.code === 'inventory_timing';
   const tone = profitEffectTone(effect.profit_effect);
   return (
     <>
       <tr data-testid={`effect-row-${effect.code}`} className={`${selected ? 'row-active' : ''} variance-analysis__effect-row--${tone}`}>
         <td><CategoryPill label={effect.uiCategoryLabel || '—'} tone={effect.category.toLowerCase()} /></td>
         <td>
-          <button
-            type="button"
-            className="expand-toggle-btn"
-            disabled={!available}
-            aria-label={`${effect.uiLabel} ${available ? (open ? '상세 접기' : '상세 펼치기') : '상세 근거 없음'}`}
-            aria-expanded={available ? open : undefined}
-            onClick={onToggle}
-          >
-            {available ? (open ? <ChevronDown size={13} aria-hidden="true" /> : <ChevronRight size={13} aria-hidden="true" />) : <AlertTriangle size={13} aria-hidden="true" />}
-          </button>
+          {!drilldownRemoved && <button
+              type="button"
+              className="expand-toggle-btn"
+              disabled={!available}
+              aria-label={`${effect.uiLabel} ${available ? (open ? '상세 접기' : '상세 펼치기') : '상세 근거 없음'}`}
+              aria-expanded={available ? open : undefined}
+              onClick={onToggle}
+            >
+              {available ? (open ? <ChevronDown size={13} aria-hidden="true" /> : <ChevronRight size={13} aria-hidden="true" />) : <AlertTriangle size={13} aria-hidden="true" />}
+            </button>}
+          {drilldownRemoved && <span className="expand-toggle-spacer" aria-hidden="true" />}
           <button
             type="button"
             className="variance-analysis__effect-select"
@@ -360,26 +362,88 @@ function EffectRow({
           <td colSpan={8} className="variance-analysis__drilldown-cell">
             <div className="variance-analysis__drilldown-container" data-testid={`drilldown-container-${effect.code}`}>
               <h3 className="variance-analysis__drilldown-heading">↳ [{effect.uiLabel}] 요인 세부 내역:</h3>
-              <table className="drilldown-table variance-analysis__drilldown-table">
-                <thead className="variance-analysis__table-head"><tr>
-                  <th>세부 항목</th><th>단위</th><th>계획</th><th>실적</th><th>차이</th><th>손익 영향 금액</th>
-                </tr></thead>
-                <tbody>{effect.drilldown.rows.map((row) => (
-                  <tr key={row.row_id}>
-                    <td>{effect.code.startsWith('sga') && !row.row_id.startsWith('manufacturing:') ? formatSgaLabel(row.label) : row.label}</td>
-                    <td>{row.unit === 'KRW' ? '백만원' : row.unit}</td>
-                    <td className="text-right">{displayDrilldownValue(row.baseline, row.unit)}</td>
-                    <td className="text-right">{displayDrilldownValue(row.comparison, row.unit)}</td>
-                    <td className="text-right">{displayDrilldownValue(row.delta, row.unit, true)}</td>
-                    <td className={`text-right ${row.profit_effect === null ? '' : `variance-analysis__tone--${profitEffectTone(row.profit_effect)}`}`}>{row.profit_effect === null ? '—' : formatMillions(row.profit_effect, true)}</td>
-                  </tr>
-                ))}</tbody>
-              </table>
+              {effect.code === 'sga_variable' || effect.code === 'sga_fixed'
+                ? <CostDrilldown effect={effect} />
+                : <StandardDrilldown rows={effect.drilldown.rows} />}
             </div>
           </td>
         </tr>
       )}
     </>
+  );
+}
+
+function StandardDrilldown({ rows }: { rows: AnalysisDrilldownRowDto[] }) {
+  return (
+    <table className="drilldown-table variance-analysis__drilldown-table">
+      <thead className="variance-analysis__table-head"><tr>
+        <th>세부 항목</th><th>단위</th><th>계획</th><th>실적</th><th>차이</th><th>손익 영향 금액</th>
+      </tr></thead>
+      <tbody>{rows.map((row) => <DrilldownValueCells key={row.row_id} row={row} />)}</tbody>
+    </table>
+  );
+}
+
+type SgaSection = 'selling' | 'general_admin';
+
+function CostDrilldown({ effect }: { effect: MappedPresentationEffect }) {
+  const [selectedSection, setSelectedSection] = useState<SgaSection>('selling');
+  const manufacturingRows = effect.drilldown.rows.filter((row) => row.section === 'manufacturing');
+  const sgaRows = effect.drilldown.rows.filter((row) => row.section === 'selling' || row.section === 'general_admin');
+  const filteredSgaRows = sgaRows.filter((row) => row.section === selectedSection);
+  const costKind = effect.code === 'sga_variable' ? '변동비' : '고정비';
+
+  return (
+    <div className="variance-analysis__cost-groups">
+      <section className="variance-analysis__cost-subgroup" data-testid={`${effect.code}-sga-subgroup`}>
+        <div className="variance-analysis__cost-subgroup-header">
+          <h4>판관비 {costKind}</h4>
+          <div className="variance-analysis__sga-toggle" role="group" aria-label={`판관비 ${costKind} 구분`}>
+            <button type="button" aria-pressed={selectedSection === 'selling'} onClick={() => setSelectedSection('selling')}>판매비</button>
+            <button type="button" aria-pressed={selectedSection === 'general_admin'} onClick={() => setSelectedSection('general_admin')}>일반관리비</button>
+          </div>
+        </div>
+        <CostAccountTable rows={filteredSgaRows} section={selectedSection === 'selling' ? '판매비' : '일반관리비'} emptyLabel={`선택한 ${selectedSection === 'selling' ? '판매비' : '일반관리비'} 계정이 없습니다.`} />
+      </section>
+      <section className="variance-analysis__cost-subgroup" data-testid={`${effect.code}-manufacturing-subgroup`}>
+        <div className="variance-analysis__cost-subgroup-header"><h4>제조경비 {costKind}</h4></div>
+        <CostAccountTable rows={manufacturingRows} section="제조" emptyLabel={`제조경비 ${costKind} 계정이 없습니다.`} />
+      </section>
+    </div>
+  );
+}
+
+function CostAccountTable({ rows, section, emptyLabel }: { rows: AnalysisDrilldownRowDto[]; section: string; emptyLabel: string }) {
+  return (
+    <table className="drilldown-table variance-analysis__drilldown-table variance-analysis__cost-account-table">
+      <thead className="variance-analysis__table-head"><tr>
+        <th>구분</th><th>계정명</th><th>단위</th><th>계획</th><th>실적</th><th>차이</th><th>손익 영향 금액</th>
+      </tr></thead>
+      <tbody>{rows.length > 0 ? rows.map((row) => (
+        <tr key={row.row_id}>
+          <td><CategoryPill label={section} tone={section === '제조' ? 'manufacturing' : section === '판매비' ? 'selling' : 'general-admin'} /></td>
+          <td>{formatSgaAccountLabel(row.label)}</td>
+          <td>{row.unit === 'KRW' ? '백만원' : row.unit}</td>
+          <td className="text-right">{displayDrilldownValue(row.baseline, row.unit)}</td>
+          <td className="text-right">{displayDrilldownValue(row.comparison, row.unit)}</td>
+          <td className="text-right">{displayDrilldownValue(row.delta, row.unit, true)}</td>
+          <td className={`text-right ${row.profit_effect === null ? '' : `variance-analysis__tone--${profitEffectTone(row.profit_effect)}`}`}>{row.profit_effect === null ? '—' : formatMillions(row.profit_effect, true)}</td>
+        </tr>
+      )) : <tr><td colSpan={7} className="variance-analysis__empty-detail">{emptyLabel}</td></tr>}</tbody>
+    </table>
+  );
+}
+
+function DrilldownValueCells({ row }: { row: AnalysisDrilldownRowDto }) {
+  return (
+    <tr>
+      <td>{row.label}</td>
+      <td>{row.unit === 'KRW' ? '백만원' : row.unit}</td>
+      <td className="text-right">{displayDrilldownValue(row.baseline, row.unit)}</td>
+      <td className="text-right">{displayDrilldownValue(row.comparison, row.unit)}</td>
+      <td className="text-right">{displayDrilldownValue(row.delta, row.unit, true)}</td>
+      <td className={`text-right ${row.profit_effect === null ? '' : `variance-analysis__tone--${profitEffectTone(row.profit_effect)}`}`}>{row.profit_effect === null ? '—' : formatMillions(row.profit_effect, true)}</td>
+    </tr>
   );
 }
 
@@ -397,13 +461,23 @@ function CategoryPill({ label, tone }: { label: string; tone: string }) {
 }
 
 function AdditionalEvidence({ value }: { value: AnalysisPresentationDto }) {
+  const [expanded, setExpanded] = useState(false);
   if (!value.product_groups.length && !value.manufacturing_activities.length) return null;
   return (
     <section className="variance-analysis__additional-evidence" data-testid="analysis-additional-evidence" aria-labelledby="analysis-additional-evidence-title">
       <div className="variance-analysis__additional-evidence-header">
         <h2 id="analysis-additional-evidence-title">추가 근거</h2>
+        <button
+          type="button"
+          className="variance-analysis__evidence-toggle"
+          aria-expanded={expanded}
+          aria-controls="analysis-additional-evidence-content"
+          onClick={() => setExpanded((current) => !current)}
+        >
+          {expanded ? '접기' : '펼치기'}
+        </button>
       </div>
-      <div className="variance-analysis__additional-evidence-grid">
+      <div id="analysis-additional-evidence-content" className="variance-analysis__additional-evidence-grid" hidden={!expanded}>
         <ProductGroupTable value={value} />
         <ManufacturingActivityTable value={value} />
       </div>
@@ -445,17 +519,9 @@ function formatMillions(krwValue: number, signed = false): string {
   return `${signed && millions > 0 ? '+' : ''}${formatted} 백만원`;
 }
 
-function formatSgaLabel(label: string): string {
-  if (label.includes('판매비 소계') || label.includes('판매비소계')) return '판매비 소계';
-  if (label.includes('일반관리비 소계') || label.includes('일반관리비소계')) return '일반관리비 소계';
-  if (label.includes('판관비 총계') || label.includes('판관비총계') || label.includes('판매관리비 총계')) return '판관비 총계';
-
+function formatSgaAccountLabel(label: string): string {
   const clean = label.replace(/^\d+\.\s*/, '').trim();
-  if (clean.startsWith('판매비_') || clean.startsWith('일반관리비_')) return clean;
-
-  const sellingKeywords = ['운반비', '수수료', '보관료', '광고선전비', '판매', '수출비', '포장비'];
-  const isSelling = sellingKeywords.some((k) => clean.includes(k));
-  return isSelling ? `판매비_${clean}` : `일반관리비_${clean}`;
+  return clean.replace(/^(판매비|일반관리비)_/, '');
 }
 
 export function formatQuantity(value: number, signed = false): string {

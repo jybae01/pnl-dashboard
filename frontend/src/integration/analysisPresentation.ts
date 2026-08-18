@@ -2,6 +2,7 @@ import {
   AnalysisPresentationDto,
   AnalysisPresentationEffectDto,
   AnalysisResidualDto,
+  MANUFACTURING_VARIABLE_ACCOUNT_LABELS,
   PresentationEffectCode,
   PresentationEffectCategory,
 } from './types';
@@ -43,7 +44,7 @@ export const CANONICAL_EFFECT_LABELS: Record<PresentationEffectCode, string> = {
   sales_fx: '매출환율',
   material_total: '원재료',
   manufacturing_realized: '제조',
-  inventory_timing: '재고·원가 반영시차',
+  inventory_timing: '재고 차이 등',
   sga_variable: '변동비',
   sga_fixed: '고정비',
   tariff: '관세',
@@ -51,13 +52,6 @@ export const CANONICAL_EFFECT_LABELS: Record<PresentationEffectCode, string> = {
 
 export const RESIDUAL_CODE = 'residual' as const;
 export const RESIDUAL_LABEL = '기타 요인' as const;
-
-export const MANUFACTURING_VARIABLE_ACCOUNT_LABELS = [
-  '수도광열비',
-  '소모품비',
-  '원자재운반비',
-  '외주가공비',
-] as const;
 
 export const EFFECT_CATEGORY_LABELS: Record<PresentationEffectCategory, string> = {
   INTERNAL: '내부',
@@ -108,7 +102,7 @@ const EXECUTIVE_GROUP_DEFINITIONS: ReadonlyArray<{
   {
     key: 'cost',
     title: '비용 효과',
-    codes: ['material_total', 'sga_variable', 'sga_fixed', 'manufacturing_realized', 'inventory_timing'],
+    codes: ['material_total', 'sga_variable', 'sga_fixed', 'inventory_timing'],
   },
 ];
 
@@ -159,10 +153,9 @@ export function mapCanonicalEffects(
  * 2. 판가 = sales_price
  * 3. 매출환율 = sales_fx
  * 4. 원재료 = material_total
- * 5. 변동비 = sga_variable + tariff
- * 6. 고정비 = sga_fixed
- * 7. 제조 = manufacturing_realized (Temporary Fallback)
- * 8. 재고·원가 반영시차 = inventory_timing
+ * 5. 변동비 = sga_variable + tariff + four manufacturing-variable accounts
+ * 6. 고정비 = sga_fixed + all remaining manufacturing accounts
+ * 7. 재고 차이 등 = inventory_timing
  *
  * Residual ('기타 요인') is maintained separately.
  * Mathematical identity: sum(regrouped.profit_effect) === kpis.effects_total
@@ -180,17 +173,19 @@ export function mapGroupedPresentationEffects(
   const manufacturingRows = manufacturing?.drilldown.kind === 'manufacturing'
     ? manufacturing.drilldown.rows
     : [];
-  const manufacturingVariableMatches = MANUFACTURING_VARIABLE_ACCOUNT_LABELS.map((label) => (
-    manufacturingRows.filter((row) => row.label === label)
-  ));
-  const hasAuthoritativeManufacturingVariableSplit = manufacturingVariableMatches.every(
-    (matches) => matches.length === 1 && matches[0].profit_effect !== null,
+  const manufacturingVariableLabels = new Set<string>(MANUFACTURING_VARIABLE_ACCOUNT_LABELS);
+  const authoritativeManufacturingVariableRows = manufacturingRows.filter(
+    (row) => manufacturingVariableLabels.has(row.label),
   );
-  const authoritativeManufacturingVariableRows = hasAuthoritativeManufacturingVariableSplit
-    ? manufacturingVariableMatches.map(([row]) => row)
-    : [];
+  const authoritativeManufacturingFixedRows = manufacturingRows.filter(
+    (row) => !manufacturingVariableLabels.has(row.label),
+  );
   const manufacturingVariableEffect = authoritativeManufacturingVariableRows.reduce(
-    (sum, row) => sum + (row.profit_effect ?? 0),
+    (sum, row) => sum + row.profit_effect!,
+    0,
+  );
+  const manufacturingFixedEffect = authoritativeManufacturingFixedRows.reduce(
+    (sum, row) => sum + row.profit_effect!,
     0,
   );
 
@@ -237,6 +232,7 @@ export function mapGroupedPresentationEffects(
     grouped.push({
       ...mapEffect(fx, operatingProfitDelta),
       uiLabel: '매출환율',
+      drilldown: { kind: 'unavailable', available: false, rows: [], unavailable_reason: null },
     });
     processedCodes.add('sales_fx');
   }
@@ -254,7 +250,7 @@ export function mapGroupedPresentationEffects(
   // 5. 변동비 (sga_variable + tariff + authoritative manufacturing-variable accounts)
   const sgaVar = effectMap.get('sga_variable');
   const tariff = effectMap.get('tariff');
-  if (sgaVar || tariff) {
+  if (sgaVar || tariff || authoritativeManufacturingVariableRows.length > 0) {
     const varEffect = sgaVar?.profit_effect ?? 0;
     const tariffEffect = tariff?.profit_effect ?? 0;
     const combinedRows = [
@@ -285,50 +281,45 @@ export function mapGroupedPresentationEffects(
     processedCodes.add('tariff');
   }
 
-  // 6. 고정비 (sga_fixed)
+  // 6. 고정비 (sga_fixed + all manufacturing accounts not classified as variable)
   const sgaFixed = effectMap.get('sga_fixed');
-  if (sgaFixed) {
+  if (sgaFixed || manufacturing) {
+    const sgaFixedEffect = sgaFixed?.profit_effect ?? 0;
+    const combinedRows = [
+      ...(sgaFixed?.drilldown.rows ?? []),
+      ...authoritativeManufacturingFixedRows,
+    ];
     grouped.push({
-      ...mapEffect(sgaFixed, operatingProfitDelta),
+      ...(sgaFixed ?? manufacturing!),
+      code: 'sga_fixed',
+      label: '고정비',
+      category: 'COST',
+      profit_effect: sgaFixedEffect + manufacturingFixedEffect,
+      description: '고정 판매관리비 및 제조고정비 영향',
+      drilldown: {
+        kind: 'sga',
+        available: combinedRows.length > 0,
+        rows: combinedRows,
+        unavailable_reason: combinedRows.length > 0 ? null : '고정비 계정 세부 payload 없음',
+      },
       uiLabel: '고정비',
-    });
-    processedCodes.add('sga_fixed');
-  }
-
-  // 7. 제조 (manufacturing_realized less the four rows moved to 변동비)
-  const mfg = manufacturing;
-  if (mfg) {
-    const movedRowIds = new Set(authoritativeManufacturingVariableRows.map((row) => row.row_id));
-    const remainderRows = mfg.drilldown.rows.filter((row) => !movedRowIds.has(row.row_id));
-    grouped.push({
-      ...mapEffect(mfg, operatingProfitDelta),
-      profit_effect: mfg.profit_effect - manufacturingVariableEffect,
+      uiCategoryLabel: '비용',
       contributionRate: calculateContributionRate(
-        mfg.profit_effect - manufacturingVariableEffect,
+        sgaFixedEffect + manufacturingFixedEffect,
         operatingProfitDelta,
       ),
-      description: hasAuthoritativeManufacturingVariableSplit
-        ? '제조변동비 4개 계정을 제외한 제조 영향'
-        : mfg.description,
-      drilldown: hasAuthoritativeManufacturingVariableSplit
-        ? {
-          ...mfg.drilldown,
-          available: remainderRows.length > 0,
-          rows: remainderRows,
-          unavailable_reason: remainderRows.length > 0 ? null : '나머지 제조경비 계정 세부 payload 없음',
-        }
-        : mfg.drilldown,
-      uiLabel: '제조',
     });
+    processedCodes.add('sga_fixed');
     processedCodes.add('manufacturing_realized');
   }
 
-  // 8. 재고·원가 반영시차 (inventory_timing)
+  // 7. 재고 차이 등 (inventory_timing; no user-facing drilldown)
   const invTiming = effectMap.get('inventory_timing');
   if (invTiming) {
     grouped.push({
       ...mapEffect(invTiming, operatingProfitDelta),
-      uiLabel: '재고·원가 반영시차',
+      uiLabel: '재고 차이 등',
+      drilldown: { kind: 'unavailable', available: false, rows: [], unavailable_reason: null },
     });
     processedCodes.add('inventory_timing');
   }
@@ -403,7 +394,7 @@ export function mapWaterfallBars(
     running += delta;
     bars.push({
       id: effect.code,
-      name: effect.code === 'inventory_timing' ? '재고차이 등' : effect.uiLabel,
+      name: effect.uiLabel,
       category: effect.category,
       startValue,
       endValue: running,

@@ -228,6 +228,12 @@ export type PresentationEffectCode =
   | 'sales_quantity' | 'sales_mix' | 'sales_price' | 'sales_fx' | 'material_total'
   | 'manufacturing_realized' | 'inventory_timing' | 'sga_variable' | 'sga_fixed' | 'tariff';
 export type PresentationEffectCategory = 'INTERNAL' | 'EXTERNAL' | 'COST';
+export const MANUFACTURING_VARIABLE_ACCOUNT_LABELS = [
+  '수도광열비',
+  '소모품비',
+  '원자재운반비',
+  '외주가공비',
+] as const;
 export type ResidualClassification =
   | 'VALIDATION_ARTIFACT' | 'FORMULA_EVALUATOR_GAP' | 'MAPPING_GAP' | 'ENGINE_BUG'
   | 'INTENTIONAL_SCOPE_GAP' | 'INVENTORY_TIMING' | 'BUSINESS_POLICY_GAP' | 'UNEXPLAINED';
@@ -241,6 +247,7 @@ export interface AnalysisDrilldownRowDto {
   delta: number | null;
   profit_effect: number | null;
   note: string;
+  section?: 'selling' | 'general_admin' | 'manufacturing' | null;
 }
 
 export interface AnalysisDrilldownDto {

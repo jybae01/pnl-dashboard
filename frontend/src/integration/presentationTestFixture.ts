@@ -25,15 +25,25 @@ export function presentationFixture(overrides: Partial<AnalysisPresentationDto> 
           kind: 'manufacturing' as const,
           available: true,
           rows: [
-            { row_id: 'manufacturing:1:수도광열비', label: '수도광열비', unit: 'KRW', baseline: 10, comparison: 11, delta: 1, profit_effect: -1, note: 'variable' },
-            { row_id: 'manufacturing:2:소모품비', label: '소모품비', unit: 'KRW', baseline: 10, comparison: 11, delta: 1, profit_effect: -1, note: 'variable' },
-            { row_id: 'manufacturing:3:원자재운반비', label: '원자재운반비', unit: 'KRW', baseline: 10, comparison: 11, delta: 1, profit_effect: -1, note: 'variable' },
-            { row_id: 'manufacturing:4:외주가공비', label: '외주가공비', unit: 'KRW', baseline: 10, comparison: 9, delta: -1, profit_effect: 1, note: 'variable' },
-            { row_id: 'manufacturing:5:감가상각비', label: '감가상각비', unit: 'KRW', baseline: 10, comparison: 14, delta: 4, profit_effect: -4, note: 'fixed' },
+            { row_id: 'manufacturing:1:수도광열비', label: '수도광열비', unit: 'KRW', baseline: 10, comparison: 11, delta: 1, profit_effect: -1, note: 'variable', section: 'manufacturing' as const },
+            { row_id: 'manufacturing:2:소모품비', label: '소모품비', unit: 'KRW', baseline: 10, comparison: 11, delta: 1, profit_effect: -1, note: 'variable', section: 'manufacturing' as const },
+            { row_id: 'manufacturing:3:원자재운반비', label: '원자재운반비', unit: 'KRW', baseline: 10, comparison: 11, delta: 1, profit_effect: -1, note: 'variable', section: 'manufacturing' as const },
+            { row_id: 'manufacturing:4:외주가공비', label: '외주가공비', unit: 'KRW', baseline: 10, comparison: 9, delta: -1, profit_effect: 1, note: 'variable', section: 'manufacturing' as const },
+            { row_id: 'manufacturing:5:감가상각비', label: '감가상각비', unit: 'KRW', baseline: 10, comparison: 14, delta: 4, profit_effect: -4, note: 'fixed', section: 'manufacturing' as const },
           ],
           unavailable_reason: null,
         }
-        : { kind: (code === 'material_total' ? 'material' : code === 'inventory_timing' ? 'inventory' : code.startsWith('sga_') ? 'sga' : code === 'tariff' ? 'tariff' : 'sales') as 'sales' | 'material' | 'inventory' | 'sga' | 'tariff', available: true, rows: [{ row_id: `${code}:1`, label: `${code} source`, unit: 'KRW', baseline: null, comparison: null, delta: null, profit_effect: effectValues[index], note: 'persisted source' }], unavailable_reason: null },
+        : code === 'sga_variable'
+          ? { kind: 'sga' as const, available: true, rows: [
+            { row_id: 'sga:10:판매비_운반비', label: '판매비_운반비', unit: 'KRW', baseline: 10, comparison: 12, delta: 2, profit_effect: -2, note: 'variable', section: 'selling' as const },
+            { row_id: 'sga:11:일반관리비_소모품비', label: '일반관리비_소모품비', unit: 'KRW', baseline: 10, comparison: 11, delta: 1, profit_effect: -1, note: 'variable', section: 'general_admin' as const },
+          ], unavailable_reason: null }
+          : code === 'sga_fixed'
+            ? { kind: 'sga' as const, available: true, rows: [
+              { row_id: 'sga:20:판매비_광고선전비', label: '판매비_광고선전비', unit: 'KRW', baseline: 10, comparison: 9, delta: -1, profit_effect: 1, note: 'fixed', section: 'selling' as const },
+              { row_id: 'sga:21:일반관리비_인건비', label: '일반관리비_인건비', unit: 'KRW', baseline: 10, comparison: 9, delta: -1, profit_effect: 1, note: 'fixed', section: 'general_admin' as const },
+            ], unavailable_reason: null }
+            : { kind: (code === 'material_total' ? 'material' : code === 'inventory_timing' ? 'inventory' : code === 'tariff' ? 'tariff' : 'sales') as 'sales' | 'material' | 'inventory' | 'tariff', available: true, rows: [{ row_id: `${code}:1`, label: code === 'tariff' ? '관세' : `${code} source`, unit: 'KRW', baseline: null, comparison: null, delta: null, profit_effect: effectValues[index], note: 'persisted source', section: code === 'tariff' ? 'selling' as const : null }], unavailable_reason: null },
   }));
   const effectsTotal = effectValues.reduce((sum, value) => sum + value, 0);
   const residual = { amount: 5, classification: 'UNEXPLAINED' as const, display_label: '미설명 잔여차이' };
