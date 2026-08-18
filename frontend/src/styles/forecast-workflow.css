@@ -545,13 +545,54 @@
 }
 
 .forecast-workflow__advanced > summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
   padding: 13px 18px;
   color: #0f172a;
   cursor: pointer;
   font-size: 14px;
   font-weight: 800;
-  list-style-position: inside;
+  list-style: none;
   background: #f8fafc;
+}
+
+.forecast-workflow__advanced > summary::-webkit-details-marker { display: none; }
+.forecast-workflow__advanced > summary::marker { content: ''; }
+
+.forecast-workflow__advanced-toggle-label {
+  display: inline-flex;
+  min-width: 58px;
+  height: 30px;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid #cbd5e1;
+  border-radius: 4px;
+  padding: 0 10px;
+  color: #334155;
+  background: #fff;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.forecast-workflow__advanced > summary:hover .forecast-workflow__advanced-toggle-label,
+.forecast-workflow__advanced > summary:focus-visible .forecast-workflow__advanced-toggle-label {
+  border-color: #ff5f1f;
+  color: #c2410c;
+}
+
+.forecast-workflow__visually-hidden {
+  position: absolute !important;
+  width: 1px !important;
+  height: 1px !important;
+  overflow: hidden !important;
+  clip: rect(0 0 0 0) !important;
+  clip-path: inset(50%) !important;
+  margin: -1px !important;
+  padding: 0 !important;
+  border: 0 !important;
+  white-space: nowrap !important;
 }
 
 .forecast-workflow__advanced-help {
@@ -1326,6 +1367,7 @@
 .forecast-workflow__summary-table th,
 .forecast-workflow__summary-table td { overflow: hidden; padding: 6px; border-bottom: 1px solid #f1f5f9; vertical-align: middle; text-overflow: ellipsis; }
 .forecast-workflow__summary-table thead th { color: #9a3412; background: #fff7ed; font-size: 11.5px; font-weight: 700; text-align: center; white-space: nowrap; }
+.forecast-workflow__header-row--center > th { text-align: center !important; }
 .forecast-workflow__summary-table tbody tr:hover td,
 .forecast-workflow__summary-table tbody tr:hover th { background: #fffbf5; }
 .forecast-workflow__summary-table tbody tr.is-selected td,

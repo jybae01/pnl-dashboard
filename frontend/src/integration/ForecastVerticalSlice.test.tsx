@@ -108,7 +108,16 @@ describe('Forecast React vertical slice', () => {
     ];
     productionInputs.forEach((label) => expect(screen.getByLabelText(label)).toBeInTheDocument());
 
-    fireEvent.click(screen.getByText(/비용 및 원가 조정/));
+    const adjustmentDetails = screen.getByText('비용 및 원가 조정').closest('details') as HTMLDetailsElement;
+    const adjustmentSummary = adjustmentDetails.querySelector('summary') as HTMLElement;
+    expect(adjustmentDetails).not.toHaveAttribute('open');
+    expect(adjustmentSummary).toHaveAttribute('aria-expanded', 'false');
+    expect(within(adjustmentSummary).getByText('펼치기')).toBeInTheDocument();
+    expect(adjustmentSummary.querySelector('svg')).not.toBeInTheDocument();
+    fireEvent.click(adjustmentSummary);
+    await waitFor(() => expect(adjustmentSummary).toHaveAttribute('aria-expanded', 'true'));
+    expect(adjustmentDetails).toHaveAttribute('open');
+    expect(within(adjustmentSummary).getByText('접기')).toBeInTheDocument();
     const grid = container.querySelector('.forecast-workflow__adjustment-grid');
     expect(grid).toBeInTheDocument();
     expect(container.querySelector('.forecast-workflow__adjustment-summary-grid')).not.toBeInTheDocument();
@@ -137,6 +146,9 @@ describe('Forecast React vertical slice', () => {
     expect(screen.getByText('판관비 조정 내역 (2건)')).toBeInTheDocument();
     expect(screen.getByText('(IX 포장비)')).toBeInTheDocument();
     expect(screen.queryByLabelText('7월 포장비 판관비 조정액')).not.toBeInTheDocument();
+    screen.getByRole('region', { name: '판관비 조정 내역 (2건)' }).querySelectorAll('thead th').forEach((header) => {
+      expect(header.closest('tr')).toHaveClass('forecast-workflow__header-row--center');
+    });
 
     fireEvent.click(screen.getByRole('button', { name: '7월 제품 폐기손실 조정' }));
     expect(screen.getByLabelText('7월 제품 폐기손실 매출원가 조정액')).toBeInTheDocument();
@@ -148,6 +160,9 @@ describe('Forecast React vertical slice', () => {
     fireEvent.click(within(cogsDrawer).getByRole('button', { name: '등록' }));
     expect(screen.getByRole('button', { name: '7월 제품 폐기손실 수정' })).toBeInTheDocument();
     expect(screen.getByText('매출원가 조정 내역 (1건)')).toBeInTheDocument();
+    screen.getByRole('region', { name: '매출원가 조정 내역 (1건)' }).querySelectorAll('thead th').forEach((header) => {
+      expect(header.closest('tr')).toHaveClass('forecast-workflow__header-row--center');
+    });
     fireEvent.click(screen.getByRole('button', { name: '7월 제품 폐기손실 수정' }));
     fireEvent.change(screen.getByLabelText('7월 제품 폐기손실 매출원가 조정액'), { target: { value: '-999' } });
     fireEvent.click(screen.getByRole('button', { name: '취소' }));
@@ -855,6 +870,11 @@ describe('Forecast React vertical slice', () => {
     expect(within(cogs).getAllByRole('columnheader').map((cell) => cell.textContent)).toEqual([
       '계정명', '계획', '예상금액(자동)', '조정액', '조정',
     ]);
+    [manufacturing, sga, cogs].forEach((region) => {
+      region.querySelectorAll('thead th').forEach((header) => {
+        expect(header.closest('tr')).toHaveClass('forecast-workflow__header-row--center');
+      });
+    });
     expect(cogs.querySelectorAll('[data-contract-missing="cogs-baseline"]')).toHaveLength(4);
     expect(within(manufacturing).getAllByRole('columnheader')[0]).toHaveClass('forecast-workflow__cell--center');
     expect(within(manufacturing).getAllByRole('columnheader')[1]).toHaveClass('forecast-workflow__cell--center');
@@ -909,6 +929,7 @@ describe('Forecast React vertical slice', () => {
     expect(newBusiness.querySelector('[data-reference-action="new-business-freight"]')).toContainElement(screen.getByRole('button', { name: '8월 신사업 운반비 등록' }));
     expect(newBusiness.querySelector('[data-reference-action="ix-packaging"]')).toContainElement(screen.getByRole('button', { name: '8월 IX 포장비 등록' }));
     const rawMaterial = screen.getByRole('region', { name: '원재료 관세 환급' });
+    expect(within(rawMaterial).getByText('환급 기준')).toHaveClass('forecast-workflow__visually-hidden');
     expect(within(rawMaterial).getByRole('group', { name: '환급 기준' })).toHaveTextContent(/모형 산출값.*구매비 예상 금액/);
     const rawRows = rawMaterial.querySelectorAll('.forecast-workflow__raw-material-row');
     expect(rawRows).toHaveLength(2);
@@ -1035,6 +1056,9 @@ describe('Forecast React vertical slice', () => {
     fireEvent.click(within(screen.getByLabelText('7월 전력비 제조경비 조정액').closest('.forecast-workflow__inline-drawer') as HTMLElement).getByRole('button', { name: '등록' }));
 
     const registered = screen.getByRole('region', { name: '제조경비 조정 내역 (1건)' });
+    registered.querySelectorAll('thead th').forEach((header) => {
+      expect(header.closest('tr')).toHaveClass('forecast-workflow__header-row--center');
+    });
     fireEvent.click(within(registered).getByRole('button', { name: '수정' }));
     expect(screen.getByLabelText('7월 전력비 제조경비 조정액')).toHaveValue('1,000');
     expect(screen.getByLabelText('7월 전력비 제조경비 조정 사유')).toHaveValue('최초 사유');
