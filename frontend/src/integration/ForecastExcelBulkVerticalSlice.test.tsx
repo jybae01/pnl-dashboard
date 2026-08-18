@@ -20,13 +20,19 @@ const preview = {
   sales_rows: [{
     month: 7, product_code: 'SW400', product_name: 'SW400', product_group: 'SW',
     quantity: 123, amount: 456000, source_sheet: '판매계획', source_row: 2,
+  }, {
+    month: 7, product_code: 'LC', product_name: 'LC(제품)', product_group: 'LC',
+    quantity: 100, amount: 100000000, source_sheet: '판매계획', source_row: 6,
+  }, {
+    month: 7, product_code: 'LC_MERCHANDISE', product_name: 'LC(상품)', product_group: 'LC',
+    quantity: 20, amount: 20000000, source_sheet: '판매계획', source_row: 7,
   }],
   business_production_rows: [{
     month: 7, process: '후공정', product_group: 'SW', quantity: 1000, unit: 'PCS',
     source_sheet: '생산계획', source_row: 2,
   }],
   issues: [],
-  sales_summary: [{ unit: 'PCS', row_count: 1, quantity_total: 123 }],
+  sales_summary: [{ unit: 'PCS', row_count: 3, quantity_total: 243 }],
   production_summary: [{ unit: 'PCS', row_count: 1, quantity_total: 1000 }],
   dto_version: '1',
 };
@@ -88,7 +94,7 @@ describe('Forecast Excel bulk input vertical slice', () => {
     upload();
     await screen.findByRole('heading', { name: 'Excel 데이터 검증 및 Preview' });
     expect(screen.getByText('완제품 판매')).toBeInTheDocument();
-    expect(screen.getByText('123 PCS')).toBeInTheDocument();
+    expect(screen.getByText('243 PCS')).toBeInTheDocument();
     expect(screen.getByText('후공정 생산')).toBeInTheDocument();
     expect(screen.getByText('1,000 PCS')).toBeInTheDocument();
     expect(screen.getByLabelText('7월 SW400 판매수량')).toHaveValue('99');
@@ -135,6 +141,8 @@ describe('Forecast Excel bulk input vertical slice', () => {
     fireEvent.click(screen.getByRole('button', { name: '추정 입력값으로 적용' }));
     fireEvent.click(screen.getByRole('button', { name: '적용' }));
     expect(screen.getByLabelText('7월 SW400 판매수량')).toHaveValue('123');
+    expect(screen.getByLabelText('7월 LC 판매수량')).toHaveValue('100');
+    expect(screen.getByLabelText('7월 LC_MERCHANDISE 판매수량')).toHaveValue('20');
     expect(screen.getByLabelText('7월 후공정 SW 생산수량')).toHaveValue('1,000');
     expect(screen.getByLabelText('7월 SW400 MCM 수량')).toHaveValue('77');
     expect(screen.getByText(/제조경비 조정 내역 \(1건\)/)).toBeInTheDocument();
@@ -146,6 +154,8 @@ describe('Forecast Excel bulk input vertical slice', () => {
     await screen.findByText('추정 모형 생성 완료');
     const body = JSON.parse(String((fetchMock.mock.calls[3][1] as RequestInit).body));
     expect(body.months[0].sales[0].quantity).toBe(124);
+    expect(body.months[0].sales.find((row: { product_code: string }) => row.product_code === 'LC')).toMatchObject({ quantity: 100, amount: 100000000 });
+    expect(body.months[0].sales.find((row: { product_code: string }) => row.product_code === 'LC_MERCHANDISE')).toMatchObject({ quantity: 20, amount: 20000000 });
     expect(body.months[0].business_production.find((row: { process: string; product_group: string }) => row.process === '후공정' && row.product_group === 'SW').quantity).toBe(1000);
     expect(body.months[0].mcm[0].quantity).toBe(77);
     expect(body.months[0].manufacturing_adjustments[0]).toEqual({ adjustment_key: 'mfg-energy', amount: -66, reason: '' });

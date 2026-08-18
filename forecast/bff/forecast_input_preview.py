@@ -32,36 +32,50 @@ from .dto import (
 from .errors import ApiErrorCode, BffError
 from .model_ingestion import _validate_xlsx_package
 from .production_allocation import BACK_PROCESS, FRONT_PROCESS, UNIT_LENGTH_M, UNIT_PCS
+from ..sales_contract import (
+    CANONICAL_FORECAST_SALES_BY_DETAIL,
+    CANONICAL_FORECAST_SALES_ITEMS,
+    LC_MERCHANDISE_CODE,
+)
 
 
 MIME_XLSX = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 TEMPLATE_FILENAME = "forecast_input_template.xlsx"
 
 SALES_HEADERS: tuple[str, ...] = (
+    "예상매출월", "구분", "상세 구분", "단위", "수량", "매출액",
+)
+LEGACY_SALES_HEADERS: tuple[str, ...] = (
     "예상매출월", "제품코드", "제품명", "제품군", "수량", "매출액",
 )
 PRODUCTION_HEADERS: tuple[str, ...] = (
     "예상생산월", "공정", "제품군", "생산수량", "단위",
 )
 
-# This is the one authoritative browser-facing sales catalog for v1.  Keep the
-# order stable because it is also the order used by the downloaded template.
-# ``unit`` is intentionally not an XLSX column; it is used only for summaries.
-SALES_METADATA: tuple[tuple[str, str, str, str], ...] = (
-    ("SW400", "SW400", "SW", UNIT_PCS),
-    ("SW440", "SW440", "SW", UNIT_PCS),
-    ("BW400", "BW400", "BW", UNIT_PCS),
-    ("BW440", "BW440", "BW", UNIT_PCS),
-    ("LC", "LC (4인치)", "LC", UNIT_PCS),
-    ("FS_SW", "FS SW", "FS", UNIT_LENGTH_M),
-    ("FS_BW", "FS BW", "FS", UNIT_LENGTH_M),
-    ("FS_TW", "FS TW", "FS", UNIT_LENGTH_M),
-    ("UF_MBR", "UF/MBR", "신사업", "—"),
-    ("IX", "IX", "신사업", "L"),
-    ("OTHER", "기타매출", "신사업", "—"),
+# Keep this compatibility export because tests and downstream tooling import it.
+# The tuple shape remains ``code, detail, category, unit``.
+SALES_METADATA: tuple[tuple[str, str, str, str], ...] = tuple(
+    (item.code, item.detail, item.category, item.unit)
+    for item in CANONICAL_FORECAST_SALES_ITEMS
 )
 SALES_BY_CODE: Mapping[str, tuple[str, str, str]] = {
     code: (name, group, unit) for code, name, group, unit in SALES_METADATA
+}
+SALES_BY_DETAIL: Mapping[str, tuple[str, str, str]] = {
+    item.detail: (item.code, item.category, item.unit)
+    for item in CANONICAL_FORECAST_SALES_ITEMS
+}
+
+# Old downloaded templates remain uploadable.  They have one LC row and the
+# historic OTHER product-group label; the parser converts them to canonical
+# preview rows and orchestration supplies a zero LC merchandise row.
+LEGACY_SALES_BY_CODE: Mapping[str, tuple[str, str, str]] = {
+    code: value for code, value in SALES_BY_CODE.items() if code != LC_MERCHANDISE_CODE
+}
+LEGACY_SALES_BY_CODE = {
+    **LEGACY_SALES_BY_CODE,
+    "LC": ("LC (4인치)", "LC", UNIT_PCS),
+    "OTHER": ("기타매출", "신사업", "—"),
 }
 
 # These six dimensions are the only accepted business production surface.  The
@@ -103,15 +117,15 @@ def build_input_template() -> bytes:
     sales.title = "판매계획"
     production = workbook.create_sheet("생산계획")
     sales.append(SALES_HEADERS)
-    for code, name, group, _unit in SALES_METADATA:
+    for _code, detail, category, unit in SALES_METADATA:
         # Metadata is pre-filled to make the template self-documenting.  Month
         # and numeric cells remain blank and therefore do not become preview
         # rows until an operator fills them.
-        sales.append((None, code, name, group, None, None))
+        sales.append((None, category, detail, unit, None, None))
     production.append(PRODUCTION_HEADERS)
     for process, group, unit in PRODUCTION_METADATA:
         production.append((None, process, group, None, unit))
-    _style_template_sheet(sales, SALES_HEADERS, (12, 14, 18, 14, 14, 18))
+    _style_template_sheet(sales, SALES_HEADERS, (12, 14, 18, 10, 14, 18))
     _style_template_sheet(production, PRODUCTION_HEADERS, (12, 14, 14, 14, 10))
     output = BytesIO()
     workbook.save(output)
@@ -141,9 +155,16 @@ def parse_input_workbook(
             raise ForecastInputWorkbookError("wrong_sheets")
         sales_ws = workbook["판매계획"]
         production_ws = workbook["생산계획"]
-        _reject_unsafe_worksheet_shapes(sales_ws, SALES_HEADERS)
-        _reject_unsafe_worksheet_shapes(production_ws, PRODUCTION_HEADERS)
-        sales_rows, sales_issues = _parse_sales_rows(sales_ws, start_month, end_month)
+        sales_headers = _validate_worksheet_shape(
+            sales_ws, (SALES_HEADERS, LEGACY_SALES_HEADERS)
+        )
+        _validate_worksheet_shape(production_ws, (PRODUCTION_HEADERS,))
+        sales_rows, sales_issues = _parse_sales_rows(
+            sales_ws,
+            start_month,
+            end_month,
+            legacy=sales_headers == LEGACY_SALES_HEADERS,
+        )
         production_rows, production_issues = _parse_production_rows(production_ws, start_month, end_month)
     finally:
         workbook.close()
@@ -280,14 +301,25 @@ def _validate_package_for_preview(path: Path, filename: str) -> None:
         raise ForecastInputWorkbookError("invalid_xlsx") from exc
 
 
-def _reject_unsafe_worksheet_shapes(worksheet: Any, expected_headers: tuple[str, ...]) -> None:
+def _validate_worksheet_shape(
+    worksheet: Any,
+    accepted_headers: tuple[tuple[str, ...], ...],
+) -> tuple[str, ...]:
     try:
-        if worksheet.max_row > MAX_PREVIEW_ROWS + 1 or worksheet.max_column > len(expected_headers):
+        width = len(accepted_headers[0])
+        if any(len(headers) != width for headers in accepted_headers):
+            raise RuntimeError("accepted headers must have one width")
+        if worksheet.max_row > MAX_PREVIEW_ROWS + 1 or worksheet.max_column > width:
             raise ForecastInputWorkbookError("worksheet_too_large")
-        if tuple(_cell_value(cell) for cell in next(worksheet.iter_rows(min_row=1, max_row=1))) != expected_headers:
+        actual_headers = tuple(
+            _cell_value(cell)
+            for cell in next(worksheet.iter_rows(min_row=1, max_row=1, max_col=width))
+        )
+        if actual_headers not in accepted_headers:
             raise ForecastInputWorkbookError("wrong_headers")
         if getattr(worksheet, "merged_cells", ()):
             raise ForecastInputWorkbookError("unsafe_worksheet")
+        return actual_headers
     except StopIteration as exc:
         raise ForecastInputWorkbookError("missing_headers") from exc
     except ForecastInputWorkbookError:
@@ -312,37 +344,61 @@ def _iter_data_rows(worksheet: Any, width: int) -> Iterable[tuple[int, tuple[Any
         yield row_number, values
 
 
-def _parse_sales_rows(worksheet: Any, start_month: int, end_month: int):
+def _parse_sales_rows(
+    worksheet: Any,
+    start_month: int,
+    end_month: int,
+    *,
+    legacy: bool,
+):
     rows: list[ForecastSalesPreviewRow] = []
     issues: list[ForecastInputIssue] = []
     seen: set[tuple[int, str]] = set()
     for row_number, values in _iter_data_rows(worksheet, len(SALES_HEADERS)):
         # Metadata-only rows are placeholders from the downloaded template.
-        if _is_placeholder_sales(values):
+        if _is_placeholder_sales(values, legacy=legacy):
             continue
         month = _parse_month(values[0], "예상매출월", "판매계획", row_number, start_month, end_month, issues)
-        code = _text(values[1])
-        name = _text(values[2])
-        group = _text(values[3])
         quantity = _parse_number(values[4], "수량", "판매계획", row_number, issues)
         amount = _parse_number(values[5], "매출액", "판매계획", row_number, issues)
-        metadata = SALES_BY_CODE.get(code or "")
-        metadata_valid = metadata is not None
-        if metadata is None:
-            _issue(issues, "unknown_product_code", "알 수 없는 판매 제품코드입니다", "판매계획", row_number, "제품코드")
+        if legacy:
+            code = _text(values[1])
+            name = _text(values[2])
+            group = _text(values[3])
+            metadata = LEGACY_SALES_BY_CODE.get(code or "")
+            metadata_valid = metadata is not None
+            if metadata is None:
+                _issue(issues, "unknown_product_code", "알 수 없는 판매 제품코드입니다", "판매계획", row_number, "제품코드")
+            else:
+                expected_name, expected_group, _unit = metadata
+                if name != expected_name:
+                    metadata_valid = False
+                    _issue(issues, "product_name_mismatch", "제품코드에 맞지 않는 제품명입니다", "판매계획", row_number, "제품명")
+                if group != expected_group:
+                    metadata_valid = False
+                    _issue(issues, "product_group_mismatch", "제품코드에 맞지 않는 제품군입니다", "판매계획", row_number, "제품군")
         else:
-            expected_name, expected_group, _unit = metadata
-            if name != expected_name:
-                metadata_valid = False
-                _issue(issues, "product_name_mismatch", "제품코드에 맞지 않는 제품명입니다", "판매계획", row_number, "제품명")
-            if group != expected_group:
-                metadata_valid = False
-                _issue(issues, "product_group_mismatch", "제품코드에 맞지 않는 제품군입니다", "판매계획", row_number, "제품군")
+            group = _text(values[1])
+            name = _text(values[2])
+            unit = _text(values[3])
+            metadata = SALES_BY_DETAIL.get(name or "")
+            metadata_valid = metadata is not None
+            code = metadata[0] if metadata is not None else ""
+            if metadata is None:
+                _issue(issues, "unknown_sales_detail", "알 수 없는 판매 상세 구분입니다", "판매계획", row_number, "상세 구분")
+            else:
+                _code, expected_group, expected_unit = metadata
+                if group != expected_group:
+                    metadata_valid = False
+                    _issue(issues, "sales_category_mismatch", "상세 구분에 맞지 않는 구분입니다", "판매계획", row_number, "구분")
+                if unit != expected_unit:
+                    metadata_valid = False
+                    _issue(issues, "sales_unit_mismatch", "상세 구분에 맞지 않는 단위입니다", "판매계획", row_number, "단위")
         if month is None or quantity is None or amount is None or not metadata_valid:
             continue
         key = (month, code)
         if key in seen:
-            _issue(issues, "duplicate_sales_row", "동일 월·제품코드가 중복되었습니다", "판매계획", row_number, "제품코드")
+            _issue(issues, "duplicate_sales_row", "동일 월·상세 구분이 중복되었습니다", "판매계획", row_number, "상세 구분")
             continue
         seen.add(key)
         rows.append(ForecastSalesPreviewRow(month, code, name, group, quantity, amount, "판매계획", row_number))
@@ -377,12 +433,16 @@ def _parse_production_rows(worksheet: Any, start_month: int, end_month: int):
     return rows, issues
 
 
-def _is_placeholder_sales(values: tuple[Any, ...]) -> bool:
+def _is_placeholder_sales(values: tuple[Any, ...], *, legacy: bool) -> bool:
     if values[0] not in (None, "") or values[4] not in (None, "") or values[5] not in (None, ""):
         return False
-    code, name, group = (_text(values[index]) for index in (1, 2, 3))
-    metadata = SALES_BY_CODE.get(code)
-    return metadata is not None and metadata[:2] == (name, group)
+    if legacy:
+        code, name, group = (_text(values[index]) for index in (1, 2, 3))
+        metadata = LEGACY_SALES_BY_CODE.get(code)
+        return metadata is not None and metadata[:2] == (name, group)
+    category, detail, unit = (_text(values[index]) for index in (1, 2, 3))
+    item = CANONICAL_FORECAST_SALES_BY_DETAIL.get(detail)
+    return item is not None and (item.category, item.unit) == (category, unit)
 
 
 def _is_placeholder_production(values: tuple[Any, ...]) -> bool:
@@ -507,7 +567,7 @@ def _summary_float(value: Decimal) -> float:
 
 
 __all__ = [
-    "MIME_XLSX", "TEMPLATE_FILENAME", "SALES_HEADERS", "PRODUCTION_HEADERS",
+    "MIME_XLSX", "TEMPLATE_FILENAME", "SALES_HEADERS", "LEGACY_SALES_HEADERS", "PRODUCTION_HEADERS",
     "SALES_METADATA", "PRODUCTION_METADATA", "MAX_PREVIEW_MONTHS", "ForecastInputIssue",
     "ForecastSalesPreviewRow", "ForecastBusinessProductionPreviewRow",
     "ForecastInputUnitSummary", "ForecastInputPreviewResponse",

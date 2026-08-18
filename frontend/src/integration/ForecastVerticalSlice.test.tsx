@@ -179,7 +179,7 @@ describe('Forecast React vertical slice', () => {
     expect(body.start_month).toBe(7);
     expect(body.end_month).toBe(7);
     expect(body.months[0].month).toBe(7);
-    expect(body.months[0].sales).toHaveLength(11);
+    expect(body.months[0].sales).toHaveLength(12);
     expect(body.months[0].production).toBeUndefined();
     expect(body.months[0].business_production).toHaveLength(6);
     expect(body.months[0].mcm).toHaveLength(4);
@@ -525,6 +525,10 @@ describe('Forecast React vertical slice', () => {
 
     fireEvent.change(screen.getByLabelText('7월 SW400 판매수량'), { target: { value: '125.5' } });
     fireEvent.change(screen.getByLabelText('7월 SW400 매출액'), { target: { value: '987654' } });
+    fireEvent.change(screen.getByLabelText('7월 LC 판매수량'), { target: { value: '100' } });
+    fireEvent.change(screen.getByLabelText('7월 LC 매출액'), { target: { value: '100000000' } });
+    fireEvent.change(screen.getByLabelText('7월 LC_MERCHANDISE 판매수량'), { target: { value: '20' } });
+    fireEvent.change(screen.getByLabelText('7월 LC_MERCHANDISE 매출액'), { target: { value: '20000000' } });
     fireEvent.change(screen.getByLabelText('7월 후공정 SW 생산수량'), { target: { value: '88' } });
     fireEvent.change(screen.getByLabelText('7월 SW400 MCM 수량'), { target: { value: '7' } });
     fireEvent.click(screen.getByRole('button', { name: '추정 모형 생성' }));
@@ -532,6 +536,12 @@ describe('Forecast React vertical slice', () => {
 
     const body = JSON.parse(String((fetchMock.mock.calls[2][1] as RequestInit).body));
     expect(body.months[0].sales[0]).toEqual({ product_code: 'SW400', quantity: 125.5, amount: 987654 });
+    expect(body.months[0].sales.find((row: { product_code: string }) => row.product_code === 'LC')).toEqual({
+      product_code: 'LC', quantity: 100, amount: 100000000,
+    });
+    expect(body.months[0].sales.find((row: { product_code: string }) => row.product_code === 'LC_MERCHANDISE')).toEqual({
+      product_code: 'LC_MERCHANDISE', quantity: 20, amount: 20000000,
+    });
     expect(body.months[0].production).toBeUndefined();
     expect(body.months[0].business_production).toEqual([
       { process: '전공정', product_group: 'SW', quantity: 0, unit: 'm' },
@@ -543,7 +553,7 @@ describe('Forecast React vertical slice', () => {
     ]);
     expect(body.months[0].mcm[0]).toEqual({ product_code: 'SW400', quantity: 7 });
     expect(body.months[0].sales.map((row: { product_code: string }) => row.product_code)).toEqual([
-      'SW400', 'SW440', 'BW400', 'BW440', 'LC', 'FS_SW', 'FS_BW', 'FS_TW', 'UF_MBR', 'IX', 'OTHER',
+      'SW400', 'SW440', 'BW400', 'BW440', 'LC', 'LC_MERCHANDISE', 'FS_SW', 'FS_BW', 'FS_TW', 'UF_MBR', 'IX', 'OTHER',
     ]);
     expect(JSON.stringify(body.months[0].business_production)).not.toMatch(/SW400|SW440|BW400|BW440|FS_SW|FS_BW|FS_TW/);
   });
@@ -795,7 +805,8 @@ describe('Forecast React vertical slice', () => {
       ['SW', 'SW440'],
       ['BW', 'BW400'],
       ['BW', 'BW440'],
-      ['LC', 'LC (4인치)'],
+      ['LC', 'LC(제품)'],
+      ['LC', 'LC(상품)'],
       ['FS', 'FS SW'],
       ['FS', 'FS BW'],
       ['FS', 'FS TW'],

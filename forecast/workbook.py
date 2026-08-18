@@ -771,12 +771,15 @@ class GoldenWorkbook:
                 "amount": "매출액",
                 "manufactured_quantity": "제조 수량",
                 "manufactured_amount": "제조 매출액",
+                "product_quantity": "제품 수량",
+                "product_amount": "제품 매출액",
                 "goods_quantity": "상품 수량",
                 "goods_amount": "상품 매출액",
             }.get(parts[-1], parts[-1])
             product = {
                 "new_business": "신사업",
                 "other": "기타매출",
+                "LC_MERCHANDISE": "LC(상품)",
             }.get(parts[1], parts[1])
             return f"{product} {suffix}"
         if source.startswith("production.") and len(parts) >= 2:

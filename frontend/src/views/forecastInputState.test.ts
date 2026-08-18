@@ -52,6 +52,10 @@ describe('forecast direct-input adapter', () => {
     const month = createForecastMonthFormState(7);
     month.sales.SW400.quantity = '12.5';
     month.sales.SW400.amount = '1000';
+    month.sales.LC.quantity = '100';
+    month.sales.LC.amount = '100000000';
+    month.sales.LC_MERCHANDISE.quantity = '20';
+    month.sales.LC_MERCHANDISE.amount = '20000000';
     month.production['back:SW'].quantity = '8';
     month.mcm.SW400.quantity = '3';
 
@@ -66,6 +70,12 @@ describe('forecast direct-input adapter', () => {
     });
     expect(adapted.value?.[0].mcm).toHaveLength(MCM_PRODUCTS.length);
     expect(adapted.value?.[0].sales[0]).toEqual({ product_code: 'SW400', quantity: 12.5, amount: 1000 });
+    expect(adapted.value?.[0].sales.find(({ product_code }) => product_code === 'LC')).toEqual({
+      product_code: 'LC', quantity: 100, amount: 100000000,
+    });
+    expect(adapted.value?.[0].sales.find(({ product_code }) => product_code === 'LC_MERCHANDISE')).toEqual({
+      product_code: 'LC_MERCHANDISE', quantity: 20, amount: 20000000,
+    });
     expect(adapted.value?.[0].manufacturing_adjustments).toEqual([]);
     expect(adapted.value?.[0].sga_adjustments).toEqual([]);
     expect(adapted.value?.[0].new_business_goods_cogs_mode).toBe('ACTUAL_YTD_DEFAULT');
@@ -195,6 +205,12 @@ describe('forecast direct-input adapter', () => {
       sales_rows: [{
         month: 7, product_code: 'SW400', product_name: 'SW400', product_group: 'SW',
         quantity: 123, amount: 456, source_sheet: '판매계획' as const, source_row: 2,
+      }, {
+        month: 7, product_code: 'LC', product_name: 'LC(제품)', product_group: 'LC',
+        quantity: 100, amount: 100000000, source_sheet: '판매계획' as const, source_row: 6,
+      }, {
+        month: 7, product_code: 'LC_MERCHANDISE', product_name: 'LC(상품)', product_group: 'LC',
+        quantity: 20, amount: 20000000, source_sheet: '판매계획' as const, source_row: 7,
       }],
       business_production_rows: [{
         month: 7, process: '후공정' as const, product_group: 'SW' as const,
@@ -207,6 +223,8 @@ describe('forecast direct-input adapter', () => {
 
     expect(applied[7].sales.SW400).toEqual({ quantity: '123', amount: '456' });
     expect(applied[7].sales.SW440).toEqual({ quantity: '0', amount: '0' });
+    expect(applied[7].sales.LC).toEqual({ quantity: '100', amount: '100000000' });
+    expect(applied[7].sales.LC_MERCHANDISE).toEqual({ quantity: '20', amount: '20000000' });
     expect(applied[7].production['back:SW']).toEqual({ quantity: '1000' });
     expect(applied[7].production['front:SW']).toEqual({ quantity: '0' });
     expect(applied[7].mcm.SW400.quantity).toBe('77');

@@ -16,6 +16,11 @@ from forecast.bff.forecast_orchestration import (
     ForecastQuantityInput, ForecastReservation, ForecastSalesInput,
 )
 from forecast.provenance import ResultProvenance
+from forecast.sales_contract import (
+    FORECAST_SALES_CONTRACT_VERSION,
+    LC_SALES_MODE_EXPLICIT,
+    LC_SALES_MODE_LEGACY_PRODUCT_ONLY,
+)
 
 
 BASE_ID = "11111111-1111-4111-8111-111111111111"
@@ -93,6 +98,47 @@ def ranged_request(start_month: int, end_month: int):
         ),
         f"scope-{start_month}-{end_month}",
     )
+
+
+def test_sales_contract_preserves_explicit_lc_product_and_merchandise_and_normalizes_legacy():
+    target, _session = service(Gateway())
+    legacy = target._validate(request())
+    legacy_sales = {item.product_code: item for item in legacy.months[0].sales}
+    assert legacy_sales["LC"].amount == 100
+    assert legacy_sales["LC_MERCHANDISE"].quantity == 0
+    assert legacy_sales["LC_MERCHANDISE"].amount == 0
+    assert legacy.months[0].sales_contract_version == FORECAST_SALES_CONTRACT_VERSION
+    assert legacy.months[0].lc_sales_mode == LC_SALES_MODE_LEGACY_PRODUCT_ONLY
+
+    base = request()
+    explicit_month = replace(
+        base.months[0],
+        sales=base.months[0].sales + (
+            ForecastSalesInput("LC_MERCHANDISE", 20, 20_000_000),
+        ),
+    )
+    explicit = target._validate(replace(base, months=(explicit_month,)))
+    explicit_sales = {item.product_code: item for item in explicit.months[0].sales}
+    assert explicit_sales["LC"].amount == 100
+    assert explicit_sales["LC_MERCHANDISE"].quantity == 20
+    assert explicit_sales["LC_MERCHANDISE"].amount == 20_000_000
+    assert explicit.months[0].sales_contract_version == FORECAST_SALES_CONTRACT_VERSION
+    assert explicit.months[0].lc_sales_mode == LC_SALES_MODE_EXPLICIT
+
+
+@pytest.mark.parametrize("duplicate_code", ["LC", "LC_MERCHANDISE"])
+def test_sales_contract_rejects_duplicate_lc_identity(duplicate_code):
+    target, _session = service(Gateway())
+    base = request()
+    sales = base.months[0].sales + (
+        ForecastSalesInput("LC_MERCHANDISE", 20, 20_000_000),
+    )
+    duplicate = next(item for item in sales if item.product_code == duplicate_code)
+    invalid_month = replace(base.months[0], sales=sales + (duplicate,))
+    with pytest.raises(BffError) as captured:
+        target._validate(replace(base, months=(invalid_month,)))
+    assert captured.value.code == ApiErrorCode.VALIDATION_ERROR
+    assert "months.0.sales" in captured.value.error.field_errors
 
 
 @patch("forecast.bff.forecast_orchestration.infer_workbook_year", return_value=2026)

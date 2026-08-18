@@ -4,14 +4,23 @@ import json
 import re
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import Any, Mapping
 
 from .merchandise_cogs import (
+    ActualYtdMerchandiseSource,
+    ForecastMerchandiseCogsCalculation,
     GoldenForecastMerchandiseAdapter,
     MerchandiseSourceValidationError,
     NewBusinessGoodsCogsMode,
     calculate_forecast_merchandise_cogs,
     normalize_new_business_goods_cogs,
+)
+from .sales_contract import (
+    FORECAST_SALES_CONTRACT_VERSION,
+    LC_MERCHANDISE_CODE,
+    LC_PRODUCT_CODE,
+    LC_SALES_MODE_EXPLICIT,
+    LC_SALES_MODE_LEGACY_PRODUCT_ONLY,
 )
 from .workbook import GoldenWorkbook
 
@@ -60,6 +69,8 @@ class ForecastInput:
     raw_material_adjustment: float = 0
     raw_material_reason: str = ""
     refund_rate: float = 0.013
+    sales_contract_version: str = FORECAST_SALES_CONTRACT_VERSION
+    lc_sales_mode: str = LC_SALES_MODE_LEGACY_PRODUCT_ONLY
 
 
 @dataclass
@@ -77,6 +88,42 @@ class ForecastResult:
     workbook_path: str
     start_month: int = 0
     end_month: int = 0
+
+
+def calculate_lc_merchandise_forecast(
+    sales: Mapping[str, SalesInput],
+    source: ActualYtdMerchandiseSource,
+    *,
+    forecast_month: int,
+) -> ForecastMerchandiseCogsCalculation:
+    """Apply the authoritative LC merchandise rate to explicit merchandise revenue.
+
+    LC manufactured-product sales and production are deliberately absent from
+    this boundary.  They cannot influence merchandise COGS.
+    """
+
+    merchandise = sales.get(LC_MERCHANDISE_CODE, SalesInput())
+    return calculate_forecast_merchandise_cogs(
+        source,
+        forecast_month=forecast_month,
+        forecast_merchandise_revenue=merchandise.amount,
+    )
+
+
+def calculate_merchandise_cogs_total(
+    lc_merchandise: ForecastMerchandiseCogsCalculation,
+    new_business_merchandise: ForecastMerchandiseCogsCalculation,
+) -> float:
+    """Canonical merchandise-only COGS aggregation.
+
+    Manufactured LC and every other manufactured-product cost are excluded by
+    construction because this boundary accepts only merchandise calculations.
+    """
+
+    return (
+        lc_merchandise.applied_forecast_cogs
+        + new_business_merchandise.applied_forecast_cogs
+    )
 
 
 class ForecastEngine:
@@ -103,6 +150,26 @@ class ForecastEngine:
         return chr(ord("E") + month - 1)
 
     def run(self, request: ForecastInput, destination: str | Path) -> ForecastResult:
+        merchandise_input = request.sales.get(LC_MERCHANDISE_CODE)
+        explicit_mode_valid = (
+            request.lc_sales_mode == LC_SALES_MODE_EXPLICIT
+            and merchandise_input is not None
+        )
+        legacy_mode_valid = (
+            request.lc_sales_mode == LC_SALES_MODE_LEGACY_PRODUCT_ONLY
+            and (
+                merchandise_input is None
+                or (
+                    merchandise_input.quantity == 0
+                    and merchandise_input.amount == 0
+                )
+            )
+        )
+        if (
+            request.sales_contract_version != FORECAST_SALES_CONTRACT_VERSION
+            or not (explicit_mode_valid or legacy_mode_valid)
+        ):
+            raise ValueError("Forecast sales contract identity is invalid")
         col = self.column(request.month)
         wb = GoldenWorkbook(self.model_path)
         explicit = set(self.mapping["formula_input_exceptions"])
@@ -153,9 +220,10 @@ class ForecastEngine:
             addr = f"{col}{row}"
             wb.set_input(addr, value, source, reason, allow_formula=(addr in explicit or f"*{row}" in explicit))
 
-        # Existing products. LC is split into manufactured and purchased excess after production is known.
+        # Existing manufactured products. LC merchandise has its own canonical
+        # sales item and is never inferred from production or a shared LC price.
         for key, spec in self.mapping["sales"].items():
-            if key in ("LC", "UF_MBR", "IX", "OTHER"): continue
+            if key in (LC_PRODUCT_CODE, "UF_MBR", "IX", "OTHER"): continue
             item = request.sales.get(key, SalesInput())
             put(spec["quantity_row"], item.quantity, f"sales.{key}.quantity")
             put(spec["amount_row"], item.amount, f"sales.{key}.amount")
@@ -165,16 +233,15 @@ class ForecastEngine:
         for key, row in self.mapping["mcm"].items():
             put(row, request.mcm.get(key, 0), f"mcm.{key}", "MCM(유상사급): 기존 모형 로직 사용")
 
-        lc = request.sales.get("LC", SalesInput())
-        lc_production = request.production.get("LC", 0)
-        manufactured_qty = min(max(lc.quantity, 0), max(lc_production, 0))
-        goods_qty = max(lc.quantity - manufactured_qty, 0)
-        lc_price = lc.amount / lc.quantity if lc.quantity else 0
-        put(self.mapping["sales"]["LC"]["quantity_row"], manufactured_qty, "sales.LC.manufactured_quantity")
-        put(self.mapping["sales"]["LC"]["amount_row"], manufactured_qty * lc_price, "sales.LC.manufactured_amount")
-        put(self.mapping["lc_goods"]["quantity_row"], goods_qty, "sales.LC.goods_quantity")
-        lc_goods_revenue = goods_qty * lc_price
-        put(self.mapping["lc_goods"]["amount_row"], lc_goods_revenue, "sales.LC.goods_amount")
+        lc_product = request.sales.get(LC_PRODUCT_CODE, SalesInput())
+        lc_merchandise_sales = request.sales.get(LC_MERCHANDISE_CODE, SalesInput())
+        manufactured_qty = lc_product.quantity
+        goods_qty = lc_merchandise_sales.quantity
+        lc_goods_revenue = lc_merchandise_sales.amount
+        put(self.mapping["sales"][LC_PRODUCT_CODE]["quantity_row"], lc_product.quantity, "sales.LC.product_quantity")
+        put(self.mapping["sales"][LC_PRODUCT_CODE]["amount_row"], lc_product.amount, "sales.LC.product_amount")
+        put(self.mapping["lc_goods"]["quantity_row"], goods_qty, "sales.LC_MERCHANDISE.goods_quantity")
+        put(self.mapping["lc_goods"]["amount_row"], lc_goods_revenue, "sales.LC_MERCHANDISE.goods_amount")
 
         uf = request.sales.get("UF_MBR", SalesInput())
         ix = request.sales.get("IX", SalesInput())
@@ -264,10 +331,10 @@ class ForecastEngine:
             uf.amount * request.uf_mbr_cogs_rate
             + ix.amount * request.ix_cogs_rate
         )
-        lc_merchandise = calculate_forecast_merchandise_cogs(
+        lc_merchandise = calculate_lc_merchandise_forecast(
+            request.sales,
             merchandise_sources["LC"],
             forecast_month=request.month,
-            forecast_merchandise_revenue=lc_goods_revenue,
         )
         new_business_merchandise = calculate_forecast_merchandise_cogs(
             merchandise_sources["NEW_BUSINESS"],
@@ -275,9 +342,8 @@ class ForecastEngine:
             forecast_merchandise_revenue=new_business_revenue,
             selection=new_business_selection,
         )
-        goods_cogs = (
-            lc_merchandise.applied_forecast_cogs
-            + new_business_merchandise.applied_forecast_cogs
+        goods_cogs = calculate_merchandise_cogs_total(
+            lc_merchandise, new_business_merchandise
         )
         put(
             self.mapping["special_rows"]["goods_cogs"],
@@ -330,6 +396,12 @@ class ForecastEngine:
             operating_profit=op, operating_margin=(op/revenue if revenue else 0),
             detail={
                 "lc_manufactured_qty": manufactured_qty, "lc_goods_qty": goods_qty,
+                "lc_product_sales_quantity": lc_product.quantity,
+                "lc_product_sales_revenue": lc_product.amount,
+                "lc_merchandise_sales_quantity": lc_merchandise_sales.quantity,
+                "lc_merchandise_sales_revenue": lc_goods_revenue,
+                "forecast_sales_contract_version": request.sales_contract_version,
+                "lc_sales_mode": request.lc_sales_mode,
                 "lc_unit_cost": lc_unit_cost, "uf_mbr_goods_cogs": uf.amount * request.uf_mbr_cogs_rate,
                 "ix_goods_cogs": ix.amount * request.ix_cogs_rate,
                 "new_business_goods_cogs_reference": reference_new_business_goods_cogs,
@@ -370,7 +442,9 @@ class ForecastEngine:
                 "applied_raw_material_input": applied_rm,
                 "applied_front_raw_material_input": applied_front_rm,
                 "applied_back_raw_material_input": applied_back_rm,
-                "raw_material_customs_refund": refund, "goods_cogs_total": goods_cogs,
+                "raw_material_customs_refund": refund,
+                "goods_cogs_total": goods_cogs,
+                "merchandise_cogs_total": goods_cogs,
             }, validations=validation, input_log=wb.log_dicts(), workbook_path=str(output),
             start_month=request.month, end_month=request.month,
         )

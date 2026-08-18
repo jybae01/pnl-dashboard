@@ -19,6 +19,12 @@ from ..merchandise_cogs import (
     normalize_new_business_goods_cogs,
 )
 from ..provenance import ResultProvenance, canonical_json_bytes, mapping_hash
+from ..sales_contract import (
+    FORECAST_SALES_CONTRACT_VERSION,
+    LC_MERCHANDISE_CODE,
+    LC_SALES_MODE_EXPLICIT,
+    LC_SALES_MODE_LEGACY_PRODUCT_ONLY,
+)
 from ..workbook import extract_period_types, infer_workbook_year
 from .auth import AccessCodeSessionService
 from .errors import ApiErrorCode, BffError
@@ -80,6 +86,8 @@ class ForecastMonthInput:
     raw_material_adjustment: float = 0
     raw_material_reason: str = ""
     refund_rate: float = 0.013
+    sales_contract_version: str = FORECAST_SALES_CONTRACT_VERSION
+    lc_sales_mode: str = LC_SALES_MODE_LEGACY_PRODUCT_ONLY
 
 
 @dataclass(frozen=True)
@@ -404,7 +412,12 @@ class ForecastGenerationService:
             selections.append(self._validate_month(item, errors, index))
         if errors: raise BffError(ApiErrorCode.VALIDATION_ERROR, "Forecast request is invalid", field_errors=errors)
         normalized_months = tuple(replace(item,
-            sales=tuple(sorted(item.sales, key=lambda value: value.product_code)),
+            sales=tuple(sorted(
+                item.sales if any(
+                    value.product_code == LC_MERCHANDISE_CODE for value in item.sales
+                ) else item.sales + (ForecastSalesInput(LC_MERCHANDISE_CODE, 0, 0),),
+                key=lambda value: value.product_code,
+            )),
             production=tuple(sorted(item.production, key=lambda value: value.product_code)),
             mcm=tuple(sorted(item.mcm, key=lambda value: value.product_code)),
             manufacturing_adjustments=tuple(sorted(item.manufacturing_adjustments, key=lambda value: value.row)),
@@ -413,6 +426,12 @@ class ForecastGenerationService:
             new_business_goods_cogs=selection.manual_amount,
             new_business_goods_cogs_reason=selection.reason,
             new_business_goods_cogs_legacy_normalized=selection.legacy_normalized,
+            sales_contract_version=FORECAST_SALES_CONTRACT_VERSION,
+            lc_sales_mode=(
+                LC_SALES_MODE_EXPLICIT
+                if any(value.product_code == LC_MERCHANDISE_CODE for value in item.sales)
+                else LC_SALES_MODE_LEGACY_PRODUCT_ONLY
+            ),
         ) for item, selection in zip(request.months, selections) if selection is not None)
         return ForecastGenerateRequest(base_id, name, request.model_year, version,
             request.start_month, request.end_month, normalized_months, key)
@@ -432,16 +451,20 @@ class ForecastGenerationService:
             errors[f"months.{index}.{exc.field}"] = exc.code
         if not isinstance(item.month, int) or isinstance(item.month, bool) or not 1 <= item.month <= 12:
             errors[f"months.{index}.month"] = "must be an integer from 1 through 12"
-        sales_allowed = set(self._mapping.get("sales", {})) | {"UF_MBR", "IX", "OTHER"}
+        sales_allowed = set(self._mapping.get("sales", {})) | {
+            "UF_MBR", "IX", "OTHER", LC_MERCHANDISE_CODE,
+        }
+        legacy_sales_allowed = sales_allowed - {LC_MERCHANDISE_CODE}
         production_allowed = set(self._mapping.get("production", {}))
         mcm_allowed = set(self._mapping.get("mcm", {}))
-        if {x.product_code for x in item.sales} != sales_allowed:
+        sales_codes = {x.product_code for x in item.sales}
+        if sales_codes not in (sales_allowed, legacy_sales_allowed):
             errors[f"months.{index}.sales"] = "must include every canonical sales product exactly once"
         if {x.product_code for x in item.production} != production_allowed:
             errors[f"months.{index}.production"] = "must include every canonical production product exactly once"
         if {x.product_code for x in item.mcm} != mcm_allowed:
             errors[f"months.{index}.mcm"] = "must include every canonical MCM product exactly once"
-        if len({x.product_code for x in item.sales}) != len(item.sales) or any(x.product_code not in sales_allowed for x in item.sales):
+        if len(sales_codes) != len(item.sales) or any(x.product_code not in sales_allowed for x in item.sales):
             errors[f"months.{index}.sales"] = "contains duplicate or unsupported product"
         if any(x.product_code not in production_allowed for x in item.production): errors[f"months.{index}.production"] = "unsupported product"
         if any(x.product_code not in mcm_allowed for x in item.mcm): errors[f"months.{index}.mcm"] = "unsupported product"
@@ -528,4 +551,6 @@ def _engine_input(value: ForecastMonthInput) -> ForecastInput:
         tariff_applicable_rate=value.tariff_applicable_rate, tariff_rate=value.tariff_rate,
         raw_material_basis=value.raw_material_basis, raw_material_direct=value.raw_material_direct,
         raw_material_adjustment=value.raw_material_adjustment, raw_material_reason=value.raw_material_reason,
-        refund_rate=value.refund_rate)
+        refund_rate=value.refund_rate,
+        sales_contract_version=value.sales_contract_version,
+        lc_sales_mode=value.lc_sales_mode)

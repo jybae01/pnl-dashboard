@@ -180,6 +180,34 @@ def test_http_preserves_legacy_omission_and_forwards_explicit_actual_mode():
     assert explicit_month.new_business_goods_cogs is None
 
 
+def test_http_preserves_distinct_lc_product_and_merchandise_sales_rows():
+    allocation = AllocationDouble(
+        lambda values: _canonical(values[0].month, tuple(range(1, 9))), []
+    )
+    client, forecast = make_business_fixture(allocation)
+    client.post("/api/session/login", json={"access_code": "admin-code"})
+    body = _body([7], {7: {
+        "business_production": _business_rows(),
+        "sales": [
+            {"product_code": "LC", "quantity": 100, "amount": 100_000_000},
+            {"product_code": "LC_MERCHANDISE", "quantity": 20, "amount": 20_000_000},
+        ],
+    }})
+    body["idempotency_key"] = "business-http-lc-split"
+
+    response = client.post(
+        "/api/admin/forecasts",
+        json=body,
+        headers={"X-CSRF-Token": client.cookies.get("pnl_csrf")},
+    )
+    assert response.status_code == 200
+    sales = {item.product_code: item for item in forecast.last_request.months[0].sales}
+    assert sales["LC"].quantity == 100
+    assert sales["LC"].amount == 100_000_000
+    assert sales["LC_MERCHANDISE"].quantity == 20
+    assert sales["LC_MERCHANDISE"].amount == 20_000_000
+
+
 def test_business_fixture_reaches_existing_forecast_contract_with_expected_canonical_values():
     allocation = AllocationDouble(
         lambda values: allocate_production(

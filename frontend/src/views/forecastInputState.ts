@@ -27,7 +27,8 @@ export const SALES_PRODUCTS: readonly ForecastProductDefinition[] = [
   { code: 'SW440', category: 'SW', label: 'SW440', unit: 'PCS' },
   { code: 'BW400', category: 'BW', label: 'BW400', unit: 'PCS' },
   { code: 'BW440', category: 'BW', label: 'BW440', unit: 'PCS' },
-  { code: 'LC', category: 'LC', label: 'LC (4인치)', unit: 'PCS' },
+  { code: 'LC', category: 'LC', label: 'LC(제품)', unit: 'PCS' },
+  { code: 'LC_MERCHANDISE', category: 'LC', label: 'LC(상품)', unit: 'PCS' },
   { code: 'FS_SW', category: 'FS', label: 'FS SW', unit: 'm' },
   { code: 'FS_BW', category: 'FS', label: 'FS BW', unit: 'm' },
   { code: 'FS_TW', category: 'FS', label: 'FS TW', unit: 'm' },
@@ -38,7 +39,12 @@ export const SALES_PRODUCTS: readonly ForecastProductDefinition[] = [
 
 // Legacy canonical product export retained for non-UI consumers. The Forecast
 // form submits BUSINESS_PRODUCTION_ROWS and the backend performs allocation.
-export const PRODUCTION_PRODUCTS: readonly ForecastProductDefinition[] = SALES_PRODUCTS.slice(0, 8);
+const PRODUCTION_PRODUCT_CODES = new Set([
+  'SW400', 'SW440', 'BW400', 'BW440', 'LC', 'FS_SW', 'FS_BW', 'FS_TW',
+]);
+export const PRODUCTION_PRODUCTS: readonly ForecastProductDefinition[] = SALES_PRODUCTS.filter(
+  ({ code }) => PRODUCTION_PRODUCT_CODES.has(code),
+);
 
 export const BUSINESS_PRODUCTION_ROWS: readonly ForecastBusinessProductionDefinition[] = [
   { key: 'front:SW', process: '전공정', productGroup: 'SW', label: 'SW', unit: 'm' },

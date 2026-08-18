@@ -12,6 +12,7 @@ from openpyxl import Workbook, load_workbook
 from forecast.bff.application import TrustedBffApplication
 from forecast.bff.auth import AccessCodeSessionService
 from forecast.bff.forecast_input_preview import (
+    LEGACY_SALES_HEADERS,
     MIME_XLSX,
     PRODUCTION_HEADERS,
     SALES_HEADERS,
@@ -41,11 +42,17 @@ def test_template_is_exact_two_sheet_data_only_workbook():
     assert workbook.sheetnames == ["판매계획", "생산계획"]
     assert tuple(cell.value for cell in next(workbook.worksheets[0].iter_rows(max_row=1))) == SALES_HEADERS
     assert tuple(cell.value for cell in next(workbook.worksheets[1].iter_rows(max_row=1))) == PRODUCTION_HEADERS
-    assert workbook.worksheets[0].max_row == 12
+    assert workbook.worksheets[0].max_row == 13
     assert workbook.worksheets[1].max_row == 7
     assert workbook.worksheets[0].freeze_panes == "A2"
     assert workbook.worksheets[0]["A1"].font.bold is True
     assert workbook.worksheets[0].column_dimensions["A"].width >= 10
+    sales_rows = [
+        tuple(cell.value for cell in row)
+        for row in workbook.worksheets[0].iter_rows(min_row=2)
+    ]
+    assert (None, "LC", "LC(제품)", "PCS", None, None) in sales_rows
+    assert (None, "LC", "LC(상품)", "PCS", None, None) in sales_rows
     workbook.close()
     with zipfile.ZipFile(BytesIO(build_input_template())) as archive:
         assert archive.testzip() is None
@@ -70,6 +77,92 @@ def test_preview_returns_source_rows_and_unit_separated_summaries():
         path.unlink(missing_ok=True)
 
 
+def test_preview_preserves_lc_product_and_merchandise_as_distinct_sales_items():
+    path = Path.cwd() / f".forecast-input-{uuid4().hex}.xlsx"
+    try:
+        workbook = load_workbook(BytesIO(build_input_template()))
+        sales = workbook["판매계획"]
+        rows_by_detail = {
+            sales.cell(row=row, column=3).value: row
+            for row in range(2, sales.max_row + 1)
+        }
+        for detail, quantity, amount in (
+            ("LC(제품)", 100, 100_000_000),
+            ("LC(상품)", 20, 20_000_000),
+        ):
+            row = rows_by_detail[detail]
+            sales.cell(row=row, column=1).value = 7
+            sales.cell(row=row, column=5).value = quantity
+            sales.cell(row=row, column=6).value = amount
+        workbook.save(path)
+        workbook.close()
+
+        value = parse_input_workbook(
+            path, start_month=7, end_month=7, source_filename="input.xlsx"
+        )
+        assert value.valid is True
+        assert [(row.product_code, row.quantity, row.amount) for row in value.sales_rows] == [
+            ("LC", 100.0, 100_000_000.0),
+            ("LC_MERCHANDISE", 20.0, 20_000_000.0),
+        ]
+    finally:
+        path.unlink(missing_ok=True)
+
+
+@pytest.mark.parametrize("detail", ["LC(제품)", "LC(상품)"])
+def test_preview_rejects_duplicate_lc_detail_without_confusing_the_other_lc_row(detail):
+    path = Path.cwd() / f".forecast-input-{uuid4().hex}.xlsx"
+    try:
+        workbook = load_workbook(BytesIO(build_input_template()))
+        sales = workbook["판매계획"]
+        rows_by_detail = {
+            sales.cell(row=row, column=3).value: row
+            for row in range(2, sales.max_row + 1)
+        }
+        for candidate in ("LC(제품)", "LC(상품)"):
+            row = rows_by_detail[candidate]
+            sales.cell(row=row, column=1).value = 7
+            sales.cell(row=row, column=5).value = 1
+            sales.cell(row=row, column=6).value = 1
+        target = rows_by_detail[detail]
+        sales.append(tuple(sales.cell(row=target, column=column).value for column in range(1, 7)))
+        workbook.save(path)
+        workbook.close()
+
+        value = parse_input_workbook(
+            path, start_month=7, end_month=7, source_filename="input.xlsx"
+        )
+        assert value.valid is False
+        assert [issue.code for issue in value.issues].count("duplicate_sales_row") == 1
+        assert {row.product_code for row in value.sales_rows} == {"LC", "LC_MERCHANDISE"}
+    finally:
+        path.unlink(missing_ok=True)
+
+
+def test_legacy_single_lc_template_remains_parseable():
+    path = Path.cwd() / f".forecast-input-{uuid4().hex}.xlsx"
+    try:
+        workbook = Workbook()
+        sales = workbook.active
+        sales.title = "판매계획"
+        production = workbook.create_sheet("생산계획")
+        sales.append(LEGACY_SALES_HEADERS)
+        sales.append((7, "LC", "LC (4인치)", "LC", 10, 20_000_000))
+        production.append(PRODUCTION_HEADERS)
+        workbook.save(path)
+        workbook.close()
+
+        value = parse_input_workbook(
+            path, start_month=7, end_month=7, source_filename="legacy.xlsx"
+        )
+        assert value.valid is True
+        assert [(row.product_code, row.amount) for row in value.sales_rows] == [
+            ("LC", 20_000_000.0),
+        ]
+    finally:
+        path.unlink(missing_ok=True)
+
+
 def test_metadata_only_template_is_structured_blocking_empty_input():
     path = Path.cwd() / f".forecast-input-{uuid4().hex}.xlsx"
     try:
@@ -88,11 +181,8 @@ def test_preview_rejects_unknown_metadata_duplicate_and_invalid_numbers():
         _write_workbook(path)
         workbook = load_workbook(path)
         sales = workbook.worksheets[0]
-        sales["B2"] = "UNKNOWN"
+        sales["C2"] = "UNKNOWN"
         sales["A3"] = 7
-        sales["B3"] = "SW400"
-        sales["C3"] = "SW400"
-        sales["D3"] = "SW"
         sales["E3"] = -1
         sales["F3"] = "NaN"
         workbook.save(path)
@@ -100,7 +190,7 @@ def test_preview_rejects_unknown_metadata_duplicate_and_invalid_numbers():
         value = parse_input_workbook(path, start_month=7, end_month=12, source_filename="input.xlsx")
         codes = {item.code for item in value.issues}
         assert value.valid is False and value.blocking is True
-        assert {"unknown_product_code", "negative_numeric", "invalid_numeric"} <= codes
+        assert {"unknown_sales_detail", "negative_numeric", "invalid_numeric"} <= codes
     finally:
         path.unlink(missing_ok=True)
 
@@ -350,12 +440,9 @@ def test_preview_invalid_dimensions_metadata_duplicates_and_missing_values_are_b
         workbook = load_workbook(path)
         sales, production = workbook.worksheets
         sales["A2"] = 6  # out of requested period
-        sales["C2"] = "wrong name"
-        sales["D2"] = "wrong group"
+        sales["B2"] = "wrong category"
         sales["A3"] = 7
-        sales["B3"] = "SW400"  # duplicate code/month
-        sales["C3"] = "SW400"
-        sales["D3"] = "SW"
+        sales["C3"] = "wrong detail"
         sales["E3"] = None
         sales["F3"] = None
         production["A2"] = 7
@@ -368,7 +455,7 @@ def test_preview_invalid_dimensions_metadata_duplicates_and_missing_values_are_b
         value = parse_input_workbook(path, start_month=7, end_month=7, source_filename="input.xlsx")
         codes = {item.code for item in value.issues}
         assert value.blocking is True and value.valid is False
-        assert {"month_out_of_period", "product_name_mismatch", "product_group_mismatch", "missing_numeric", "invalid_production_dimension", "negative_numeric"} <= codes
+        assert {"month_out_of_period", "unknown_sales_detail", "sales_category_mismatch", "missing_numeric", "invalid_production_dimension", "negative_numeric"} <= codes
     finally:
         path.unlink(missing_ok=True)
 
@@ -381,10 +468,10 @@ def test_preview_reports_invalid_month_unit_and_sales_and_production_duplicates(
         sales, production = workbook.worksheets
 
         # Keep the first template rows valid, then append exact duplicate keys.
-        sales.append((7, "SW400", "SW400", "SW", 2, 3))
+        sales.append((7, "SW", "SW400", "PCS", 2, 3))
         production.append((7, "전공정", "SW", 2, "m"))
         # Independent malformed rows prove strict month and unit handling.
-        sales.append((13, "SW440", "SW440", "SW", 2, 3))
+        sales.append((13, "SW", "SW440", "PCS", 2, 3))
         production.append((7, "후공정", "BW", 2, "m"))
         workbook.save(path)
         workbook.close()
