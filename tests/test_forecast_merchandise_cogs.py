@@ -180,6 +180,7 @@ def test_engine_writes_explicit_lc_merchandise_revenue_and_excludes_manufactured
         def __init__(self, _path):
             self.values = {}
             self.inputs = {}
+            self.formulas = {"K101": "=K56", "K102": "=K57"}
             self.__class__.instances.append(self)
 
         def raw_value(self, address):
@@ -285,10 +286,10 @@ def test_engine_writes_explicit_lc_merchandise_revenue_and_excludes_manufactured
     assert changed_workbook.inputs["K56"] == 100
     assert first_workbook.inputs["K57"] == 100_000_000
     assert changed_workbook.inputs["K57"] == 900_000_000
-    assert first_workbook.values["K101"] == 100
-    assert changed_workbook.values["K101"] == 100
-    assert first_workbook.values["K102"] == 100_000_000
-    assert changed_workbook.values["K102"] == 900_000_000
+    assert first_workbook.inputs["K101"] == 100
+    assert changed_workbook.inputs["K101"] == 100
+    assert first_workbook.inputs["K102"] == 100_000_000
+    assert changed_workbook.inputs["K102"] == 900_000_000
     assert first_workbook.values["K1645"] == 100
     assert changed_workbook.values["K1645"] == 100
     assert first_workbook.values["K1646"] == 100_000_000

@@ -180,6 +180,8 @@ class ForecastEngine:
             authoritative_rows = {
                 int(lc_product_input_rows["quantity_row"]),
                 int(lc_product_input_rows["amount_row"]),
+                int(lc_product_rows["quantity_row"]),
+                int(lc_product_rows["revenue_row"]),
                 int(lc_merchandise_rows["quantity_row"]),
                 int(lc_merchandise_rows["revenue_row"]),
                 int(self.merchandise_mapping["products"]["LC"]["actual_cogs_row"]),
@@ -261,6 +263,25 @@ class ForecastEngine:
         lc_goods_revenue = lc_merchandise_sales.amount
         put(int(lc_product_input_rows["quantity_row"]), lc_product.quantity, "sales.LC.product_quantity")
         put(int(lc_product_input_rows["amount_row"]), lc_product.amount, "sales.LC.product_amount")
+        for output_key, input_key in (
+            ("quantity_row", "quantity_row"),
+            ("revenue_row", "amount_row"),
+        ):
+            output_address = f"{col}{int(lc_product_rows[output_key])}"
+            input_address = f"{col}{int(lc_product_input_rows[input_key])}"
+            observed_formula = str(wb.formulas.get(output_address) or "").replace("$", "").upper()
+            if observed_formula != f"={input_address}".upper():
+                raise MerchandiseSourceValidationError(
+                    "lc_product_sales_formula_mismatch",
+                    f"{output_address} must reference canonical LC Product input {input_address}",
+                    product_code="LC",
+                )
+        # Persist the two authoritative Forecast sales rows as explicit values
+        # as well as their underlying input cells.  Generated workbooks then
+        # carry correct row-level evidence even before desktop Excel refreshes
+        # formula caches on open.
+        put(int(lc_product_rows["quantity_row"]), lc_product.quantity, "sales.LC.product_quantity_output")
+        put(int(lc_product_rows["revenue_row"]), lc_product.amount, "sales.LC.product_amount_output")
         put(int(lc_merchandise_rows["quantity_row"]), goods_qty, "sales.LC_MERCHANDISE.goods_quantity")
         put(int(lc_merchandise_rows["revenue_row"]), lc_goods_revenue, "sales.LC_MERCHANDISE.goods_amount")
 
