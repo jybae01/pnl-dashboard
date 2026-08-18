@@ -1301,6 +1301,7 @@
 .forecast-workflow__cell--number { text-align: right !important; font-variant-numeric: tabular-nums; }
 .forecast-workflow__cell--action { width: 80px; text-align: center !important; }
 .forecast-workflow__cell--reason { text-align: left !important; }
+.forecast-workflow__planning-table thead th { text-align: center !important; }
 
 .forecast-workflow__adjustment-summary-box {
   display: flex;

@@ -791,6 +791,11 @@ describe('Forecast React vertical slice', () => {
     expect(within(salesPlan).getAllByRole('columnheader').map((cell) => cell.textContent)).toEqual([
       '구분', '상세 구분', '단위', '판매수량', '매출액 (원)',
     ]);
+    expect(within(salesPlan).getAllByRole('columnheader').every((cell) => cell.classList.contains('forecast-workflow__cell--center'))).toBe(true);
+    const productionPlan = screen.getByRole('region', { name: '생산계획 (07월)' });
+    const mcmPlan = screen.getByRole('region', { name: 'MCM 유상사급 (07월)' });
+    expect(within(productionPlan).getAllByRole('columnheader').every((cell) => cell.classList.contains('forecast-workflow__cell--center'))).toBe(true);
+    expect(within(mcmPlan).getAllByRole('columnheader').every((cell) => cell.classList.contains('forecast-workflow__cell--center'))).toBe(true);
     const swSalesRow = screen.getByLabelText('7월 SW400 판매수량').closest('tr') as HTMLTableRowElement;
     expect(swSalesRow.children[0]).toHaveTextContent('SW');
     expect(swSalesRow.children[1]).toHaveTextContent('SW400');
@@ -969,6 +974,149 @@ describe('Forecast React vertical slice', () => {
     expect(body.months[0].sga_adjustments).toEqual([
       { adjustment_key: 'sga-selling', amount: 81500, reason: '북미·남미 관세 기준값 등록; 신사업 운반비 기준값 등록' },
     ]);
+  });
+
+  it('binds every SGA row to the six-column contract and renders authoritative section labels', async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(response(modelPayload()))
+      .mockResolvedValueOnce(response(metadataPayload([{
+        adjustment_key: 'sga-admin',
+        display_name: '지급수수료',
+        unit: 'KRW',
+        category: 'sga',
+        section: 'general_admin',
+      }])));
+    vi.stubGlobal('fetch', fetchMock);
+    render(<ForecastGenerationView />);
+    await waitForForecastReady();
+    fireEvent.click(screen.getByText(/비용 및 원가 조정/));
+
+    const sga = screen.getByRole('region', { name: '판관비 조정액' });
+    const sellingRow = within(sga).getByText('운송비').closest('tr') as HTMLTableRowElement;
+    expect(sellingRow.children).toHaveLength(6);
+    expect(Array.from(sellingRow.children).map((cell) => cell.textContent)).toEqual([
+      '판매비',
+      '운송비',
+      monthlyBaselineAmounts['7'].toLocaleString('ko-KR'),
+      monthlyBaselineAmounts['7'].toLocaleString('ko-KR'),
+      '0',
+      '조정',
+    ]);
+    expect(sellingRow.children[0]).toHaveClass('forecast-workflow__cell--center');
+    expect(sellingRow.children[1]).toHaveClass('forecast-workflow__cell--center');
+    expect(sellingRow.children[2]).toHaveClass('forecast-workflow__cell--number');
+    expect(sellingRow.children[3]).toHaveClass('forecast-workflow__cell--number');
+    expect(sellingRow.children[4]).toHaveClass('forecast-workflow__cell--number');
+    expect(sellingRow.children[5]).toHaveClass('forecast-workflow__cell--action');
+
+    fireEvent.click(within(sga).getByRole('tab', { name: '일반관리비' }));
+    const adminRow = within(sga).getByText('지급수수료').closest('tr') as HTMLTableRowElement;
+    expect(adminRow.children).toHaveLength(6);
+    expect(adminRow.children[0]).toHaveTextContent('일반관리비');
+    expect(adminRow.children[1]).toHaveTextContent('지급수수료');
+    expect(adminRow.children[2]).toHaveTextContent(monthlyBaselineAmounts['7'].toLocaleString('ko-KR'));
+    expect(adminRow.children[3]).toHaveTextContent(monthlyBaselineAmounts['7'].toLocaleString('ko-KR'));
+    expect(adminRow.children[4]).toHaveTextContent('0');
+    expect(adminRow.children[5]).toHaveTextContent('조정');
+  });
+
+  it('edits a manufacturing registered entry in place and preserves it on cancel', async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(response(modelPayload()))
+      .mockResolvedValueOnce(response(metadataPayload()));
+    vi.stubGlobal('fetch', fetchMock);
+    render(<ForecastGenerationView />);
+    await waitForForecastReady();
+    fireEvent.click(screen.getByText(/비용 및 원가 조정/));
+
+    fireEvent.click(screen.getByRole('button', { name: '7월 전력비 조정' }));
+    fireEvent.change(screen.getByLabelText('7월 전력비 제조경비 조정액'), { target: { value: '1000' } });
+    fireEvent.change(screen.getByLabelText('7월 전력비 제조경비 조정 사유'), { target: { value: '최초 사유' } });
+    fireEvent.click(within(screen.getByLabelText('7월 전력비 제조경비 조정액').closest('.forecast-workflow__inline-drawer') as HTMLElement).getByRole('button', { name: '등록' }));
+
+    const registered = screen.getByRole('region', { name: '제조경비 조정 내역 (1건)' });
+    fireEvent.click(within(registered).getByRole('button', { name: '수정' }));
+    expect(screen.getByLabelText('7월 전력비 제조경비 조정액')).toHaveValue('1,000');
+    expect(screen.getByLabelText('7월 전력비 제조경비 조정 사유')).toHaveValue('최초 사유');
+    fireEvent.change(screen.getByLabelText('7월 전력비 제조경비 조정액'), { target: { value: '2000' } });
+    fireEvent.change(screen.getByLabelText('7월 전력비 제조경비 조정 사유'), { target: { value: '수정 사유' } });
+    fireEvent.click(within(screen.getByLabelText('7월 전력비 제조경비 조정액').closest('.forecast-workflow__inline-drawer') as HTMLElement).getByRole('button', { name: '등록' }));
+    expect(screen.getByRole('region', { name: '제조경비 조정 내역 (1건)' })).toHaveTextContent(/\+2,000.*수정 사유/);
+
+    fireEvent.click(within(screen.getByRole('region', { name: '제조경비 조정 내역 (1건)' })).getByRole('button', { name: '수정' }));
+    fireEvent.change(screen.getByLabelText('7월 전력비 제조경비 조정액'), { target: { value: '3000' } });
+    fireEvent.click(within(screen.getByLabelText('7월 전력비 제조경비 조정액').closest('.forecast-workflow__inline-drawer') as HTMLElement).getByRole('button', { name: '취소' }));
+    expect(screen.getByRole('region', { name: '제조경비 조정 내역 (1건)' })).toHaveTextContent(/\+2,000.*수정 사유/);
+  });
+
+  it('keeps tariff and manual freight entries separate, edits only the selected local entry, and submits one aggregate DTO row', async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(response(modelPayload()))
+      .mockResolvedValueOnce(response(metadataPayload()))
+      .mockResolvedValueOnce(response(successPayload()));
+    vi.stubGlobal('fetch', fetchMock);
+    render(<ForecastGenerationView />);
+    await waitForForecastReady();
+    fireEvent.click(screen.getByText(/비용 및 원가 조정/));
+    fireEvent.change(screen.getByLabelText('7월 기준 북미·남미 매출'), { target: { value: '500000' } });
+    fireEvent.change(screen.getByLabelText('7월 추정 북미·남미 매출'), { target: { value: '1000000' } });
+    fireEvent.click(screen.getByRole('button', { name: '7월 북미·남미 관세 등록' }));
+
+    fireEvent.click(screen.getByRole('button', { name: '7월 운송비 수정' }));
+    expect(screen.getByLabelText('7월 운송비 판관비 조정액')).toHaveValue('0');
+    expect(screen.getByLabelText('7월 운송비 판관비 조정 사유')).toHaveValue('');
+    fireEvent.change(screen.getByLabelText('7월 운송비 판관비 조정액'), { target: { value: '-5000' } });
+    fireEvent.change(screen.getByLabelText('7월 운송비 판관비 조정 사유'), { target: { value: '일반 운반비 조정' } });
+    fireEvent.click(within(screen.getByLabelText('7월 운송비 판관비 조정액').closest('.forecast-workflow__inline-drawer') as HTMLElement).getByRole('button', { name: '등록' }));
+
+    const registered = screen.getByRole('region', { name: '판관비 조정 내역 (2건)' });
+    expect(within(registered).getByText('(북미·남미 관세)')).toBeInTheDocument();
+    const manualSource = within(registered).getByText('(일반 조정)');
+    const manualRow = manualSource.closest('tr') as HTMLTableRowElement;
+    const tariffRow = within(registered).getByText('(북미·남미 관세)').closest('tr') as HTMLTableRowElement;
+    expect(manualRow).toHaveTextContent(/-5,000.*일반 운반비 조정/);
+    expect(tariffRow).toHaveTextContent('+6,500');
+    expect(screen.getByLabelText('판관비 계정 합계')).toHaveTextContent(/조정액 합계:.*\+1,500원/);
+
+    fireEvent.click(within(manualRow).getByRole('button', { name: '수정' }));
+    expect(screen.getByLabelText('7월 운송비 판관비 조정액')).toHaveValue('-5,000');
+    expect(screen.getByLabelText('7월 운송비 판관비 조정 사유')).toHaveValue('일반 운반비 조정');
+    fireEvent.change(screen.getByLabelText('7월 운송비 판관비 조정액'), { target: { value: '-2000' } });
+    fireEvent.change(screen.getByLabelText('7월 운송비 판관비 조정 사유'), { target: { value: '수정된 일반 조정' } });
+    fireEvent.click(within(screen.getByLabelText('7월 운송비 판관비 조정액').closest('.forecast-workflow__inline-drawer') as HTMLElement).getByRole('button', { name: '등록' }));
+
+    const updatedRegistered = screen.getByRole('region', { name: '판관비 조정 내역 (2건)' });
+    expect(within(updatedRegistered).getByText('(북미·남미 관세)').closest('tr')).toHaveTextContent('+6,500');
+    const updatedManualRow = within(updatedRegistered).getByText('(일반 조정)').closest('tr') as HTMLTableRowElement;
+    expect(updatedManualRow).toHaveTextContent(/-2,000.*수정된 일반 조정/);
+    expect(screen.getByLabelText('판관비 계정 합계')).toHaveTextContent(/조정액 합계:.*\+4,500원/);
+    const sgaRow = screen.getByRole('region', { name: '판관비 조정액' }).querySelector('tbody > tr:not(.forecast-workflow__drawer-row)') as HTMLTableRowElement;
+    expect(sgaRow.children[3]).toHaveTextContent((monthlyBaselineAmounts['7'] + 4_500).toLocaleString('ko-KR'));
+    expect(sgaRow.children[4]).toHaveTextContent('+4,500');
+
+    fireEvent.click(within(updatedManualRow).getByRole('button', { name: '수정' }));
+    fireEvent.change(screen.getByLabelText('7월 운송비 판관비 조정액'), { target: { value: '-9999' } });
+    fireEvent.click(within(screen.getByLabelText('7월 운송비 판관비 조정액').closest('.forecast-workflow__inline-drawer') as HTMLElement).getByRole('button', { name: '취소' }));
+    expect(screen.getByRole('region', { name: '판관비 조정 내역 (2건)' })).toHaveTextContent('-2,000');
+
+    fireEvent.click(screen.getByRole('button', { name: '추정 모형 생성' }));
+    await screen.findByText('추정 모형 생성 완료');
+    const body = JSON.parse(String((fetchMock.mock.calls[2][1] as RequestInit).body));
+    expect(body.months[0].sga_adjustments).toEqual([{
+      adjustment_key: 'sga-selling',
+      amount: 4500,
+      reason: '북미·남미 관세 기준값 등록; 수정된 일반 조정',
+    }]);
+
+    const finalRegistered = screen.getByRole('region', { name: '판관비 조정 내역 (2건)' });
+    fireEvent.click(within(finalRegistered).getByRole('checkbox', { name: '운송비 일반 조정 판관비 조정 선택' }));
+    fireEvent.click(within(finalRegistered).getByRole('button', { name: '선택 삭제 (1)' }));
+    const afterDelete = screen.getByRole('region', { name: '판관비 조정 내역 (1건)' });
+    expect(within(afterDelete).getByText('(북미·남미 관세)')).toBeInTheDocument();
+    expect(within(afterDelete).queryByText('(일반 조정)')).not.toBeInTheDocument();
+    expect(screen.queryByLabelText('판관비 계정 합계')).not.toBeInTheDocument();
+    const rowAfterDelete = screen.getByRole('region', { name: '판관비 조정액' }).querySelector('tbody > tr:not(.forecast-workflow__drawer-row)') as HTMLTableRowElement;
+    expect(rowAfterDelete.children[4]).toHaveTextContent('+6,500');
   });
 
   it('preserves an existing aggregate when a helper action appends the first local entry', () => {

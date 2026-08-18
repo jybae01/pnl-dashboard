@@ -60,6 +60,7 @@ const COGS_ADJUSTMENT_ROWS = [
 ] as const;
 
 type CogsAdjustmentKey = typeof COGS_ADJUSTMENT_ROWS[number]['key'];
+const MANUAL_SGA_SOURCE_LABEL = '일반 조정';
 
 export interface SgaRegisteredEntry {
   id: string;
@@ -93,7 +94,7 @@ export function withLegacySgaAggregateEntry(
     ? [...entries, {
         id: `existing:${adjustmentKey}`,
         adjustmentKey,
-        sourceLabel: '직접 조정',
+        sourceLabel: MANUAL_SGA_SOURCE_LABEL,
         amount: row.amount,
         reason: row.reason,
       }]
@@ -243,10 +244,10 @@ function safeErrorMessage(error: unknown): { state: ViewState; message: string }
   return { state: 'ERROR', message: '추정 산출을 불러오지 못했습니다. 잠시 후 다시 시도하세요.' };
 }
 
-function sectionLabel(value: string | null): string {
+function sgaSectionLabel(value: string | null): string {
   switch (value) {
-    case 'selling': return '판매';
-    case 'general_admin': return '일반';
+    case 'selling': return '판매비';
+    case 'general_admin': return '일반관리비';
     case 'sga': return '판관비';
     default: return '미분류';
   }
@@ -288,7 +289,7 @@ export const ForecastGenerationView: React.FC<ForecastGenerationViewProps> = ({
   const [editingSgaEntryId, setEditingSgaEntryId] = useState<string | null>(null);
   const [sgaDraftAmount, setSgaDraftAmount] = useState<string>('0');
   const [sgaDraftReason, setSgaDraftReason] = useState<string>('');
-  const [sgaDraftSourceLabel, setSgaDraftSourceLabel] = useState<string>('직접 조정');
+  const [sgaDraftSourceLabel, setSgaDraftSourceLabel] = useState<string>(MANUAL_SGA_SOURCE_LABEL);
   const [sgaRegisteredEntriesByMonth, setSgaRegisteredEntriesByMonth] = useState<Record<number, SgaRegisteredEntry[]>>({});
   const [editingCogsKey, setEditingCogsKey] = useState<CogsAdjustmentKey | null>(null);
   const [cogsDraftAmount, setCogsDraftAmount] = useState<string>('0');
@@ -305,6 +306,8 @@ export const ForecastGenerationView: React.FC<ForecastGenerationViewProps> = ({
   const previewPendingRef = useRef(false);
   const mountedRef = useRef(true);
   const metadataRequestSequence = useRef(0);
+  const mfgDrawerRefs = useRef<Record<string, HTMLTableRowElement | null>>({});
+  const sgaDrawerRefs = useRef<Record<string, HTMLTableRowElement | null>>({});
 
   useEffect(() => {
     mountedRef.current = true;
@@ -405,7 +408,7 @@ export const ForecastGenerationView: React.FC<ForecastGenerationViewProps> = ({
     setEditingSgaEntryId(null);
     setSgaDraftAmount('0');
     setSgaDraftReason('');
-    setSgaDraftSourceLabel('직접 조정');
+    setSgaDraftSourceLabel(MANUAL_SGA_SOURCE_LABEL);
     setEditingCogsKey(null);
     setCogsDraftAmount('0');
     setCogsDraftReason('');
@@ -414,6 +417,18 @@ export const ForecastGenerationView: React.FC<ForecastGenerationViewProps> = ({
     setSelectedCogsKeys(new Set());
     setExpandedReasons(new Set());
   }, [activeInputMonth]);
+
+  useEffect(() => {
+    if (!editingMfgKey) return;
+    const drawer = mfgDrawerRefs.current[editingMfgKey];
+    if (drawer && typeof drawer.scrollIntoView === 'function') drawer.scrollIntoView({ block: 'center' });
+  }, [editingMfgKey]);
+
+  useEffect(() => {
+    if (!editingSgaKey) return;
+    const drawer = sgaDrawerRefs.current[editingSgaKey];
+    if (drawer && typeof drawer.scrollIntoView === 'function') drawer.scrollIntoView({ block: 'center' });
+  }, [editingSgaKey, sgaTab]);
 
   const toggleExpandedReason = (key: string) => {
     setExpandedReasons((current) => {
@@ -472,10 +487,12 @@ export const ForecastGenerationView: React.FC<ForecastGenerationViewProps> = ({
     setEditingSgaKey(key);
     const existingEntries = sgaRegisteredEntriesByMonth[activeInputMonth]?.filter((entry) => entry.adjustmentKey === key) ?? [];
     const targetEntry = options.entry ?? (!options.forceNew
-      ? existingEntries.find((entry) => entry.sourceLabel === '직접 조정' || entry.id === `existing:${key}`)
+      ? existingEntries.find((entry) => entry.sourceLabel === MANUAL_SGA_SOURCE_LABEL || entry.sourceLabel === '직접 조정' || entry.id === `existing:${key}`)
       : undefined);
-    setEditingSgaEntryId(targetEntry?.id ?? (!options.forceNew && ((currentAmount.trim() !== '' && currentAmount.trim() !== '0') || currentReason.trim() !== '') ? `existing:${key}` : null));
-    setSgaDraftSourceLabel(targetEntry?.sourceLabel ?? options.sourceLabel ?? '직접 조정');
+    const hasAggregateWithoutLocalEntries = existingEntries.length === 0
+      && ((currentAmount.trim() !== '' && currentAmount.trim() !== '0') || currentReason.trim() !== '');
+    setEditingSgaEntryId(targetEntry?.id ?? (!options.forceNew && hasAggregateWithoutLocalEntries ? `existing:${key}` : null));
+    setSgaDraftSourceLabel(targetEntry?.sourceLabel ?? options.sourceLabel ?? MANUAL_SGA_SOURCE_LABEL);
     if (targetEntry) {
       setSgaDraftAmount(targetEntry.amount);
       setSgaDraftReason(targetEntry.reason);
@@ -500,7 +517,7 @@ export const ForecastGenerationView: React.FC<ForecastGenerationViewProps> = ({
     setEditingSgaEntryId(null);
     setSgaDraftAmount('0');
     setSgaDraftReason('');
-    setSgaDraftSourceLabel('직접 조정');
+    setSgaDraftSourceLabel(MANUAL_SGA_SOURCE_LABEL);
   };
 
   const saveSgaEditor = (key: string) => {
@@ -957,7 +974,7 @@ export const ForecastGenerationView: React.FC<ForecastGenerationViewProps> = ({
       return registered && !localKeys.has(item.adjustment_key) ? [{
         id: `existing:${item.adjustment_key}`,
         adjustmentKey: item.adjustment_key,
-        sourceLabel: '직접 조정',
+        sourceLabel: MANUAL_SGA_SOURCE_LABEL,
         amount: row.amount,
         reason: row.reason,
       }] : [];
@@ -1266,8 +1283,8 @@ export const ForecastGenerationView: React.FC<ForecastGenerationViewProps> = ({
           <section className="forecast-workflow__input-section" aria-labelledby="forecast-sales-title">
             <div className="forecast-workflow__input-heading"><div><h3 id="forecast-sales-title">판매계획 ({String(activeInputMonth).padStart(2, '0')}월)</h3><p>제품별 판매수량과 예상 매출액을 입력합니다.</p></div></div>
             <div className="forecast-workflow__table-scroll">
-              <table className="forecast-workflow__input-table">
-                <thead><tr><th scope="col" className="forecast-workflow__cell--center">구분</th><th scope="col" className="forecast-workflow__cell--center">상세 구분</th><th scope="col" className="forecast-workflow__cell--center">단위</th><th scope="col" className="forecast-workflow__cell--number">판매수량</th><th scope="col" className="forecast-workflow__cell--number">매출액 (원)</th></tr></thead>
+              <table className="forecast-workflow__input-table forecast-workflow__planning-table">
+                <thead><tr><th scope="col" className="forecast-workflow__cell--center">구분</th><th scope="col" className="forecast-workflow__cell--center">상세 구분</th><th scope="col" className="forecast-workflow__cell--center">단위</th><th scope="col" className="forecast-workflow__cell--center">판매수량</th><th scope="col" className="forecast-workflow__cell--center">매출액 (원)</th></tr></thead>
                 <tbody>{SALES_PRODUCTS.map((product) => <tr key={product.code}>
                   <th scope="row" className="forecast-workflow__cell--center">{product.category}</th><td className="forecast-workflow__cell--center"><strong>{product.label}</strong></td><td className="forecast-workflow__cell--center"><span className={`forecast-workflow__unit forecast-workflow__unit--${product.unit === 'm' ? 'length' : 'quantity'}`}>{product.unit}</span></td>
                   <td className="forecast-workflow__cell--number"><FormattedNumericInput disabled={controlsDisabled} ariaLabel={`${activeInputMonth}월 ${product.code} 판매수량`} value={activeMonthInput.sales[product.code]?.quantity ?? ''} onChange={(value) => updateInput(activeInputMonth, 'sales', product.code, 'quantity', value)} /></td>
@@ -1281,8 +1298,8 @@ export const ForecastGenerationView: React.FC<ForecastGenerationViewProps> = ({
             <section className="forecast-workflow__input-section" aria-labelledby="forecast-production-title">
               <div className="forecast-workflow__input-heading"><div><h3 id="forecast-production-title">생산계획 ({String(activeInputMonth).padStart(2, '0')}월)</h3><p>공정과 제품군별 예상 생산수량을 입력합니다.</p></div></div>
               <div className="forecast-workflow__table-scroll">
-                <table className="forecast-workflow__input-table forecast-workflow__input-table--compact">
-                  <thead><tr><th scope="col" className="forecast-workflow__cell--center">공정</th><th scope="col" className="forecast-workflow__cell--center">제품군</th><th scope="col" className="forecast-workflow__cell--number">생산수량</th><th scope="col" className="forecast-workflow__cell--center">단위</th></tr></thead>
+                <table className="forecast-workflow__input-table forecast-workflow__input-table--compact forecast-workflow__planning-table">
+                  <thead><tr><th scope="col" className="forecast-workflow__cell--center">공정</th><th scope="col" className="forecast-workflow__cell--center">제품군</th><th scope="col" className="forecast-workflow__cell--center">생산수량</th><th scope="col" className="forecast-workflow__cell--center">단위</th></tr></thead>
                   <tbody>{BUSINESS_PRODUCTION_ROWS.map((row) => <tr key={row.key}>
                     <th scope="row" className="forecast-workflow__cell--center">{row.process}</th><td className="forecast-workflow__cell--center">{row.label}</td>
                     <td className="forecast-workflow__cell--number"><FormattedNumericInput disabled={controlsDisabled} ariaLabel={`${activeInputMonth}월 ${row.process} ${row.productGroup} 생산수량`} value={activeMonthInput.production[row.key]?.quantity ?? ''} onChange={(value) => updateInput(activeInputMonth, 'production', row.key, 'quantity', value)} /></td>
@@ -1295,8 +1312,8 @@ export const ForecastGenerationView: React.FC<ForecastGenerationViewProps> = ({
             <section className="forecast-workflow__input-section" aria-labelledby="forecast-mcm-title">
               <div className="forecast-workflow__input-heading"><div><h3 id="forecast-mcm-title">MCM 유상사급 ({String(activeInputMonth).padStart(2, '0')}월)</h3><p>유상사급 대상 제품의 월별 수량을 입력합니다.</p></div></div>
               <div className="forecast-workflow__table-scroll">
-                <table className="forecast-workflow__input-table forecast-workflow__input-table--compact">
-                  <thead><tr><th scope="col" className="forecast-workflow__cell--center">제품코드</th><th scope="col" className="forecast-workflow__cell--center">단위</th><th scope="col" className="forecast-workflow__cell--number">MCM 수량</th></tr></thead>
+                <table className="forecast-workflow__input-table forecast-workflow__input-table--compact forecast-workflow__planning-table">
+                  <thead><tr><th scope="col" className="forecast-workflow__cell--center">제품코드</th><th scope="col" className="forecast-workflow__cell--center">단위</th><th scope="col" className="forecast-workflow__cell--center">MCM 수량</th></tr></thead>
                   <tbody>{MCM_PRODUCTS.map((product) => <tr key={product.code}>
                     <th scope="row" className="forecast-workflow__cell--center">{product.code}</th><td className="forecast-workflow__cell--center"><span className="forecast-workflow__unit forecast-workflow__unit--quantity">{product.unit}</span></td>
                     <td className="forecast-workflow__cell--number"><FormattedNumericInput disabled={controlsDisabled} ariaLabel={`${activeInputMonth}월 ${product.code} MCM 수량`} value={activeMonthInput.mcm[product.code]?.quantity ?? ''} onChange={(value) => updateInput(activeInputMonth, 'mcm', product.code, 'quantity', value)} /></td>
@@ -1351,7 +1368,11 @@ export const ForecastGenerationView: React.FC<ForecastGenerationViewProps> = ({
                             </td>
                           </tr>
                           {isEditing && (
-                            <tr key={`${item.adjustment_key}-drawer`} className="forecast-workflow__drawer-row">
+                            <tr
+                              key={`${item.adjustment_key}-drawer`}
+                              ref={(node) => { mfgDrawerRefs.current[item.adjustment_key] = node; }}
+                              className="forecast-workflow__drawer-row"
+                            >
                                 <td colSpan={6}>
                                   <div className="forecast-workflow__inline-drawer">
                                   <div className="forecast-workflow__inline-drawer-header">
@@ -1432,11 +1453,14 @@ export const ForecastGenerationView: React.FC<ForecastGenerationViewProps> = ({
                         const baselineRaw = item.monthly_baseline_amounts?.[String(activeInputMonth)];
                         const baseline = typeof baselineRaw === 'number' && Number.isFinite(baselineRaw) ? baselineRaw : undefined;
                         const baselineDisplay = formatKrwAmount(baseline);
-                        const adjNum = Number(row.amount.replace(/,/g, '').trim()) || 0;
-                        const expectedDisplay = baseline === undefined ? '—' : formatKrwAmount(calculateAdjustmentExpectedAmount(baseline, row.amount));
-                        const hasAdjustment = (row.amount.trim() !== '' && row.amount.trim() !== '0') || row.reason.trim() !== '';
-                        const isEditing = editingSgaKey === item.adjustment_key;
                         const localEntriesForAccount = sgaRegisteredEntriesByMonth[activeInputMonth]?.filter((entry) => entry.adjustmentKey === item.adjustment_key) ?? [];
+                        const accountAggregate = localEntriesForAccount.length > 0
+                          ? aggregateSgaRegisteredEntries(localEntriesForAccount)
+                          : row;
+                        const adjNum = parseAdjustmentAmount(accountAggregate.amount);
+                        const expectedDisplay = baseline === undefined ? '—' : formatKrwAmount(calculateAdjustmentExpectedAmount(baseline, accountAggregate.amount));
+                        const hasAdjustment = (accountAggregate.amount.trim() !== '' && accountAggregate.amount.trim() !== '0') || accountAggregate.reason.trim() !== '';
+                        const isEditing = editingSgaKey === item.adjustment_key;
                         const editedEntryAmount = editingSgaEntryId === `existing:${item.adjustment_key}`
                           ? adjNum
                           : parseAdjustmentAmount(localEntriesForAccount.find((entry) => entry.id === editingSgaEntryId)?.amount ?? '0');
@@ -1446,10 +1470,10 @@ export const ForecastGenerationView: React.FC<ForecastGenerationViewProps> = ({
                         return (
                           <React.Fragment key={item.adjustment_key}>
                             <tr>
-                              <td className="forecast-workflow__cell--center"><span className={`forecast-workflow__section-badge forecast-workflow__section-badge--${item.section === 'selling' ? 'selling' : 'admin'}`}>{item.section === 'selling' ? '판매' : '일반'}</span></td>
+                              <td className="forecast-workflow__cell--center"><span className={`forecast-workflow__section-badge forecast-workflow__section-badge--${item.section === 'selling' ? 'selling' : 'admin'}`}>{sgaSectionLabel(item.section)}</span></td>
                               <th scope="row" className="forecast-workflow__cell--center">{item.display_name}</th>
-                              <td className="forecast-workflow__readonly-amount">{baselineDisplay}</td>
-                              <td className="forecast-workflow__readonly-amount">{expectedDisplay}</td>
+                              <td className="forecast-workflow__readonly-amount forecast-workflow__cell--number">{baselineDisplay}</td>
+                              <td className="forecast-workflow__readonly-amount forecast-workflow__cell--number">{expectedDisplay}</td>
                               <td className="forecast-workflow__cell--number" style={{
                                 fontWeight: hasAdjustment ? 700 : 400,
                                 color: adjNum > 0 ? '#047857' : adjNum < 0 ? '#b91c1c' : undefined,
@@ -1471,7 +1495,11 @@ export const ForecastGenerationView: React.FC<ForecastGenerationViewProps> = ({
                               </td>
                             </tr>
                             {isEditing && (
-                              <tr key={`${item.adjustment_key}-drawer`} className="forecast-workflow__drawer-row">
+                                <tr
+                                  key={`${item.adjustment_key}-drawer`}
+                                  ref={(node) => { sgaDrawerRefs.current[item.adjustment_key] = node; }}
+                                  className="forecast-workflow__drawer-row"
+                                >
                                 <td colSpan={6}>
                                   <div className="forecast-workflow__inline-drawer">
                                     <div className="forecast-workflow__inline-drawer-header">
@@ -1636,7 +1664,7 @@ export const ForecastGenerationView: React.FC<ForecastGenerationViewProps> = ({
                               return next;
                             })}
                           /></td>
-                          <td className="forecast-workflow__cell--center"><span className={`forecast-workflow__section-badge forecast-workflow__section-badge--${item.metadata.section === 'selling' ? 'selling' : 'admin'}`}>{item.metadata.section === 'selling' ? '판매' : '일반'}</span></td>
+                          <td className="forecast-workflow__cell--center"><span className={`forecast-workflow__section-badge forecast-workflow__section-badge--${item.metadata.section === 'selling' ? 'selling' : 'admin'}`}>{sgaSectionLabel(item.metadata.section)}</span></td>
                           <th scope="row" className="forecast-workflow__cell--center"><span className="forecast-workflow__summary-account">{item.metadata.display_name}</span><small className="forecast-workflow__summary-source">({item.sourceLabel})</small></th>
                           <td className="forecast-workflow__cell--number">{typeof baseline === 'number' && Number.isFinite(baseline) ? baseline.toLocaleString('ko-KR') : '—'}</td>
                           <td className="forecast-workflow__cell--number">{typeof baseline === 'number' && Number.isFinite(baseline) ? calculateAdjustmentExpectedAmount(baseline, accountAggregateAmount).toLocaleString('ko-KR') : '—'}</td>
