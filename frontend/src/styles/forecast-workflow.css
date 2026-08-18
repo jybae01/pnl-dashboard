@@ -1342,6 +1342,7 @@
 .forecast-workflow__section-badge { display: inline-flex; align-items: center; justify-content: center; border-radius: 3px; padding: 2px 5px; font-size: 10px; font-weight: 800; }
 .forecast-workflow__section-badge--selling { color: #1d4ed8; background: #eff6ff; }
 .forecast-workflow__section-badge--admin { color: #6d28d9; background: #f5f3ff; }
+.forecast-workflow__section-badge--manufacturing { color: #9a3412; background: #fff7ed; }
 .forecast-workflow__summary-account,
 .forecast-workflow__summary-source { display: block; }
 .forecast-workflow__summary-source { margin-top: 2px; color: #64748b; font-size: 10px; font-weight: 600; }

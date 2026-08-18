@@ -135,7 +135,7 @@ describe('Forecast Excel bulk input vertical slice', () => {
     fireEvent.click(screen.getByRole('button', { name: '추정 입력값으로 적용' }));
     fireEvent.click(screen.getByRole('button', { name: '적용' }));
     expect(screen.getByLabelText('7월 SW400 판매수량')).toHaveValue('123');
-    expect(screen.getByLabelText('7월 후공정 SW 생산수량')).toHaveValue('1000');
+    expect(screen.getByLabelText('7월 후공정 SW 생산수량')).toHaveValue('1,000');
     expect(screen.getByLabelText('7월 SW400 MCM 수량')).toHaveValue('77');
     expect(screen.getByText(/제조경비 조정 내역 \(1건\)/)).toBeInTheDocument();
     expect(fetchMock).toHaveBeenCalledTimes(3);

@@ -1267,11 +1267,11 @@ export const ForecastGenerationView: React.FC<ForecastGenerationViewProps> = ({
             <div className="forecast-workflow__input-heading"><div><h3 id="forecast-sales-title">판매계획 ({String(activeInputMonth).padStart(2, '0')}월)</h3><p>제품별 판매수량과 예상 매출액을 입력합니다.</p></div></div>
             <div className="forecast-workflow__table-scroll">
               <table className="forecast-workflow__input-table">
-                <thead><tr><th scope="col">구분</th><th scope="col">구분(제품명)</th><th scope="col">단위</th><th scope="col">판매수량</th><th scope="col">매출액 (원)</th></tr></thead>
+                <thead><tr><th scope="col" className="forecast-workflow__cell--center">구분</th><th scope="col" className="forecast-workflow__cell--center">상세 구분</th><th scope="col" className="forecast-workflow__cell--center">단위</th><th scope="col" className="forecast-workflow__cell--number">판매수량</th><th scope="col" className="forecast-workflow__cell--number">매출액 (원)</th></tr></thead>
                 <tbody>{SALES_PRODUCTS.map((product) => <tr key={product.code}>
-                  <th scope="row">{product.code}</th><td><strong>{product.label}</strong></td><td><span className={`forecast-workflow__unit forecast-workflow__unit--${product.unit === 'm' ? 'length' : 'quantity'}`}>{product.unit}</span></td>
-                  <td><EditableNumericInput mode="decimal" disabled={controlsDisabled} aria-label={`${activeInputMonth}월 ${product.code} 판매수량`} value={activeMonthInput.sales[product.code]?.quantity ?? ''} onChange={(value) => updateInput(activeInputMonth, 'sales', product.code, 'quantity', value)} /></td>
-                  <td><EditableNumericInput mode="decimal" disabled={controlsDisabled} aria-label={`${activeInputMonth}월 ${product.code} 매출액`} value={activeMonthInput.sales[product.code]?.amount ?? ''} onChange={(value) => updateInput(activeInputMonth, 'sales', product.code, 'amount', value)} /></td>
+                  <th scope="row" className="forecast-workflow__cell--center">{product.category}</th><td className="forecast-workflow__cell--center"><strong>{product.label}</strong></td><td className="forecast-workflow__cell--center"><span className={`forecast-workflow__unit forecast-workflow__unit--${product.unit === 'm' ? 'length' : 'quantity'}`}>{product.unit}</span></td>
+                  <td className="forecast-workflow__cell--number"><FormattedNumericInput disabled={controlsDisabled} ariaLabel={`${activeInputMonth}월 ${product.code} 판매수량`} value={activeMonthInput.sales[product.code]?.quantity ?? ''} onChange={(value) => updateInput(activeInputMonth, 'sales', product.code, 'quantity', value)} /></td>
+                  <td className="forecast-workflow__cell--number"><FormattedNumericInput disabled={controlsDisabled} ariaLabel={`${activeInputMonth}월 ${product.code} 매출액`} value={activeMonthInput.sales[product.code]?.amount ?? ''} onChange={(value) => updateInput(activeInputMonth, 'sales', product.code, 'amount', value)} /></td>
                 </tr>)}</tbody>
               </table>
             </div>
@@ -1282,11 +1282,11 @@ export const ForecastGenerationView: React.FC<ForecastGenerationViewProps> = ({
               <div className="forecast-workflow__input-heading"><div><h3 id="forecast-production-title">생산계획 ({String(activeInputMonth).padStart(2, '0')}월)</h3><p>공정과 제품군별 예상 생산수량을 입력합니다.</p></div></div>
               <div className="forecast-workflow__table-scroll">
                 <table className="forecast-workflow__input-table forecast-workflow__input-table--compact">
-                  <thead><tr><th scope="col">공정</th><th scope="col">제품군</th><th scope="col">생산수량</th><th scope="col">단위</th></tr></thead>
+                  <thead><tr><th scope="col" className="forecast-workflow__cell--center">공정</th><th scope="col" className="forecast-workflow__cell--center">제품군</th><th scope="col" className="forecast-workflow__cell--number">생산수량</th><th scope="col" className="forecast-workflow__cell--center">단위</th></tr></thead>
                   <tbody>{BUSINESS_PRODUCTION_ROWS.map((row) => <tr key={row.key}>
-                    <th scope="row">{row.process}</th><td>{row.label}</td>
-                    <td><EditableNumericInput mode="decimal" disabled={controlsDisabled} aria-label={`${activeInputMonth}월 ${row.process} ${row.productGroup} 생산수량`} value={activeMonthInput.production[row.key]?.quantity ?? ''} onChange={(value) => updateInput(activeInputMonth, 'production', row.key, 'quantity', value)} /></td>
-                    <td><span className={`forecast-workflow__unit forecast-workflow__unit--${row.unit === 'm' ? 'length' : 'quantity'}`}>{row.unit}</span></td>
+                    <th scope="row" className="forecast-workflow__cell--center">{row.process}</th><td className="forecast-workflow__cell--center">{row.label}</td>
+                    <td className="forecast-workflow__cell--number"><FormattedNumericInput disabled={controlsDisabled} ariaLabel={`${activeInputMonth}월 ${row.process} ${row.productGroup} 생산수량`} value={activeMonthInput.production[row.key]?.quantity ?? ''} onChange={(value) => updateInput(activeInputMonth, 'production', row.key, 'quantity', value)} /></td>
+                    <td className="forecast-workflow__cell--center"><span className={`forecast-workflow__unit forecast-workflow__unit--${row.unit === 'm' ? 'length' : 'quantity'}`}>{row.unit}</span></td>
                   </tr>)}</tbody>
                 </table>
               </div>
@@ -1296,10 +1296,10 @@ export const ForecastGenerationView: React.FC<ForecastGenerationViewProps> = ({
               <div className="forecast-workflow__input-heading"><div><h3 id="forecast-mcm-title">MCM 유상사급 ({String(activeInputMonth).padStart(2, '0')}월)</h3><p>유상사급 대상 제품의 월별 수량을 입력합니다.</p></div></div>
               <div className="forecast-workflow__table-scroll">
                 <table className="forecast-workflow__input-table forecast-workflow__input-table--compact">
-                  <thead><tr><th scope="col">제품코드</th><th scope="col">단위</th><th scope="col">MCM 수량</th></tr></thead>
+                  <thead><tr><th scope="col" className="forecast-workflow__cell--center">제품코드</th><th scope="col" className="forecast-workflow__cell--center">단위</th><th scope="col" className="forecast-workflow__cell--number">MCM 수량</th></tr></thead>
                   <tbody>{MCM_PRODUCTS.map((product) => <tr key={product.code}>
-                    <th scope="row">{product.code}</th><td><span className="forecast-workflow__unit forecast-workflow__unit--quantity">{product.unit}</span></td>
-                    <td><EditableNumericInput mode="decimal" disabled={controlsDisabled} aria-label={`${activeInputMonth}월 ${product.code} MCM 수량`} value={activeMonthInput.mcm[product.code]?.quantity ?? ''} onChange={(value) => updateInput(activeInputMonth, 'mcm', product.code, 'quantity', value)} /></td>
+                    <th scope="row" className="forecast-workflow__cell--center">{product.code}</th><td className="forecast-workflow__cell--center"><span className="forecast-workflow__unit forecast-workflow__unit--quantity">{product.unit}</span></td>
+                    <td className="forecast-workflow__cell--number"><FormattedNumericInput disabled={controlsDisabled} ariaLabel={`${activeInputMonth}월 ${product.code} MCM 수량`} value={activeMonthInput.mcm[product.code]?.quantity ?? ''} onChange={(value) => updateInput(activeInputMonth, 'mcm', product.code, 'quantity', value)} /></td>
                   </tr>)}</tbody>
                 </table>
               </div>
@@ -1314,7 +1314,7 @@ export const ForecastGenerationView: React.FC<ForecastGenerationViewProps> = ({
                 <div className="forecast-workflow__input-heading"><div><h3 id="forecast-manufacturing-adjustments-title">제조경비 조정액</h3><p>선택 월의 제조 계정별 계획, 예상금액 및 조정액입니다.</p></div><span className="forecast-workflow__unit-badge">(단위: 원)</span></div>
                 <div className="forecast-workflow__table-scroll">
                   <table className="forecast-workflow__input-table forecast-workflow__cost-table">
-                    <thead><tr><th scope="col" className="forecast-workflow__cell--center">계정명</th><th scope="col" className="forecast-workflow__cell--number">계획</th><th scope="col" className="forecast-workflow__cell--number">예상금액(자동)</th><th scope="col" className="forecast-workflow__cell--number">조정액</th><th scope="col" className="forecast-workflow__cell--action">조정</th></tr></thead>
+                    <thead><tr><th scope="col" className="forecast-workflow__cell--center">구분</th><th scope="col" className="forecast-workflow__cell--center">계정명</th><th scope="col" className="forecast-workflow__cell--number">계획</th><th scope="col" className="forecast-workflow__cell--number">예상금액(자동)</th><th scope="col" className="forecast-workflow__cell--number">조정액</th><th scope="col" className="forecast-workflow__cell--action">조정</th></tr></thead>
                     <tbody>{(inputMetadata?.manufacturing ?? []).map((item) => {
                       const row = activeMonthInput.manufacturingAdjustments[item.adjustment_key] ?? { amount: '0', reason: '' };
                       const baselineRaw = item.monthly_baseline_amounts?.[String(activeInputMonth)];
@@ -1328,9 +1328,10 @@ export const ForecastGenerationView: React.FC<ForecastGenerationViewProps> = ({
                       return (
                         <React.Fragment key={item.adjustment_key}>
                           <tr>
+                            <td className="forecast-workflow__cell--center"><span className="forecast-workflow__section-badge forecast-workflow__section-badge--manufacturing">제조</span></td>
                             <th scope="row" className="forecast-workflow__cell--center">{item.display_name}</th>
-                            <td className="forecast-workflow__readonly-amount">{baselineDisplay}</td>
-                            <td className="forecast-workflow__readonly-amount">{expectedDisplay}</td>
+                            <td className="forecast-workflow__readonly-amount forecast-workflow__cell--number">{baselineDisplay}</td>
+                            <td className="forecast-workflow__readonly-amount forecast-workflow__cell--number">{expectedDisplay}</td>
                             <td className="forecast-workflow__cell--number" style={{
                               fontWeight: hasAdjustment ? 700 : 400,
                               color: adjNum > 0 ? '#047857' : adjNum < 0 ? '#b91c1c' : undefined,
@@ -1351,7 +1352,7 @@ export const ForecastGenerationView: React.FC<ForecastGenerationViewProps> = ({
                           </tr>
                           {isEditing && (
                             <tr key={`${item.adjustment_key}-drawer`} className="forecast-workflow__drawer-row">
-                                <td colSpan={5}>
+                                <td colSpan={6}>
                                   <div className="forecast-workflow__inline-drawer">
                                   <div className="forecast-workflow__inline-drawer-header">
                                     <strong>📝 [{item.display_name}] 비용 조정 입력</strong>
@@ -1477,7 +1478,6 @@ export const ForecastGenerationView: React.FC<ForecastGenerationViewProps> = ({
                                       <strong>📝 [{item.display_name}] 비용 조정 입력</strong>
                                     </div>
                                     <div className="forecast-workflow__inline-drawer-body">
-                                      <div className="forecast-workflow__drawer-editor">
                                         <div className="forecast-workflow__drawer-readonly-grid">
                                           <label>계획<output aria-label={`${activeInputMonth}월 ${item.display_name} 판관비 계획`} data-readonly="true">{baselineDisplay}</output></label>
                                           <label>예상금액(자동)<output aria-label={`${activeInputMonth}월 ${item.display_name} 판관비 예상금액`} data-readonly="true">{baseline === undefined ? '—' : formatKrwAmount(baseline + draftAggregate)}</output></label>
@@ -1508,7 +1508,6 @@ export const ForecastGenerationView: React.FC<ForecastGenerationViewProps> = ({
                                           <button type="button" className="forecast-workflow__drawer-btn-save" disabled={advancedControlsDisabled} onClick={() => saveSgaEditor(item.adjustment_key)}>등록</button>
                                           <button type="button" className="forecast-workflow__drawer-btn-cancel" disabled={advancedControlsDisabled} onClick={cancelSgaEditor}>취소</button>
                                         </div>
-                                      </div>
                                     </div>
                                   </div>
                                 </td>
@@ -1793,7 +1792,7 @@ export const ForecastGenerationView: React.FC<ForecastGenerationViewProps> = ({
                   <fieldset className="forecast-workflow__radio-group forecast-workflow__raw-material-basis"><legend>환급 기준</legend><label><input type="radio" name={`raw-material-basis-${activeInputMonth}`} disabled={advancedControlsDisabled} checked={activeMonthInput.rawMaterialBasis === 'model'} onChange={() => updateAdvanced(activeInputMonth, 'rawMaterialBasis', 'model')} />모형 산출값</label><label><input type="radio" name={`raw-material-basis-${activeInputMonth}`} disabled={advancedControlsDisabled} checked={activeMonthInput.rawMaterialBasis === 'direct'} onChange={() => updateAdvanced(activeInputMonth, 'rawMaterialBasis', 'direct')} />구매비 예상 금액</label></fieldset>
                   <div className="forecast-workflow__raw-material-row" data-raw-material-row="amounts">
                     <label>원재료 조정액 (모형 기준)<FormattedNumericInput disabled={advancedControlsDisabled || activeMonthInput.rawMaterialBasis !== 'model'} ariaLabel={`${activeInputMonth}월 원재료 조정액`} value={activeMonthInput.rawMaterialAdjustment} onChange={(value) => updateAdvanced(activeInputMonth, 'rawMaterialAdjustment', value)} /></label>
-                    <label>원재료 직접 입력액 (구매비 기준){activeMonthInput.rawMaterialBasis === 'direct' && <span className="forecast-workflow__required">필수</span>}<FormattedNumericInput disabled={advancedControlsDisabled || activeMonthInput.rawMaterialBasis !== 'direct'} ariaLabel={`${activeInputMonth}월 원재료 직접 입력액`} value={activeMonthInput.rawMaterialDirect} onChange={(value) => updateAdvanced(activeInputMonth, 'rawMaterialDirect', value)} /></label>
+                    <label>원재료 직접 입력액 (구매비 기준)<FormattedNumericInput disabled={advancedControlsDisabled || activeMonthInput.rawMaterialBasis !== 'direct'} ariaLabel={`${activeInputMonth}월 원재료 직접 입력액`} value={activeMonthInput.rawMaterialDirect} onChange={(value) => updateAdvanced(activeInputMonth, 'rawMaterialDirect', value)} /></label>
                   </div>
                   <div className="forecast-workflow__raw-material-row" data-raw-material-row="reason-rate">
                     <label>원재료 사유<input disabled={advancedControlsDisabled} aria-label={`${activeInputMonth}월 원재료 사유`} maxLength={500} value={activeMonthInput.rawMaterialReason} onChange={(event) => updateAdvanced(activeInputMonth, 'rawMaterialReason', event.target.value)} /></label>

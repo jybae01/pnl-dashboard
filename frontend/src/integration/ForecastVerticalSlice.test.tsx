@@ -325,7 +325,7 @@ describe('Forecast React vertical slice', () => {
     fireEvent.change(screen.getByLabelText('8월 후공정 SW 생산수량'), { target: { value: '12000' } });
     fireEvent.click(screen.getByRole('tab', { name: '07월' }));
     expect(screen.getByLabelText('7월 LC 판매수량')).toHaveValue('70');
-    expect(screen.getByLabelText('7월 후공정 SW 생산수량')).toHaveValue('10000');
+    expect(screen.getByLabelText('7월 후공정 SW 생산수량')).toHaveValue('10,000');
 
     fireEvent.click(screen.getByRole('button', { name: '추정 모형 생성' }));
     await screen.findByText('추정 모형 생성 완료');
@@ -614,6 +614,35 @@ describe('Forecast React vertical slice', () => {
     expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 
+  it('removes the raw-material required label while preserving direct-mode validation and stable hierarchy', async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(response(modelPayload()))
+      .mockResolvedValueOnce(response(metadataPayload()));
+    vi.stubGlobal('fetch', fetchMock);
+    render(<ForecastGenerationView />);
+    await screen.findByRole('heading', { name: '추정 산출' });
+    await waitForForecastReady();
+    fireEvent.click(screen.getByText(/비용 및 원가 조정/));
+
+    const rawMaterial = screen.getByRole('region', { name: '원재료 관세 환급' });
+    const rowsBefore = rawMaterial.querySelectorAll('.forecast-workflow__raw-material-row');
+    expect(rowsBefore).toHaveLength(2);
+    expect(within(rawMaterial).queryByText('필수')).not.toBeInTheDocument();
+    expect(rowsBefore[0].children).toHaveLength(2);
+
+    fireEvent.click(within(rawMaterial).getByRole('radio', { name: '구매비 예상 금액' }));
+    const rowsAfter = rawMaterial.querySelectorAll('.forecast-workflow__raw-material-row');
+    expect(rowsAfter).toHaveLength(2);
+    expect(rowsAfter[0].children).toHaveLength(2);
+    expect(within(rawMaterial).queryByText('필수')).not.toBeInTheDocument();
+    expect(screen.getByLabelText('7월 원재료 조정액')).toBeDisabled();
+    expect(screen.getByLabelText('7월 원재료 직접 입력액')).toBeEnabled();
+
+    fireEvent.click(screen.getByRole('button', { name: '추정 모형 생성' }));
+    expect(await screen.findByRole('alert')).toHaveTextContent('7월 원재료 직접 입력액');
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
   it('keeps business unit guidance visible without mixed-unit wording', async () => {
     const fetchMock = vi.fn()
       .mockResolvedValueOnce(response(modelPayload()))
@@ -656,6 +685,9 @@ describe('Forecast React vertical slice', () => {
     expect(screen.queryByText('자동 산출/제안 내역')).not.toBeInTheDocument();
     expect(screen.queryByLabelText('판매비 운반비 자동 산출 제안 내역')).not.toBeInTheDocument();
     const freightAmountInput = screen.getByLabelText('7월 운송비 판관비 조정액') as HTMLInputElement;
+    const drawerBody = freightAmountInput.closest('.forecast-workflow__inline-drawer-body') as HTMLElement;
+    expect(drawerBody.querySelector('.forecast-workflow__drawer-editor')).not.toBeInTheDocument();
+    expect(drawerBody.children).toHaveLength(4);
     expect(freightAmountInput.value).toBe('0');
     fireEvent.change(freightAmountInput, { target: { value: '81500' } });
     fireEvent.blur(freightAmountInput);
@@ -744,11 +776,60 @@ describe('Forecast React vertical slice', () => {
     await screen.findByRole('heading', { name: '추정 산출' });
     fireEvent.change(screen.getByLabelText('종료 월'), { target: { value: '8' } });
     await waitForForecastReady();
+
+    const salesPlan = screen.getByRole('region', { name: '판매계획 (07월)' });
+    expect(within(salesPlan).getAllByRole('columnheader').map((cell) => cell.textContent)).toEqual([
+      '구분', '상세 구분', '단위', '판매수량', '매출액 (원)',
+    ]);
+    const swSalesRow = screen.getByLabelText('7월 SW400 판매수량').closest('tr') as HTMLTableRowElement;
+    expect(swSalesRow.children[0]).toHaveTextContent('SW');
+    expect(swSalesRow.children[1]).toHaveTextContent('SW400');
+    expect(swSalesRow.children[2]).toHaveTextContent('PCS');
+    expect(swSalesRow.children[0]).toHaveClass('forecast-workflow__cell--center');
+    expect(swSalesRow.children[3]).toHaveClass('forecast-workflow__cell--number');
+    expect(within(salesPlan).getAllByRole('row').slice(1).map((row) => [
+      row.children[0].textContent,
+      row.children[1].textContent,
+    ])).toEqual([
+      ['SW', 'SW400'],
+      ['SW', 'SW440'],
+      ['BW', 'BW400'],
+      ['BW', 'BW440'],
+      ['LC', 'LC (4인치)'],
+      ['FS', 'FS SW'],
+      ['FS', 'FS BW'],
+      ['FS', 'FS TW'],
+      ['신사업', 'UF/MBR'],
+      ['신사업', 'IX'],
+      ['OTHER', '기타매출'],
+    ]);
+    const salesQuantity = screen.getByLabelText('7월 SW400 판매수량');
+    const salesRevenue = screen.getByLabelText('7월 SW400 매출액');
+    fireEvent.change(salesQuantity, { target: { value: '35000' } });
+    fireEvent.blur(salesQuantity);
+    fireEvent.change(salesRevenue, { target: { value: '1050000000' } });
+    fireEvent.blur(salesRevenue);
+    expect(salesQuantity).toHaveValue('35,000');
+    expect(salesRevenue).toHaveValue('1,050,000,000');
+    expect(getComputedStyle(salesQuantity).textAlign).toBe('right');
+    expect(getComputedStyle(salesRevenue).textAlign).toBe('right');
+
+    const productionQuantity = screen.getByLabelText('7월 후공정 SW 생산수량');
+    const mcmQuantity = screen.getByLabelText('7월 SW400 MCM 수량');
+    fireEvent.change(productionQuantity, { target: { value: '28000' } });
+    fireEvent.blur(productionQuantity);
+    fireEvent.change(mcmQuantity, { target: { value: '12000' } });
+    fireEvent.blur(mcmQuantity);
+    expect(productionQuantity).toHaveValue('28,000');
+    expect(mcmQuantity).toHaveValue('12,000');
+    expect(productionQuantity.closest('td')).toHaveClass('forecast-workflow__cell--number');
+    expect(mcmQuantity.closest('td')).toHaveClass('forecast-workflow__cell--number');
+
     fireEvent.click(screen.getByText(/비용 및 원가 조정/));
 
     const manufacturing = screen.getByRole('region', { name: '제조경비 조정액' });
     expect(within(manufacturing).getAllByRole('columnheader').map((cell) => cell.textContent)).toEqual([
-      '계정명', '계획', '예상금액(자동)', '조정액', '조정',
+      '구분', '계정명', '계획', '예상금액(자동)', '조정액', '조정',
     ]);
     const sga = screen.getByRole('region', { name: '판관비 조정액' });
     expect(within(sga).getAllByRole('columnheader').map((cell) => cell.textContent)).toEqual([
@@ -760,7 +841,8 @@ describe('Forecast React vertical slice', () => {
     ]);
     expect(cogs.querySelectorAll('[data-contract-missing="cogs-baseline"]')).toHaveLength(4);
     expect(within(manufacturing).getAllByRole('columnheader')[0]).toHaveClass('forecast-workflow__cell--center');
-    expect(within(manufacturing).getAllByRole('columnheader')[1]).toHaveClass('forecast-workflow__cell--number');
+    expect(within(manufacturing).getAllByRole('columnheader')[1]).toHaveClass('forecast-workflow__cell--center');
+    expect(within(manufacturing).getAllByRole('columnheader')[2]).toHaveClass('forecast-workflow__cell--number');
     expect(within(sga).getAllByRole('columnheader')[0]).toHaveClass('forecast-workflow__cell--center');
     expect(within(sga).getAllByRole('columnheader')[1]).toHaveClass('forecast-workflow__cell--center');
     expect(within(sga).getAllByRole('columnheader')[2]).toHaveClass('forecast-workflow__cell--number');
@@ -768,6 +850,14 @@ describe('Forecast React vertical slice', () => {
 
     const julyPlan = monthlyBaselineAmounts['7'].toLocaleString('ko-KR');
     const augustPlan = monthlyBaselineAmounts['8'].toLocaleString('ko-KR');
+    const manufacturingRow = within(manufacturing).getByText('전력비').closest('tr') as HTMLTableRowElement;
+    expect(manufacturingRow.children).toHaveLength(6);
+    expect(manufacturingRow.children[0]).toHaveTextContent('제조');
+    expect(manufacturingRow.children[1]).toHaveTextContent('전력비');
+    expect(manufacturingRow.children[2]).toHaveTextContent(julyPlan);
+    expect(manufacturingRow.children[3]).toHaveTextContent(julyPlan);
+    expect(manufacturingRow.children[4]).toHaveTextContent('0');
+    expect(manufacturingRow.children[5]).toHaveTextContent('조정');
     fireEvent.click(screen.getByRole('button', { name: '7월 전력비 조정' }));
     const planOutput = screen.getByLabelText('7월 전력비 제조경비 계획');
     const expectedOutput = screen.getByLabelText('7월 전력비 제조경비 예상금액');

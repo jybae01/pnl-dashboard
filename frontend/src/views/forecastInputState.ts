@@ -9,6 +9,7 @@ export type ForecastInputSection = 'sales' | 'production' | 'mcm';
 
 export interface ForecastProductDefinition {
   code: string;
+  category: 'SW' | 'BW' | 'LC' | 'FS' | '신사업' | 'OTHER';
   label: string;
   unit: 'PCS' | 'm' | 'L' | '—';
 }
@@ -22,17 +23,17 @@ export interface ForecastBusinessProductionDefinition {
 }
 
 export const SALES_PRODUCTS: readonly ForecastProductDefinition[] = [
-  { code: 'SW400', label: 'SW400', unit: 'PCS' },
-  { code: 'SW440', label: 'SW440', unit: 'PCS' },
-  { code: 'BW400', label: 'BW400', unit: 'PCS' },
-  { code: 'BW440', label: 'BW440', unit: 'PCS' },
-  { code: 'LC', label: 'LC (4인치)', unit: 'PCS' },
-  { code: 'FS_SW', label: 'FS SW', unit: 'm' },
-  { code: 'FS_BW', label: 'FS BW', unit: 'm' },
-  { code: 'FS_TW', label: 'FS TW', unit: 'm' },
-  { code: 'UF_MBR', label: 'UF/MBR', unit: '—' },
-  { code: 'IX', label: 'IX', unit: 'L' },
-  { code: 'OTHER', label: '기타매출', unit: '—' },
+  { code: 'SW400', category: 'SW', label: 'SW400', unit: 'PCS' },
+  { code: 'SW440', category: 'SW', label: 'SW440', unit: 'PCS' },
+  { code: 'BW400', category: 'BW', label: 'BW400', unit: 'PCS' },
+  { code: 'BW440', category: 'BW', label: 'BW440', unit: 'PCS' },
+  { code: 'LC', category: 'LC', label: 'LC (4인치)', unit: 'PCS' },
+  { code: 'FS_SW', category: 'FS', label: 'FS SW', unit: 'm' },
+  { code: 'FS_BW', category: 'FS', label: 'FS BW', unit: 'm' },
+  { code: 'FS_TW', category: 'FS', label: 'FS TW', unit: 'm' },
+  { code: 'UF_MBR', category: '신사업', label: 'UF/MBR', unit: '—' },
+  { code: 'IX', category: '신사업', label: 'IX', unit: 'L' },
+  { code: 'OTHER', category: 'OTHER', label: '기타매출', unit: '—' },
 ] as const;
 
 // Legacy canonical product export retained for non-UI consumers. The Forecast
