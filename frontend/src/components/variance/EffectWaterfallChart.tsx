@@ -10,12 +10,12 @@ interface EffectWaterfallChartProps {
 
 type BarTone = 'baseline' | 'comparison' | 'positive' | 'negative' | 'zero';
 
-const BAR_COLORS: Record<BarTone, string> = {
-  baseline: '#2563eb',
-  comparison: '#334155',
-  positive: '#047857',
-  negative: '#b91c1c',
-  zero: '#64748b',
+const BAR_GRADIENTS: Record<BarTone, { id: string; start: string; end: string; legend: string }> = {
+  baseline: { id: 'waterfall-gradient-baseline', start: '#60a5fa', end: '#1d4ed8', legend: 'linear-gradient(180deg, #60a5fa, #1d4ed8)' },
+  comparison: { id: 'waterfall-gradient-comparison', start: '#64748b', end: '#1e293b', legend: 'linear-gradient(180deg, #64748b, #1e293b)' },
+  positive: { id: 'waterfall-gradient-positive', start: '#34d399', end: '#047857', legend: 'linear-gradient(180deg, #34d399, #047857)' },
+  negative: { id: 'waterfall-gradient-negative', start: '#f87171', end: '#b91c1c', legend: 'linear-gradient(180deg, #f87171, #b91c1c)' },
+  zero: { id: 'waterfall-gradient-zero', start: '#94a3b8', end: '#64748b', legend: 'linear-gradient(180deg, #94a3b8, #64748b)' },
 };
 
 function toneForBar(bar: AnalysisWaterfallBar): BarTone {
@@ -41,6 +41,8 @@ function categoryLabel(category: AnalysisWaterfallBar['category']): string {
     case 'EXTERNAL': return '외부';
     case 'COST': return '비용';
     case 'LAG': return '';
+    case 'START_TOTAL':
+    case 'END_TOTAL': return '영업이익';
     default: return '';
   }
 }
@@ -93,25 +95,33 @@ export function EffectWaterfallChart({
         <div>
           <h3 id="variance-waterfall-title" className="variance-analysis__chart-title">
             <BarChart3 size={16} aria-hidden="true" />
-            영업이익 변동 Waterfall
+            손익영향 Waterfall 분석
           </h3>
-          <p className="variance-analysis__chart-subtitle">단위: 억원 · 막대를 선택하면 Effect 상세가 강조됩니다.</p>
+          <p className="variance-analysis__chart-subtitle">단위: 억원 · 막대 클릭 시 하단 세부 내역 연동</p>
         </div>
         <div className="variance-analysis__chart-legend" aria-label="Waterfall 범례">
-          <Legend color={BAR_COLORS.baseline} label="기준" />
-          <Legend color={BAR_COLORS.positive} label="이익 증가" />
-          <Legend color={BAR_COLORS.negative} label="이익 감소" />
-          <Legend color={BAR_COLORS.comparison} label="비교" />
+          <Legend gradient={BAR_GRADIENTS.baseline.legend} label="기준(계획)" />
+          <Legend gradient={BAR_GRADIENTS.positive.legend} label="이익증가 (+)" />
+          <Legend gradient={BAR_GRADIENTS.negative.legend} label="이익감소 (-)" />
+          <Legend gradient={BAR_GRADIENTS.comparison.legend} label="비교(실적)" />
         </div>
       </div>
 
-      <div className="variance-analysis__waterfall-scroll" role="region" aria-label="영업이익 변동 Waterfall 차트" tabIndex={0}>
+      <div className="variance-analysis__waterfall-scroll" role="region" aria-label="손익영향 Waterfall 분석 차트" tabIndex={0}>
         <svg
           viewBox={`0 0 ${svgWidth} ${svgHeight}`}
           className="variance-analysis__waterfall-svg"
           role="img"
           aria-labelledby="variance-waterfall-title"
         >
+          <defs data-testid="waterfall-gradient-definitions">
+            {Object.values(BAR_GRADIENTS).map((gradient) => (
+              <linearGradient key={gradient.id} id={gradient.id} x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0%" stopColor={gradient.start} />
+                <stop offset="100%" stopColor={gradient.end} />
+              </linearGradient>
+            ))}
+          </defs>
           {[0, 0.25, 0.5, 0.75, 1].map((ratio) => {
             const value = minValue + (maxValue - minValue) * ratio;
             const y = getY(value);
@@ -176,7 +186,8 @@ export function EffectWaterfallChart({
                   y={yTop}
                   width={barWidth}
                   height={height}
-                  fill={BAR_COLORS[tone]}
+                  fill={`url(#${BAR_GRADIENTS[tone].id})`}
+                  data-gradient-id={BAR_GRADIENTS[tone].id}
                   className="variance-analysis__waterfall-rect"
                   rx="2"
                 />
@@ -211,6 +222,6 @@ export function EffectWaterfallChart({
   );
 }
 
-function Legend({ color, label }: { color: string; label: string }) {
-  return <span className="variance-analysis__legend-item"><span className="variance-analysis__legend-color" style={{ backgroundColor: color }} aria-hidden="true" />{label}</span>;
+function Legend({ gradient, label }: { gradient: string; label: string }) {
+  return <span className="variance-analysis__legend-item"><span className="variance-analysis__legend-color" style={{ background: gradient }} aria-hidden="true" />{label}</span>;
 }

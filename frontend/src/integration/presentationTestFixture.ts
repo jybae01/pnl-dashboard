@@ -20,7 +20,20 @@ export function presentationFixture(overrides: Partial<AnalysisPresentationDto> 
     description: `${code} persisted fact`,
     drilldown: code === 'sales_mix'
       ? { kind: 'unavailable' as const, available: false, rows: [], unavailable_reason: 'persisted detail unavailable' }
-      : { kind: (code === 'material_total' ? 'material' : code === 'manufacturing_realized' ? 'manufacturing' : code === 'inventory_timing' ? 'inventory' : code.startsWith('sga_') ? 'sga' : code === 'tariff' ? 'tariff' : 'sales') as 'sales' | 'material' | 'manufacturing' | 'inventory' | 'sga' | 'tariff', available: true, rows: [{ row_id: `${code}:1`, label: `${code} source`, unit: 'KRW', baseline: null, comparison: null, delta: null, profit_effect: effectValues[index], note: 'persisted source' }], unavailable_reason: null },
+      : code === 'manufacturing_realized'
+        ? {
+          kind: 'manufacturing' as const,
+          available: true,
+          rows: [
+            { row_id: 'manufacturing:1:수도광열비', label: '수도광열비', unit: 'KRW', baseline: 10, comparison: 11, delta: 1, profit_effect: -1, note: 'variable' },
+            { row_id: 'manufacturing:2:소모품비', label: '소모품비', unit: 'KRW', baseline: 10, comparison: 11, delta: 1, profit_effect: -1, note: 'variable' },
+            { row_id: 'manufacturing:3:원자재운반비', label: '원자재운반비', unit: 'KRW', baseline: 10, comparison: 11, delta: 1, profit_effect: -1, note: 'variable' },
+            { row_id: 'manufacturing:4:외주가공비', label: '외주가공비', unit: 'KRW', baseline: 10, comparison: 9, delta: -1, profit_effect: 1, note: 'variable' },
+            { row_id: 'manufacturing:5:감가상각비', label: '감가상각비', unit: 'KRW', baseline: 10, comparison: 14, delta: 4, profit_effect: -4, note: 'fixed' },
+          ],
+          unavailable_reason: null,
+        }
+        : { kind: (code === 'material_total' ? 'material' : code === 'inventory_timing' ? 'inventory' : code.startsWith('sga_') ? 'sga' : code === 'tariff' ? 'tariff' : 'sales') as 'sales' | 'material' | 'inventory' | 'sga' | 'tariff', available: true, rows: [{ row_id: `${code}:1`, label: `${code} source`, unit: 'KRW', baseline: null, comparison: null, delta: null, profit_effect: effectValues[index], note: 'persisted source' }], unavailable_reason: null },
   }));
   const effectsTotal = effectValues.reduce((sum, value) => sum + value, 0);
   const residual = { amount: 5, classification: 'UNEXPLAINED' as const, display_label: '미설명 잔여차이' };

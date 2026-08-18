@@ -566,9 +566,9 @@
 
 .variance-analysis__effect-table,
 .variance-analysis__evidence-table .financial-table {
-  width: 1000px;
-  min-width: 1000px;
-  max-width: 1000px;
+  width: 960px;
+  min-width: 960px;
+  max-width: 960px;
   margin: 18px auto 36px;
   table-layout: fixed;
 }
@@ -592,14 +592,18 @@
   white-space: nowrap;
 }
 
+.variance-analysis table thead th {
+  text-align: center !important;
+}
+
 .variance-analysis__effect-table th:nth-child(1) { width: 80px; }
-.variance-analysis__effect-table th:nth-child(2) { width: 250px; text-align: left; }
+.variance-analysis__effect-table th:nth-child(2) { width: 200px; }
 .variance-analysis__effect-table th:nth-child(3) { width: 60px; }
 .variance-analysis__effect-table th:nth-child(4),
 .variance-analysis__effect-table th:nth-child(5),
 .variance-analysis__effect-table th:nth-child(6) { width: 120px; }
-.variance-analysis__effect-table th:nth-child(7) { width: 140px; }
-.variance-analysis__effect-table th:nth-child(8) { width: 110px; text-align: left; }
+.variance-analysis__effect-table th:nth-child(7) { width: 130px; }
+.variance-analysis__effect-table th:nth-child(8) { width: 130px; }
 
 .variance-analysis__effect-table td:nth-child(1),
 .variance-analysis__effect-table td:nth-child(3) { text-align: center; }
@@ -654,9 +658,20 @@
 .expand-toggle-btn:focus-visible { outline: 2px solid #2563eb; outline-offset: 1px; }
 
 .variance-analysis__drilldown-cell { padding: 0 !important; background: #f8fafc; }
-.variance-analysis__drilldown-table { width: 100%; min-width: 900px; margin: 0; }
+.variance-analysis__drilldown-table { width: 100%; min-width: 780px; margin: 0; table-layout: fixed; }
 .variance-analysis__drilldown-table th { height: 34px; font-size: 12px; font-weight: 700; }
 .variance-analysis__drilldown-table td { height: 36px; font-size: 12.5px; }
+.variance-analysis__drilldown-table th:nth-child(1) { width: 74px; }
+.variance-analysis__drilldown-table th:nth-child(2) { width: 220px; }
+.variance-analysis__drilldown-table th:nth-child(3) { width: 68px; }
+.variance-analysis__drilldown-table th:nth-child(n+4) { width: 104px; }
+.variance-analysis__drilldown-table td:nth-child(1),
+.variance-analysis__drilldown-table td:nth-child(3) { text-align: center; }
+.variance-analysis__evidence-table--product tbody td:nth-child(1),
+.variance-analysis__evidence-table--product tbody td:nth-child(2),
+.variance-analysis__evidence-table--activity tbody td:nth-child(1),
+.variance-analysis__evidence-table--activity tbody td:nth-child(2),
+.variance-analysis__evidence-table--activity tbody td:nth-child(3) { text-align: center; }
 
 @media (max-width: 900px) {
   .variance-analysis__hero,

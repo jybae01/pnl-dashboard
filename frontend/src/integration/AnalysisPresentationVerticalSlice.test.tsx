@@ -1,6 +1,6 @@
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { AnalysisPresentationPanel } from './AnalysisPresentationPanel';
+import { AnalysisPresentationPanel, formatQuantity } from './AnalysisPresentationPanel';
 import { CoreAnalysisView } from './CoreAnalysisView';
 import { presentationFixture, TEST_RESULT } from './presentationTestFixture';
 import { CANONICAL_EFFECT_ORDER, mapAnalysisPresentation } from './analysisPresentation';
@@ -56,6 +56,35 @@ describe('analysis presentation vertical slice', () => {
     expect(mapping.waterfallBars.find((bar) => bar.id === 'residual')?.delta).toBe(value.residual.amount);
   });
 
+  it('moves exactly four authoritative manufacturing account effects into variable cost without double counting', () => {
+    const value = presentationFixture();
+    const canonicalVariable = value.effects.find((effect) => effect.code === 'sga_variable')!.profit_effect
+      + value.effects.find((effect) => effect.code === 'tariff')!.profit_effect;
+    const canonicalManufacturing = value.effects.find((effect) => effect.code === 'manufacturing_realized')!.profit_effect;
+    const mapping = mapAnalysisPresentation(value);
+    const variable = mapping.effects.find((effect) => effect.code === 'sga_variable')!;
+    const manufacturing = mapping.effects.find((effect) => effect.code === 'manufacturing_realized')!;
+
+    expect(variable.drilldown.rows.map((row) => row.label)).toEqual(expect.arrayContaining([
+      '수도광열비', '소모품비', '원자재운반비', '외주가공비',
+    ]));
+    expect(manufacturing.drilldown.rows.map((row) => row.label)).not.toEqual(expect.arrayContaining([
+      '수도광열비', '소모품비', '원자재운반비', '외주가공비',
+    ]));
+    expect(variable.profit_effect).toBe(-6);
+    expect(manufacturing.profit_effect).toBe(-4);
+    expect(variable.profit_effect + manufacturing.profit_effect).toBe(canonicalVariable + canonicalManufacturing);
+    expect(mapping.effects.reduce((sum, effect) => sum + effect.profit_effect, 0)).toBe(value.kpis.effects_total);
+    expect(mapping.residual.amount).toBe(value.residual.amount);
+
+    render(<AnalysisPresentationPanel value={value} role="admin" />);
+    fireEvent.click(screen.getByRole('button', { name: '변동비 상세 펼치기' }));
+    for (const account of ['수도광열비', '소모품비', '원자재운반비', '외주가공비']) {
+      expect(screen.getByText(account)).toBeInTheDocument();
+      expect(screen.queryByText(`일반관리비_${account}`)).not.toBeInTheDocument();
+    }
+  });
+
   it('keeps selection synchronized between Effect table and Waterfall, including residual', () => {
     render(<AnalysisPresentationPanel value={presentationFixture()} role="admin" />);
     const qtyBar = screen.getByTestId('waterfall-bar-sales_quantity');
@@ -87,6 +116,23 @@ describe('analysis presentation vertical slice', () => {
     expect(screen.getByTestId('waterfall-bar-residual')).toHaveClass('variance-analysis__waterfall-bar--negative');
   });
 
+  it('keeps hover visual-only while click and keyboard activation update the selected detail', () => {
+    render(<AnalysisPresentationPanel value={presentationFixture()} role="admin" />);
+    const quantitySelect = screen.getByTestId('effect-select-sales_quantity');
+    expect(quantitySelect).toHaveAttribute('aria-pressed', 'true');
+
+    for (const code of ['sales_quantity', 'sga_variable', 'manufacturing_realized', 'residual']) {
+      fireEvent.mouseEnter(screen.getByTestId(`waterfall-bar-${code}`));
+      expect(quantitySelect).toHaveAttribute('aria-pressed', 'true');
+      fireEvent.mouseLeave(screen.getByTestId(`waterfall-bar-${code}`));
+    }
+
+    fireEvent.click(screen.getByTestId('waterfall-bar-manufacturing_realized'));
+    expect(screen.getByTestId('effect-select-manufacturing_realized')).toHaveAttribute('aria-pressed', 'true');
+    fireEvent.keyDown(screen.getByTestId('waterfall-bar-sga_variable'), { key: 'Enter' });
+    expect(screen.getByTestId('effect-select-sga_variable')).toHaveAttribute('aria-pressed', 'true');
+  });
+
   it('uses the mockup result hierarchy and opens the first available drilldown', () => {
     render(<AnalysisPresentationPanel value={presentationFixture()} role="admin" />);
     const summary = screen.getByTestId('analysis-summary-header');
@@ -115,6 +161,55 @@ describe('analysis presentation vertical slice', () => {
     expect(waterfall.querySelector('.variance-analysis__waterfall-svg')).toHaveAttribute('viewBox', '0 0 960 295');
     expect(detail.querySelector('.variance-analysis__table-scroll')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: '수량 상세 접기' })).toHaveAttribute('aria-expanded', 'true');
+  });
+
+  it('uses the approved Waterfall copy, two-line totals, short inventory label and gradients', () => {
+    render(<AnalysisPresentationPanel value={presentationFixture()} role="admin" />);
+    const waterfall = screen.getByTestId('analysis-waterfall-card');
+    expect(within(waterfall).getByText('손익영향 Waterfall 분석')).toBeInTheDocument();
+    expect(within(waterfall).getByText('단위: 억원 · 막대 클릭 시 하단 세부 내역 연동')).toBeInTheDocument();
+    for (const label of ['기준(계획)', '이익증가 (+)', '이익감소 (-)', '비교(실적)', '영업이익', '재고차이 등']) {
+      expect(within(waterfall).getAllByText(label).length).toBeGreaterThan(0);
+    }
+    expect(screen.getByTestId('waterfall-gradient-definitions').querySelectorAll('linearGradient')).toHaveLength(5);
+    expect(screen.getByTestId('waterfall-bar-sales_quantity').querySelector('.variance-analysis__waterfall-rect'))
+      .toHaveAttribute('fill', 'url(#waterfall-gradient-positive)');
+  });
+
+  it('removes visible remark headers, centers every header and uses approved evidence titles', () => {
+    render(<AnalysisPresentationPanel value={presentationFixture()} role="admin" />);
+    expect(screen.queryAllByRole('columnheader', { name: /^(비고|Remarks|Note)$/i })).toHaveLength(0);
+    expect(screen.getByRole('heading', { name: '판매 수량/매출' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: '생산 수량' })).toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: '제품군 근거' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: '제조 조업도 근거' })).not.toBeInTheDocument();
+    const tables = Array.from(screen.getByTestId('analysis-presentation').querySelectorAll('table'));
+    for (const table of tables) {
+      const headers = Array.from(table.tHead?.rows[0]?.cells ?? []);
+      expect(headers.length).toBeGreaterThan(0);
+      expect(table.tHead).toHaveClass('variance-analysis__table-head');
+      for (const header of headers) {
+        expect(header).not.toHaveClass('text-right');
+      }
+      for (const row of Array.from(table.tBodies[0]?.rows ?? [])) {
+        const occupiedColumns = Array.from(row.cells).reduce((count, cell) => count + cell.colSpan, 0);
+        expect(occupiedColumns).toBe(headers.length);
+      }
+    }
+  });
+
+  it('formats every Analysis quantity as a rounded integer with grouping', () => {
+    expect(formatQuantity(100)).toBe('100');
+    expect(formatQuantity(100.4)).toBe('100');
+    expect(formatQuantity(100.6)).toBe('101');
+    expect(formatQuantity(12345.7)).toBe('12,346');
+
+    const value = presentationFixture();
+    value.product_groups[0].baseline_quantity = 100.6;
+    value.manufacturing_activities[0].comparison = 12345.7;
+    render(<AnalysisPresentationPanel value={value} role="admin" />);
+    expect(screen.getByText('101')).toBeInTheDocument();
+    expect(screen.getByText('12,346')).toBeInTheDocument();
   });
 
   it('rejects an identity mismatch without correcting the payload or showing Evidence', async () => {

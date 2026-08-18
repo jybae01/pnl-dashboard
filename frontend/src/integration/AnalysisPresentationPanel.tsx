@@ -251,8 +251,8 @@ function EffectTable({
         </div>
         <div className="variance-analysis__table-scroll">
           <table className="financial-table variance-analysis__effect-table">
-            <thead><tr>
-              <th>구분</th><th>손익 변동 원인</th><th>단위</th><th className="text-right">기준</th><th className="text-right">비교</th><th className="text-right">원인변동</th><th className="text-right">손익 영향 금액</th><th>근거</th>
+            <thead className="variance-analysis__table-head"><tr>
+              <th>구분</th><th>손익 변동 원인</th><th>단위</th><th>기준</th><th>비교</th><th>원인변동</th><th>손익 영향 금액</th><th>근거</th>
             </tr></thead>
             <tbody>
               {effects.map((effect) => {
@@ -352,19 +352,18 @@ function EffectRow({
         <tr>
           <td colSpan={8} className="variance-analysis__drilldown-cell">
             <table className="drilldown-table variance-analysis__drilldown-table">
-              <thead><tr>
-                <th>구분</th><th>근거 항목</th><th>단위</th><th className="text-right">기준</th><th className="text-right">비교</th><th className="text-right">증감</th><th className="text-right">손익 영향</th><th>비고</th>
+              <thead className="variance-analysis__table-head"><tr>
+                <th>구분</th><th>근거 항목</th><th>단위</th><th>기준</th><th>비교</th><th>증감</th><th>손익 영향</th>
               </tr></thead>
               <tbody>{effect.drilldown.rows.map((row) => (
                 <tr key={row.row_id}>
                   <td>{effect.uiCategoryLabel}</td>
-                  <td>{effect.code.startsWith('sga') ? formatSgaLabel(row.label) : row.label}</td>
+                  <td>{effect.code.startsWith('sga') && !row.row_id.startsWith('manufacturing:') ? formatSgaLabel(row.label) : row.label}</td>
                   <td>{row.unit === 'KRW' ? '백만원' : row.unit}</td>
                   <td className="text-right">{displayDrilldownValue(row.baseline, row.unit)}</td>
                   <td className="text-right">{displayDrilldownValue(row.comparison, row.unit)}</td>
                   <td className="text-right">{displayDrilldownValue(row.delta, row.unit, true)}</td>
                   <td className={`text-right ${row.profit_effect === null ? '' : `variance-analysis__tone--${profitEffectTone(row.profit_effect)}`}`}>{row.profit_effect === null ? '—' : formatMillions(row.profit_effect, true)}</td>
-                  <td>{row.note}</td>
                 </tr>
               ))}</tbody>
             </table>
@@ -381,7 +380,7 @@ function AdditionalEvidence({ value }: { value: AnalysisPresentationDto }) {
     <section className="variance-analysis__additional-evidence" data-testid="analysis-additional-evidence" aria-labelledby="analysis-additional-evidence-title">
       <div className="variance-analysis__additional-evidence-header">
         <h2 id="analysis-additional-evidence-title">추가 근거</h2>
-        <span>서버가 제공한 제품군·제조 조업도 근거</span>
+        <span>서버가 제공한 판매 수량/매출·생산 수량 근거</span>
       </div>
       <div className="variance-analysis__additional-evidence-grid">
         <ProductGroupTable value={value} />
@@ -394,12 +393,12 @@ function AdditionalEvidence({ value }: { value: AnalysisPresentationDto }) {
 function ProductGroupTable({ value }: { value: AnalysisPresentationDto }) {
   if (!value.product_groups.length) return null;
   return (
-    <section className="variance-analysis__evidence-table" aria-labelledby="product-groups-title">
-      <div className="variance-analysis__section-header"><h3 id="product-groups-title">제품군 근거</h3><span>수량 단위는 DTO 값 유지 · 금액 단위: 백만원</span></div>
-      <div className="variance-analysis__table-scroll"><table className="financial-table"><thead><tr>
-        <th>제품군</th><th>수량 단위</th><th className="text-right">기준 수량</th><th className="text-right">비교 수량</th><th className="text-right">기준 매출</th><th className="text-right">비교 매출</th>
+    <section className="variance-analysis__evidence-table variance-analysis__evidence-table--product" aria-labelledby="product-groups-title">
+      <div className="variance-analysis__section-header"><h3 id="product-groups-title">판매 수량/매출</h3><span>수량 단위는 DTO 값 유지 · 금액 단위: 백만원</span></div>
+      <div className="variance-analysis__table-scroll"><table className="financial-table"><thead className="variance-analysis__table-head"><tr>
+        <th>제품군</th><th>수량 단위</th><th>기준 수량</th><th>비교 수량</th><th>기준 매출</th><th>비교 매출</th>
       </tr></thead><tbody>{value.product_groups.map((row) => (
-        <tr key={row.code}><td>{row.display_name}</td><td>{row.quantity_unit}</td><td className="text-right">{formatNumber(row.baseline_quantity)}</td><td className="text-right">{formatNumber(row.comparison_quantity)}</td><td className="text-right">{formatMillions(row.baseline_revenue)}</td><td className="text-right">{formatMillions(row.comparison_revenue)}</td></tr>
+        <tr key={row.code}><td>{row.display_name}</td><td>{row.quantity_unit}</td><td className="text-right">{formatQuantity(row.baseline_quantity)}</td><td className="text-right">{formatQuantity(row.comparison_quantity)}</td><td className="text-right">{formatMillions(row.baseline_revenue)}</td><td className="text-right">{formatMillions(row.comparison_revenue)}</td></tr>
       ))}</tbody></table></div>
     </section>
   );
@@ -408,12 +407,12 @@ function ProductGroupTable({ value }: { value: AnalysisPresentationDto }) {
 function ManufacturingActivityTable({ value }: { value: AnalysisPresentationDto }) {
   if (!value.manufacturing_activities.length) return null;
   return (
-    <section className="variance-analysis__evidence-table" aria-labelledby="manufacturing-activity-title">
-      <div className="variance-analysis__section-header"><h3 id="manufacturing-activity-title">제조 조업도 근거</h3><span>PCS / m 단위는 DTO 값 유지</span></div>
-      <div className="variance-analysis__table-scroll"><table className="financial-table"><thead><tr>
-        <th>공정</th><th>Basis</th><th>단위</th><th className="text-right">기준</th><th className="text-right">비교</th><th className="text-right">증감</th>
+    <section className="variance-analysis__evidence-table variance-analysis__evidence-table--activity" aria-labelledby="manufacturing-activity-title">
+      <div className="variance-analysis__section-header"><h3 id="manufacturing-activity-title">생산 수량</h3><span>PCS / m 단위는 DTO 값 유지</span></div>
+      <div className="variance-analysis__table-scroll"><table className="financial-table"><thead className="variance-analysis__table-head"><tr>
+        <th>공정</th><th>Basis</th><th>단위</th><th>기준</th><th>비교</th><th>증감</th>
       </tr></thead><tbody>{value.manufacturing_activities.map((row) => (
-        <tr key={`${row.process}:${row.production_basis}`}><td>{row.process}</td><td>{row.production_basis}</td><td>{row.unit}</td><td className="text-right">{formatNumber(row.baseline)}</td><td className="text-right">{formatNumber(row.comparison)}</td><td className="text-right">{formatNumber(row.delta, true)}</td></tr>
+        <tr key={`${row.process}:${row.production_basis}`}><td>{row.process}</td><td>{row.production_basis}</td><td>{row.unit}</td><td className="text-right">{formatQuantity(row.baseline)}</td><td className="text-right">{formatQuantity(row.comparison)}</td><td className="text-right">{formatQuantity(row.delta, true)}</td></tr>
       ))}</tbody></table></div>
     </section>
   );
@@ -438,11 +437,15 @@ function formatSgaLabel(label: string): string {
   return isSelling ? `판매비_${clean}` : `일반관리비_${clean}`;
 }
 
-function formatNumber(value: number, signed = false): string {
-  return `${signed && value > 0 ? '+' : ''}${value.toLocaleString('ko-KR', { maximumFractionDigits: 2 })}`;
+export function formatQuantity(value: number, signed = false): string {
+  const formatted = value.toLocaleString('ko-KR', {
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 0,
+  });
+  return `${signed && value > 0 ? '+' : ''}${formatted}`;
 }
 
 function displayDrilldownValue(value: number | null, unit: string, signed = false): string {
   if (value === null) return '—';
-  return unit === 'KRW' ? formatMillions(value, signed) : formatNumber(value, signed);
+  return unit === 'KRW' ? formatMillions(value, signed) : formatQuantity(value, signed);
 }

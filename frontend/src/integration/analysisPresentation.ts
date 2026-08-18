@@ -52,6 +52,13 @@ export const CANONICAL_EFFECT_LABELS: Record<PresentationEffectCode, string> = {
 export const RESIDUAL_CODE = 'residual' as const;
 export const RESIDUAL_LABEL = '기타 요인' as const;
 
+export const MANUFACTURING_VARIABLE_ACCOUNT_LABELS = [
+  '수도광열비',
+  '소모품비',
+  '원자재운반비',
+  '외주가공비',
+] as const;
+
 export const EFFECT_CATEGORY_LABELS: Record<PresentationEffectCategory, string> = {
   INTERNAL: '내부',
   EXTERNAL: '외부',
@@ -120,6 +127,23 @@ export function mapGroupedPresentationEffects(
 
   const grouped: MappedPresentationEffect[] = [];
   const processedCodes = new Set<string>();
+  const manufacturing = effectMap.get('manufacturing_realized');
+  const manufacturingRows = manufacturing?.drilldown.kind === 'manufacturing'
+    ? manufacturing.drilldown.rows
+    : [];
+  const manufacturingVariableMatches = MANUFACTURING_VARIABLE_ACCOUNT_LABELS.map((label) => (
+    manufacturingRows.filter((row) => row.label === label)
+  ));
+  const hasAuthoritativeManufacturingVariableSplit = manufacturingVariableMatches.every(
+    (matches) => matches.length === 1 && matches[0].profit_effect !== null,
+  );
+  const authoritativeManufacturingVariableRows = hasAuthoritativeManufacturingVariableSplit
+    ? manufacturingVariableMatches.map(([row]) => row)
+    : [];
+  const manufacturingVariableEffect = authoritativeManufacturingVariableRows.reduce(
+    (sum, row) => sum + (row.profit_effect ?? 0),
+    0,
+  );
 
   // 1. 수량 (sales_quantity + sales_mix)
   const qty = effectMap.get('sales_quantity');
@@ -177,19 +201,23 @@ export function mapGroupedPresentationEffects(
     processedCodes.add('material_total');
   }
 
-  // 5. 변동비 (sga_variable + tariff)
+  // 5. 변동비 (sga_variable + tariff + authoritative manufacturing-variable accounts)
   const sgaVar = effectMap.get('sga_variable');
   const tariff = effectMap.get('tariff');
   if (sgaVar || tariff) {
     const varEffect = sgaVar?.profit_effect ?? 0;
     const tariffEffect = tariff?.profit_effect ?? 0;
-    const combinedRows = [...(sgaVar?.drilldown.rows ?? []), ...(tariff?.drilldown.rows ?? [])];
+    const combinedRows = [
+      ...(sgaVar?.drilldown.rows ?? []),
+      ...(tariff?.drilldown.rows ?? []),
+      ...authoritativeManufacturingVariableRows,
+    ];
     grouped.push({
       code: 'sga_variable' as PresentationEffectCode,
       label: '변동비',
       category: 'COST',
-      profit_effect: varEffect + tariffEffect,
-      description: '변동 판매관리비 및 관세 변동 영향',
+      profit_effect: varEffect + tariffEffect + manufacturingVariableEffect,
+      description: '변동 판매관리비, 관세 및 제조변동비 영향',
       drilldown: {
         kind: 'sga',
         available: combinedRows.length > 0,
@@ -213,11 +241,25 @@ export function mapGroupedPresentationEffects(
     processedCodes.add('sga_fixed');
   }
 
-  // 7. 제조 (manufacturing_realized)
-  const mfg = effectMap.get('manufacturing_realized');
+  // 7. 제조 (manufacturing_realized less the four rows moved to 변동비)
+  const mfg = manufacturing;
   if (mfg) {
+    const movedRowIds = new Set(authoritativeManufacturingVariableRows.map((row) => row.row_id));
+    const remainderRows = mfg.drilldown.rows.filter((row) => !movedRowIds.has(row.row_id));
     grouped.push({
       ...mapEffect(mfg),
+      profit_effect: mfg.profit_effect - manufacturingVariableEffect,
+      description: hasAuthoritativeManufacturingVariableSplit
+        ? '제조변동비 4개 계정을 제외한 제조 영향'
+        : mfg.description,
+      drilldown: hasAuthoritativeManufacturingVariableSplit
+        ? {
+          ...mfg.drilldown,
+          available: remainderRows.length > 0,
+          rows: remainderRows,
+          unavailable_reason: remainderRows.length > 0 ? null : '나머지 제조경비 계정 세부 payload 없음',
+        }
+        : mfg.drilldown,
       uiLabel: '제조',
     });
     processedCodes.add('manufacturing_realized');
@@ -266,7 +308,7 @@ export function mapWaterfallBars(
   let running = value.kpis.baseline_operating_profit;
   const bars: AnalysisWaterfallBar[] = [{
     id: 'baseline',
-    name: '기준 영업이익',
+    name: '기준(계획)',
     category: 'START_TOTAL',
     startValue: 0,
     endValue: running,
@@ -283,7 +325,7 @@ export function mapWaterfallBars(
     running += delta;
     bars.push({
       id: effect.code,
-      name: effect.uiLabel,
+      name: effect.code === 'inventory_timing' ? '재고차이 등' : effect.uiLabel,
       category: effect.category,
       startValue,
       endValue: running,
@@ -318,7 +360,7 @@ export function mapWaterfallBars(
   const comparison = value.kpis.comparison_operating_profit;
   bars.push({
     id: 'comparison',
-    name: '비교 영업이익',
+    name: '비교(실적)',
     category: 'END_TOTAL',
     startValue: 0,
     endValue: comparison,
