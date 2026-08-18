@@ -388,6 +388,8 @@ type SgaSection = 'selling' | 'general_admin';
 
 function CostDrilldown({ effect }: { effect: MappedPresentationEffect }) {
   const [selectedSection, setSelectedSection] = useState<SgaSection>('selling');
+  const subtotals = effect.costSubtotals;
+  if (!subtotals) return null;
   const manufacturingRows = effect.drilldown.rows.filter((row) => row.section === 'manufacturing');
   const sgaRows = effect.drilldown.rows.filter((row) => row.section === 'selling' || row.section === 'general_admin');
   const filteredSgaRows = sgaRows.filter((row) => row.section === selectedSection);
@@ -396,19 +398,53 @@ function CostDrilldown({ effect }: { effect: MappedPresentationEffect }) {
   return (
     <div className="variance-analysis__cost-groups">
       <section className="variance-analysis__cost-subgroup" data-testid={`${effect.code}-sga-subgroup`}>
-        <div className="variance-analysis__cost-subgroup-header">
-          <h4>판관비 {costKind}</h4>
+        <CostSubgroupHeader
+          title={`판관비 ${costKind}`}
+          subtotal={subtotals.sga}
+          testId={`${effect.code}-sga-subtotal`}
+        >
           <div className="variance-analysis__sga-toggle" role="group" aria-label={`판관비 ${costKind} 구분`}>
             <button type="button" aria-pressed={selectedSection === 'selling'} onClick={() => setSelectedSection('selling')}>판매비</button>
             <button type="button" aria-pressed={selectedSection === 'general_admin'} onClick={() => setSelectedSection('general_admin')}>일반관리비</button>
           </div>
-        </div>
+        </CostSubgroupHeader>
         <CostAccountTable rows={filteredSgaRows} section={selectedSection === 'selling' ? '판매비' : '일반관리비'} emptyLabel={`선택한 ${selectedSection === 'selling' ? '판매비' : '일반관리비'} 계정이 없습니다.`} />
       </section>
       <section className="variance-analysis__cost-subgroup" data-testid={`${effect.code}-manufacturing-subgroup`}>
-        <div className="variance-analysis__cost-subgroup-header"><h4>제조경비 {costKind}</h4></div>
+        <CostSubgroupHeader
+          title={`제조경비 ${costKind}`}
+          subtotal={subtotals.manufacturing}
+          testId={`${effect.code}-manufacturing-subtotal`}
+        />
         <CostAccountTable rows={manufacturingRows} section="제조" emptyLabel={`제조경비 ${costKind} 계정이 없습니다.`} />
       </section>
+    </div>
+  );
+}
+
+function CostSubgroupHeader({
+  title,
+  subtotal,
+  testId,
+  children,
+}: {
+  title: string;
+  subtotal: number;
+  testId: string;
+  children?: React.ReactNode;
+}) {
+  return (
+    <div className="variance-analysis__cost-subgroup-header">
+      <div className="variance-analysis__cost-subgroup-title-row">
+        <h4>{title}</h4>
+        <strong
+          className={`variance-analysis__cost-subtotal tabular-nums variance-analysis__tone--${profitEffectTone(subtotal)}`}
+          data-testid={testId}
+        >
+          {formatMillions(subtotal, true)}
+        </strong>
+      </div>
+      {children && <div className="variance-analysis__cost-subgroup-controls">{children}</div>}
     </div>
   );
 }

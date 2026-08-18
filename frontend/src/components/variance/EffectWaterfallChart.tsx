@@ -211,13 +211,6 @@ export function EffectWaterfallChart({
         </svg>
       </div>
 
-      {hoveredBar && (
-        <div className="variance-analysis__waterfall-hover" role="status" aria-live="polite">
-          <strong>{hoveredBar.name}</strong>
-          <span>{formatEokWon(hoveredBar.delta, !hoveredBar.isTotal)}</span>
-          {!hoveredBar.isTotal && <span className="variance-analysis__waterfall-hover-hint">Enter/Space 또는 클릭으로 선택</span>}
-        </div>
-      )}
     </section>
   );
 }

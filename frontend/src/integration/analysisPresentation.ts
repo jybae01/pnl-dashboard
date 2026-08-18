@@ -65,6 +65,10 @@ export interface MappedPresentationEffect extends AnalysisPresentationEffectDto 
   uiLabel: string;
   uiCategoryLabel: string;
   contributionRate: number | null;
+  costSubtotals: {
+    sga: number;
+    manufacturing: number;
+  } | null;
 }
 
 export interface MappedResidual extends AnalysisResidualDto {
@@ -134,6 +138,7 @@ export function mapEffect(
     uiLabel: CANONICAL_EFFECT_LABELS[effect.code] ?? effect.label,
     uiCategoryLabel: EFFECT_CATEGORY_LABELS[effect.category],
     contributionRate: calculateContributionRate(effect.profit_effect, operatingProfitDelta),
+    costSubtotals: null,
   };
 }
 
@@ -211,6 +216,7 @@ export function mapGroupedPresentationEffects(
       uiLabel: '수량',
       uiCategoryLabel: '내부',
       contributionRate: calculateContributionRate(qtyEffect + mixEffect, operatingProfitDelta),
+      costSubtotals: null,
     });
     processedCodes.add('sales_quantity');
     processedCodes.add('sales_mix');
@@ -276,6 +282,10 @@ export function mapGroupedPresentationEffects(
         varEffect + tariffEffect + manufacturingVariableEffect,
         operatingProfitDelta,
       ),
+      costSubtotals: {
+        sga: varEffect + tariffEffect,
+        manufacturing: manufacturingVariableEffect,
+      },
     });
     processedCodes.add('sga_variable');
     processedCodes.add('tariff');
@@ -308,6 +318,10 @@ export function mapGroupedPresentationEffects(
         sgaFixedEffect + manufacturingFixedEffect,
         operatingProfitDelta,
       ),
+      costSubtotals: {
+        sga: sgaFixedEffect,
+        manufacturing: manufacturingFixedEffect,
+      },
     });
     processedCodes.add('sga_fixed');
     processedCodes.add('manufacturing_realized');

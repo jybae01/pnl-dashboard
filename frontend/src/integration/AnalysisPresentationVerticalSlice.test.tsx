@@ -225,6 +225,45 @@ describe('analysis presentation vertical slice', () => {
     }
   });
 
+  it('maps authoritative subgroup subtotals once and keeps the SG&A amount stable across table toggles', () => {
+    const value = presentationFixture();
+    for (const effect of value.effects) {
+      effect.profit_effect *= 1_000_000;
+      for (const row of effect.drilldown.rows) {
+        row.profit_effect = row.profit_effect === null ? null : row.profit_effect * 1_000_000;
+        row.baseline = row.baseline === null ? null : row.baseline * 1_000_000;
+        row.comparison = row.comparison === null ? null : row.comparison * 1_000_000;
+        row.delta = row.delta === null ? null : row.delta * 1_000_000;
+      }
+    }
+    value.kpis.effects_total = value.effects.reduce((sum, effect) => sum + effect.profit_effect, 0);
+    value.kpis.operating_profit_delta = value.kpis.effects_total + value.residual.amount;
+
+    const mapping = mapAnalysisPresentation(value);
+    const variable = mapping.effects.find((effect) => effect.code === 'sga_variable')!;
+    const fixed = mapping.effects.find((effect) => effect.code === 'sga_fixed')!;
+    expect(variable.costSubtotals).toEqual({ sga: -4_000_000, manufacturing: -2_000_000 });
+    expect(variable.costSubtotals!.sga + variable.costSubtotals!.manufacturing).toBe(variable.profit_effect);
+    expect(fixed.costSubtotals).toEqual({ sga: 2_000_000, manufacturing: -4_000_000 });
+    expect(fixed.costSubtotals!.sga + fixed.costSubtotals!.manufacturing).toBe(fixed.profit_effect);
+
+    render(<AnalysisPresentationPanel value={value} role="admin" />);
+    fireEvent.click(screen.getByRole('button', { name: '변동비 상세 펼치기' }));
+    const variableSga = screen.getByTestId('sga_variable-sga-subgroup');
+    const variableSgaSubtotal = screen.getByTestId('sga_variable-sga-subtotal');
+    expect(variableSgaSubtotal).toHaveTextContent('-4 백만원');
+    expect(screen.getByTestId('sga_variable-manufacturing-subtotal')).toHaveTextContent('-2 백만원');
+    expect(variableSgaSubtotal).toHaveClass('variance-analysis__tone--negative');
+    expect(variableSga.querySelector('.variance-analysis__cost-subgroup-header')).not.toHaveTextContent('합계');
+    fireEvent.click(within(variableSga).getByRole('button', { name: '일반관리비' }));
+    expect(variableSgaSubtotal).toHaveTextContent('-4 백만원');
+
+    fireEvent.click(screen.getByRole('button', { name: '고정비 상세 펼치기' }));
+    expect(screen.getByTestId('sga_fixed-sga-subtotal')).toHaveTextContent('+2 백만원');
+    expect(screen.getByTestId('sga_fixed-sga-subtotal')).toHaveClass('variance-analysis__tone--positive');
+    expect(screen.getByTestId('sga_fixed-manufacturing-subtotal')).toHaveTextContent('-4 백만원');
+  });
+
   it('removes drilldown controls from sales FX and inventory while preserving click selection', () => {
     render(<AnalysisPresentationPanel value={presentationFixture()} role="admin" />);
     expect(screen.queryByRole('button', { name: /매출환율 상세/ })).not.toBeInTheDocument();
@@ -292,6 +331,9 @@ describe('analysis presentation vertical slice', () => {
     for (const code of ['sales_quantity', 'sga_variable', 'sga_fixed', 'residual']) {
       fireEvent.mouseEnter(screen.getByTestId(`waterfall-bar-${code}`));
       expect(quantitySelect).toHaveAttribute('aria-pressed', 'true');
+      expect(screen.getByTestId('drilldown-container-sales_quantity')).toBeInTheDocument();
+      expect(screen.queryByTestId('drilldown-container-sga_fixed')).not.toBeInTheDocument();
+      expect(screen.getByTestId('analysis-waterfall-card').querySelector('.variance-analysis__waterfall-hover')).not.toBeInTheDocument();
       fireEvent.mouseLeave(screen.getByTestId(`waterfall-bar-${code}`));
     }
 
