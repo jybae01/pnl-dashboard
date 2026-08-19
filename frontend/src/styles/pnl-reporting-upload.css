@@ -1,0 +1,128 @@
+.pnl-reporting-upload {
+  width: 100%; min-width: 0; overflow: hidden; border: 1px solid #cbd5e1; border-radius: 6px;
+  color: #0f172a; background: #fff; box-shadow: 0 1px 2px rgba(0, 0, 0, .05);
+  font-size: 13px; line-height: 1.5;
+}
+
+.pnl-reporting-upload *, .pnl-reporting-upload *::before, .pnl-reporting-upload *::after { box-sizing: border-box; }
+
+.pnl-reporting-upload__header {
+  display: flex; min-width: 0; align-items: center; justify-content: space-between; gap: 16px;
+  padding: 15px 20px 14px; border-bottom: 1px solid #cbd5e1; background: #f8fafc;
+}
+
+.pnl-reporting-upload__header > div { min-width: 0; }
+.pnl-reporting-upload__eyebrow { margin: 0 0 2px; color: #64748b; font-size: 10px; font-weight: 800; letter-spacing: .09em; }
+.pnl-reporting-upload__header h2 { display: flex; align-items: center; gap: 7px; margin: 0; font-size: 14.5px; font-weight: 800; letter-spacing: -.01em; }
+.pnl-reporting-upload__header h2 svg { color: #2563eb; }
+.pnl-reporting-upload__header p:last-child { margin: 3px 0 0; color: #64748b; font-size: 11.5px; }
+
+.pnl-reporting-upload__template-action, .pnl-reporting-upload__submit, .pnl-reporting-upload__remove-file {
+  display: inline-flex; align-items: center; justify-content: center; gap: 5px; border-radius: 4px;
+  font: inherit; font-weight: 600; line-height: 1; cursor: pointer;
+}
+
+.pnl-reporting-upload__template-action {
+  min-height: 34px; flex: 0 0 auto; border: 1px solid #cbd5e1; padding: 0 13px; color: #334155; background: #fff;
+}
+.pnl-reporting-upload__template-action:hover:not(:disabled) { border-color: #2563eb; color: #1d4ed8; }
+.pnl-reporting-upload__template-action:disabled, .pnl-reporting-upload__submit:disabled { cursor: not-allowed; opacity: .48; }
+
+.pnl-reporting-upload__blocks { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 14px; padding: 16px 20px 14px; }
+.pnl-reporting-upload__block { display: flex; min-width: 0; flex-direction: column; gap: 10px; border: 1px solid #e2e8f0; border-radius: 6px; padding: 14px; background: #fff; }
+.pnl-reporting-upload__block.is-plan { box-shadow: inset 0 2px 0 #60a5fa; }
+.pnl-reporting-upload__block.is-actual { box-shadow: inset 0 2px 0 #2dd4bf; }
+.pnl-reporting-upload__block-heading { display: flex; min-height: 34px; align-items: flex-start; justify-content: space-between; gap: 10px; border-bottom: 1px solid #e2e8f0; padding-bottom: 8px; }
+.pnl-reporting-upload__block-heading > div { display: flex; min-width: 0; align-items: center; gap: 7px; }
+.pnl-reporting-upload__block-heading span { border-radius: 999px; padding: 3px 8px; color: #1d4ed8; background: #dbeafe; font-size: 10.5px; font-weight: 800; line-height: 1.2; }
+.pnl-reporting-upload__block.is-actual .pnl-reporting-upload__block-heading span { color: #0f766e; background: #ccfbf1; }
+.pnl-reporting-upload__block-heading h3 { margin: 0; font-size: 13.5px; font-weight: 800; }
+.pnl-reporting-upload__block-heading small { flex: 0 0 auto; padding-top: 2px; color: #64748b; font-size: 11px; }
+
+.pnl-reporting-upload__actual-controls { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 10px; }
+.pnl-reporting-upload__control { display: grid; gap: 5px; color: #334155; font-size: 12px; font-weight: 700; }
+.pnl-reporting-upload__control input, .pnl-reporting-upload__control select {
+  width: 100%; height: 36px; border: 1px solid #cbd5e1; border-radius: 4px; padding: 0 10px;
+  color: #0f172a; background: #fff; font: inherit; font-size: 13px;
+}
+.pnl-reporting-upload__control input:focus, .pnl-reporting-upload__control select:focus, .pnl-reporting-upload__dropzone:focus-within {
+  border-color: #2563eb; outline: 2px solid rgba(37, 99, 235, .14); outline-offset: 0;
+}
+.pnl-reporting-upload__control input:disabled, .pnl-reporting-upload__control select:disabled { color: #64748b; background: #f8fafc; cursor: wait; }
+
+.pnl-reporting-upload__file-field { position: relative; min-width: 0; }
+.pnl-reporting-upload__dropzone {
+  display: flex; min-width: 0; min-height: 92px; align-items: center; justify-content: center; gap: 11px;
+  border: 1px dashed #cbd5e1; border-radius: 6px; padding: 15px; color: #2563eb; background: #fff;
+  text-align: left; cursor: pointer; transition: border-color .14s ease, background .14s ease;
+}
+.pnl-reporting-upload__file-field.is-dragging .pnl-reporting-upload__dropzone, .pnl-reporting-upload__dropzone:hover { border-color: #2563eb; background: #eff6ff; }
+.pnl-reporting-upload__file-field.is-disabled .pnl-reporting-upload__dropzone { cursor: wait; opacity: .72; }
+.pnl-reporting-upload__dropzone input { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); clip-path: inset(50%); white-space: nowrap; }
+.pnl-reporting-upload__file-copy { display: grid; min-width: 0; gap: 2px; color: #334155; }
+.pnl-reporting-upload__file-copy strong { overflow: hidden; font-size: 12.5px; font-weight: 650; text-overflow: ellipsis; white-space: nowrap; }
+.pnl-reporting-upload__file-copy small { color: #64748b; font-size: 10.5px; }
+.pnl-reporting-upload__remove-file { margin-top: 5px; border: 0; padding: 4px 2px; color: #64748b; background: transparent; font-size: 10.5px; }
+.pnl-reporting-upload__remove-file:hover { color: #b91c1c; }
+
+.pnl-reporting-upload__replacement { display: flex; align-items: flex-start; gap: 6px; border: 1px solid #bfdbfe; border-radius: 4px; padding: 7px 9px; color: #1e3a8a; background: #eff6ff; font-size: 11px; }
+.pnl-reporting-upload__replacement svg { flex: 0 0 auto; margin-top: 1px; }
+.pnl-reporting-upload__replacement small { display: block; margin-top: 1px; color: #475569; }
+
+.pnl-reporting-upload__actions { display: flex; min-width: 0; align-items: center; justify-content: space-between; gap: 10px; margin-top: auto; }
+.pnl-reporting-upload__submit { min-height: 34px; flex: 0 0 auto; border: 1px solid #2563eb; padding: 0 13px; color: #fff; background: #2563eb; }
+.pnl-reporting-upload__submit:hover:not(:disabled) { border-color: #1d4ed8; background: #1d4ed8; }
+.pnl-reporting-upload__status { display: flex; min-width: 0; align-items: flex-start; gap: 6px; color: #64748b; font-size: 11px; }
+.pnl-reporting-upload__status > svg { flex: 0 0 auto; margin-top: 1px; }
+.pnl-reporting-upload__status strong { font-weight: 650; overflow-wrap: anywhere; }
+.pnl-reporting-upload__status.is-pending { color: #1d4ed8; }
+.pnl-reporting-upload__status.is-pending > svg { animation: pnl-reporting-upload-spin .8s linear infinite; }
+.pnl-reporting-upload__status.is-invalid, .pnl-reporting-upload__status.is-error { color: #b91c1c; }
+.pnl-reporting-upload__status.is-success { color: #166534; }
+.pnl-reporting-upload__success-details { display: flex; flex-wrap: wrap; gap: 3px 9px; margin: 4px 0 0; color: #475569; }
+.pnl-reporting-upload__success-details div { display: flex; gap: 3px; }
+.pnl-reporting-upload__success-details dt { font-weight: 700; }
+.pnl-reporting-upload__success-details dd { margin: 0; }
+
+.pnl-reporting-upload__validation { margin: 0 20px 16px; overflow: hidden; border: 1px solid #e2e8f0; border-radius: 6px; background: #fff; }
+.pnl-reporting-upload__validation-heading { display: flex; min-height: 43px; align-items: center; justify-content: space-between; gap: 12px; padding: 9px 12px; border-bottom: 1px solid #e2e8f0; background: #f8fafc; }
+.pnl-reporting-upload__validation-heading > div:first-child { display: flex; align-items: center; gap: 7px; }
+.pnl-reporting-upload__validation-heading svg { color: #64748b; }
+.pnl-reporting-upload__validation-heading h3 { margin: 0; font-size: 13px; font-weight: 800; }
+.pnl-reporting-upload__validation-counts { display: flex; flex-wrap: wrap; gap: 6px; }
+.pnl-reporting-upload__validation-counts span { border-radius: 999px; padding: 3px 8px; font-size: 10.5px; font-weight: 800; }
+.pnl-reporting-upload__validation-counts .is-error { color: #991b1b; background: #fee2e2; }
+.pnl-reporting-upload__validation-counts .is-warning { color: #92400e; background: #fef3c7; }
+.pnl-reporting-upload__validation-empty { color: #64748b; font-size: 11px; }
+.pnl-reporting-upload__validation-placeholder { margin: 0; padding: 13px; color: #64748b; font-size: 11.5px; }
+.pnl-reporting-upload__issues { display: grid; gap: 0; margin: 0; padding: 0; list-style: none; }
+.pnl-reporting-upload__issues li { display: flex; min-width: 0; align-items: flex-start; gap: 9px; padding: 9px 12px; border-bottom: 1px solid #f1f5f9; }
+.pnl-reporting-upload__issues li:last-child { border-bottom: 0; }
+.pnl-reporting-upload__issue-severity { min-width: 33px; flex: 0 0 auto; border-radius: 3px; padding: 2px 4px; color: #991b1b; background: #fee2e2; font-size: 9.5px; font-weight: 800; text-align: center; }
+.pnl-reporting-upload__issues li.is-warning .pnl-reporting-upload__issue-severity { color: #92400e; background: #fef3c7; }
+.pnl-reporting-upload__issues li > div { min-width: 0; }
+.pnl-reporting-upload__issues strong { display: block; overflow: hidden; color: #334155; font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
+.pnl-reporting-upload__issues p { margin: 1px 0 0; color: #475569; font-size: 11.5px; overflow-wrap: anywhere; }
+.pnl-reporting-upload__more-issues { margin: 0; border-top: 1px solid #e2e8f0; padding: 7px 12px; color: #64748b; background: #f8fafc; font-size: 10.5px; }
+
+@keyframes pnl-reporting-upload-spin { to { transform: rotate(360deg); } }
+
+@media (prefers-reduced-motion: reduce) {
+  .pnl-reporting-upload__status.is-pending > svg { animation: none; }
+}
+
+@media (max-width: 760px) {
+  .pnl-reporting-upload__blocks { grid-template-columns: 1fr; }
+}
+
+@media (max-width: 620px) {
+  .pnl-reporting-upload__header { align-items: stretch; flex-direction: column; padding: 13px 14px; }
+  .pnl-reporting-upload__template-action { width: 100%; }
+  .pnl-reporting-upload__blocks { gap: 12px; padding: 14px; }
+  .pnl-reporting-upload__block { padding: 12px; }
+  .pnl-reporting-upload__actual-controls { grid-template-columns: 1fr; }
+  .pnl-reporting-upload__actions { align-items: stretch; flex-direction: column; }
+  .pnl-reporting-upload__submit { width: 100%; }
+  .pnl-reporting-upload__validation { margin: 0 14px 14px; }
+  .pnl-reporting-upload__validation-heading { align-items: flex-start; flex-direction: column; }
+}
