@@ -1,5 +1,9 @@
 import json
+import shutil
+import subprocess
 from pathlib import Path
+
+import pytest
 
 from forecast.bff.production import TrustedProxyPolicy
 
@@ -12,7 +16,7 @@ def _text(name: str) -> str:
     return (GCP / name).read_text(encoding="utf-8")
 
 
-def test_cloud_run_web_is_one_origin_with_private_bff_sidecar():
+def test_cloud_run_web_is_one_service_with_private_bff_sidecar():
     web = _text("cloud-run-web.yaml.tmpl")
     caddy = _text("Caddyfile.cloud-run")
     image = _text("Dockerfile.web")
@@ -202,7 +206,7 @@ def test_templates_are_placeholder_only_and_renderer_requires_digest_images():
     assert "__RUNTIME_IMAGE__" in combined
     assert "__WEB_IMAGE__" in combined
     assert "__SUPABASE_URL__" in combined
-    assert "__CLOUD_RUN_ORIGIN__" in combined
+    assert "__APPROVED_ORIGINS__" in combined
     assert "__WORKER_CONTROLLER_URL__" in combined
     assert "__SOURCE_COMMIT__" in combined
     assert "__RELEASE_STAGE__" in combined
@@ -337,14 +341,110 @@ def test_production_web_bootstrap_stays_private_until_exact_origin_smoke_passes(
         "Invoke-ProdDeploy run services replace deploy/gcp/rendered/cloud-run-web.yaml"
     )
     exact_origin = runbook.index(
-        "Render once more with `$privateUrl` as the exact `CloudRunOrigin`"
+        "Render once more with `$privateUrl` as the exact `ApprovedOrigins` value"
     )
     public_binding = runbook.index(
         "Invoke-ProdGcloud run services add-iam-policy-binding pnl-web --region=asia-southeast1 --member=allUsers"
     )
     assert first_replace < exact_origin < public_binding
     assert "Do not add `allUsers` yet" in normalized
-    assert "implicit zero-traffic rollout" in normalized
+    assert "explicit `gcloud run deploy --no-traffic` wrapper" in normalized
+
+
+def test_staging_release_tooling_is_source_controlled_and_fail_closed():
+    contract = _text("staging-release-contract.ps1")
+    renderer = _text("render.ps1")
+    release = _text("staging-release.ps1")
+    runbook = _text("STAGING_RELEASE.md")
+    test_script = _text("test-staging-release.ps1")
+
+    canonical = "https://pnl-web-498160536475.asia-southeast1.run.app"
+    status_url = "https://pnl-web-t4n4rdoznq-as.a.run.app"
+    exact_pair = f"{canonical},{status_url}"
+    assert canonical in contract and status_url in contract
+    assert "ConvertTo-PnlApprovedStagingOriginValue" in renderer
+    assert "__APPROVED_ORIGINS__" in renderer
+    assert exact_pair in runbook
+    assert "no whitespace or duplicates" in contract
+
+    assert "'run', 'deploy', $Service" in release
+    assert "'--no-traffic'" in release
+    assert '"--revision-suffix=$RevisionSuffix"' in release
+    assert '"--tag=$CandidateTag"' in release
+    assert "'--container=edge'" in release
+    assert "'--container=bff'" in release
+    assert "services', 'replace" not in release
+    assert "run services replace" not in release
+
+    assert "pnlbe" in contract and "pnlfe" in contract
+    assert "Substring(0, 12)" in contract
+    assert "FINAL_FRONTEND runtime image must exactly equal" in release
+    assert "capture_current_100_percent_revision_before_promotion" in release
+    assert "Promotion requires SmokeGate=passed" in release
+    assert "Get-PnlActiveRevision" in release
+    assert "--to-revisions=$Revision=100" in release
+    assert "pnl-web-golden-1e478b6" in release
+    assert "APPROVE_GOLDEN_INCIDENT_ROLLBACK" in release
+    assert "if (-not $Execute)" in release
+    assert "cloud_mutation = [bool]$Execute" in release
+    assert "sb_secret_" in contract
+    assert "STAGING_RELEASE_TOOLING_TESTS=PASS cloud_mutation=NONE" in test_script
+
+
+def test_staging_release_runbook_has_ordered_gates_and_separate_rollback_paths():
+    runbook = _text("STAGING_RELEASE.md")
+    gates = (
+        "### 1. Verify Final Release HEAD",
+        "### 2. Pass the template and E2E release gate",
+        "### 3. Migrate staging from 22 to 25 only under migration approval",
+        "### 4. Build and resolve the runtime digest",
+        "### 5. Render Backend-first Revision A at zero traffic",
+        "### 6. Smoke Backend-first Revision A",
+        "### 7. Capture the current active revision and promote Revision A",
+        "### 8. Build and resolve the final edge digest",
+        "### 9. Render Final-frontend Revision B at zero traffic",
+        "### 10. Browser/basic smoke Revision B",
+        "### 11. Promote Revision B",
+        "### 12. Run staging E2E",
+        "### 13. Run Browser Self-QA",
+        "### 14. Obtain User Visual QA",
+        "### 15. Freeze",
+    )
+    assert [runbook.index(gate) for gate in gates] == sorted(
+        runbook.index(gate) for gate in gates
+    )
+    for rollback in (
+        "REVISION_B_TO_A",
+        "REVISION_A_TO_PRE_RELEASE",
+        "RollbackKind GOLDEN",
+        "APPROVE_GOLDEN_INCIDENT_ROLLBACK",
+    ):
+        assert rollback in runbook
+    assert "Never use `LATEST`" in runbook
+    assert "Nothing in the dry-run path calls Google Cloud" in runbook
+
+
+def test_staging_release_powershell_dry_run_contract():
+    pwsh = shutil.which("pwsh")
+    if pwsh is None:
+        pytest.skip("PowerShell is unavailable for the executable deployment-tooling contract")
+    completed = subprocess.run(
+        [
+            pwsh,
+            "-NoLogo",
+            "-NoProfile",
+            "-NonInteractive",
+            "-File",
+            str(GCP / "test-staging-release.ps1"),
+        ],
+        cwd=ROOT,
+        text=True,
+        capture_output=True,
+        timeout=90,
+        check=False,
+    )
+    assert completed.returncode == 0, completed.stdout + completed.stderr
+    assert "STAGING_RELEASE_TOOLING_TESTS=PASS cloud_mutation=NONE" in completed.stdout
 
 
 def test_readiness_record_preserves_business_and_cloud_overclaim_boundaries():

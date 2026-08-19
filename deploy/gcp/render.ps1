@@ -4,7 +4,7 @@ param(
     [Parameter(Mandatory)] [string] $ProjectNumber,
     [Parameter(Mandatory)] [string] $Region,
     [Parameter(Mandatory)] [string] $SupabaseUrl,
-    [Parameter(Mandatory)] [string] $CloudRunOrigin,
+    [Parameter(Mandatory)] [string] $ApprovedOrigins,
     [Parameter(Mandatory)] [string] $WorkerControllerUrl,
     [Parameter(Mandatory)] [string] $WebImage,
     [Parameter(Mandatory)] [string] $RuntimeImage,
@@ -16,6 +16,9 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
+Set-StrictMode -Version Latest
+
+. (Join-Path $PSScriptRoot 'staging-release-contract.ps1')
 
 if ($ProjectId -notmatch '^[a-z][a-z0-9-]{4,28}[a-z0-9]$') {
     throw 'ProjectId is not a valid Google Cloud project ID.'
@@ -28,9 +31,6 @@ if ($Region -notmatch '^[a-z]+-[a-z]+[0-9]+$') {
 }
 if ($SupabaseUrl -notmatch '^https://[a-z0-9]+\.supabase\.co/?$') {
     throw 'SupabaseUrl must be an https://<project-ref>.supabase.co URL.'
-}
-if ($CloudRunOrigin -notmatch '^https://[^/]+$') {
-    throw 'CloudRunOrigin must be an HTTPS origin without a path.'
 }
 if ($WorkerControllerUrl -notmatch '^https://[^/]+$') {
     throw 'WorkerControllerUrl must be an HTTPS origin without a path.'
@@ -46,6 +46,25 @@ if ($SourceCommit -notmatch '^[0-9a-f]{40}$') {
 }
 if ($ReleaseStage -notmatch '^[a-z][a-z0-9-]{0,62}$') {
     throw 'ReleaseStage must be a lowercase Google label value.'
+}
+
+if ($DeploymentProfile -eq 'staging') {
+    Assert-PnlStagingTarget `
+        -ProjectId $ProjectId `
+        -ProjectNumber $ProjectNumber `
+        -Region $Region `
+        -Service 'pnl-web'
+    $allowedOrigins = ConvertTo-PnlApprovedStagingOriginValue -Origins $ApprovedOrigins
+}
+else {
+    if (
+        $ApprovedOrigins.Contains(',', [StringComparison]::Ordinal) -or
+        $ApprovedOrigins -notmatch '^https://[^/]+$' -or
+        $ApprovedOrigins -match '(?i)(\*|localhost|^null$)'
+    ) {
+        throw 'Isolated Production ApprovedOrigins must be one explicit HTTPS origin without a path.'
+    }
+    $allowedOrigins = $ApprovedOrigins
 }
 
 if ($DeploymentProfile -eq 'production') {
@@ -94,7 +113,7 @@ $tokens = [ordered]@{
     '__PROJECT_NUMBER__' = $ProjectNumber
     '__REGION__' = $Region
     '__SUPABASE_URL__' = $SupabaseUrl.TrimEnd('/')
-    '__CLOUD_RUN_ORIGIN__' = $CloudRunOrigin
+    '__APPROVED_ORIGINS__' = $allowedOrigins
     '__WORKER_CONTROLLER_URL__' = $WorkerControllerUrl
     '__WEB_IMAGE__' = $WebImage
     '__RUNTIME_IMAGE__' = $RuntimeImage

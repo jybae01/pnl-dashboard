@@ -2,11 +2,14 @@
 
 This directory prepares but does not create Google Cloud resources. All commands
 under **Provisioning (next approved goal only)** are intentionally deferred.
+The established-service P&L staging release authority is
+[`STAGING_RELEASE.md`](STAGING_RELEASE.md); it uses `staging-release.ps1` for
+explicit zero-traffic Revision A/B candidates, promotion, and rollback.
 
 ## Architecture
 
 ```text
-Browser (one managed HTTPS origin)
+Browser (one managed service; staging exposes two approved HTTPS origins)
   -> Cloud Run service `pnl-web` (min 0, max 2, concurrency 4, timeout 180s)
        -> ingress `edge`: Caddy HTTP :$PORT, React static, /api reverse proxy
        -> sidecar `bff`: FastAPI localhost:8000, 1 vCPU/2 GiB
@@ -98,10 +101,12 @@ client can lock out all users for the configured window. Per-client IP lockout
 requires a later approved external load balancer/trusted identity design; it is
 not inferred from undocumented Cloud Run proxy addresses.
 
-Cookies remain `Secure`, `HttpOnly`, and `SameSite=Strict`. Production CORS has
-one exact Cloud Run origin. Because a new service URL is learned only after its
-first creation, bootstrap with `https://bootstrap.invalid`, read the generated
-URI, immediately render a second revision with that exact origin, and do not run
+Cookies remain `Secure`, `HttpOnly`, and `SameSite=Strict`. Established staging
+CORS uses only the exact canonical and `status.url` origins pinned in
+`STAGING_RELEASE.md`. Isolated Production uses one exact Cloud Run origin.
+Because a brand-new Production service URL is learned only after its first
+creation, bootstrap with `https://bootstrap.invalid`, read the generated URI,
+immediately render a second revision with that exact origin, and do not run
 login acceptance until the second revision is serving.
 
 ## Region decision
@@ -148,7 +153,7 @@ Google Cloud.
   -ProjectNumber '123456789012' `
   -Region 'asia-southeast1' `
   -SupabaseUrl 'https://project-ref.supabase.co' `
-  -CloudRunOrigin 'https://bootstrap.invalid' `
+  -ApprovedOrigins 'https://bootstrap.invalid' `
   -WorkerControllerUrl 'https://controller-bootstrap.invalid' `
   -WebImage 'asia-southeast1-docker.pkg.dev/exact-project-id/pnl-production/pnl-web@sha256:<64-hex>' `
   -RuntimeImage 'asia-southeast1-docker.pkg.dev/exact-project-id/pnl-production/pnl-runtime@sha256:<64-hex>' `
@@ -405,16 +410,18 @@ to a runtime or deployer account.
    $identityToken = $null
    ```
 
-   Render once more with `$privateUrl` as the exact `CloudRunOrigin` and replace
+   Render once more with `$privateUrl` as the exact `ApprovedOrigins` value and replace
    the service while it is still private. Re-run the authenticated health, SPA,
    BFF, cookie/origin, label, and volume checks against that exact-origin
    revision. Only after those checks pass may the operator add the public
    invoker binding and begin the Access Code smoke. This avoids relying on
-   `gcloud run services replace` for an implicit zero-traffic rollout and keeps
-   the URL non-public until the final configuration is ready.
+   an implicit zero-traffic claim and keeps the URL non-public until the final
+   configuration is ready. This brand-new private Production bootstrap is not
+   the established staging release path; staging candidates must use the
+   explicit `gcloud run deploy --no-traffic` wrapper in `STAGING_RELEASE.md`.
 
    ```powershell
-   ./deploy/gcp/render.ps1 -ProjectId $ProjectId -ProjectNumber $ProjectNumber -Region 'asia-southeast1' -SupabaseUrl 'https://PRODUCTION_REF.supabase.co' -CloudRunOrigin $privateUrl -WorkerControllerUrl $controllerUrl -WebImage $webImage -RuntimeImage $runtimeImage -SourceCommit '1e478b68b4f73dc6b41e2681cb6238a87d1e0427' -ReleaseStage 'v1-production-pilot' -BusinessGate 'passed' -DeploymentProfile 'production'
+   ./deploy/gcp/render.ps1 -ProjectId $ProjectId -ProjectNumber $ProjectNumber -Region 'asia-southeast1' -SupabaseUrl 'https://PRODUCTION_REF.supabase.co' -ApprovedOrigins $privateUrl -WorkerControllerUrl $controllerUrl -WebImage $webImage -RuntimeImage $runtimeImage -SourceCommit '1e478b68b4f73dc6b41e2681cb6238a87d1e0427' -ReleaseStage 'v1-production-pilot' -BusinessGate 'passed' -DeploymentProfile 'production'
    Invoke-ProdDeploy run services replace deploy/gcp/rendered/cloud-run-web.yaml --region=asia-southeast1
    $candidateRevision = Invoke-ProdGcloud run revisions list --service=pnl-web --region=asia-southeast1 --sort-by='~metadata.creationTimestamp' --limit=1 --format='value(metadata.name)'
    $identityToken = & $GcloudPath auth print-identity-token --configuration=$ProductionConfiguration --audiences=$privateUrl
