@@ -99,7 +99,7 @@ export function ModelTable({
             <td className="text-center"><span className={`data-management__scenario data-management__scenario--${modelTypeClass(model.model_type)}`}>{modelTypeLabel(model.model_type)}</span></td>
             <td className="text-center tabular-nums">{model.model_year}</td>
             <td className="text-center tabular-nums">{modelPeriodLabel(model)}</td>
-            <td className="text-center tabular-nums"><strong>{model.version}</strong></td>
+            <td className="text-center tabular-nums data-management__version-cell" title={model.version}><strong>{model.version}</strong></td>
             <td className="tabular-nums data-management__date-cell">{modelDateLabel(model.uploaded_at)}</td>
             <td className="text-center"><span className={`data-management__publication ${model.is_published ? 'is-published' : ''}`}>{model.is_published ? '공개' : '비공개'}</span></td>
             <td className="text-center"><span className={`data-management__default ${model.is_default ? 'is-default' : ''}`}>{model.is_default ? '기본' : '—'}</span></td>

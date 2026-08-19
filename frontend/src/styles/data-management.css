@@ -138,6 +138,8 @@
 .data-management__table input[type='checkbox'] { width: 15px; height: 15px; accent-color: #2563eb; cursor: pointer; }
 .data-management__model-link { display: grid; width: 100%; gap: 0; overflow: hidden; border: 0; padding: 1px 0; color: #0f172a; background: transparent; font: inherit; font-size: 13.5px; font-weight: 600; text-align: left; cursor: pointer; }
 .data-management__model-link small { overflow: hidden; color: #64748b; font-size: 11px; font-weight: 400; text-overflow: ellipsis; white-space: nowrap; }
+.data-management__version-cell { overflow: hidden; text-overflow: ellipsis; }
+.data-management__version-cell strong { display: block; overflow: hidden; text-overflow: ellipsis; }
 .data-management__date-cell { font-size: 12px; }
 .data-management__detail-button { min-height: 27px; border: 1px solid #cbd5e1; padding: 0 9px; color: #475569; background: #fff; font-size: 12px; }
 .data-management__scenario, .data-management__publication, .data-management__default { display: inline-flex; align-items: center; justify-content: center; border-radius: 999px; padding: 3px 8px; font-size: 11px; font-weight: 700; line-height: 1.2; }

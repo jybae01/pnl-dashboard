@@ -46,9 +46,10 @@ afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
 
 describe('model management vertical slice', () => {
   it('renders scenario badges, dense metadata, default state, and hides technical SHA in the table', async () => {
+    const longVersion = 'QA-LC-FINAL-69006d5';
     const rows = [
       model({ display_name: 'Plan Base', model_type: 'PLAN', is_published: true, is_default: true }),
-      model({ model_id: OTHER, display_name: '2026 Forecast', model_type: 'FORECAST', start_month: 7, end_month: 12, is_published: true }),
+      model({ model_id: OTHER, display_name: '2026 Forecast', model_type: 'FORECAST', start_month: 7, end_month: 12, version: longVersion, is_published: true }),
       model({ model_id: THIRD, display_name: '2026 Actual', model_type: 'ACTUAL', is_published: true }),
     ];
     vi.stubGlobal('fetch', withEmptyHistory(vi.fn().mockResolvedValueOnce(list(rows))));
@@ -64,6 +65,7 @@ describe('model management vertical slice', () => {
     expect(screen.getByText(SHA)).toBeInTheDocument();
     const table = screen.getAllByRole('table')[0];
     expect(within(table).getAllByRole('columnheader')).toHaveLength(10);
+    expect(within(table).getByTitle(longVersion)).toHaveClass('data-management__version-cell');
   });
 
   it('supports name/file/period search and type/publication filters', async () => {
