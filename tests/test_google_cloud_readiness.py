@@ -260,8 +260,22 @@ def test_v1_production_migration_chain_and_runbook_are_explicit():
     verifier = _text("verify-v1-migrations.ps1")
     runbook = _text("README.md")
     normalized = " ".join(runbook.split())
+    manifest = [
+        line.strip()
+        for line in verifier.splitlines()
+        if ".sql' = '" in line
+    ]
+    expected_pnl = [
+        "'202608190001_pnl_reporting_persistence_slice_b.sql' = "
+        "'ad124609334dea962c52b8bf46a44dd1e1a9ff9b150d93fec2204c7319eaf9d9'",
+        "'202608190002_pnl_reporting_viewer_read_slice_c.sql' = "
+        "'1bf546d0619070609540cea0ccf94dff83f3dec39b10a258d83e8092b42dbcbd'",
+        "'202608190003_pnl_reporting_viewer_year_bootstrap.sql' = "
+        "'5f2345163b66979efe7b8a10b9bac695e360ae9ed3bd2b243bb2530dc94bb4b1'",
+    ]
 
-    assert verifier.count(".sql' = '") == 22
+    assert len(manifest) == 25
+    assert manifest[-3:] == expected_pnl
     assert "202608090001_phase1_foundation.sql" in verifier
     assert "202608120001_demand_only_worker_lifecycle.sql" in verifier
     assert "20260815023857_persistent_delete_slice3.sql" in verifier
@@ -271,7 +285,11 @@ def test_v1_production_migration_chain_and_runbook_are_explicit():
     assert "Migration order mismatch" in verifier
     assert "normalizedLfHash" in verifier
     assert "normalizedCrlfHash" in verifier
-    assert "remote migration history proving 22/22" in normalized
+    assert "all 25 files in lexical order" in normalized
+    assert "expected count is 25" in normalized
+    assert "remote migration history proving 25/25" in normalized
+    assert "read-only history/list operation" in normalized
+    assert "future additive forward-fix migration" in normalized
     assert "Security Advisor" in runbook
     assert "pnl-production --repository-format=docker" in runbook
     assert "Invoke-ProdGcloud" in runbook

@@ -171,18 +171,32 @@ both legacy refs. Before applying SQL, pin the exact V1 chain:
 ./deploy/gcp/verify-v1-migrations.ps1
 ```
 
-The verifier requires all 22 files in lexical order and their frozen SHA-256
-digests, including `20260815023857_persistent_delete_slice3.sql` and
-`20260815050758_persistent_delete_recovery_slice3a.sql`, and
+The verifier requires all 25 files in lexical order and their frozen SHA-256
+digests, including `20260815023857_persistent_delete_slice3.sql`,
+`20260815050758_persistent_delete_recovery_slice3a.sql`,
 `20260815053855_persistent_delete_status_classification_slice3a.sql`, and
-`20260815055055_persistent_delete_storage_requirement_slice3a.sql`. Apply those
-exact migrations once to the new empty Production project through the authenticated
-Supabase management channel. Do not use a staging dump, skip a file, edit a
-migration, or apply manual SQL. Before any Google deployment, capture remote
-migration history proving 22/22 with no gap or duplicate, then verify RLS/ACL,
-SECURITY DEFINER search paths, pgmq, private `pnl-models`, shared sessions and
-lockout, publication, audit, and Worker lifecycle catalogs. A Security Advisor
-warning or remote-history mismatch blocks provisioning.
+`20260815055055_persistent_delete_storage_requirement_slice3a.sql`. The final
+P&L sequence is
+`202608190001_pnl_reporting_persistence_slice_b.sql` (persistence) ->
+`202608190002_pnl_reporting_viewer_read_slice_c.sql` (viewer read) ->
+`202608190003_pnl_reporting_viewer_year_bootstrap.sql` (optional-year,
+backend-selected bootstrap). The verifier's expected count is 25, and a passing
+result must report `migration_count` 25 with
+`202608190003_pnl_reporting_viewer_year_bootstrap.sql` as the latest migration.
+
+Before any separately approved staging apply, inspect the authenticated remote
+migration inventory with a read-only history/list operation and reconcile it
+against these exact 25 files; this verification step must not apply migrations.
+Apply the same exact migrations once to a new empty Production project through
+the authenticated Supabase management channel. Do not use a staging dump, skip
+a file, edit a committed migration, or apply manual SQL. Never modify an already
+applied committed migration; make any database correction as a future additive
+forward-fix migration (the next P&L version would be 004). Before any Google
+deployment, capture remote migration history proving 25/25 with no gap or
+duplicate, then verify RLS/ACL, SECURITY DEFINER search paths, pgmq, private
+`pnl-models`, shared sessions and lockout, publication, audit, and Worker
+lifecycle catalogs. A Security Advisor warning or remote-history mismatch blocks
+provisioning.
 
 ## Provisioning
 

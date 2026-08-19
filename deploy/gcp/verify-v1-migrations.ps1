@@ -39,6 +39,9 @@ $expected = [ordered]@{
     '20260815050758_persistent_delete_recovery_slice3a.sql' = 'da63aef01016f6a1845fee04005820f9bd8705dcbc4a895048fd9c3455b37632'
     '20260815053855_persistent_delete_status_classification_slice3a.sql' = '8f16ee6a7914669714c5fbae2e46f9a6ccde0059a2e71d4682533e060823d09a'
     '20260815055055_persistent_delete_storage_requirement_slice3a.sql' = '3b93c47c8ccbef65d87b3e71b20cb1d7eb02970db620c27d852f51931abc35e6'
+    '202608190001_pnl_reporting_persistence_slice_b.sql' = 'ad124609334dea962c52b8bf46a44dd1e1a9ff9b150d93fec2204c7319eaf9d9'
+    '202608190002_pnl_reporting_viewer_read_slice_c.sql' = '1bf546d0619070609540cea0ccf94dff83f3dec39b10a258d83e8092b42dbcbd'
+    '202608190003_pnl_reporting_viewer_year_bootstrap.sql' = '5f2345163b66979efe7b8a10b9bac695e360ae9ed3bd2b243bb2530dc94bb4b1'
 }
 
 $files = @(Get-ChildItem -LiteralPath $MigrationDirectory -File -Filter '*.sql' | Sort-Object Name)
