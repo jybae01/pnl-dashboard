@@ -426,7 +426,8 @@ def create_http_bff(
             )
             return _secure_response(result, request.state.correlation_id)
         response.headers["X-Correlation-ID"] = request.state.correlation_id
-        response.headers["Cache-Control"] = "no-store"
+        if "no-store" not in response.headers.get("Cache-Control", "").casefold():
+            response.headers["Cache-Control"] = "no-store"
         logging.getLogger("forecast.bff.http").info(
             "bff_request method=%s path=%s status=%s correlation_id=%s",
             request.method, request.url.path, response.status_code, request.state.correlation_id,
@@ -1159,6 +1160,20 @@ def create_http_bff(
             )
         response.headers["Cache-Control"] = "no-store, private"
         return application.pnl_dashboard.viewer_read(value)
+
+    @app.get("/api/viewer/pnl-reporting")
+    def viewer_pnl_reporting(
+        response: Response,
+        year: Annotated[int, Query(ge=2000, le=2200)],
+        value: str = Depends(viewer_session),
+    ):
+        if application.pnl_reporting_read is None:
+            raise BffError(
+                ApiErrorCode.TRANSIENT_SYSTEM_ERROR,
+                "P&L Reporting capability is not configured",
+            )
+        response.headers["Cache-Control"] = "private, no-store"
+        return application.pnl_reporting_read.viewer_read(value, year)
 
     @app.get("/api/admin/results/{result_id}/evidence")
     def admin_evidence(request: Request, result_id: str, value: str = Depends(admin_session)):

@@ -79,6 +79,8 @@ def test_factory_composes_explicit_server_only_boundary_without_environment_swit
 
     ticket = app.login("admin-secret")
     assert app.validate_session(ticket.session_id).role == "admin"
+    assert app.pnl_reporting_ingestion is not None
+    assert app.pnl_reporting_read is not None
     app.logout(ticket.session_id)
 
 

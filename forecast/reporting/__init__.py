@@ -31,6 +31,7 @@ from .read_model import (
     build_pnl_reporting_read_model,
     build_reporting_state,
     custom_range_key,
+    validate_reporting_dataset,
 )
 from .registry import TEMPLATE_VERSION
 
@@ -66,4 +67,5 @@ __all__ = [
     "build_reporting_state",
     "custom_range_key",
     "parse_pnl_reporting_workbook",
+    "validate_reporting_dataset",
 ]

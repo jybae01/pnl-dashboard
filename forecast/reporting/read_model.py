@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from enum import Enum
+import math
 from types import MappingProxyType
 from typing import Callable, Mapping, Sequence, TypeAlias
 
@@ -69,6 +70,7 @@ class PairIntegrityCode(str, Enum):
     INVALID_ACTUAL_THROUGH = "INVALID_ACTUAL_THROUGH"
     MISSING_REQUIRED_SOURCE = "MISSING_REQUIRED_SOURCE"
     ACTUAL_FUTURE_VALUE_PRESENT = "ACTUAL_FUTURE_VALUE_PRESENT"
+    INVALID_CANONICAL_SOURCE = "INVALID_CANONICAL_SOURCE"
 
 
 class ReportingPairIntegrityError(ValueError):
@@ -405,6 +407,36 @@ def _validate_pair(plan: PnlReportingCanonicalInput, actual: PnlReportingCanonic
             PairIntegrityCode.UNSUPPORTED_TEMPLATE_VERSION,
             f"unsupported reporting template version: {plan.template_version}",
         )
+    _validate_actual_source(actual)
+    _validate_required_sources(plan)
+    _validate_required_sources(actual)
+
+
+def validate_reporting_dataset(payload: PnlReportingCanonicalInput) -> None:
+    """Validate one persisted canonical source without inventing its missing pair."""
+
+    if payload.template_version != TEMPLATE_VERSION:
+        raise ReportingPairIntegrityError(
+            PairIntegrityCode.UNSUPPORTED_TEMPLATE_VERSION,
+            f"unsupported reporting template version: {payload.template_version}",
+        )
+    if payload.dataset_type is DatasetType.PLAN:
+        if payload.actual_through_month is not None:
+            raise ReportingPairIntegrityError(
+                PairIntegrityCode.INVALID_PLAN_ACTUAL_THROUGH,
+                "PLAN actual_through_month must be null",
+            )
+    elif payload.dataset_type is DatasetType.ACTUAL:
+        _validate_actual_source(payload)
+    else:
+        raise ReportingPairIntegrityError(
+            PairIntegrityCode.PLAN_DATASET_TYPE,
+            "reporting input must have dataset_type PLAN or ACTUAL",
+        )
+    _validate_persisted_canonical_source(payload)
+
+
+def _validate_actual_source(actual: PnlReportingCanonicalInput) -> None:
     through = actual.actual_through_month
     if not isinstance(through, int) or isinstance(through, bool) or not 1 <= through <= 12:
         raise ReportingPairIntegrityError(
@@ -417,6 +449,84 @@ def _validate_pair(plan: PnlReportingCanonicalInput, actual: PnlReportingCanonic
                 PairIntegrityCode.ACTUAL_FUTURE_VALUE_PRESENT,
                 f"ACTUAL future values must be null: {series.key}",
             )
+
+
+def _validate_required_sources(payload: PnlReportingCanonicalInput) -> None:
+    source = _CanonicalAccessor(payload)
+    for sheet, definitions in (
+        (SHEET_MONTHLY_PNL, MONTHLY_PNL_ROWS),
+        (SHEET_MANUFACTURING_COGS, MANUFACTURING_COGS_ROWS),
+        (SHEET_SGA, SGA_ROWS),
+    ):
+        for definition in definitions:
+            if definition.is_input:
+                source.row(sheet, definition.key)
+    for definition in PRODUCT_PNL_ROWS:
+        if definition.is_input:
+            source.product(definition.product_group_key, definition.key)
+
+
+def _validate_persisted_canonical_source(payload: PnlReportingCanonicalInput) -> None:
+    expected_sheet_names = {
+        SHEET_MONTHLY_PNL,
+        SHEET_MANUFACTURING_COGS,
+        SHEET_SGA,
+        SHEET_PRODUCT_PNL,
+    }
+    sheet_names = [sheet.name for sheet in payload.sheets]
+    if len(sheet_names) != len(expected_sheet_names) or set(sheet_names) != expected_sheet_names:
+        _invalid_canonical("canonical sheets do not match the V1 schema")
+    sheets = {sheet.name: sheet for sheet in payload.sheets}
+
+    for sheet_name, definitions in (
+        (SHEET_MONTHLY_PNL, MONTHLY_PNL_ROWS),
+        (SHEET_MANUFACTURING_COGS, MANUFACTURING_COGS_ROWS),
+        (SHEET_SGA, SGA_ROWS),
+    ):
+        sheet = sheets[sheet_name]
+        expected_keys = {definition.key for definition in definitions if definition.is_input}
+        actual_keys = [row.key for row in sheet.rows]
+        if (
+            sheet.product_groups
+            or len(actual_keys) != len(expected_keys)
+            or set(actual_keys) != expected_keys
+        ):
+            _invalid_canonical(f"canonical rows do not match the V1 schema: {sheet_name}")
+
+    product_sheet = sheets[SHEET_PRODUCT_PNL]
+    expected_groups = {group.key for group in PRODUCT_GROUPS}
+    actual_groups = [group.product_group_key for group in product_sheet.product_groups]
+    if (
+        product_sheet.rows
+        or len(actual_groups) != len(expected_groups)
+        or set(actual_groups) != expected_groups
+    ):
+        _invalid_canonical("canonical product groups do not match the V1 schema")
+    for group in product_sheet.product_groups:
+        expected_metrics = {
+            definition.key
+            for definition in PRODUCT_PNL_ROWS
+            if definition.product_group_key == group.product_group_key and definition.is_input
+        }
+        actual_metrics = [metric.key for metric in group.metrics]
+        if len(actual_metrics) != len(expected_metrics) or set(actual_metrics) != expected_metrics:
+            _invalid_canonical(
+                f"canonical product metrics do not match the V1 schema: {group.product_group_key}"
+            )
+
+    through = 12 if payload.dataset_type is DatasetType.PLAN else payload.actual_through_month
+    if not isinstance(through, int) or isinstance(through, bool):
+        _invalid_canonical("canonical applicable month range is invalid")
+    for series in _all_series(payload):
+        for value in series.values[:through]:
+            if isinstance(value, bool) or not isinstance(value, (int, float)):
+                _invalid_canonical(f"canonical applicable value is invalid: {series.key}")
+            if isinstance(value, float) and not math.isfinite(value):
+                _invalid_canonical(f"canonical applicable value is non-finite: {series.key}")
+
+
+def _invalid_canonical(message: str) -> None:
+    raise ReportingPairIntegrityError(PairIntegrityCode.INVALID_CANONICAL_SOURCE, message)
 
 
 def _all_series(payload: PnlReportingCanonicalInput):

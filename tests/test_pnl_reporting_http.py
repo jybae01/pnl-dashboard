@@ -230,9 +230,8 @@ def test_actual_future_value_is_422_while_zero_actual_value_is_accepted():
     assert zero.status_code == 201
 
 
-def test_template_and_viewer_read_endpoints_remain_deferred():
+def test_template_endpoint_remains_deferred():
     client, _ = fixture()
     csrf = login(client)
     assert client.get("/api/admin/pnl-reporting/template").status_code == 404
-    assert client.get("/api/viewer/pnl-reporting").status_code == 404
     assert csrf

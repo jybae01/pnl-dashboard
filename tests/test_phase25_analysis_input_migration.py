@@ -175,6 +175,7 @@ def test_migration_contract_is_001_through_004():
         "20260815053855_persistent_delete_status_classification_slice3a.sql",
         "20260815055055_persistent_delete_storage_requirement_slice3a.sql",
         "202608190001_pnl_reporting_persistence_slice_b.sql",
+        "202608190002_pnl_reporting_viewer_read_slice_c.sql",
     ]
 
 

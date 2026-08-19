@@ -34,6 +34,7 @@ from .pnl_reporting_ingestion import (
     PnlReportingIngestionService,
     SupabasePnlReportingGateway,
 )
+from .pnl_reporting_read import PnlReportingViewerService, SupabasePnlReportingReadGateway
 
 
 def create_supabase_bff_application(
@@ -182,5 +183,8 @@ def create_supabase_bff_application(
         ),
         pnl_reporting_ingestion=PnlReportingIngestionService(
             sessions, SupabasePnlReportingGateway(supabase_client)
+        ),
+        pnl_reporting_read=PnlReportingViewerService(
+            sessions, SupabasePnlReportingReadGateway(supabase_client)
         ),
     )
