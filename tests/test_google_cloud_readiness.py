@@ -363,9 +363,12 @@ def test_staging_release_tooling_is_source_controlled_and_fail_closed():
     exact_pair = f"{canonical},{status_url}"
     assert canonical in contract and status_url in contract
     assert "ConvertTo-PnlApprovedStagingOriginValue" in renderer
+    assert "Assert-PnlDigestImage -Image $WebImage -Role 'edge'" in renderer
+    assert "Assert-PnlDigestImage -Image $RuntimeImage -Role 'runtime'" in renderer
     assert "__APPROVED_ORIGINS__" in renderer
     assert exact_pair in runbook
-    assert "no whitespace or duplicates" in contract
+    assert "well-formed non-loopback HTTPS origins" in contract
+    assert "ApprovedOrigins must not contain duplicates" in contract
 
     assert "'run', 'deploy', $Service" in release
     assert "'--no-traffic'" in release
@@ -373,20 +376,42 @@ def test_staging_release_tooling_is_source_controlled_and_fail_closed():
     assert '"--tag=$CandidateTag"' in release
     assert "'--container=edge'" in release
     assert "'--container=bff'" in release
+    assert "'--port=8080'" in release
+    assert "'--depends-on=bff'" in release
+    assert "'--platform=managed'," not in release
     assert "services', 'replace" not in release
     assert "run services replace" not in release
 
     assert "pnlbe" in contract and "pnlfe" in contract
-    assert "Substring(0, 12)" in contract
-    assert "FINAL_FRONTEND runtime image must exactly equal" in release
+    assert "Substring(0, 12)" not in contract
+    assert "$headToken = $GitHead" in contract
+    assert "^[a-z][a-z0-9-]*[a-z0-9]$" in contract
+    assert "latest|newest|current|candidate" in contract
+    assert "FINAL_FRONTEND runtime image must exactly equal" in contract
+    assert "ValidatedRevisionAEdgeImage" in release
+    assert "Live Revision A edge digest does not match" in contract
+    assert "Revision B candidate creation requires deterministic Revision A" in release
+    assert "Traffic percentage must be an integer JSON number" in contract
+    assert "Expected exactly one explicit revision serving 100 percent" in contract
+    assert "metadata.namespace" in contract
+    assert "Live staging service must contain exactly two containers" in release
     assert "capture_current_100_percent_revision_before_promotion" in release
-    assert "Promotion requires SmokeGate=passed" in release
+    assert "Promotion command generation requires SmokeGate=passed" in release
+    assert "Read-ValidatedPreReleaseState" in release
+    assert "Assert-RequiredText -Name 'PreReleaseStatePath'" in release
+    assert "candidate preflight active revision must match the persisted" in release
+    assert "promotion-time active revision must match the persisted" in release
+    assert "rollback_baseline" in release
     assert "Get-PnlActiveRevision" in release
     assert "--to-revisions=$Revision=100" in release
     assert "pnl-web-golden-1e478b6" in release
     assert "APPROVE_GOLDEN_INCIDENT_ROLLBACK" in release
     assert "if (-not $Execute)" in release
     assert "cloud_mutation = [bool]$Execute" in release
+    assert "Resolve-PnlGcloudExecutable" in contract
+    assert "ConvertTo-PnlGcloudExecutionArguments" in contract
+    assert "windows_cmd_arguments" in release
+    assert "Assert-PnlGcloudCandidateCapabilities" in contract
     assert "sb_secret_" in contract
     assert "STAGING_RELEASE_TOOLING_TESTS=PASS cloud_mutation=NONE" in test_script
 
@@ -394,21 +419,22 @@ def test_staging_release_tooling_is_source_controlled_and_fail_closed():
 def test_staging_release_runbook_has_ordered_gates_and_separate_rollback_paths():
     runbook = _text("STAGING_RELEASE.md")
     gates = (
-        "### 1. Verify Final Release HEAD",
-        "### 2. Pass the template and E2E release gate",
-        "### 3. Migrate staging from 22 to 25 only under migration approval",
-        "### 4. Build and resolve the runtime digest",
-        "### 5. Render Backend-first Revision A at zero traffic",
-        "### 6. Smoke Backend-first Revision A",
-        "### 7. Capture the current active revision and promote Revision A",
-        "### 8. Build and resolve the final edge digest",
-        "### 9. Render Final-frontend Revision B at zero traffic",
-        "### 10. Browser/basic smoke Revision B",
-        "### 11. Promote Revision B",
-        "### 12. Run staging E2E",
-        "### 13. Run Browser Self-QA",
-        "### 14. Obtain User Visual QA",
-        "### 15. Freeze",
+        "### 1. Preflight and verify the full release HEAD",
+        "### 2. Capture the active pre-release revision",
+        "### 3. Validate the rollback baseline",
+        "### 4. Apply migrations later under separate approval",
+        "### 5. Build and resolve the runtime digest later",
+        "### 6. Create Revision A at zero traffic",
+        "### 7. Smoke Revision A",
+        "### 8. Promote Revision A after recapture",
+        "### 9. Build and resolve the final edge digest later",
+        "### 10. Validate Revision B edge and runtime lineage",
+        "### 11. Create Revision B at zero traffic",
+        "### 12. Smoke Revision B",
+        "### 13. Promote Revision B after recapture",
+        "### 14. Run real staging E2E",
+        "### 15. Complete Browser QA",
+        "### 16. Final Audit",
     )
     assert [runbook.index(gate) for gate in gates] == sorted(
         runbook.index(gate) for gate in gates
@@ -422,6 +448,8 @@ def test_staging_release_runbook_has_ordered_gates_and_separate_rollback_paths()
         assert rollback in runbook
     assert "Never use `LATEST`" in runbook
     assert "Nothing in the dry-run path calls Google Cloud" in runbook
+    assert "live Revision A edge equals `$ValidatedRevisionAEdgeImage`" in runbook
+    assert "Golden is never selected automatically" in runbook
 
 
 def test_staging_release_powershell_dry_run_contract():

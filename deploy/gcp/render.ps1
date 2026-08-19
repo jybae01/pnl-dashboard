@@ -54,6 +54,8 @@ if ($DeploymentProfile -eq 'staging') {
         -ProjectNumber $ProjectNumber `
         -Region $Region `
         -Service 'pnl-web'
+    Assert-PnlDigestImage -Image $WebImage -Role 'edge'
+    Assert-PnlDigestImage -Image $RuntimeImage -Role 'runtime'
     $allowedOrigins = ConvertTo-PnlApprovedStagingOriginValue -Origins $ApprovedOrigins
 }
 else {

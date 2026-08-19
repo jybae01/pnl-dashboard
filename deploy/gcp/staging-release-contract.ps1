@@ -14,6 +14,25 @@ function Get-PnlApprovedStagingOrigins {
 function Assert-PnlApprovedStagingOrigin {
     param([Parameter(Mandatory)] [string] $Origin)
 
+    if (-not [string]::Equals($Origin, $Origin.Trim(), [StringComparison]::Ordinal)) {
+        throw 'Approved staging origins must not contain leading or trailing whitespace.'
+    }
+    $originUri = $null
+    if (
+        -not [Uri]::TryCreate($Origin, [UriKind]::Absolute, [ref] $originUri) -or
+        $originUri.Scheme -cne 'https' -or
+        -not [string]::IsNullOrEmpty($originUri.UserInfo) -or
+        -not [string]::IsNullOrEmpty($originUri.Query) -or
+        -not [string]::IsNullOrEmpty($originUri.Fragment) -or
+        $originUri.AbsolutePath -cne '/' -or
+        $Origin.EndsWith('/', [StringComparison]::Ordinal) -or
+        $Origin.Contains('*', [StringComparison]::Ordinal) -or
+        $originUri.IsLoopback -or
+        $originUri.Host -ceq 'localhost' -or
+        $originUri.Host.EndsWith('.localhost', [StringComparison]::Ordinal)
+    ) {
+        throw 'Approved staging origins must be well-formed non-loopback HTTPS origins without paths, queries, fragments, or wildcards.'
+    }
     if (-not (
         [string]::Equals($Origin, $script:PnlCanonicalOrigin, [StringComparison]::Ordinal) -or
         [string]::Equals($Origin, $script:PnlStatusOrigin, [StringComparison]::Ordinal)
@@ -26,15 +45,15 @@ function ConvertTo-PnlApprovedStagingOriginValue {
     param([Parameter(Mandatory)] [string] $Origins)
 
     $expected = "$script:PnlCanonicalOrigin,$script:PnlStatusOrigin"
-    if (-not [string]::Equals($Origins, $expected, [StringComparison]::Ordinal)) {
-        throw 'ApprovedOrigins must be the exact ordered two-origin staging set with no whitespace or duplicates.'
-    }
     $items = $Origins.Split([char]',', [StringSplitOptions]::None)
     if ($items.Count -ne 2) {
         throw 'ApprovedOrigins must contain exactly two origins.'
     }
     foreach ($origin in $items) {
         Assert-PnlApprovedStagingOrigin -Origin $origin
+    }
+    if (@($items | Sort-Object -Unique).Count -ne 2) {
+        throw 'ApprovedOrigins must not contain duplicates.'
     }
     return $expected
 }
@@ -77,6 +96,41 @@ function Assert-PnlDigestImage {
     }
 }
 
+function Assert-PnlCandidateTag {
+    param([Parameter(Mandatory)] [AllowEmptyString()] [string] $Tag)
+
+    if (
+        [string]::IsNullOrWhiteSpace($Tag) -or
+        $Tag.Length -gt 63 -or
+        $Tag -notmatch '^[a-z][a-z0-9-]*[a-z0-9]$'
+    ) {
+        throw 'Candidate tag must be an explicit lowercase Cloud Run tag no longer than 63 characters.'
+    }
+    if ($Tag.ToLowerInvariant() -match '(^|-)(latest|newest|current|candidate)($|-)') {
+        throw 'Generic latest/newest/current/candidate tags are forbidden.'
+    }
+    return $Tag
+}
+
+function Assert-PnlExplicitRevisionTarget {
+    param(
+        [Parameter(Mandatory)] [AllowEmptyString()] [string] $Revision,
+        [string] $Service = $script:PnlStagingService
+    )
+
+    if ([string]::IsNullOrWhiteSpace($Revision) -or $Revision.Length -gt 63) {
+        throw 'An explicit Cloud Run revision target is required.'
+    }
+    if ($Revision.ToLowerInvariant() -match '(^|-)(latest|newest|current|candidate)($|-)') {
+        throw 'Generic latest/newest/current/candidate revision targets are forbidden.'
+    }
+    $revisionPattern = '^' + [regex]::Escape($Service) + '-[a-z0-9][a-z0-9-]*[a-z0-9]$'
+    if ($Revision -notmatch $revisionPattern) {
+        throw 'Traffic targets must be explicit revisions of the exact staging service.'
+    }
+    return $Revision
+}
+
 function Get-PnlStagingReleaseIdentity {
     param(
         [Parameter(Mandatory)] [ValidateSet('BACKEND_FIRST', 'FINAL_FRONTEND')] [string] $Stage,
@@ -91,19 +145,37 @@ function Get-PnlStagingReleaseIdentity {
         throw 'Service is not a valid Cloud Run service name for this identity policy.'
     }
     $token = if ($Stage -eq 'BACKEND_FIRST') { 'pnlbe' } else { 'pnlfe' }
-    $shortHead = $GitHead.Substring(0, 12)
-    $suffix = "$token-$shortHead"
+    $headToken = $GitHead
+    $suffix = "$token-$headToken"
     $revision = "$Service-$suffix"
     if ($revision.Length -gt 63) {
         throw 'The deterministic Cloud Run revision name exceeds 63 characters.'
     }
+    $candidateTag = Assert-PnlCandidateTag -Tag $suffix
     return [pscustomobject][ordered]@{
         stage = $Stage
-        short_head = $shortHead
+        head_token = $headToken
         revision_suffix = $suffix
         revision_name = $revision
-        candidate_tag = $suffix
+        candidate_tag = $candidateTag
     }
+}
+
+function Get-PnlRequiredJsonProperty {
+    param(
+        [Parameter(Mandatory)] [AllowNull()] $Object,
+        [Parameter(Mandatory)] [string] $Name,
+        [Parameter(Mandatory)] [string] $FieldName
+    )
+
+    if ($null -eq $Object) {
+        throw "$FieldName is missing."
+    }
+    $property = $Object.PSObject.Properties[$Name]
+    if ($null -eq $property -or $null -eq $property.Value) {
+        throw "$FieldName is missing."
+    }
+    return $property.Value
 }
 
 function Get-PnlActiveRevision {
@@ -112,20 +184,191 @@ function Get-PnlActiveRevision {
         [string] $Service = $script:PnlStagingService
     )
 
-    $traffic = @($ServiceDescription.status.traffic)
-    $active = @(
-        $traffic |
-            Where-Object { [int]$_.percent -eq 100 -and -not [string]::IsNullOrWhiteSpace([string]$_.revisionName) } |
-            ForEach-Object { [string]$_.revisionName } |
-            Sort-Object -Unique
+    $metadata = Get-PnlRequiredJsonProperty -Object $ServiceDescription -Name 'metadata' -FieldName 'metadata'
+    if ([string](Get-PnlRequiredJsonProperty -Object $metadata -Name 'name' -FieldName 'metadata.name') -cne $Service) {
+        throw 'Captured service identity does not match the exact staging service.'
+    }
+    if ([string](Get-PnlRequiredJsonProperty -Object $metadata -Name 'namespace' -FieldName 'metadata.namespace') -cne $script:PnlStagingProjectNumber) {
+        throw 'Captured service project does not match the exact staging project number.'
+    }
+    $status = Get-PnlRequiredJsonProperty -Object $ServiceDescription -Name 'status' -FieldName 'status'
+    $trafficValue = Get-PnlRequiredJsonProperty -Object $status -Name 'traffic' -FieldName 'status.traffic'
+    $traffic = @($trafficValue)
+    if ($traffic.Count -eq 0) {
+        throw 'Captured service has no traffic entries.'
+    }
+
+    $positiveTraffic = @()
+    foreach ($entry in $traffic) {
+        if ($null -eq $entry) {
+            throw 'Traffic entries must be non-null objects.'
+        }
+        $revisionProperty = $entry.PSObject.Properties['revisionName']
+        if ($null -eq $revisionProperty -or [string]::IsNullOrWhiteSpace([string]$revisionProperty.Value)) {
+            throw 'Every traffic entry must identify an explicit revision.'
+        }
+        $entryRevision = Assert-PnlExplicitRevisionTarget -Revision ([string]$revisionProperty.Value) -Service $Service
+
+        $tagProperty = $entry.PSObject.Properties['tag']
+        $hasTag = $null -ne $tagProperty -and -not [string]::IsNullOrWhiteSpace([string]$tagProperty.Value)
+        if ($null -ne $tagProperty -and -not $hasTag) {
+            throw 'Traffic tags must not be null or empty when present.'
+        }
+        if ($hasTag) {
+            Assert-PnlCandidateTag -Tag ([string]$tagProperty.Value) | Out-Null
+        }
+
+        $percentProperty = $entry.PSObject.Properties['percent']
+        if ($null -eq $percentProperty) {
+            if (-not $hasTag) {
+                throw 'An untagged traffic entry must contain an explicit integer percentage.'
+            }
+            continue
+        }
+        if ($null -eq $percentProperty.Value) {
+            throw 'Traffic percentage must not be null.'
+        }
+        $percentValue = $percentProperty.Value
+        if ($percentValue -isnot [int] -and $percentValue -isnot [long]) {
+            throw 'Traffic percentage must be an integer JSON number.'
+        }
+        $percent = [long]$percentValue
+        if ($percent -lt 0 -or $percent -gt 100) {
+            throw 'Traffic percentage must be inside the inclusive 0..100 range.'
+        }
+        if ($percent -gt 0) {
+            $positiveTraffic += [pscustomobject]@{
+                revision = $entryRevision
+                percent = $percent
+            }
+        }
+    }
+    if ($positiveTraffic.Count -ne 1 -or $positiveTraffic[0].percent -ne 100) {
+        throw 'Expected exactly one explicit revision serving 100 percent production traffic.'
+    }
+    return [string]$positiveTraffic[0].revision
+}
+
+function Assert-PnlRevisionBLineage {
+    param(
+        [Parameter(Mandatory)] [string] $FinalEdgeImage,
+        [Parameter(Mandatory)] [string] $RuntimeImage,
+        [Parameter(Mandatory)] [string] $ValidatedRevisionAEdgeImage,
+        [Parameter(Mandatory)] [string] $ValidatedRevisionARuntimeImage,
+        [AllowEmptyString()] [string] $ObservedRevisionAEdgeImage,
+        [AllowEmptyString()] [string] $ObservedRevisionARuntimeImage
     )
-    if ($active.Count -ne 1) {
-        throw 'Expected exactly one dynamically resolved revision serving 100 percent traffic.'
+
+    Assert-PnlDigestImage -Image $FinalEdgeImage -Role 'edge'
+    Assert-PnlDigestImage -Image $ValidatedRevisionAEdgeImage -Role 'edge'
+    Assert-PnlDigestImage -Image $RuntimeImage -Role 'runtime'
+    Assert-PnlDigestImage -Image $ValidatedRevisionARuntimeImage -Role 'runtime'
+    if (-not [string]::Equals($RuntimeImage, $ValidatedRevisionARuntimeImage, [StringComparison]::Ordinal)) {
+        throw 'FINAL_FRONTEND runtime image must exactly equal the runtime image validated in Revision A.'
     }
-    if ($active[0] -notmatch "^$([regex]::Escape($Service))-[a-z0-9-]+$") {
-        throw 'The active revision does not belong to the exact staging service.'
+    if ([string]::Equals($FinalEdgeImage, $ValidatedRevisionAEdgeImage, [StringComparison]::Ordinal)) {
+        throw 'FINAL_FRONTEND edge image must differ from the frozen edge image validated in Revision A.'
     }
-    return $active[0]
+    $hasObservedEdge = -not [string]::IsNullOrWhiteSpace($ObservedRevisionAEdgeImage)
+    $hasObservedRuntime = -not [string]::IsNullOrWhiteSpace($ObservedRevisionARuntimeImage)
+    if ($hasObservedEdge -xor $hasObservedRuntime) {
+        throw 'Observed Revision A edge and runtime lineage must be supplied together.'
+    }
+    if ($hasObservedEdge) {
+        Assert-PnlDigestImage -Image $ObservedRevisionAEdgeImage -Role 'edge'
+        Assert-PnlDigestImage -Image $ObservedRevisionARuntimeImage -Role 'runtime'
+        if (-not [string]::Equals($ObservedRevisionAEdgeImage, $ValidatedRevisionAEdgeImage, [StringComparison]::Ordinal)) {
+            throw 'Live Revision A edge digest does not match the stored validated Revision A edge digest.'
+        }
+        if (-not [string]::Equals($ObservedRevisionARuntimeImage, $ValidatedRevisionARuntimeImage, [StringComparison]::Ordinal)) {
+            throw 'Live Revision A runtime digest does not match the stored validated Revision A runtime digest.'
+        }
+    }
+}
+
+function ConvertTo-PnlGcloudExecutionArguments {
+    param(
+        [Parameter(Mandatory)] [string[]] $Arguments,
+        [Parameter(Mandatory)] [bool] $WindowsCmdShim
+    )
+
+    if (-not $WindowsCmdShim) {
+        return @($Arguments)
+    }
+    return @(
+        foreach ($argument in $Arguments) {
+            if ($argument -match '^--update-env-vars=\^.{1}\^') {
+                $argument.Replace('^', '^^^^')
+            }
+            else {
+                $argument
+            }
+        }
+    )
+}
+
+function Resolve-PnlGcloudExecutable {
+    param([Parameter(Mandatory)] [AllowEmptyString()] [string] $GcloudPath)
+
+    if ([string]::IsNullOrWhiteSpace($GcloudPath)) {
+        throw 'GcloudPath must identify an explicit executable or command name.'
+    }
+    if (Test-Path -LiteralPath $GcloudPath -PathType Leaf) {
+        return (Resolve-Path -LiteralPath $GcloudPath).Path
+    }
+    $resolved = Get-Command -Name $GcloudPath -CommandType Application, ExternalScript -ErrorAction SilentlyContinue |
+        Select-Object -First 1
+    if ($null -eq $resolved -and $GcloudPath -ceq 'gcloud' -and
+        [Environment]::OSVersion.Platform -eq [PlatformID]::Win32NT -and
+        -not [string]::IsNullOrWhiteSpace($env:LOCALAPPDATA)) {
+        $sdkShim = Join-Path $env:LOCALAPPDATA 'Google\Cloud SDK\google-cloud-sdk\bin\gcloud.cmd'
+        if (Test-Path -LiteralPath $sdkShim -PathType Leaf) {
+            return (Resolve-Path -LiteralPath $sdkShim).Path
+        }
+    }
+    if ($null -eq $resolved) {
+        throw "Unable to resolve gcloud executable '$GcloudPath'."
+    }
+    return [string]$resolved.Source
+}
+
+function Get-PnlGcloudHelpText {
+    param(
+        [Parameter(Mandatory)] [string] $GcloudPath,
+        [Parameter(Mandatory)] [string[]] $Arguments
+    )
+
+    $resolved = Resolve-PnlGcloudExecutable -GcloudPath $GcloudPath
+    $global:LASTEXITCODE = 0
+    $helpText = (& $resolved @Arguments 2>&1 | Out-String)
+    if (-not $? -or $global:LASTEXITCODE -ne 0) {
+        throw "Unable to inspect installed gcloud help through $resolved."
+    }
+    return $helpText
+}
+
+function Assert-PnlGcloudCandidateCapabilities {
+    param([Parameter(Mandatory)] [string] $GcloudPath)
+
+    $helpText = Get-PnlGcloudHelpText -GcloudPath $GcloudPath -Arguments @('run', 'deploy', '--help')
+    foreach ($flag in @('--revision-suffix', '--tag', '--no-traffic', '--container', '--image', '--port', '--depends-on')) {
+        if (-not $helpText.Contains($flag, [StringComparison]::Ordinal)) {
+            throw "Installed gcloud does not support required safe candidate flag: $flag"
+        }
+    }
+    return Resolve-PnlGcloudExecutable -GcloudPath $GcloudPath
+}
+
+function Assert-PnlGcloudTrafficCapabilities {
+    param([Parameter(Mandatory)] [string] $GcloudPath)
+
+    $helpText = Get-PnlGcloudHelpText `
+        -GcloudPath $GcloudPath `
+        -Arguments @('run', 'services', 'update-traffic', '--help')
+    if (-not $helpText.Contains('--to-revisions', [StringComparison]::Ordinal)) {
+        throw 'Installed gcloud cannot route traffic to an explicit revision.'
+    }
+    return Resolve-PnlGcloudExecutable -GcloudPath $GcloudPath
 }
 
 function Assert-PnlRenderedWebManifest {

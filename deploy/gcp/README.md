@@ -4,7 +4,13 @@ This directory prepares but does not create Google Cloud resources. All commands
 under **Provisioning (next approved goal only)** are intentionally deferred.
 The established-service P&L staging release authority is
 [`STAGING_RELEASE.md`](STAGING_RELEASE.md); it uses `staging-release.ps1` for
-explicit zero-traffic Revision A/B candidates, promotion, and rollback.
+full-HEAD deterministic Revision A/B identities, strict read-only service
+preflight, explicit zero-traffic candidates, smoke-gated promotion-time
+recapture, and three non-interchangeable rollback operations. Revision B locks
+the exact validated Revision A runtime and frozen edge lineage; normal B
+rollback targets A, normal A rollback targets the release-bound pre-release
+capture, and golden fallback requires separate incident approval. That file is
+the only authoritative established-staging flow.
 
 ## Architecture
 

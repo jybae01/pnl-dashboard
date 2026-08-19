@@ -18,6 +18,7 @@ param(
     [string] $FrozenEdgeImage,
     [string] $FinalEdgeImage,
     [string] $RuntimeImage,
+    [string] $ValidatedRevisionAEdgeImage,
     [string] $ValidatedRevisionARuntimeImage,
     [string] $RevisionSuffix,
     [string] $CandidateTag,
@@ -26,6 +27,7 @@ param(
     [ValidateSet('REVISION_B_TO_A', 'REVISION_A_TO_PRE_RELEASE', 'GOLDEN')]
     [string] $RollbackKind,
     [string] $PreReleaseStatePath,
+    [string] $CapturedServiceJsonPath,
     [string] $IncidentApproval,
 
     [string] $GcloudPath = "$env:LOCALAPPDATA\Google\Cloud SDK\google-cloud-sdk\bin\gcloud.cmd",
@@ -68,8 +70,14 @@ function Assert-RequiredText {
 
 function ConvertTo-CommandText {
     param([Parameter(Mandatory)] [string[]] $Arguments)
-    $quoted = @($Arguments | ForEach-Object { "'$($_.Replace("'", "''"))'" })
-    return 'gcloud ' + ($quoted -join ' ')
+    $resolvedGcloud = Resolve-PnlGcloudExecutable -GcloudPath $GcloudPath
+    $windowsCmdShim = $resolvedGcloud.EndsWith('.cmd', [StringComparison]::OrdinalIgnoreCase)
+    $executionArguments = ConvertTo-PnlGcloudExecutionArguments `
+        -Arguments $Arguments `
+        -WindowsCmdShim $windowsCmdShim
+    $quotedExecutable = "'$($resolvedGcloud.Replace("'", "''"))'"
+    $quoted = @($executionArguments | ForEach-Object { "'$($_.Replace("'", "''"))'" })
+    return '& ' + $quotedExecutable + ' ' + ($quoted -join ' ')
 }
 
 function Write-ReleaseArtifact {
@@ -95,40 +103,118 @@ function Write-ReleaseArtifact {
 }
 
 function Assert-GcloudAvailable {
-    if (-not (Test-Path -LiteralPath $GcloudPath -PathType Leaf)) {
-        throw 'gcloud was not found at the explicit path.'
-    }
+    return Resolve-PnlGcloudExecutable -GcloudPath $GcloudPath
 }
 
 function Assert-GcloudCandidateCapabilities {
-    Assert-GcloudAvailable
-    $helpText = (& $GcloudPath run deploy --help 2>&1 | Out-String)
-    if ($LASTEXITCODE -ne 0) {
-        throw 'Unable to inspect installed gcloud run deploy help.'
-    }
-    foreach ($flag in @('--revision-suffix', '--tag', '--no-traffic', '--container', '--image')) {
-        if (-not $helpText.Contains($flag, [StringComparison]::Ordinal)) {
-            throw "Installed gcloud does not support required safe candidate flag: $flag"
-        }
-    }
+    return Assert-PnlGcloudCandidateCapabilities -GcloudPath $GcloudPath
 }
 
 function Assert-GcloudTrafficCapabilities {
-    Assert-GcloudAvailable
-    $helpText = (& $GcloudPath run services update-traffic --help 2>&1 | Out-String)
-    if ($LASTEXITCODE -ne 0 -or -not $helpText.Contains('--to-revisions', [StringComparison]::Ordinal)) {
-        throw 'Installed gcloud cannot route traffic to an explicit revision.'
-    }
+    return Assert-PnlGcloudTrafficCapabilities -GcloudPath $GcloudPath
 }
 
 function Invoke-PnlGcloud {
     param([Parameter(Mandatory)] [string[]] $Arguments)
-    Assert-GcloudAvailable
-    $output = & $GcloudPath @Arguments
-    if ($LASTEXITCODE -ne 0) {
-        throw "gcloud command failed: $($Arguments -join ' ')"
+    $resolvedGcloud = Assert-GcloudAvailable
+    $windowsCmdShim = $resolvedGcloud.EndsWith('.cmd', [StringComparison]::OrdinalIgnoreCase)
+    $executionArguments = ConvertTo-PnlGcloudExecutionArguments `
+        -Arguments $Arguments `
+        -WindowsCmdShim $windowsCmdShim
+    $stdoutPath = [IO.Path]::GetTempFileName()
+    $stderrPath = [IO.Path]::GetTempFileName()
+    try {
+        $global:LASTEXITCODE = 0
+        & $resolvedGcloud @executionArguments 1> $stdoutPath 2> $stderrPath
+        $commandSucceeded = $?
+        $exitCode = $global:LASTEXITCODE
+        $stdout = [IO.File]::ReadAllText($stdoutPath)
+        $stderr = [IO.File]::ReadAllText($stderrPath)
     }
-    return $output
+    finally {
+        [IO.File]::Delete($stdoutPath)
+        [IO.File]::Delete($stderrPath)
+    }
+    if (-not $commandSucceeded -or $exitCode -ne 0) {
+        throw "gcloud command failed with exit code $exitCode`: $($Arguments -join ' ')`n$stderr"
+    }
+    return $stdout
+}
+
+function Get-PlannedGcloudExecutable {
+    return Resolve-PnlGcloudExecutable -GcloudPath $GcloudPath
+}
+
+function Resolve-ReleaseStatePath {
+    param([Parameter(Mandatory)] [string] $Path)
+
+    $resolvedPath = [IO.Path]::GetFullPath($Path)
+    if (-not $resolvedPath.StartsWith(
+        $allowedOutputRoot + [IO.Path]::DirectorySeparatorChar,
+        [StringComparison]::OrdinalIgnoreCase
+    )) {
+        throw 'Release capture state must stay inside deploy/gcp/rendered.'
+    }
+    return $resolvedPath
+}
+
+function Read-ValidatedPreReleaseState {
+    param(
+        [Parameter(Mandatory)] [string] $Path,
+        [Parameter(Mandatory)] [string] $ExpectedGitHead
+    )
+
+    $resolvedStatePath = Resolve-ReleaseStatePath -Path $Path
+    if (-not (Test-Path -LiteralPath $resolvedStatePath -PathType Leaf)) {
+        throw 'Captured pre-release revision state was not found.'
+    }
+    try {
+        $state = Get-Content -Raw -LiteralPath $resolvedStatePath | ConvertFrom-Json -Depth 20
+    }
+    catch {
+        throw 'Captured pre-release revision state is not valid JSON.'
+    }
+    $capturedAt = [DateTimeOffset]::MinValue
+    $capturedAtValid = [DateTimeOffset]::TryParse(
+        [string](Get-PnlRequiredJsonProperty -Object $state -Name 'captured_at_utc' -FieldName 'captured_at_utc'),
+        [ref]$capturedAt
+    )
+    $validValue = Get-PnlRequiredJsonProperty -Object $state -Name 'valid' -FieldName 'valid'
+    $trafficPercentValue = Get-PnlRequiredJsonProperty `
+        -Object $state `
+        -Name 'traffic_percent' `
+        -FieldName 'traffic_percent'
+    if (
+        ([string](Get-PnlRequiredJsonProperty -Object $state -Name 'schema' -FieldName 'schema') -cne 'pnl-staging-active-revision-v1') -or
+        ([string](Get-PnlRequiredJsonProperty -Object $state -Name 'project' -FieldName 'project') -cne $ProjectId) -or
+        ([string](Get-PnlRequiredJsonProperty -Object $state -Name 'project_number' -FieldName 'project_number') -cne $ProjectNumber) -or
+        ([string](Get-PnlRequiredJsonProperty -Object $state -Name 'region' -FieldName 'region') -cne $Region) -or
+        ([string](Get-PnlRequiredJsonProperty -Object $state -Name 'service' -FieldName 'service') -cne $Service) -or
+        ([string](Get-PnlRequiredJsonProperty -Object $state -Name 'source_commit' -FieldName 'source_commit') -cne $ExpectedGitHead) -or
+        ([string](Get-PnlRequiredJsonProperty -Object $state -Name 'release_identity' -FieldName 'release_identity') -cne $ExpectedGitHead) -or
+        ([string](Get-PnlRequiredJsonProperty -Object $state -Name 'purpose' -FieldName 'purpose') -cne 'pre-release rollback target') -or
+        ($validValue -isnot [bool]) -or
+        (-not [bool]$validValue) -or
+        (($trafficPercentValue -isnot [int]) -and ($trafficPercentValue -isnot [long])) -or
+        ([long]$trafficPercentValue -ne 100) -or
+        (-not $capturedAtValid)
+    ) {
+        throw 'Captured pre-release revision state does not match this release.'
+    }
+    $activeRevision = [string](Get-PnlRequiredJsonProperty `
+        -Object $state `
+        -Name 'active_revision' `
+        -FieldName 'active_revision')
+    Assert-PnlExplicitRevisionTarget -Revision $activeRevision -Service $Service | Out-Null
+    return [pscustomobject][ordered]@{
+        path = $resolvedStatePath
+        valid = $true
+        release_identity = $ExpectedGitHead
+        service = $Service
+        active_revision = $activeRevision
+        traffic_percent = 100
+        captured_at_utc = [string]$state.captured_at_utc
+    }
 }
 
 function Get-LiveServiceDescription {
@@ -142,7 +228,12 @@ function Get-LiveServiceDescription {
     if (-not $json) {
         throw 'Cloud Run service describe returned no data.'
     }
-    return ($json | ConvertFrom-Json)
+    try {
+        return ($json | ConvertFrom-Json -Depth 100)
+    }
+    catch {
+        throw 'Cloud Run service describe returned malformed JSON.'
+    }
 }
 
 function Get-ContainerByName {
@@ -164,14 +255,57 @@ function Get-EnvironmentValue {
 }
 
 function Assert-LiveServicePreservationContract {
-    param([Parameter(Mandatory)] [object] $Description)
+    param(
+        [Parameter(Mandatory)] [object] $Description,
+        [Parameter(Mandatory)] [ValidateSet('BACKEND_FIRST', 'FINAL_FRONTEND')] [string] $CandidateStage,
+        [Parameter(Mandatory)] [string] $CandidateEdgeImage,
+        [Parameter(Mandatory)] [string] $CandidateRuntimeImage,
+        [Parameter(Mandatory)] [string] $CandidateGitHead,
+        [AllowEmptyString()] [string] $ValidatedAEdgeImage,
+        [AllowEmptyString()] [string] $ValidatedARuntimeImage
+    )
 
+    $metadata = Get-PnlRequiredJsonProperty -Object $Description -Name 'metadata' -FieldName 'metadata'
+    if ([string](Get-PnlRequiredJsonProperty -Object $metadata -Name 'name' -FieldName 'metadata.name') -cne $Service) {
+        throw 'Live service preflight returned an unexpected service name.'
+    }
+    if ([string](Get-PnlRequiredJsonProperty -Object $metadata -Name 'namespace' -FieldName 'metadata.namespace') -cne $ProjectNumber) {
+        throw 'Live service preflight returned an unexpected project namespace.'
+    }
+    $activeRevision = Get-PnlActiveRevision -ServiceDescription $Description -Service $Service
     $containers = @($Description.spec.template.spec.containers)
     if ($containers.Count -ne 2) {
         throw 'Live staging service must contain exactly two containers before candidate deployment.'
     }
     $edge = Get-ContainerByName -Description $Description -Name 'edge'
     $bff = Get-ContainerByName -Description $Description -Name 'bff'
+    $observedEdgeImage = [string]$edge.image
+    $observedRuntimeImage = [string]$bff.image
+    Assert-PnlDigestImage -Image $observedEdgeImage -Role 'edge'
+    Assert-PnlDigestImage -Image $observedRuntimeImage -Role 'runtime'
+    if ($CandidateStage -eq 'BACKEND_FIRST') {
+        if (-not [string]::Equals($observedEdgeImage, $CandidateEdgeImage, [StringComparison]::Ordinal)) {
+            throw 'Revision A frozen edge must exactly equal the current live service edge digest.'
+        }
+        if ([string]::Equals($observedRuntimeImage, $CandidateRuntimeImage, [StringComparison]::Ordinal)) {
+            throw 'Revision A runtime must be a new immutable digest relative to the active runtime.'
+        }
+    }
+    else {
+        $expectedRevisionA = (
+            Get-PnlStagingReleaseIdentity -Stage 'BACKEND_FIRST' -GitHead $CandidateGitHead -Service $Service
+        ).revision_name
+        if (-not [string]::Equals($activeRevision, $expectedRevisionA, [StringComparison]::Ordinal)) {
+            throw 'Revision B candidate creation requires deterministic Revision A to be the current 100-percent revision.'
+        }
+        Assert-PnlRevisionBLineage `
+            -FinalEdgeImage $CandidateEdgeImage `
+            -RuntimeImage $CandidateRuntimeImage `
+            -ValidatedRevisionAEdgeImage $ValidatedAEdgeImage `
+            -ValidatedRevisionARuntimeImage $ValidatedARuntimeImage `
+            -ObservedRevisionAEdgeImage $observedEdgeImage `
+            -ObservedRevisionARuntimeImage $observedRuntimeImage
+    }
     if ([string]$Description.spec.template.spec.serviceAccountName -ne "pnl-web@$ProjectId.iam.gserviceaccount.com") {
         throw 'Live staging service uses an unexpected service account.'
     }
@@ -245,9 +379,18 @@ function Assert-LiveServicePreservationContract {
     }
     $currentOriginValue = Get-EnvironmentValue -Container $bff -Name 'BFF_ALLOWED_ORIGINS'
     if ($currentOriginValue.Contains(',', [StringComparison]::Ordinal)) {
-        ConvertTo-PnlApprovedStagingOriginValue -Origins $currentOriginValue | Out-Null
+        $canonicalCurrentOrigins = ConvertTo-PnlApprovedStagingOriginValue -Origins $currentOriginValue
+        if (
+            $CandidateStage -eq 'FINAL_FRONTEND' -and
+            -not [string]::Equals($currentOriginValue, $canonicalCurrentOrigins, [StringComparison]::Ordinal)
+        ) {
+            throw 'Revision B preflight requires Revision A to contain the canonical approved origin order.'
+        }
     }
     else {
+        if ($CandidateStage -eq 'FINAL_FRONTEND') {
+            throw 'Revision B preflight requires the exact two-origin state established by Revision A.'
+        }
         Assert-PnlApprovedStagingOrigin -Origin $currentOriginValue
     }
 
@@ -357,6 +500,23 @@ function Assert-LiveServicePreservationContract {
             throw "Live staging service secret annotation drifted: $secretName."
         }
     }
+    return [pscustomobject][ordered]@{
+        project = $ProjectId
+        project_number = $ProjectNumber
+        region = $Region
+        service = $Service
+        stage = $CandidateStage
+        contract_valid = $true
+        active_revision = $activeRevision
+        traffic_percent = 100
+        observed_edge_image = $observedEdgeImage
+        observed_runtime_image = $observedRuntimeImage
+        validated_revision_a_edge_image = if ($CandidateStage -eq 'FINAL_FRONTEND') { $ValidatedAEdgeImage } else { $null }
+        validated_revision_a_runtime_image = if ($CandidateStage -eq 'FINAL_FRONTEND') { $ValidatedARuntimeImage } else { $null }
+        origins = $currentOriginValue
+        edge_port = 8080
+        dependency = 'edge->bff'
+    }
 }
 
 function Write-ActiveRevisionState {
@@ -366,36 +526,52 @@ function Write-ActiveRevisionState {
         [AllowEmptyString()] [string] $SourceCommit,
         [Parameter(Mandatory)] [string] $Purpose
     )
-    $resolvedPath = [IO.Path]::GetFullPath($Path)
-    if (-not $resolvedPath.StartsWith(
-        $allowedOutputRoot + [IO.Path]::DirectorySeparatorChar,
-        [StringComparison]::OrdinalIgnoreCase
-    )) {
-        throw 'Captured revision state must stay inside deploy/gcp/rendered.'
-    }
+    $resolvedPath = Resolve-ReleaseStatePath -Path $Path
     New-Item -ItemType Directory -Force -Path (Split-Path $resolvedPath -Parent) | Out-Null
     $active = Get-PnlActiveRevision -ServiceDescription $Description -Service $Service
     $state = [ordered]@{
         schema = 'pnl-staging-active-revision-v1'
         captured_at_utc = [DateTime]::UtcNow.ToString('o')
         purpose = $Purpose
+        valid = $true
         project = $ProjectId
         project_number = $ProjectNumber
         region = $Region
         service = $Service
         source_commit = $SourceCommit
+        release_identity = $SourceCommit
         active_revision = $active
+        traffic_percent = 100
     }
     if (Test-Path -LiteralPath $resolvedPath -PathType Leaf) {
-        $existing = Get-Content -Raw -LiteralPath $resolvedPath | ConvertFrom-Json
+        try {
+            $existing = Get-Content -Raw -LiteralPath $resolvedPath | ConvertFrom-Json -Depth 20
+        }
+        catch {
+            throw 'Existing active-revision state is not valid JSON.'
+        }
+        $existingValid = Get-PnlRequiredJsonProperty -Object $existing -Name 'valid' -FieldName 'valid'
+        $existingTraffic = Get-PnlRequiredJsonProperty -Object $existing -Name 'traffic_percent' -FieldName 'traffic_percent'
+        $existingCapturedAt = [DateTimeOffset]::MinValue
+        $existingCapturedAtValid = [DateTimeOffset]::TryParse(
+            [string](Get-PnlRequiredJsonProperty -Object $existing -Name 'captured_at_utc' -FieldName 'captured_at_utc'),
+            [ref]$existingCapturedAt
+        )
         if (
-            [string]$existing.schema -ne [string]$state.schema -or
-            [string]$existing.project -ne [string]$state.project -or
-            [string]$existing.project_number -ne [string]$state.project_number -or
-            [string]$existing.region -ne [string]$state.region -or
-            [string]$existing.service -ne [string]$state.service -or
-            [string]$existing.source_commit -ne [string]$state.source_commit -or
-            [string]$existing.active_revision -ne [string]$state.active_revision
+            ([string](Get-PnlRequiredJsonProperty -Object $existing -Name 'schema' -FieldName 'schema') -cne [string]$state.schema) -or
+            ([string](Get-PnlRequiredJsonProperty -Object $existing -Name 'project' -FieldName 'project') -cne [string]$state.project) -or
+            ([string](Get-PnlRequiredJsonProperty -Object $existing -Name 'project_number' -FieldName 'project_number') -cne [string]$state.project_number) -or
+            ([string](Get-PnlRequiredJsonProperty -Object $existing -Name 'region' -FieldName 'region') -cne [string]$state.region) -or
+            ([string](Get-PnlRequiredJsonProperty -Object $existing -Name 'service' -FieldName 'service') -cne [string]$state.service) -or
+            ([string](Get-PnlRequiredJsonProperty -Object $existing -Name 'source_commit' -FieldName 'source_commit') -cne [string]$state.source_commit) -or
+            ([string](Get-PnlRequiredJsonProperty -Object $existing -Name 'release_identity' -FieldName 'release_identity') -cne [string]$state.release_identity) -or
+            ($existingValid -isnot [bool]) -or
+            (-not [bool]$existingValid) -or
+            (($existingTraffic -isnot [int]) -and ($existingTraffic -isnot [long])) -or
+            ([long]$existingTraffic -ne 100) -or
+            (-not $existingCapturedAtValid) -or
+            ([string](Get-PnlRequiredJsonProperty -Object $existing -Name 'purpose' -FieldName 'purpose') -cne [string]$state.purpose) -or
+            ([string](Get-PnlRequiredJsonProperty -Object $existing -Name 'active_revision' -FieldName 'active_revision') -cne [string]$state.active_revision)
         ) {
             throw 'Refusing to overwrite captured active-revision state with different release data.'
         }
@@ -443,26 +619,42 @@ if ($Operation -eq 'CANDIDATE') {
     if (-not [string]::Equals($CandidateTag, $identity.candidate_tag, [StringComparison]::Ordinal)) {
         throw "CandidateTag must equal deterministic value $($identity.candidate_tag)."
     }
+    Assert-PnlCandidateTag -Tag $CandidateTag | Out-Null
 
+    $preReleaseBaseline = $null
     if ($Stage -eq 'BACKEND_FIRST') {
         Assert-RequiredText -Name 'FrozenEdgeImage' -Value $FrozenEdgeImage
-        if (-not [string]::IsNullOrWhiteSpace($FinalEdgeImage)) {
-            throw 'BACKEND_FIRST must not accept a final edge image.'
+        Assert-RequiredText -Name 'PreReleaseStatePath' -Value $PreReleaseStatePath
+        $preReleaseBaseline = Read-ValidatedPreReleaseState `
+            -Path $PreReleaseStatePath `
+            -ExpectedGitHead $GitHead
+        if (
+            -not [string]::IsNullOrWhiteSpace($FinalEdgeImage) -or
+            -not [string]::IsNullOrWhiteSpace($ValidatedRevisionAEdgeImage) -or
+            -not [string]::IsNullOrWhiteSpace($ValidatedRevisionARuntimeImage)
+        ) {
+            throw 'BACKEND_FIRST accepts only the frozen edge and new runtime image inputs.'
         }
         $edgeImage = $FrozenEdgeImage
         $releaseStage = 'pnl-backend-first'
     }
     else {
         Assert-RequiredText -Name 'FinalEdgeImage' -Value $FinalEdgeImage
+        Assert-RequiredText -Name 'ValidatedRevisionAEdgeImage' -Value $ValidatedRevisionAEdgeImage
         Assert-RequiredText -Name 'ValidatedRevisionARuntimeImage' -Value $ValidatedRevisionARuntimeImage
+        if (-not [string]::IsNullOrWhiteSpace($PreReleaseStatePath)) {
+            throw 'FINAL_FRONTEND candidate creation does not accept a pre-release rollback state path.'
+        }
         if (-not [string]::IsNullOrWhiteSpace($FrozenEdgeImage)) {
             throw 'FINAL_FRONTEND must not accept a frozen edge image.'
         }
-        if (-not [string]::Equals($RuntimeImage, $ValidatedRevisionARuntimeImage, [StringComparison]::Ordinal)) {
-            throw 'FINAL_FRONTEND runtime image must exactly equal the runtime image validated in Revision A.'
-        }
         $edgeImage = $FinalEdgeImage
         $releaseStage = 'pnl-final-frontend'
+        Assert-PnlRevisionBLineage `
+            -FinalEdgeImage $FinalEdgeImage `
+            -RuntimeImage $RuntimeImage `
+            -ValidatedRevisionAEdgeImage $ValidatedRevisionAEdgeImage `
+            -ValidatedRevisionARuntimeImage $ValidatedRevisionARuntimeImage
     }
     Assert-PnlDigestImage -Image $edgeImage -Role 'edge'
 
@@ -492,12 +684,6 @@ if ($Operation -eq 'CANDIDATE') {
         -RuntimeImage $RuntimeImage `
         -ApprovedOrigins $originValue
 
-    $dictionaryDelimiter = if ([IO.Path]::GetExtension($GcloudPath) -ieq '.cmd') {
-        '^^^^@^^^^'
-    }
-    else {
-        '^@^'
-    }
     $candidateArguments = @(
         'run', 'deploy', $Service,
         "--project=$ProjectId",
@@ -508,11 +694,92 @@ if ($Operation -eq 'CANDIDATE') {
         "--update-labels=source-commit=$GitHead,release-stage=$releaseStage,business-gate=passed",
         '--container=edge',
         "--image=$edgeImage",
+        '--port=8080',
+        '--depends-on=bff',
         '--container=bff',
         "--image=$RuntimeImage",
-        "--update-env-vars=$($dictionaryDelimiter)BFF_ALLOWED_ORIGINS=$originValue",
+        "--update-env-vars=^@^BFF_ALLOWED_ORIGINS=$originValue",
         '--quiet'
     )
+    if ($candidateArguments -contains '--platform=managed') {
+        throw 'Candidate command must not use the unsupported --platform flag.'
+    }
+
+    $servicePreflight = [ordered]@{
+        required = $true
+        evaluated = $false
+        source = $null
+        result = $null
+    }
+    if (-not [string]::IsNullOrWhiteSpace($CapturedServiceJsonPath)) {
+        if ($Execute) {
+            throw 'CapturedServiceJsonPath is offline-only input and cannot be combined with Execute.'
+        }
+        $resolvedCapturedServicePath = [IO.Path]::GetFullPath($CapturedServiceJsonPath)
+        if (-not (Test-Path -LiteralPath $resolvedCapturedServicePath -PathType Leaf)) {
+            throw 'CapturedServiceJsonPath does not identify a readable service JSON fixture.'
+        }
+        try {
+            $capturedDescription = Get-Content -Raw -LiteralPath $resolvedCapturedServicePath | ConvertFrom-Json -Depth 100
+        }
+        catch {
+            throw 'CapturedServiceJsonPath must contain valid Cloud Run service JSON.'
+        }
+        $preflightResult = Assert-LiveServicePreservationContract `
+            -Description $capturedDescription `
+            -CandidateStage $Stage `
+            -CandidateEdgeImage $edgeImage `
+            -CandidateRuntimeImage $RuntimeImage `
+            -CandidateGitHead $GitHead `
+            -ValidatedAEdgeImage $ValidatedRevisionAEdgeImage `
+            -ValidatedARuntimeImage $ValidatedRevisionARuntimeImage
+        $servicePreflight = [ordered]@{
+            required = $true
+            evaluated = $true
+            source = $resolvedCapturedServicePath
+            result = $preflightResult
+        }
+    }
+    elseif ($Execute) {
+        if ($MutationApproval -ne 'APPROVE_STAGING_CANDIDATE') {
+            throw 'Candidate execution requires MutationApproval=APPROVE_STAGING_CANDIDATE.'
+        }
+        $null = Assert-GcloudCandidateCapabilities
+        $liveDescription = Get-LiveServiceDescription
+        $preflightResult = Assert-LiveServicePreservationContract `
+            -Description $liveDescription `
+            -CandidateStage $Stage `
+            -CandidateEdgeImage $edgeImage `
+            -CandidateRuntimeImage $RuntimeImage `
+            -CandidateGitHead $GitHead `
+            -ValidatedAEdgeImage $ValidatedRevisionAEdgeImage `
+            -ValidatedARuntimeImage $ValidatedRevisionARuntimeImage
+        $servicePreflight = [ordered]@{
+            required = $true
+            evaluated = $true
+            source = 'live promotion-safe service recapture'
+            result = $preflightResult
+        }
+    }
+    if (
+        $Stage -eq 'BACKEND_FIRST' -and
+        $servicePreflight.evaluated -and
+        -not [string]::Equals(
+            [string]$servicePreflight.result.active_revision,
+            [string]$preReleaseBaseline.active_revision,
+            [StringComparison]::Ordinal
+        )
+    ) {
+        throw 'Revision A candidate preflight active revision must match the persisted pre-release rollback baseline.'
+    }
+    $plannedGcloudExecutable = Get-PlannedGcloudExecutable
+    $candidateRollbackKind = if ($Stage -eq 'BACKEND_FIRST') { 'REVISION_A_TO_PRE_RELEASE' } else { 'REVISION_B_TO_A' }
+    $candidateRollbackTarget = if ($Stage -eq 'BACKEND_FIRST') {
+        $preReleaseBaseline.active_revision
+    }
+    else {
+        (Get-PnlStagingReleaseIdentity -Stage 'BACKEND_FIRST' -GitHead $GitHead -Service $Service).revision_name
+    }
     $plan = [ordered]@{
         schema = 'pnl-staging-release-plan-v1'
         operation = 'CANDIDATE'
@@ -528,13 +795,27 @@ if ($Operation -eq 'CANDIDATE') {
         revision_name = $identity.revision_name
         candidate_tag = $identity.candidate_tag
         zero_traffic = $true
+        production_traffic_percent = 0
         edge_image = $edgeImage
         runtime_image = $RuntimeImage
+        validated_revision_a_edge_image = if ($Stage -eq 'FINAL_FRONTEND') { $ValidatedRevisionAEdgeImage } else { $null }
+        validated_revision_a_runtime_image = if ($Stage -eq 'FINAL_FRONTEND') { $ValidatedRevisionARuntimeImage } else { $null }
+        revision_a_edge_lineage = if ($Stage -eq 'FINAL_FRONTEND') { 'validated' } else { 'not-applicable' }
+        revision_a_runtime_lineage = if ($Stage -eq 'FINAL_FRONTEND') { 'validated' } else { 'not-applicable' }
         approved_origins = @($originValue.Split([char]','))
         rendered_manifest = $webManifestPath
+        service_preflight = $servicePreflight
+        active_revision_capture_command = ConvertTo-CommandText -Arguments $describeArguments
+        smoke_gate_state = if ([string]::IsNullOrWhiteSpace($SmokeGate)) { 'not-applicable-before-smoke' } else { $SmokeGate }
+        rollback_operation_type = $candidateRollbackKind
+        rollback_target = $candidateRollbackTarget
+        rollback_state_path = if ($Stage -eq 'BACKEND_FIRST') { $preReleaseBaseline.path } else { $null }
+        rollback_baseline = if ($Stage -eq 'BACKEND_FIRST') { $preReleaseBaseline } else { $null }
         gcloud = [ordered]@{
-            executable = 'gcloud'
+            executable_requested = $GcloudPath
+            executable_resolved = $plannedGcloudExecutable
             arguments = $candidateArguments
+            windows_cmd_arguments = @(ConvertTo-PnlGcloudExecutionArguments -Arguments $candidateArguments -WindowsCmdShim $true)
             command = ConvertTo-CommandText -Arguments $candidateArguments
         }
     }
@@ -547,26 +828,6 @@ if ($Operation -eq 'CANDIDATE') {
         Write-Output "DRY_RUN=PASS operation=CANDIDATE stage=$Stage revision=$($identity.revision_name) plan=$artifactPath"
         return
     }
-    if ($MutationApproval -ne 'APPROVE_STAGING_CANDIDATE') {
-        throw 'Candidate execution requires MutationApproval=APPROVE_STAGING_CANDIDATE.'
-    }
-    Assert-GcloudCandidateCapabilities
-    $liveDescription = Get-LiveServiceDescription
-    Assert-LiveServicePreservationContract -Description $liveDescription
-    $liveEdge = Get-ContainerByName -Description $liveDescription -Name 'edge'
-    $liveRuntime = Get-ContainerByName -Description $liveDescription -Name 'bff'
-    if (
-        $Stage -eq 'BACKEND_FIRST' -and
-        -not [string]::Equals([string]$liveEdge.image, $FrozenEdgeImage, [StringComparison]::Ordinal)
-    ) {
-        throw 'FrozenEdgeImage must exactly equal the current live service edge digest.'
-    }
-    if (
-        $Stage -eq 'FINAL_FRONTEND' -and
-        -not [string]::Equals([string]$liveRuntime.image, $ValidatedRevisionARuntimeImage, [StringComparison]::Ordinal)
-    ) {
-        throw 'FINAL_FRONTEND requires the live service template to retain Revision A runtime exactly.'
-    }
     Invoke-PnlGcloud -Arguments $candidateArguments | Out-Host
     Write-Output "CANDIDATE_CREATED=PASS revision=$($identity.revision_name) traffic=0 tag=$($identity.candidate_tag)"
     return
@@ -574,12 +835,16 @@ if ($Operation -eq 'CANDIDATE') {
 
 if ($Operation -eq 'CAPTURE_ACTIVE') {
     Assert-RequiredText -Name 'GitHead' -Value $GitHead
+    if ($GitHead -notmatch '^[0-9a-f]{40}$') {
+        throw 'GitHead must be a full lowercase 40-character Git commit.'
+    }
     $statePath = if ([string]::IsNullOrWhiteSpace($PreReleaseStatePath)) {
-        Join-Path $resolvedOutputDirectory 'pre-release-active-revision.json'
+        Join-Path $resolvedOutputDirectory "pre-release-$GitHead.json"
     }
     else {
         $PreReleaseStatePath
     }
+    $statePath = Resolve-ReleaseStatePath -Path $statePath
     $plan = [ordered]@{
         schema = 'pnl-staging-release-plan-v1'
         operation = 'CAPTURE_ACTIVE'
@@ -588,9 +853,13 @@ if ($Operation -eq 'CAPTURE_ACTIVE') {
         project = $ProjectId
         region = $Region
         service = $Service
+        source_commit = $GitHead
+        release_identity = $GitHead
+        purpose = 'pre-release rollback target'
         output = [IO.Path]::GetFullPath($statePath)
         gcloud = [ordered]@{
-            executable = 'gcloud'
+            executable_requested = $GcloudPath
+            executable_resolved = Get-PlannedGcloudExecutable
             arguments = $describeArguments
             command = ConvertTo-CommandText -Arguments $describeArguments
         }
@@ -612,7 +881,11 @@ if ($Operation -eq 'CAPTURE_ACTIVE') {
 
 if ($Operation -eq 'PROMOTE') {
     $identity = Assert-StageAndHead
+    if ($SmokeGate -ne 'passed') {
+        throw 'Promotion command generation requires SmokeGate=passed from the candidate-specific smoke.'
+    }
     Assert-RequiredText -Name 'Revision' -Value $Revision
+    Assert-PnlExplicitRevisionTarget -Revision $Revision -Service $Service | Out-Null
     if (-not [string]::Equals($Revision, $identity.revision_name, [StringComparison]::Ordinal)) {
         throw "Promotion revision must equal deterministic target $($identity.revision_name)."
     }
@@ -623,13 +896,79 @@ if ($Operation -eq 'PROMOTE') {
         "--to-revisions=$Revision=100",
         '--quiet'
     )
-    $captureName = if ($Stage -eq 'BACKEND_FIRST') {
-        "pre-release-$($identity.short_head).json"
+    $preReleaseBaseline = $null
+    if ($Stage -eq 'FINAL_FRONTEND' -and -not [string]::IsNullOrWhiteSpace($PreReleaseStatePath)) {
+        throw 'FINAL_FRONTEND promotion does not accept a pre-release rollback state path.'
+    }
+    $capturePath = if ($Stage -eq 'BACKEND_FIRST') {
+        Assert-RequiredText -Name 'PreReleaseStatePath' -Value $PreReleaseStatePath
+        $preReleaseBaseline = Read-ValidatedPreReleaseState `
+            -Path $PreReleaseStatePath `
+            -ExpectedGitHead $GitHead
+        $preReleaseBaseline.path
     }
     else {
-        "pre-final-$($identity.short_head).json"
+        Join-Path $resolvedOutputDirectory "pre-final-$($identity.head_token).json"
     }
-    $capturePath = Join-Path $resolvedOutputDirectory $captureName
+    $capturePath = Resolve-ReleaseStatePath -Path $capturePath
+    $capturePurpose = if ($Stage -eq 'BACKEND_FIRST') {
+        'pre-release rollback target'
+    }
+    else {
+        'Revision B pre-promotion evidence'
+    }
+    $rollbackKind = if ($Stage -eq 'BACKEND_FIRST') { 'REVISION_A_TO_PRE_RELEASE' } else { 'REVISION_B_TO_A' }
+    $rollbackTarget = if ($Stage -eq 'BACKEND_FIRST') {
+        $preReleaseBaseline.active_revision
+    }
+    else {
+        (Get-PnlStagingReleaseIdentity -Stage 'BACKEND_FIRST' -GitHead $GitHead -Service $Service).revision_name
+    }
+    $offlinePromotionRecapture = [ordered]@{
+        required = $true
+        evaluated = $false
+        active_revision = $null
+    }
+    if (-not [string]::IsNullOrWhiteSpace($CapturedServiceJsonPath)) {
+        if ($Execute) {
+            throw 'CapturedServiceJsonPath is offline-only input and cannot be combined with promotion Execute.'
+        }
+        $resolvedPromotionServicePath = [IO.Path]::GetFullPath($CapturedServiceJsonPath)
+        if (-not (Test-Path -LiteralPath $resolvedPromotionServicePath -PathType Leaf)) {
+            throw 'CapturedServiceJsonPath does not identify a readable promotion-time service JSON fixture.'
+        }
+        try {
+            $promotionDescription = Get-Content -Raw -LiteralPath $resolvedPromotionServicePath | ConvertFrom-Json -Depth 100
+        }
+        catch {
+            throw 'Promotion-time CapturedServiceJsonPath must contain valid Cloud Run service JSON.'
+        }
+        $capturedActive = Get-PnlActiveRevision -ServiceDescription $promotionDescription -Service $Service
+        if ([string]::Equals($capturedActive, $Revision, [StringComparison]::Ordinal)) {
+            throw 'The explicit promotion target already serves 100 percent traffic.'
+        }
+        if ($Stage -eq 'FINAL_FRONTEND') {
+            $expectedRevisionA = (
+                Get-PnlStagingReleaseIdentity -Stage 'BACKEND_FIRST' -GitHead $GitHead -Service $Service
+            ).revision_name
+            if (-not [string]::Equals($capturedActive, $expectedRevisionA, [StringComparison]::Ordinal)) {
+                throw 'FINAL_FRONTEND promotion requires deterministic Revision A to be the current 100-percent revision.'
+            }
+        }
+        elseif (-not [string]::Equals(
+            $capturedActive,
+            [string]$preReleaseBaseline.active_revision,
+            [StringComparison]::Ordinal
+        )) {
+            throw 'Revision A promotion-time active revision must match the persisted pre-release rollback baseline.'
+        }
+        $offlinePromotionRecapture = [ordered]@{
+            required = $true
+            evaluated = $true
+            source = $resolvedPromotionServicePath
+            active_revision = $capturedActive
+        }
+    }
     $plan = [ordered]@{
         schema = 'pnl-staging-release-plan-v1'
         operation = 'PROMOTE'
@@ -642,11 +981,17 @@ if ($Operation -eq 'PROMOTE') {
         stage = $Stage
         target_revision = $Revision
         smoke_gate_required = 'passed'
+        smoke_gate = $SmokeGate
         capture_current_100_percent_revision_before_promotion = $true
         capture_output = $capturePath
         capture_command = ConvertTo-CommandText -Arguments $describeArguments
+        promotion_time_active_recapture = $offlinePromotionRecapture
+        rollback_operation_type = $rollbackKind
+        rollback_target = $rollbackTarget
+        rollback_baseline = if ($Stage -eq 'BACKEND_FIRST') { $preReleaseBaseline } else { $null }
         gcloud = [ordered]@{
-            executable = 'gcloud'
+            executable_requested = $GcloudPath
+            executable_resolved = Get-PlannedGcloudExecutable
             arguments = $promotionArguments
             command = ConvertTo-CommandText -Arguments $promotionArguments
         }
@@ -662,10 +1007,7 @@ if ($Operation -eq 'PROMOTE') {
     if ($MutationApproval -ne 'APPROVE_STAGING_PROMOTION') {
         throw 'Promotion requires MutationApproval=APPROVE_STAGING_PROMOTION.'
     }
-    if ($SmokeGate -ne 'passed') {
-        throw 'Promotion requires SmokeGate=passed from the candidate-specific smoke.'
-    }
-    Assert-GcloudTrafficCapabilities
+    $null = Assert-GcloudTrafficCapabilities
     $description = Get-LiveServiceDescription
     $active = Get-PnlActiveRevision -ServiceDescription $description -Service $Service
     if ([string]::Equals($active, $Revision, [StringComparison]::Ordinal)) {
@@ -679,11 +1021,18 @@ if ($Operation -eq 'PROMOTE') {
             throw 'FINAL_FRONTEND promotion requires deterministic Revision A to be the current 100-percent revision.'
         }
     }
+    elseif (-not [string]::Equals(
+        $active,
+        [string]$preReleaseBaseline.active_revision,
+        [StringComparison]::Ordinal
+    )) {
+        throw 'Revision A promotion-time active revision must match the persisted pre-release rollback baseline.'
+    }
     $active = Write-ActiveRevisionState `
         -Description $description `
         -Path $capturePath `
         -SourceCommit $GitHead `
-        -Purpose "rollback target before promoting $Revision"
+        -Purpose $capturePurpose
     Invoke-PnlGcloud -Arguments $promotionArguments | Out-Host
     Write-Output "PROMOTION=PASS revision=$Revision traffic=100 previous=$active"
     return
@@ -694,42 +1043,31 @@ if ($Operation -eq 'ROLLBACK') {
     Assert-RequiredText -Name 'GitHead' -Value $GitHead
     $backendIdentity = Get-PnlStagingReleaseIdentity -Stage 'BACKEND_FIRST' -GitHead $GitHead -Service $Service
     if ($RollbackKind -eq 'REVISION_B_TO_A') {
+        if (-not [string]::IsNullOrWhiteSpace($PreReleaseStatePath)) {
+            throw 'REVISION_B_TO_A must not accept a generic pre-release state target.'
+        }
         $targetRevision = $backendIdentity.revision_name
         $rollbackSource = 'deterministic Revision A identity'
     }
     elseif ($RollbackKind -eq 'REVISION_A_TO_PRE_RELEASE') {
         Assert-RequiredText -Name 'PreReleaseStatePath' -Value $PreReleaseStatePath
-        $resolvedStatePath = [IO.Path]::GetFullPath($PreReleaseStatePath)
-        if (-not $resolvedStatePath.StartsWith(
-            $allowedOutputRoot + [IO.Path]::DirectorySeparatorChar,
-            [StringComparison]::OrdinalIgnoreCase
-        )) {
-            throw 'Pre-release state must be read from deploy/gcp/rendered.'
-        }
-        if (-not (Test-Path -LiteralPath $resolvedStatePath -PathType Leaf)) {
-            throw 'Captured pre-release revision state was not found.'
-        }
-        $state = Get-Content -Raw -LiteralPath $resolvedStatePath | ConvertFrom-Json
-        if (
-            [string]$state.schema -ne 'pnl-staging-active-revision-v1' -or
-            [string]$state.project -ne $ProjectId -or
-            [string]$state.project_number -ne $ProjectNumber -or
-            [string]$state.region -ne $Region -or
-            [string]$state.service -ne $Service -or
-            [string]$state.source_commit -ne $GitHead
-        ) {
-            throw 'Captured pre-release revision state does not match this release.'
-        }
-        $targetRevision = [string]$state.active_revision
-        if ($targetRevision -notmatch "^$([regex]::Escape($Service))-[a-z0-9-]+$") {
-            throw 'Captured pre-release revision is invalid.'
-        }
-        $rollbackSource = $resolvedStatePath
+        $preReleaseBaseline = Read-ValidatedPreReleaseState `
+            -Path $PreReleaseStatePath `
+            -ExpectedGitHead $GitHead
+        $targetRevision = $preReleaseBaseline.active_revision
+        $rollbackSource = $preReleaseBaseline.path
     }
     else {
+        if (-not [string]::IsNullOrWhiteSpace($PreReleaseStatePath)) {
+            throw 'GOLDEN fallback must not accept a generic pre-release state target.'
+        }
+        if ($IncidentApproval -ne 'APPROVE_GOLDEN_INCIDENT_ROLLBACK') {
+            throw 'Golden rollback command generation requires explicit incident approval.'
+        }
         $targetRevision = 'pnl-web-golden-1e478b6'
         $rollbackSource = 'incident-only frozen golden revision'
     }
+    Assert-PnlExplicitRevisionTarget -Revision $targetRevision -Service $Service | Out-Null
 
     $rollbackArguments = @(
         'run', 'services', 'update-traffic', $Service,
@@ -751,8 +1089,10 @@ if ($Operation -eq 'ROLLBACK') {
         target_revision = $targetRevision
         target_source = $rollbackSource
         incident_approval_required = ($RollbackKind -eq 'GOLDEN')
+        incident_approval = if ($RollbackKind -eq 'GOLDEN') { 'approved' } else { 'not-applicable' }
         gcloud = [ordered]@{
-            executable = 'gcloud'
+            executable_requested = $GcloudPath
+            executable_resolved = Get-PlannedGcloudExecutable
             arguments = $rollbackArguments
             command = ConvertTo-CommandText -Arguments $rollbackArguments
         }
@@ -768,10 +1108,7 @@ if ($Operation -eq 'ROLLBACK') {
     if ($MutationApproval -ne 'APPROVE_STAGING_ROLLBACK') {
         throw 'Rollback requires MutationApproval=APPROVE_STAGING_ROLLBACK.'
     }
-    if ($RollbackKind -eq 'GOLDEN' -and $IncidentApproval -ne 'APPROVE_GOLDEN_INCIDENT_ROLLBACK') {
-        throw 'Golden rollback requires explicit incident approval.'
-    }
-    Assert-GcloudTrafficCapabilities
+    $null = Assert-GcloudTrafficCapabilities
     Invoke-PnlGcloud -Arguments $rollbackArguments | Out-Host
     Write-Output "ROLLBACK=PASS kind=$RollbackKind revision=$targetRevision traffic=100"
     return
