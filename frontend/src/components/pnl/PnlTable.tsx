@@ -18,8 +18,9 @@ export function PnlTable({ rows, periods, actualPeriodKeys, initialPeriodKey, de
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
   const selectedLabel = periods.find((period) => period.key === periodKey)?.label ?? periodKey;
   const visibleRows = rows.filter((row) => !row.parentKey || !collapsed[row.parentKey]);
-  const tableWidth = mode === 'PLAN_ACTUAL_COMPARE' ? '1150px' : mode === 'ACTUAL_ONLY' ? '860px' : '760px';
-  const columnCount = mode === 'PLAN_ACTUAL_COMPARE' ? 10 : mode === 'ACTUAL_ONLY' ? 9 : 6;
+  const actualOnlyWidth = Math.max(860, 359 + actualPeriodKeys.length * 82);
+  const tableWidth = mode === 'PLAN_ACTUAL_COMPARE' ? '1150px' : mode === 'ACTUAL_ONLY' ? `${actualOnlyWidth}px` : '760px';
+  const columnCount = mode === 'PLAN_ACTUAL_COMPARE' ? 10 : mode === 'ACTUAL_ONLY' ? actualPeriodKeys.length + 3 : 6;
 
   return <section className="pnl-report__table-container" data-testid="pnl-table-shell">
     <header className="pnl-report__table-toolbar">
@@ -38,7 +39,7 @@ export function PnlTable({ rows, periods, actualPeriodKeys, initialPeriodKey, de
           {mode === 'CUSTOM_PERIOD_COMPARE' && <tr><th style={{ width: 230 }}>계정과목</th><th style={{ width: 54 }}>단위</th><th style={{ width: 125 }}>기간 계획 누계</th><th style={{ width: 125 }}>기간 실적 누계</th><th style={{ width: 110 }}>누계 차이</th><th style={{ width: 116 }}>누계 증감률</th></tr>}
         </thead>
         <tbody>{visibleRows.map((row) => {
-          const expected = mode === 'PLAN_ACTUAL_COMPARE' ? 8 : mode === 'ACTUAL_ONLY' ? 7 : 4;
+          const expected = mode === 'PLAN_ACTUAL_COMPARE' ? 8 : mode === 'ACTUAL_ONLY' ? actualPeriodKeys.length + 1 : 4;
           const cells = displayCells(mode === 'PLAN_ACTUAL_COMPARE' ? row.compareByPeriod[periodKey] : mode === 'ACTUAL_ONLY' ? row.actualOnly : row.customByRange[rangeKey], expected);
           return <tr key={row.key} data-row-key={row.key} data-highlight={row.key === 'operating_profit' ? 'operating-profit' : undefined} className={`row-${row.kind} row-sublevel-${row.level}`}>
             <td className="text-left">{row.collapsible && <button className="pnl-report__expand" type="button" aria-label={collapsed[row.key] ? `${row.label} 펼치기` : `${row.label} 접기`} onClick={() => setCollapsed((current) => ({ ...current, [row.key]: !current[row.key] }))}>{collapsed[row.key] ? <ChevronRight size={13} /> : <ChevronDown size={13} />}</button>}<span>{row.label}</span></td>

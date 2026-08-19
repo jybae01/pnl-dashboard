@@ -2,21 +2,22 @@ import { fireEvent, render, screen, waitFor, within } from '@testing-library/rea
 import { readFileSync } from 'node:fs';
 import { dirname, extname, resolve } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { pnlReportingVisualFixture } from '../test-support/pnlReportingVisualFixture';
-import { parsePnlReportingLoadResult, PnlReportingSourceError, type PnlProductSegmentSlot, type PnlReportingSource } from '../types/pnlReporting';
+import { createPnlReportingVisualFixture, pnlReportingVisualFixture } from '../test-support/pnlReportingVisualFixture';
+import { parsePnlReportingLoadResult, PnlReportingSourceError, type PnlReportingReadModel, type PnlReportingSource } from '../types/pnlReporting';
 import { PnlStatusView } from '../views/PnlStatusView';
 
 function source(result: unknown): PnlReportingSource {
   return { load: vi.fn().mockResolvedValue(result) };
 }
 
-function readySource(): PnlReportingSource {
-  return source({ state: 'DATA_READY', report: pnlReportingVisualFixture });
+function readySource(report: PnlReportingReadModel = pnlReportingVisualFixture): PnlReportingSource {
+  return source({ state: 'DATA_READY', report });
 }
 
-async function renderReady(onNavigateToVariance?: () => void) {
-  render(<PnlStatusView reportingSource={readySource()} initialYear={2026} onNavigateToVariance={onNavigateToVariance} />);
+async function renderReady(onNavigateToVariance?: () => void, report: PnlReportingReadModel = pnlReportingVisualFixture) {
+  const result = render(<PnlStatusView reportingSource={readySource(report)} initialYear={2026} onNavigateToVariance={onNavigateToVariance} />);
   await screen.findByTestId('revenue-trend-card');
+  return result;
 }
 
 function productionImportGraph(entry: string): string[] {
@@ -143,29 +144,7 @@ describe('P&L Status exact visual skeleton port', () => {
     expect(parsePnlReportingLoadResult(availableWithMissingCoreValue)).toBeNull();
     expect(pnlReportingVisualFixture.monthlyTrends[4]).toMatchObject({ actualAvailable: true, actualRevenue: 0, actualOperatingProfit: 0 });
 
-    const aprilCutoff = {
-      ...ready,
-      report: {
-        ...pnlReportingVisualFixture,
-        selectedPeriodKey: '2026-04',
-        actualPeriodKeys: pnlReportingVisualFixture.actualPeriodKeys.slice(0, 4),
-        periods: pnlReportingVisualFixture.periods.map((period, index) => ({ ...period, isActual: index < 4 })),
-        monthlyTrends: pnlReportingVisualFixture.monthlyTrends.map((trend, index) => index < 4 ? trend : {
-          ...trend,
-          actualAvailable: false,
-          actualRevenue: null,
-          actualRevenueText: null,
-          actualOperatingProfit: null,
-          actualOperatingProfitText: null,
-          actualOperatingMargin: null,
-          actualOperatingMarginText: null,
-          actualAdjustedOperatingProfit: null,
-          actualAdjustedOperatingProfitText: null,
-          actualAdjustedOperatingMargin: null,
-          actualAdjustedOperatingMarginText: null,
-        }),
-      },
-    };
+    const aprilCutoff = { state: 'DATA_READY', report: createPnlReportingVisualFixture(4) };
     expect(parsePnlReportingLoadResult(aprilCutoff)?.state).toBe('DATA_READY');
   });
 
@@ -218,19 +197,77 @@ describe('P&L Status exact visual skeleton port', () => {
     expect(product.querySelector('table')).toHaveAttribute('data-column-count', '5');
   });
 
-  it('uses the exact Mockup selector while preserving stable PCS, 4-inch LC, and future LENGTH/m slots', async () => {
+  it.each([1, 6, 12])('renders COGS and all actual-only tables through month %i plus backend-provided YTD', async (actualThroughMonth) => {
+    const report = createPnlReportingVisualFixture(actualThroughMonth);
+    expect(parsePnlReportingLoadResult({ state: 'DATA_READY', report })?.state).toBe('DATA_READY');
+    const rendered = await renderReady(undefined, report);
+
+    const pnl = screen.getByTestId('pnl-table-shell');
+    fireEvent.click(within(pnl).getByRole('button', { name: '실적만 보기' }));
+    expect(pnl.querySelector('table')).toHaveAttribute('data-column-count', String(actualThroughMonth + 3));
+    expect(pnl.querySelector('tr[data-row-key="revenue"]')?.querySelectorAll('td')).toHaveLength(actualThroughMonth + 3);
+    if (actualThroughMonth >= 5) {
+      expect(pnl.querySelector('tr[data-row-key="revenue"]')?.querySelectorAll('td')[6]).toHaveTextContent('0');
+    }
+
+    fireEvent.click(screen.getAllByRole('tab')[1]);
+    const cogs = screen.getByTestId('cogs-table-shell');
+    expect(cogs.querySelector('table')).toHaveAttribute('data-column-count', String(actualThroughMonth * 2 + 3));
+    expect(cogs.querySelector('tr[data-row-key="cogs_0"]')?.querySelectorAll('td')).toHaveLength(actualThroughMonth * 2 + 3);
+    if (actualThroughMonth === 12) {
+      for (const month of ['7월', '8월', '9월', '10월', '11월', '12월']) expect(within(cogs).getByText(month)).toBeInTheDocument();
+    }
+
+    fireEvent.click(screen.getAllByRole('tab')[2]);
+    const sga = screen.getByTestId('sga-table-shell');
+    fireEvent.click(within(sga).getByRole('button', { name: '실적만 보기' }));
+    expect(sga.querySelector('table')).toHaveAttribute('data-column-count', String(actualThroughMonth + 3));
+    expect(sga.querySelector('tr[data-row-key="admin"]')?.querySelectorAll('td')).toHaveLength(actualThroughMonth + 3);
+
+    fireEvent.click(screen.getAllByRole('tab')[3]);
+    const product = screen.getByTestId('product-table-shell');
+    fireEvent.click(within(product).getByRole('button', { name: '실적만 보기' }));
+    expect(product.querySelector('table')).toHaveAttribute('data-column-count', String(actualThroughMonth + 3));
+    expect(product.querySelector('tr[data-row-key="SW_revenue"]')?.querySelectorAll('td')).toHaveLength(actualThroughMonth + 3);
+    rendered.unmount();
+  });
+
+  it('preserves regular product units and omits inapplicable NEW_BUSINESS quantity metadata and rows', async () => {
     await renderReady();
     fireEvent.click(screen.getAllByRole('tab')[3]);
-    const selectors = [...screen.getByTestId('product-table-shell').querySelectorAll('[data-unit]')];
+    const product = screen.getByTestId('product-table-shell');
+    const selector = within(product).getByRole('group', { name: '제품군 선택' });
+    const selectors = within(selector).getAllByRole('button');
     expect(selectors.map((node) => [node.textContent, node.getAttribute('data-unit'), node.getAttribute('data-dimension')])).toEqual([
       ['8인치 SW', 'PCS', '8-inch'],
       ['8인치 BW', 'PCS', '8-inch'],
       ['4인치 LC', 'PCS', '4-inch'],
-      ['신사업', 'PCS', 'item'],
+      ['FS', 'm', 'LENGTH'],
+      ['신사업', null, null],
     ]);
-    const fsSlot: PnlProductSegmentSlot = { key: 'FS', label: 'FS', businessUnit: 'm', dimensionLabel: 'LENGTH', rows: [] };
-    expect([fsSlot.key, fsSlot.businessUnit, fsSlot.dimensionLabel]).toEqual(['FS', 'm', 'LENGTH']);
+    fireEvent.click(within(selector).getByRole('button', { name: '신사업' }));
+    expect(product.querySelector('.pnl-report__table-unit')).toHaveTextContent('(단위: 백만원, 원, %)');
+    expect(product.querySelector('.pnl-report__table-unit')).not.toHaveTextContent(/PCS|null|undefined|N\/A/);
+    expect(product.querySelectorAll('tbody tr')).toHaveLength(8);
+    expect(within(product).queryByText(/매출수량|평균 판매 단가\(ASP\)/)).not.toBeInTheDocument();
     expect(screen.queryByText(/통합 수량 합계|mixed-unit/i)).not.toBeInTheDocument();
+
+    const invalidLcUnit = {
+      state: 'DATA_READY',
+      report: {
+        ...pnlReportingVisualFixture,
+        productSegments: pnlReportingVisualFixture.productSegments.map((segment) => segment.key === 'LC' ? { ...segment, businessUnit: null } : segment),
+      },
+    };
+    const invalidFsUnit = {
+      state: 'DATA_READY',
+      report: {
+        ...pnlReportingVisualFixture,
+        productSegments: pnlReportingVisualFixture.productSegments.map((segment) => segment.key === 'FS' ? { ...segment, businessUnit: null } : segment),
+      },
+    };
+    expect(parsePnlReportingLoadResult(invalidLcUnit)).toBeNull();
+    expect(parsePnlReportingLoadResult(invalidFsUnit)).toBeNull();
   });
 
   it('keeps Mockup fixture row hierarchy counts isolated to DATA_READY rendering', () => {
@@ -250,7 +287,7 @@ describe('P&L Status exact visual skeleton port', () => {
     expect(pnlReportingVisualFixture.sgaRows.filter((row) => !row.parentKey).map((row) => row.label)).toEqual([
       '일반관리비 소계', '1. 인건비', '2. 감가상각비', '3. 경상개발비', '4. 수수료', '5. 기타', '판매비 소계', '1. 운반비', '2. 수수료', '3. 브랜드사용료', '4. 인건비', '5. 견본비', '6. 대손상각', '7. 잡비', '8. 기타', '판관비 총계',
     ]);
-    expect(pnlReportingVisualFixture.productSegments.map((segment) => segment.rows.length)).toEqual([10, 10, 10, 8]);
+    expect(pnlReportingVisualFixture.productSegments.map((segment) => segment.rows.length)).toEqual([10, 10, 10, 10, 8]);
   });
 
   it('keeps REPORTING_GAP, EMPTY, ERROR, FORBIDDEN, INVALID_PAYLOAD, and LOADING distinct', async () => {

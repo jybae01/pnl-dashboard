@@ -9,6 +9,7 @@ export type PnlDetailTab =
 export type PnlValueTone = 'favorable' | 'unfavorable' | 'neutral';
 export type PnlRowKind = 'default' | 'header' | 'total';
 export type PnlProductUnit = 'PCS' | 'm';
+export type PnlRegularProductKey = 'SW' | 'BW' | 'LC' | 'FS';
 
 export interface PnlDisplayCell {
   text: string;
@@ -85,17 +86,29 @@ export interface PnlSgaRowSlot extends PnlStatementRowSlot {
   category: string;
 }
 
-export interface PnlProductSegmentSlot {
-  key: string;
+interface PnlProductSegmentBase {
   label: string;
-  businessUnit: PnlProductUnit;
-  dimensionLabel: string;
   rows: PnlStatementRowSlot[];
 }
+
+export interface PnlRegularProductSegmentSlot extends PnlProductSegmentBase {
+  key: PnlRegularProductKey;
+  businessUnit: PnlProductUnit;
+  dimensionLabel: string;
+}
+
+export interface PnlNewBusinessSegmentSlot extends PnlProductSegmentBase {
+  key: 'NEW_BUSINESS';
+  businessUnit: null;
+  dimensionLabel: null;
+}
+
+export type PnlProductSegmentSlot = PnlRegularProductSegmentSlot | PnlNewBusinessSegmentSlot;
 
 export interface PnlReportingReadModel {
   reportKey: string;
   year: number;
+  actualThroughMonth: number;
   availableYears: number[];
   periods: PnlPeriodSlot[];
   selectedPeriodKey: string;
@@ -213,7 +226,7 @@ function isCellMap(value: unknown, expected: number): boolean {
   return isRecord(value) && Object.values(value).every((cells) => isCellArray(cells, expected));
 }
 
-function isStatementRow(value: unknown, customCellCount: 3 | 4): boolean {
+function isStatementRow(value: unknown, customCellCount: 3 | 4, actualCellCount: number): boolean {
   return isRecord(value)
     && typeof value.key === 'string'
     && typeof value.label === 'string'
@@ -221,8 +234,38 @@ function isStatementRow(value: unknown, customCellCount: 3 | 4): boolean {
     && (value.level === 0 || value.level === 1 || value.level === 2)
     && (value.kind === 'default' || value.kind === 'header' || value.kind === 'total')
     && isCellMap(value.compareByPeriod, 8)
-    && isCellArray(value.actualOnly, 7)
+    && isCellArray(value.actualOnly, actualCellCount)
     && isCellMap(value.customByRange, customCellCount);
+}
+
+const PRODUCT_SEGMENT_KEYS = ['SW', 'BW', 'LC', 'FS', 'NEW_BUSINESS'] as const;
+const REGULAR_PRODUCT_METADATA: Record<PnlRegularProductKey, { businessUnit: PnlProductUnit; dimensionLabel: string }> = {
+  SW: { businessUnit: 'PCS', dimensionLabel: '8-inch' },
+  BW: { businessUnit: 'PCS', dimensionLabel: '8-inch' },
+  LC: { businessUnit: 'PCS', dimensionLabel: '4-inch' },
+  FS: { businessUnit: 'm', dimensionLabel: 'LENGTH' },
+};
+
+function isQuantityRowKey(key: unknown): boolean {
+  return typeof key === 'string' && (key === 'volume' || key === 'asp' || key.endsWith('_volume') || key.endsWith('_asp'));
+}
+
+function isProductSegment(value: unknown, actualCellCount: number): boolean {
+  if (!isRecord(value) || typeof value.key !== 'string' || typeof value.label !== 'string' || !Array.isArray(value.rows)) return false;
+  if (!value.rows.every((row) => isStatementRow(row, 3, actualCellCount))) return false;
+
+  if (value.key === 'NEW_BUSINESS') {
+    return value.businessUnit === null
+      && value.dimensionLabel === null
+      && value.rows.length === 8
+      && !value.rows.some((row) => isRecord(row) && isQuantityRowKey(row.key));
+  }
+
+  if (!(value.key in REGULAR_PRODUCT_METADATA)) return false;
+  const metadata = REGULAR_PRODUCT_METADATA[value.key as PnlRegularProductKey];
+  return value.businessUnit === metadata.businessUnit
+    && value.dimensionLabel === metadata.dimensionLabel
+    && value.rows.length === 10;
 }
 
 export function parsePnlReportingLoadResult(value: unknown): PnlReportingLoadResult | null {
@@ -231,18 +274,24 @@ export function parsePnlReportingLoadResult(value: unknown): PnlReportingLoadRes
   if (value.state !== 'DATA_READY' || !isRecord(value.report)) return null;
 
   const report = value.report as Partial<PnlReportingReadModel>;
+  const actualThroughMonth = report.actualThroughMonth;
+  const actualCellCount = typeof actualThroughMonth === 'number' ? actualThroughMonth + 1 : 0;
   if (
     typeof report.reportKey !== 'string'
     || typeof report.year !== 'number'
+    || !Number.isInteger(actualThroughMonth)
+    || (actualThroughMonth as number) < 1
+    || (actualThroughMonth as number) > 12
     || !Array.isArray(report.availableYears)
     || !Array.isArray(report.periods)
     || report.periods.length !== 12
     || !report.periods.every((period, index) => isFixedPeriodMonth(period, index, report.year as number))
     || typeof report.selectedPeriodKey !== 'string'
     || !Array.isArray(report.actualPeriodKeys)
-    || report.actualPeriodKeys.length > 12
+    || report.actualPeriodKeys.length !== actualThroughMonth
     || !report.actualPeriodKeys.every((key) => typeof key === 'string')
     || !hasSequentialActualPeriods(report.periods as PnlPeriodSlot[], report.actualPeriodKeys as string[])
+    || report.selectedPeriodKey !== report.actualPeriodKeys[report.actualPeriodKeys.length - 1]
     || typeof report.defaultCustomRangeKey !== 'string'
     || !Array.isArray(report.kpis)
     || report.kpis.length !== 3
@@ -257,13 +306,14 @@ export function parsePnlReportingLoadResult(value: unknown): PnlReportingLoadRes
     || !Array.isArray(report.monthlyDataRows)
     || !report.monthlyDataRows.every((row) => isRecord(row) && typeof row.key === 'string' && typeof row.label === 'string' && isCellArray(row.cells, (report.monthlyTrends as PnlMonthlyTrendSlot[]).length))
     || !Array.isArray(report.pnlRows)
-    || !report.pnlRows.every((row) => isStatementRow(row, 4))
+    || !report.pnlRows.every((row) => isStatementRow(row, 4, actualCellCount))
     || !Array.isArray(report.cogsRows)
-    || !report.cogsRows.every((row) => isRecord(row) && typeof row.key === 'string' && typeof row.label === 'string' && isCellArray(row.cells, 14))
+    || !report.cogsRows.every((row) => isRecord(row) && typeof row.key === 'string' && typeof row.label === 'string' && isCellArray(row.cells, 26))
     || !Array.isArray(report.sgaRows)
-    || !report.sgaRows.every((row) => isStatementRow(row, 4) && isRecord(row) && typeof row.category === 'string')
+    || !report.sgaRows.every((row) => isStatementRow(row, 4, actualCellCount) && isRecord(row) && typeof row.category === 'string')
     || !Array.isArray(report.productSegments)
-    || !report.productSegments.every((segment) => isRecord(segment) && typeof segment.key === 'string' && typeof segment.label === 'string' && (segment.businessUnit === 'PCS' || segment.businessUnit === 'm') && typeof segment.dimensionLabel === 'string' && Array.isArray(segment.rows) && segment.rows.every((row) => isStatementRow(row, 3)))
+    || report.productSegments.length !== PRODUCT_SEGMENT_KEYS.length
+    || !report.productSegments.every((segment, index) => isRecord(segment) && segment.key === PRODUCT_SEGMENT_KEYS[index] && isProductSegment(segment, actualCellCount))
   ) return null;
 
   return { state: 'DATA_READY', report: report as PnlReportingReadModel };

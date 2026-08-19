@@ -13,6 +13,7 @@ import type {
 
 const PERIOD = '2026-06';
 const RANGE = '1월:6월';
+const ACTUAL_MONTH_VALUES = ['101', '102', '103', '104', '0', '106', '107', '108', '109', '110', '111', '112'];
 
 function cell(text: string, tone: PnlDisplayCell['tone'] = 'neutral', emphasis: PnlDisplayCell['emphasis'] = 'normal'): PnlDisplayCell {
   return { text, tone, emphasis };
@@ -34,7 +35,7 @@ function statementRow(
     parentKey: options.parentKey,
     collapsible: options.collapsible,
     compareByPeriod: { [PERIOD]: values.slice(0, 8).map((value, index) => cell(value, [2, 3, 6, 7].includes(index) ? 'favorable' : 'neutral')) },
-    actualOnly: ['101', '102', '103', '104', '105', '106', '621'].map((value) => cell(value)),
+    actualOnly: [...ACTUAL_MONTH_VALUES, '1,173'].map((value) => cell(value)),
     customByRange: { [RANGE]: values.slice(0, 4).map((value) => cell(value)) },
   };
 }
@@ -76,47 +77,52 @@ const sgaRows: PnlSgaRowSlot[] = [
   ...['• 포장재료비', '• 보관료/창고료', '• 기타 판매부대비'].map((label, index) => ({ ...statementRow(`sales_other_${index + 1}`, label, '백만원', ['12', '12', '0', '0.00%', '72', '72', '0', '0.00%'], { level: 2, parentKey: 'sales_other' }), category: '세부항목' })),
 ];
 
-function productSegment(key: string, label: string, businessUnit: 'PCS' | 'm', dimensionLabel: string, newBusiness = false): PnlProductSegmentSlot {
+function productSegment(config:
+  | { key: 'SW' | 'BW' | 'LC' | 'FS'; label: string; businessUnit: 'PCS' | 'm'; dimensionLabel: string }
+  | { key: 'NEW_BUSINESS'; label: string; businessUnit: null; dimensionLabel: null },
+): PnlProductSegmentSlot {
+  const newBusiness = config.key === 'NEW_BUSINESS';
   const volumeRows = newBusiness ? [] : [
-    statementRow(`${key}_volume`, '2. 매출수량', businessUnit, ['120', '126', '+6', '+5.0%', '680', '710', '+30', '+4.4%']),
-    statementRow(`${key}_asp`, '3. 평균 판매 단가(ASP)', '원', ['9,800', '9,920', '+120', '+1.2%', '9,750', '9,860', '+110', '+1.1%']),
+    statementRow(`${config.key}_volume`, '2. 매출수량', config.businessUnit, ['120', '126', '+6', '+5.0%', '680', '710', '+30', '+4.4%']),
+    statementRow(`${config.key}_asp`, '3. 평균 판매 단가(ASP)', '원', ['9,800', '9,920', '+120', '+1.2%', '9,750', '9,860', '+110', '+1.1%']),
   ];
   const rows = [
-    statementRow(`${key}_revenue`, '1. 매출액', '백만원', ['340', '355', '+15', '+4.4%', '1,940', '2,030', '+90', '+4.6%'], { kind: 'header' }),
+    statementRow(`${config.key}_revenue`, '1. 매출액', '백만원', ['340', '355', '+15', '+4.4%', '1,940', '2,030', '+90', '+4.6%'], { kind: 'header' }),
     ...volumeRows,
-    statementRow(`${key}_cogs`, `${newBusiness ? '2' : '4'}. 매출원가`, '백만원', ['220', '225', '+5', '+2.3%', '1,260', '1,285', '+25', '+2.0%']),
-    statementRow(`${key}_cogs_ratio`, '• 매출원가율', '%', ['64.7%', '63.4%', '-1.3%p', '-1.3%p', '64.9%', '63.3%', '-1.6%p', '-1.6%p'], { level: 1 }),
-    statementRow(`${key}_gp`, `${newBusiness ? '3' : '5'}. 매출총이익`, '백만원', ['120', '130', '+10', '+8.3%', '680', '745', '+65', '+9.6%'], { kind: 'total' }),
-    statementRow(`${key}_gp_margin`, '• 매출총이익률', '%', ['35.3%', '36.6%', '+1.3%p', '+1.3%p', '35.1%', '36.7%', '+1.6%p', '+1.6%p'], { level: 1 }),
-    statementRow(`${key}_sga`, `${newBusiness ? '4' : '6'}. 판매관리비`, '백만원', ['56', '58', '+2', '+3.6%', '320', '340', '+20', '+6.3%']),
-    statementRow(`${key}_op`, `${newBusiness ? '5' : '7'}. 영업이익`, '백만원', ['64', '72', '+8', '+12.5%', '360', '405', '+45', '+12.5%'], { kind: 'total' }),
-    statementRow(`${key}_op_margin`, '• 영업이익률', '%', ['18.8%', '20.3%', '+1.5%p', '+1.5%p', '18.6%', '20.0%', '+1.4%p', '+1.4%p'], { level: 1 }),
+    statementRow(`${config.key}_cogs`, `${newBusiness ? '2' : '4'}. 매출원가`, '백만원', ['220', '225', '+5', '+2.3%', '1,260', '1,285', '+25', '+2.0%']),
+    statementRow(`${config.key}_cogs_ratio`, '• 매출원가율', '%', ['64.7%', '63.4%', '-1.3%p', '-1.3%p', '64.9%', '63.3%', '-1.6%p', '-1.6%p'], { level: 1 }),
+    statementRow(`${config.key}_gp`, `${newBusiness ? '3' : '5'}. 매출총이익`, '백만원', ['120', '130', '+10', '+8.3%', '680', '745', '+65', '+9.6%'], { kind: 'total' }),
+    statementRow(`${config.key}_gp_margin`, '• 매출총이익률', '%', ['35.3%', '36.6%', '+1.3%p', '+1.3%p', '35.1%', '36.7%', '+1.6%p', '+1.6%p'], { level: 1 }),
+    statementRow(`${config.key}_sga`, `${newBusiness ? '4' : '6'}. 판매관리비`, '백만원', ['56', '58', '+2', '+3.6%', '320', '340', '+20', '+6.3%']),
+    statementRow(`${config.key}_op`, `${newBusiness ? '5' : '7'}. 영업이익`, '백만원', ['64', '72', '+8', '+12.5%', '360', '405', '+45', '+12.5%'], { kind: 'total' }),
+    statementRow(`${config.key}_op_margin`, '• 영업이익률', '%', ['18.8%', '20.3%', '+1.5%p', '+1.5%p', '18.6%', '20.0%', '+1.4%p', '+1.4%p'], { level: 1 }),
   ].map((row) => ({ ...row, customByRange: { [RANGE]: row.customByRange[RANGE].slice(0, 3) } }));
   return {
-    key,
-    label,
-    businessUnit,
-    dimensionLabel,
+    ...config,
     rows,
-  };
+  } as PnlProductSegmentSlot;
 }
 
 const cogsRows: PnlCogsRowSlot[] = ['원부재료비', '노무비', '외주가공비', '기타 제조경비', '합계'].map((label, index) => ({
   key: `cogs_${index}`,
   label,
   kind: index === 4 ? 'total' : 'default',
-  cells: ['72', '5.8%', '75', '5.7%', '77', '5.9%', '74', '5.6%', '79', '5.8%', '81', '5.9%', '458', '34.9%'].map((value) => cell(value)),
+  cells: [
+    '72', '5.8%', '75', '5.7%', '77', '5.9%', '74', '5.6%', '0', '0.0%', '81', '5.9%',
+    '82', '5.8%', '83', '5.7%', '84', '5.6%', '85', '5.5%', '86', '5.4%', '87', '5.3%',
+    '916', '34.9%',
+  ].map((value) => cell(value)),
 }));
 
 const monthlyTrends: PnlMonthlyTrendSlot[] = Array.from({ length: 12 }, (_, index) => {
   const month = index + 1;
-  const actualAvailable = month <= 6;
+  const actualAvailable = true;
   const zeroActual = month === 5;
-  const actualRevenue = actualAvailable ? (zeroActual ? 0 : 10950 + index * 310) : null;
-  const actualOperatingProfit = actualAvailable ? (zeroActual ? 0 : 810 + index * 88) : null;
-  const actualOperatingMargin = actualAvailable ? (zeroActual ? 0 : 7.4 + index * .52) : null;
-  const actualAdjustedOperatingProfit = actualAvailable ? (zeroActual ? 0 : 940 + index * 86) : null;
-  const actualAdjustedOperatingMargin = actualAvailable ? (zeroActual ? 0 : 8.6 + index * .48) : null;
+  const actualRevenue = zeroActual ? 0 : 10950 + index * 310;
+  const actualOperatingProfit = zeroActual ? 0 : 810 + index * 88;
+  const actualOperatingMargin = zeroActual ? 0 : 7.4 + index * .52;
+  const actualAdjustedOperatingProfit = zeroActual ? 0 : 940 + index * 86;
+  const actualAdjustedOperatingMargin = zeroActual ? 0 : 8.6 + index * .48;
   return {
     periodKey: `2026-${String(month).padStart(2, '0')}`,
     label: `${month}월`,
@@ -164,20 +170,20 @@ const monthlyDataRows: PnlMonthlyDataRow[] = [
     label,
     tone: rowTone,
     cells: Array.from({ length: 12 }, (_, monthIndex) => {
-      if (actualMonthlyRowTones.has(rowTone) && monthIndex >= 6) return cell('—');
       if (actualMonthlyRowTones.has(rowTone) && monthIndex === 4) return cell(marginMonthlyRowTones.has(rowTone) ? '0.0%' : '0');
       return cell(`${100 + rowIndex * 10 + monthIndex}`);
     }),
   };
 });
 
-export const pnlReportingVisualFixture: PnlReportingReadModel = {
+const fullYearFixture: PnlReportingReadModel = {
   reportKey: 'test-only-visual-fixture',
   year: 2026,
+  actualThroughMonth: 12,
   availableYears: [2026, 2025],
-  periods: Array.from({ length: 12 }, (_, index) => ({ key: `2026-${String(index + 1).padStart(2, '0')}`, label: `${index + 1}월`, isActual: index < 6 })),
-  selectedPeriodKey: PERIOD,
-  actualPeriodKeys: ['2026-01', '2026-02', '2026-03', '2026-04', '2026-05', PERIOD],
+  periods: Array.from({ length: 12 }, (_, index) => ({ key: `2026-${String(index + 1).padStart(2, '0')}`, label: `${index + 1}월`, isActual: true })),
+  selectedPeriodKey: '2026-12',
+  actualPeriodKeys: Array.from({ length: 12 }, (_, index) => `2026-${String(index + 1).padStart(2, '0')}`),
   defaultCustomRangeKey: RANGE,
   kpis: [
     { key: 'revenue', label: '매출액', amountText: '7,420', unitText: '백만원', progressText: '61.8%', achievementText: '104.5%', tone: 'favorable' },
@@ -190,9 +196,60 @@ export const pnlReportingVisualFixture: PnlReportingReadModel = {
   cogsRows,
   sgaRows,
   productSegments: [
-    productSegment('SW', '8인치 SW', 'PCS', '8-inch'),
-    productSegment('BW', '8인치 BW', 'PCS', '8-inch'),
-    productSegment('LC', '4인치 LC', 'PCS', '4-inch'),
-    productSegment('new_business', '신사업', 'PCS', 'item', true),
+    productSegment({ key: 'SW', label: '8인치 SW', businessUnit: 'PCS', dimensionLabel: '8-inch' }),
+    productSegment({ key: 'BW', label: '8인치 BW', businessUnit: 'PCS', dimensionLabel: '8-inch' }),
+    productSegment({ key: 'LC', label: '4인치 LC', businessUnit: 'PCS', dimensionLabel: '4-inch' }),
+    productSegment({ key: 'FS', label: 'FS', businessUnit: 'm', dimensionLabel: 'LENGTH' }),
+    productSegment({ key: 'NEW_BUSINESS', label: '신사업', businessUnit: null, dimensionLabel: null }),
   ],
 };
+
+function rowsThrough<T extends PnlStatementRowSlot>(rows: T[], actualThroughMonth: number): T[] {
+  return rows.map((row) => ({
+    ...row,
+    actualOnly: [...row.actualOnly.slice(0, actualThroughMonth), row.actualOnly[row.actualOnly.length - 1]],
+  }));
+}
+
+export function createPnlReportingVisualFixture(actualThroughMonth = 6): PnlReportingReadModel {
+  if (!Number.isInteger(actualThroughMonth) || actualThroughMonth < 1 || actualThroughMonth > 12) {
+    throw new RangeError('actualThroughMonth must be an integer from 1 through 12');
+  }
+
+  const periods = fullYearFixture.periods.map((period, index) => ({ ...period, isActual: index < actualThroughMonth }));
+  const actualPeriodKeys = periods.slice(0, actualThroughMonth).map((period) => period.key);
+  return {
+    ...fullYearFixture,
+    reportKey: `test-only-visual-fixture-through-${actualThroughMonth}`,
+    actualThroughMonth,
+    periods,
+    selectedPeriodKey: actualPeriodKeys[actualPeriodKeys.length - 1],
+    actualPeriodKeys,
+    monthlyTrends: fullYearFixture.monthlyTrends.map((trend, index) => index < actualThroughMonth ? trend : {
+      ...trend,
+      actualAvailable: false,
+      actualRevenue: null,
+      actualRevenueText: null,
+      actualOperatingProfit: null,
+      actualOperatingProfitText: null,
+      actualOperatingMargin: null,
+      actualOperatingMarginText: null,
+      actualAdjustedOperatingProfit: null,
+      actualAdjustedOperatingProfitText: null,
+      actualAdjustedOperatingMargin: null,
+      actualAdjustedOperatingMarginText: null,
+    }),
+    monthlyDataRows: fullYearFixture.monthlyDataRows.map((row) => ({
+      ...row,
+      cells: row.cells.map((value, index) => actualMonthlyRowTones.has(row.tone) && index >= actualThroughMonth ? cell('—') : value),
+    })),
+    pnlRows: rowsThrough(fullYearFixture.pnlRows, actualThroughMonth),
+    sgaRows: rowsThrough(fullYearFixture.sgaRows, actualThroughMonth),
+    productSegments: fullYearFixture.productSegments.map((segment) => ({
+      ...segment,
+      rows: rowsThrough(segment.rows, actualThroughMonth),
+    })) as PnlProductSegmentSlot[],
+  };
+}
+
+export const pnlReportingVisualFixture = createPnlReportingVisualFixture();
