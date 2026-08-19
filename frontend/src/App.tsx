@@ -1,11 +1,11 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Calculator, Database, GitCompare, LayoutDashboard, Sliders } from 'lucide-react';
 import { Header } from './components/common/Header';
 import { PnlStatusView } from './views/PnlStatusView';
 import { ForecastGenerationView } from './views/ForecastGenerationView';
 import { bffClient } from './integration/client';
 import { CoreAnalysisView } from './integration/CoreAnalysisView';
-import { LoginView } from './integration/LoginView';
+import { LoginBrandLogo, LoginView } from './integration/LoginView';
 import { ModelManagementView } from './integration/ModelManagementView';
 import { AdminOperationsView } from './integration/AdminOperationsView';
 import { ApiClientError, Role, SessionDto } from './integration/types';
@@ -34,6 +34,8 @@ export function App() {
   const [sessionState, setSessionState] = useState<'LOADING' | 'READY' | 'ANONYMOUS' | 'ERROR'>('LOADING');
   const [route, setRoute] = useState<CoreRoute>('variance');
   const [analysisResultId, setAnalysisResultId] = useState<string | null>(null);
+  const navigationRef = useRef<HTMLElement>(null);
+  const activeTabRef = useRef<HTMLButtonElement>(null);
 
   useEffect(() => {
     bffClient.session().then((value) => {
@@ -54,6 +56,18 @@ export function App() {
     window.addEventListener('hashchange', listener);
     return () => window.removeEventListener('hashchange', listener);
   }, [session?.role]);
+
+  useEffect(() => {
+    const navigation = navigationRef.current;
+    const activeTab = activeTabRef.current;
+    if (!navigation || !activeTab || typeof navigation.scrollBy !== 'function') return;
+    const navigationBounds = navigation.getBoundingClientRect();
+    const activeBounds = activeTab.getBoundingClientRect();
+    let horizontalDelta = 0;
+    if (activeBounds.left < navigationBounds.left) horizontalDelta = activeBounds.left - navigationBounds.left;
+    if (activeBounds.right > navigationBounds.right) horizontalDelta = activeBounds.right - navigationBounds.right;
+    if (horizontalDelta !== 0) navigation.scrollBy({ left: horizontalDelta, top: 0, behavior: 'auto' });
+  }, [route, session?.role]);
 
   function navigate(next: CoreRoute) {
     if (session?.role === 'viewer' && !['pnl', 'variance'].includes(next)) return;
@@ -77,10 +91,11 @@ export function App() {
   if (sessionState === 'LOADING') {
     return (
       <main className="login-shell" role="status" aria-live="polite">
-        <div className="login-card">
+        <section className="login-card login-card--status">
+          <LoginBrandLogo />
           <h1>세션 확인 중…</h1>
           <p>사용자 권한 및 세션 상태를 확인하고 있습니다.</p>
-        </div>
+        </section>
       </main>
     );
   }
@@ -88,18 +103,19 @@ export function App() {
   if (sessionState === 'ERROR') {
     return (
       <main className="login-shell" role="alert">
-        <div className="login-card">
+        <section className="login-card login-card--status">
+          <LoginBrandLogo />
           <h1>서버 세션을 확인할 수 없습니다</h1>
           <p>네트워크 상태를 확인하고 잠시 후 다시 시도해 주세요.</p>
           <button className="login-submit" onClick={() => window.location.reload()}>다시 시도</button>
-        </div>
+        </section>
       </main>
     );
   }
 
   if (!session) return <LoginView onAuthenticated={(value) => { setSession(value); setSessionState('READY'); navigate(value.role === 'admin' ? 'management' : 'variance'); }} />;
 
-  return <div style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column' }}>
+  return <div className="app-shell">
     <Header
       session={session}
       onLogout={async () => {
@@ -112,11 +128,13 @@ export function App() {
         }
       }}
     />
-    <nav className="app-nav" aria-label="주요 화면">
+    <nav ref={navigationRef} className="app-nav" aria-label="주요 화면">
       <div className="nav-tabs">
         <button
           className={`nav-tab-btn ${route === 'pnl' ? 'active' : ''}`}
           onClick={() => navigate('pnl')}
+          aria-current={route === 'pnl' ? 'page' : undefined}
+          ref={route === 'pnl' ? activeTabRef : undefined}
         >
           <LayoutDashboard size={14} aria-hidden="true" />
           <span>1. 손익 현황</span>
@@ -126,6 +144,8 @@ export function App() {
           <button
             className={`nav-tab-btn ${route === 'forecast' ? 'active' : ''}`}
             onClick={() => navigate('forecast')}
+            aria-current={route === 'forecast' ? 'page' : undefined}
+            ref={route === 'forecast' ? activeTabRef : undefined}
           >
             <Calculator size={14} aria-hidden="true" />
             <span>2. 추정 산출</span>
@@ -135,6 +155,8 @@ export function App() {
         <button
           className={`nav-tab-btn ${route === 'variance' ? 'active' : ''}`}
           onClick={() => navigate('variance')}
+          aria-current={route === 'variance' ? 'page' : undefined}
+          ref={route === 'variance' ? activeTabRef : undefined}
         >
           <GitCompare size={14} aria-hidden="true" />
           <span>3. 손익 분석</span>
@@ -144,6 +166,8 @@ export function App() {
           <button
             className={`nav-tab-btn ${route === 'management' ? 'active' : ''}`}
             onClick={() => navigate('management')}
+            aria-current={route === 'management' ? 'page' : undefined}
+            ref={route === 'management' ? activeTabRef : undefined}
           >
             <Database size={14} aria-hidden="true" />
             <span>4. 데이터 관리</span>
@@ -154,6 +178,8 @@ export function App() {
           <button
             className={`nav-tab-btn ${route === 'operations' ? 'active' : ''}`}
             onClick={() => navigate('operations')}
+            aria-current={route === 'operations' ? 'page' : undefined}
+            ref={route === 'operations' ? activeTabRef : undefined}
           >
             <Sliders size={14} aria-hidden="true" />
             <span>5. 운영 관리</span>

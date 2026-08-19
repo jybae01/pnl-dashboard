@@ -28,7 +28,7 @@ export const NanoH2oLogo: React.FC<NanoH2oLogoProps> = ({
         alt={alt}
         aria-label={alt}
         style={{
-          height: `${height}px`,
+          height: `var(--nano-logo-height, ${height}px)`,
           width: 'auto',
           display: 'block',
           objectFit: 'contain',

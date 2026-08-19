@@ -1,8 +1,12 @@
 import React, { FormEvent, useEffect, useState } from 'react';
 import { AlertCircle, Loader2 } from 'lucide-react';
-import { NanoH2oLogo } from '../components/common/NanoH2oLogo';
+import darkLogo from '../assets/nanoh2o-logo-dark.png';
 import { ApiClientError, SessionDto } from './types';
 import { bffClient } from './client';
+
+export function LoginBrandLogo() {
+  return <img className="login-logo" src={darkLogo} alt="NANOH2O" />;
+}
 
 export function LoginView({ onAuthenticated }: { onAuthenticated: (session: SessionDto) => void }) {
   const [code, setCode] = useState('');
@@ -47,24 +51,16 @@ export function LoginView({ onAuthenticated }: { onAuthenticated: (session: Sess
   const locked = remainingSeconds > 0;
   return (
     <main className="login-shell">
-      <div className="login-frame">
-        <section className="login-brand-card" aria-label="NanoH2O 브랜드">
-          <div className="login-brand-top">
-            <NanoH2oLogo height={30} />
+      <section className="login-card" aria-labelledby="login-title">
+        <LoginBrandLogo />
+        <div className="login-heading">
+          <span className="login-heading-mark" aria-hidden="true" />
+          <div>
+            <h1 id="login-title">손익 데이터 모니터링</h1>
+            <p>접속 코드를 입력하여 대시보드를 확인하세요.</p>
           </div>
-          <div className="login-brand-bottom">
-            <p className="login-brand-kicker">MANAGEMENT ACCOUNTING</p>
-            <p className="login-brand-copy">정확한 데이터와 검증된 계산으로 손익 의사결정을 지원합니다.</p>
-          </div>
-        </section>
-        <form className="login-card" onSubmit={submit}>
-          <div className="login-heading">
-            <span className="login-heading-mark" aria-hidden="true" />
-            <div>
-              <h1>손익 데이터 모니터링</h1>
-              <p>접속 코드를 입력하여 대시보드를 확인하세요.</p>
-            </div>
-          </div>
+        </div>
+        <form className="login-form" onSubmit={submit}>
           <label className="login-label" htmlFor="access-code">Access Code</label>
           <input
             id="access-code"
@@ -86,16 +82,15 @@ export function LoginView({ onAuthenticated }: { onAuthenticated: (session: Sess
           <button className="login-submit" disabled={loading || locked || !code}>
             {loading ? (
               <span style={{ display: 'inline-flex', alignItems: 'center', gap: '8px' }}>
-                <Loader2 size={16} className="spinner" style={{ animation: 'spin 1s linear infinite' }} />
+                <Loader2 size={16} className="login-spinner" aria-hidden="true" />
                 <span>확인 중…</span>
               </span>
             ) : (
               '접속'
             )}
           </button>
-          <p className="login-help">접속 권한이 필요하면 시스템 관리자에게 문의하세요.</p>
         </form>
-      </div>
+      </section>
     </main>
   );
 }
