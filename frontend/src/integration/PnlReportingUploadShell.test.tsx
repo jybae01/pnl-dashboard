@@ -222,7 +222,8 @@ describe('P&L reporting upload UI shell', () => {
 
   it('is mounted in Data Management while the frozen shell contains no API, persistence, parser, or business-formula path', () => {
     const appSource = readFileSync(resolve(process.cwd(), 'src/App.tsx'), 'utf8');
-    const managementSource = readFileSync(resolve(process.cwd(), 'src/integration/ModelManagementView.tsx'), 'utf8');
+    const managementSource = readFileSync(resolve(process.cwd(), 'src/integration/ModelManagementView.tsx'), 'utf8')
+      .replace(/\r\n/g, '\n');
     const pnlSource = readFileSync(resolve(process.cwd(), 'src/views/PnlStatusView.tsx'), 'utf8');
     const componentSource = readFileSync(resolve(process.cwd(), 'src/integration/management/PnlReportingUploadSection.tsx'), 'utf8');
 
