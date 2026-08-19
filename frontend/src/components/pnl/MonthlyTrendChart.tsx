@@ -1,601 +1,165 @@
-import React, { useState } from 'react';
-import { MonthlyTrendItem } from '../../types/pnl';
-import { TrendingUp, BarChart2, DollarSign, Award, Table } from 'lucide-react';
+import { Award, BarChart2, DollarSign, Table, TrendingUp } from 'lucide-react';
+import { useState } from 'react';
+import type { PnlMonthlyDataRow, PnlMonthlyTrendSlot } from '../../types/pnlReporting';
+
+type ProfitMode = 'OP_PROFIT' | 'ADJ_OP_PROFIT' | 'DATA_TABLE';
 
 interface MonthlyTrendChartProps {
-  data: MonthlyTrendItem[];
-  selectedMonth?: string;
-  onSelectMonth?: (month: string) => void;
+  data: PnlMonthlyTrendSlot[];
+  dataRows: PnlMonthlyDataRow[];
 }
 
-type ProfitViewMode = 'OP_PROFIT' | 'ADJ_OP_PROFIT' | 'DATA_TABLE';
+const SVG_WIDTH = 920;
+const LEFT = 58;
+const RIGHT = 40;
+const BAR_WIDTH = 18;
+const BAR_GAP = 4;
 
-export const MonthlyTrendChart: React.FC<MonthlyTrendChartProps> = ({
-  data,
-  selectedMonth,
-  onSelectMonth,
-}) => {
-  const [profitMode, setProfitMode] = useState<ProfitViewMode>('OP_PROFIT');
+function maxGeometryValue(values: Array<number | null>): number {
+  const available = values.filter((value): value is number => typeof value === 'number' && Number.isFinite(value));
+  return available.length ? Math.max(...available.map((value) => Math.abs(value)), 1) : 1;
+}
 
-  // Calculate maximum values with generous headroom (+25%) so bar top labels never touch top boundaries
-  const rawMaxRevenue = Math.max(...data.map(d => Math.max(d.planRevenue, d.actualRevenue || 0, d.forecastRevenue || 0)), 12500);
-  const maxRevenue = rawMaxRevenue * 1.22;
+function barGeometry(value: number, maximum: number, tierBottom: number, tierHeight: number) {
+  const height = Math.max((Math.abs(value) / maximum) * tierHeight, 2);
+  return { height, y: tierBottom - height };
+}
 
-  const rawMaxOp = Math.max(...data.map(d => Math.max(d.planOpProfit, d.actualOpProfit || 0, d.forecastOpProfit || 0)), 1250);
-  const maxOpProfit = rawMaxOp * 1.25;
+export function MonthlyTrendChart({ data, dataRows }: MonthlyTrendChartProps) {
+  const [profitMode, setProfitMode] = useState<ProfitMode>('OP_PROFIT');
+  const columnWidth = (SVG_WIDTH - LEFT - RIGHT) / Math.max(data.length, 1);
+  const revenueMaximum = Math.max(maxGeometryValue(data.flatMap((slot) => [slot.planRevenue, slot.actualRevenue])), 12500) * 1.22;
+  const profitMaximum = Math.max(maxGeometryValue(data.flatMap((slot) => profitMode === 'ADJ_OP_PROFIT'
+    ? [slot.planAdjustedOperatingProfit, slot.actualAdjustedOperatingProfit]
+    : [slot.planOperatingProfit, slot.actualOperatingProfit])), profitMode === 'ADJ_OP_PROFIT' ? 1430 : 1250) * 1.25;
 
-  const rawMaxAdjOp = Math.max(...data.map(d => Math.max(d.planAdjOpProfit, d.actualAdjOpProfit || 0, d.forecastAdjOpProfit || 0)), 1430);
-  const maxAdjOpProfit = rawMaxAdjOp * 1.25;
+  const revenueTop = 24;
+  const revenueHeight = 135;
+  const revenueBottom = 159;
+  const profitTop = 95;
+  const profitHeight = 135;
+  const profitBottom = 230;
+  const marginTop = 18;
+  const marginHeight = 52;
+  const marginMaximum = 18;
 
-  const svgWidth = 920;
-  const paddingLeft = 58;
-  const paddingRight = 40;
-  const chartWidth = svgWidth - paddingLeft - paddingRight;
-  const colWidth = chartWidth / data.length;
+  const marginPoint = (value: number) => marginTop + marginHeight * (1 - Math.max(0, Math.min(value, marginMaximum)) / marginMaximum);
+  const actualMarginPoints = data.flatMap((slot, index) => {
+    if (!slot.isActual) return [];
+    const value = profitMode === 'ADJ_OP_PROFIT' ? slot.actualAdjustedOperatingMargin : slot.actualOperatingMargin;
+    if (value === null) return [];
+    return [{ slot, value, x: LEFT + index * columnWidth + columnWidth / 2, y: marginPoint(value) }];
+  });
+  const marginPath = actualMarginPoints.map((point, index) => `${index === 0 ? 'M' : 'L'} ${point.x} ${point.y}`).join(' ');
 
-  // 1. Revenue Chart Dimensions (Generous headroom)
-  const revSvgHeight = 195;
-  const revTierTop = 24;
-  const revTierHeight = 135;
-  const revTierBottom = revTierTop + revTierHeight; // 159
-
-  // 2. Profit Chart Dimensions (4 Distinct Layers / Generous Headroom)
-  // Layer 1: Section Header (y: 6 ~ 22)
-  // Layer 2: Margin Line Chart (% scale 0% ~ 18%) (y: 30 ~ 95)
-  // Layer 3: Divider & Sub-Title (y: 104 ~ 124)
-  // Layer 4: Amount Bar Chart & Labels (y: 140 ~ 275)
-  const profitSvgHeight = 310;
-
-  const marginTierTop = 36;
-  const marginTierHeight = 56;
-  const maxMarginScale = 18; // 0% ~ 18% scale gives ample top headroom for ~13.5% numbers
-
-  const dividerY = 106;
-  const amountSubtitleY = 122;
-
-  const bottomTierTop = 138;
-  const bottomTierHeight = 130;
-  const bottomTierBottom = bottomTierTop + bottomTierHeight; // 268
-
-  const getYMargin = (margin: number) => {
-    const clamped = Math.max(0, Math.min(margin, maxMarginScale));
-    return marginTierTop + marginTierHeight * (1 - clamped / maxMarginScale);
-  };
-
-  return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 14, marginBottom: 16 }}>
-      {/* ========================================================================= */}
-      {/* [첫 번째 영역] 월별 매출액 추이 (항상 표시)                                  */}
-      {/* ========================================================================= */}
-      <div className="chart-card" style={{ padding: '12px 14px' }}>
-        <div className="chart-header" style={{ marginBottom: 6 }}>
-          <div className="chart-title-wrap">
-            <span className="chart-title" style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: '13px' }}>
-              <DollarSign size={15} color="#2563eb" />
-              월별 매출액 추이
-            </span>
-            <span className="unit-tag">단위: 금액 (백만원)</span>
-          </div>
-
-          <div className="chart-legend">
-            <div className="legend-item">
-              <span className="legend-color-box" style={{ backgroundColor: '#cbd5e1', border: '1px solid #94a3b8' }} />
-              <span>계획 매출</span>
-            </div>
-            <div className="legend-item">
-              <span className="legend-color-box" style={{ backgroundColor: '#2563eb', border: '1px solid #1d4ed8' }} />
-              <span>실적/추정 매출</span>
-            </div>
-          </div>
+  return <section className="pnl-report__trends" aria-label="월별 손익 추이">
+    <article className="pnl-report__chart-card" data-testid="revenue-trend-card">
+      <header className="pnl-report__chart-header">
+        <div className="pnl-report__chart-title-wrap">
+          <h2 className="pnl-report__chart-title"><DollarSign size={16} color="#2563eb" />월별 매출액 추이</h2>
+          <span className="pnl-report__unit-tag">단위: 금액 (백만원)</span>
         </div>
-
-        <div style={{ overflowX: 'auto', width: '100%' }}>
-          <svg viewBox={`0 0 ${svgWidth} ${revSvgHeight}`} style={{ width: '100%', minWidth: '760px', height: '195px' }}>
-            <defs>
-              <linearGradient id="rev-blue-grad" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="0%" stopColor="#3b82f6" />
-                <stop offset="100%" stopColor="#1d4ed8" />
-              </linearGradient>
-              <linearGradient id="rev-plan-grad" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="0%" stopColor="#e2e8f0" />
-                <stop offset="100%" stopColor="#cbd5e1" />
-              </linearGradient>
-            </defs>
-
-            {/* Y-Axis Gridlines */}
-            {[0, 0.33, 0.66, 1.0].map((ratio, i) => {
-              const y = revTierTop + revTierHeight * (1 - ratio);
-              const stepVal = Math.round((maxRevenue * ratio) / 1000) * 1000;
-              return (
-                <g key={`rev-grid-${i}`}>
-                  <line x1={paddingLeft} y1={y} x2={svgWidth - paddingRight} y2={y} stroke="#f1f5f9" strokeWidth="1" />
-                  <text x={paddingLeft - 8} y={y + 3.5} textAnchor="end" fontSize="9" fill="#94a3b8" className="tabular-nums">
-                    {stepVal.toLocaleString()}
-                  </text>
-                </g>
-              );
-            })}
-
-            {/* Zero Baseline */}
-            <line
-              x1={paddingLeft}
-              y1={revTierBottom}
-              x2={svgWidth - paddingRight}
-              y2={revTierBottom}
-              stroke="#cbd5e1"
-              strokeWidth="1"
-            />
-
-            {/* Revenue Bars */}
-            {data.map((item, idx) => {
-              const x = paddingLeft + idx * colWidth;
-              const barW = Math.max(colWidth * 0.34, 10);
-
-              const planH = Math.max((item.planRevenue / maxRevenue) * revTierHeight, 2);
-              const planY = revTierBottom - planH;
-
-              const actualVal = item.isActual ? item.actualRevenue || 0 : item.forecastRevenue || 0;
-              const actualH = Math.max((actualVal / maxRevenue) * revTierHeight, 2);
-              const actualY = revTierBottom - actualH;
-
-              return (
-                <g
-                  key={`rev-${item.month}`}
-                  style={{ cursor: onSelectMonth ? 'pointer' : 'default' }}
-                  onClick={() => onSelectMonth && onSelectMonth(item.month)}
-                >
-                  {/* Plan Bar */}
-                  <rect
-                    x={x + colWidth * 0.14}
-                    y={planY}
-                    width={barW}
-                    height={planH}
-                    fill="url(#rev-plan-grad)"
-                    stroke="#94a3b8"
-                    strokeWidth="0.6"
-                    rx="2"
-                  />
-
-                  {/* Actual Bar */}
-                  <rect
-                    x={x + colWidth * 0.14 + barW + 2}
-                    y={actualY}
-                    width={barW}
-                    height={actualH}
-                    fill="url(#rev-blue-grad)"
-                    stroke="#1d4ed8"
-                    strokeWidth="0.6"
-                    rx="2"
-                  />
-
-                  {/* Amount Label with plenty of headroom */}
-                  <text
-                    x={x + colWidth * 0.14 + barW + 2 + barW / 2}
-                    y={actualY - 5}
-                    textAnchor="middle"
-                    fontSize="9.5"
-                    fontWeight="700"
-                    fill="#1e3a8a"
-                    className="tabular-nums"
-                  >
-                    {actualVal.toLocaleString()}
-                  </text>
-
-                  {/* Month Label */}
-                  <text
-                    x={x + colWidth / 2}
-                    y={revTierBottom + 17}
-                    textAnchor="middle"
-                    fontSize="9.5"
-                    fontWeight="600"
-                    fill="#475569"
-                  >
-                    {item.monthLabel}
-                  </text>
-                </g>
-              );
-            })}
-          </svg>
+        <div className="pnl-report__legend" aria-label="매출액 범례">
+          <span><i className="pnl-report__legend-box pnl-report__legend-box--plan" />계획</span>
+          <span><i className="pnl-report__legend-box pnl-report__legend-box--revenue" />실적</span>
         </div>
+      </header>
+      <div className="pnl-report__chart-scroll">
+        <svg className="pnl-report__trend-svg" viewBox="0 0 920 195" role="img" aria-label="월별 매출액 계획 실적 막대 차트">
+          <defs>
+            <linearGradient id="pnl-revenue-actual" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="#3b82f6" /><stop offset="100%" stopColor="#1d4ed8" /></linearGradient>
+            <linearGradient id="pnl-revenue-plan" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="#e2e8f0" /><stop offset="100%" stopColor="#cbd5e1" /></linearGradient>
+          </defs>
+          {[0, .33, .66, 1].map((ratio) => {
+            const y = revenueTop + revenueHeight * (1 - ratio);
+            const label = Math.round((revenueMaximum * ratio) / 1000) * 1000;
+            return <g key={ratio}><line x1={LEFT} y1={y} x2={SVG_WIDTH - RIGHT} y2={y} stroke="#f1f5f9" strokeWidth="1" /><text x={LEFT - 8} y={y + 3.5} textAnchor="end" fontSize="11" fill="#94a3b8">{label.toLocaleString()}</text></g>;
+          })}
+          <line x1={LEFT} y1={revenueBottom} x2={SVG_WIDTH - RIGHT} y2={revenueBottom} stroke="#cbd5e1" strokeWidth="1" />
+          {data.map((slot, index) => {
+            const x = LEFT + index * columnWidth;
+            const hasPlan = slot.planRevenue !== null;
+            const hasActual = slot.isActual && slot.actualRevenue !== null;
+            const groupWidth = hasActual ? BAR_WIDTH * 2 + BAR_GAP : BAR_WIDTH;
+            const groupStart = x + (columnWidth - groupWidth) / 2;
+            const plan = hasPlan ? barGeometry(slot.planRevenue as number, revenueMaximum, revenueBottom, revenueHeight) : null;
+            const actual = hasActual ? barGeometry(slot.actualRevenue as number, revenueMaximum, revenueBottom, revenueHeight) : null;
+            return <g key={slot.periodKey} data-period-key={slot.periodKey}>
+              {plan && <rect data-series="plan" x={groupStart} y={plan.y} width={BAR_WIDTH} height={plan.height} fill="url(#pnl-revenue-plan)" stroke="#94a3b8" strokeWidth=".6" rx="2" />}
+              {actual && <>
+                <rect data-series="actual" x={groupStart + BAR_WIDTH + BAR_GAP} y={actual.y} width={BAR_WIDTH} height={actual.height} fill="url(#pnl-revenue-actual)" stroke="#1d4ed8" strokeWidth=".6" rx="2" />
+                {slot.actualRevenueText && <text x={groupStart + BAR_WIDTH + BAR_GAP + BAR_WIDTH / 2} y={actual.y - 5} textAnchor="middle" fontSize="11" fontWeight="700" fill="#1d4ed8">{slot.actualRevenueText}</text>}
+              </>}
+              <text x={x + columnWidth / 2} y={revenueBottom + 17} textAnchor="middle" fontSize="11.5" fontWeight="600" fill="#475569">{slot.label}</text>
+            </g>;
+          })}
+        </svg>
       </div>
+    </article>
 
-      {/* ========================================================================= */}
-      {/* [두 번째 영역] 월별 손익 추이 (4구역 분리 및 넉넉한 텍스트 여백 확보)             */}
-      {/* ========================================================================= */}
-      <div className="chart-card" style={{ padding: '12px 14px' }}>
-        {/* Header Toolbar: Fixed Left Title & Fixed Submenu */}
-        <div style={{
-          display: 'flex',
-          flexDirection: 'column',
-          gap: 8,
-          marginBottom: 10,
-          borderBottom: '1px solid var(--border-subtle)',
-          paddingBottom: 8,
-        }}>
-          {/* Top Row: Title & Legend/Unit */}
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8 }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: '13px', fontWeight: 700, color: '#0f172a' }}>
-              <TrendingUp size={15} color="#2563eb" />
-              월별 손익 추이
-            </div>
-
-            {profitMode !== 'DATA_TABLE' ? (
-              <div className="chart-legend">
-                <div className="legend-item">
-                  <span className="legend-color-box" style={{ backgroundColor: '#cbd5e1', border: '1px solid #94a3b8' }} />
-                  <span>계획</span>
-                </div>
-                <div className="legend-item">
-                  <span
-                    className="legend-color-box"
-                    style={{
-                      backgroundColor: profitMode === 'ADJ_OP_PROFIT' ? '#ea580c' : '#2563eb',
-                      border: `1px solid ${profitMode === 'ADJ_OP_PROFIT' ? '#c2410c' : '#1d4ed8'}`
-                    }}
-                  />
-                  <span>실적/추정</span>
-                </div>
-                {profitMode === 'OP_PROFIT' && (
-                  <div className="legend-item">
-                    <span style={{ width: 14, height: 3, backgroundColor: '#2563eb', borderRadius: 2, display: 'inline-block' }} />
-                    <span style={{ fontWeight: 700, color: '#1e40af' }}>영업이익률 (%)</span>
-                  </div>
-                )}
-                {profitMode === 'ADJ_OP_PROFIT' && (
-                  <div className="legend-item">
-                    <span style={{ width: 14, height: 3, backgroundColor: '#ea580c', borderRadius: 2, display: 'inline-block' }} />
-                    <span style={{ fontWeight: 700, color: '#c2410c' }}>조정 이익률 (%)</span>
-                  </div>
-                )}
-              </div>
-            ) : (
-              <span className="unit-tag" style={{ fontWeight: 600, color: '#475569' }}>
-                (단위: 백만원, %)
-              </span>
-            )}
-          </div>
-
-          {/* Submenu Buttons: Always Fixed on the Left right below title */}
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-start' }}>
-            <div className="segmented-control">
-              <button
-                type="button"
-                className={`segmented-btn ${profitMode === 'OP_PROFIT' ? 'active' : ''}`}
-                onClick={() => setProfitMode('OP_PROFIT')}
-              >
-                <BarChart2 size={12} style={{ verticalAlign: -1, marginRight: 3 }} />
-                영업이익
-              </button>
-              <button
-                type="button"
-                className={`segmented-btn ${profitMode === 'ADJ_OP_PROFIT' ? 'active' : ''}`}
-                onClick={() => setProfitMode('ADJ_OP_PROFIT')}
-              >
-                <Award size={12} style={{ verticalAlign: -1, marginRight: 3 }} />
-                조정 영업이익
-              </button>
-              <button
-                type="button"
-                className={`segmented-btn ${profitMode === 'DATA_TABLE' ? 'active' : ''}`}
-                onClick={() => setProfitMode('DATA_TABLE')}
-              >
-                <Table size={12} style={{ verticalAlign: -1, marginRight: 3 }} />
-                월별 데이터표
-              </button>
-            </div>
+    <article className="pnl-report__chart-card" data-testid="profit-trend-card">
+      <header className="pnl-report__chart-header">
+        <div className="pnl-report__chart-title-wrap">
+          <h2 className="pnl-report__chart-title"><TrendingUp size={16} color="#ea580c" />월별 영업이익 추이</h2>
+          <span className="pnl-report__unit-tag">단위: 금액 (백만원), 비율 (%)</span>
+        </div>
+        <div className="pnl-report__chart-actions">
+          {profitMode !== 'DATA_TABLE' && <div className="pnl-report__legend" aria-label="영업이익 범례">
+            <span><i className="pnl-report__legend-box pnl-report__legend-box--plan" />계획</span>
+            <span><i className={`pnl-report__legend-box ${profitMode === 'ADJ_OP_PROFIT' ? 'pnl-report__legend-box--adjusted' : 'pnl-report__legend-box--profit'}`} />실적</span>
+            <span><i className={`pnl-report__legend-line ${profitMode === 'ADJ_OP_PROFIT' ? 'pnl-report__legend-line--adjusted' : ''}`} />이익률</span>
+          </div>}
+          <div className="pnl-report__segmented" role="group" aria-label="영업이익 추이 보기 방식">
+            <button type="button" className={profitMode === 'OP_PROFIT' ? 'active' : ''} onClick={() => setProfitMode('OP_PROFIT')}><BarChart2 size={12} />영업이익</button>
+            <button type="button" className={profitMode === 'ADJ_OP_PROFIT' ? 'active' : ''} onClick={() => setProfitMode('ADJ_OP_PROFIT')}><Award size={12} />조정 영업이익</button>
+            <button type="button" className={profitMode === 'DATA_TABLE' ? 'active' : ''} onClick={() => setProfitMode('DATA_TABLE')}><Table size={12} />월별 데이터표</button>
           </div>
         </div>
-
-        {profitMode !== 'DATA_TABLE' ? (
-          /* 4-Layer Split Chart with Dedicated Headroom */
-          <div style={{ overflowX: 'auto', width: '100%' }}>
-            <svg viewBox={`0 0 ${svgWidth} ${profitSvgHeight}`} style={{ width: '100%', minWidth: '760px', height: '310px' }}>
-              <defs>
-                <linearGradient id="profit-blue-grad" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="0%" stopColor="#3b82f6" />
-                  <stop offset="100%" stopColor="#1d4ed8" />
-                </linearGradient>
-                <linearGradient id="profit-orange-grad" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="0%" stopColor="#fb923c" />
-                  <stop offset="100%" stopColor="#ea580c" />
-                </linearGradient>
-                <linearGradient id="profit-plan-grad" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="0%" stopColor="#e2e8f0" />
-                  <stop offset="100%" stopColor="#cbd5e1" />
-                </linearGradient>
-              </defs>
-
-              {/* ------------------------------------------------------------- */}
-              {/* LAYER 1 & 2: Top Margin Area (Title & Line Chart)             */}
-              {/* ------------------------------------------------------------- */}
-              {/* Background card for margin section */}
-              <rect
-                x={paddingLeft}
-                y={6}
-                width={chartWidth}
-                height={88}
-                fill="#f8fafc"
-                rx="4"
-              />
-
-              {/* Layer 1: Dedicated Section Header (y: 18px) */}
-              <text
-                x={paddingLeft + 8}
-                y={20}
-                fontSize="10.5"
-                fontWeight="700"
-                fill={profitMode === 'ADJ_OP_PROFIT' ? '#c2410c' : '#1e40af'}
-              >
-                {profitMode === 'ADJ_OP_PROFIT' ? '▲ 월별 조정 영업이익률 (%)' : '▲ 월별 영업이익률 (%)'}
-              </text>
-
-              {/* Layer 2: % Scale Gridlines (5%, 10%, 15%) */}
-              {[5, 10, 15].map(pct => {
-                const y = getYMargin(pct);
-                return (
-                  <g key={`margin-grid-${pct}`}>
-                    <line x1={paddingLeft} y1={y} x2={svgWidth - paddingRight} y2={y} stroke="#e2e8f0" strokeWidth="0.8" />
-                    <text x={paddingLeft - 6} y={y + 3} textAnchor="end" fontSize="8.5" fill="#94a3b8" className="tabular-nums">
-                      {pct}%
-                    </text>
-                  </g>
-                );
-              })}
-
-              {/* Margin Path Line */}
-              <path
-                d={data.map((item, idx) => {
-                  const x = paddingLeft + idx * colWidth + colWidth / 2;
-                  const margin = item.isActual
-                    ? (profitMode === 'OP_PROFIT' ? item.actualOpMargin || 0 : item.actualAdjOpMargin || 0)
-                    : (profitMode === 'OP_PROFIT' ? item.forecastOpMargin || 0 : item.forecastAdjOpMargin || 0);
-                  const y = getYMargin(margin);
-                  return `${idx === 0 ? 'M' : 'L'} ${x} ${y}`;
-                }).join(' ')}
-                fill="none"
-                stroke={profitMode === 'ADJ_OP_PROFIT' ? '#ea580c' : '#2563eb'}
-                strokeWidth="2.2"
-              />
-
-              {/* Margin Points & Labels (% labels have safe headroom below header y:20) */}
-              {data.map((item, idx) => {
-                const x = paddingLeft + idx * colWidth + colWidth / 2;
-                const margin = item.isActual
-                  ? (profitMode === 'OP_PROFIT' ? item.actualOpMargin || 0 : item.actualAdjOpMargin || 0)
-                  : (profitMode === 'OP_PROFIT' ? item.forecastOpMargin || 0 : item.forecastAdjOpMargin || 0);
-                const y = getYMargin(margin);
-
-                return (
-                  <g key={`profit-pt-${item.month}`}>
-                    <circle
-                      cx={x}
-                      cy={y}
-                      r="3.5"
-                      fill="#ffffff"
-                      stroke={profitMode === 'ADJ_OP_PROFIT' ? '#ea580c' : '#2563eb'}
-                      strokeWidth="2"
-                    />
-                    <text
-                      x={x}
-                      y={y - 5.5}
-                      textAnchor="middle"
-                      fontSize="9.5"
-                      fontWeight="800"
-                      fill={profitMode === 'ADJ_OP_PROFIT' ? '#c2410c' : '#1e40af'}
-                      className="tabular-nums"
-                    >
-                      {margin.toFixed(1)}%
-                    </text>
-                  </g>
-                );
-              })}
-
-              {/* ------------------------------------------------------------- */}
-              {/* LAYER 3: Middle Divider & Subtitle                            */}
-              {/* ------------------------------------------------------------- */}
-              <line
-                x1={paddingLeft}
-                y1={dividerY}
-                x2={svgWidth - paddingRight}
-                y2={dividerY}
-                stroke="#cbd5e1"
-                strokeWidth="1.2"
-                strokeDasharray="4 4"
-              />
-              <text
-                x={paddingLeft + 6}
-                y={amountSubtitleY}
-                fontSize="10"
-                fontWeight="700"
-                fill="#475569"
-              >
-                ▼ 월별 금액 (단위: 백만원)
-              </text>
-
-              {/* ------------------------------------------------------------- */}
-              {/* LAYER 4: Bottom Bar Chart & Amount Labels                     */}
-              {/* ------------------------------------------------------------- */}
-              {[0, 0.33, 0.66, 1.0].map((ratio, i) => {
-                const currentMax = profitMode === 'OP_PROFIT' ? maxOpProfit : maxAdjOpProfit;
-                const stepVal = Math.round((currentMax * ratio) / 100) * 100;
-                const y = bottomTierTop + bottomTierHeight * (1 - ratio);
-                return (
-                  <g key={`profit-grid-${i}`}>
-                    <line x1={paddingLeft} y1={y} x2={svgWidth - paddingRight} y2={y} stroke="#f1f5f9" strokeWidth="1" />
-                    <text x={paddingLeft - 6} y={y + 3.5} textAnchor="end" fontSize="9" fill="#94a3b8" className="tabular-nums">
-                      {stepVal.toLocaleString()}
-                    </text>
-                  </g>
-                );
-              })}
-
-              {/* Zero Baseline */}
-              <line
-                x1={paddingLeft}
-                y1={bottomTierBottom}
-                x2={svgWidth - paddingRight}
-                y2={bottomTierBottom}
-                stroke="#cbd5e1"
-                strokeWidth="1"
-              />
-
-              {/* Bars */}
-              {data.map((item, idx) => {
-                const x = paddingLeft + idx * colWidth;
-                const barW = Math.max(colWidth * 0.33, 9);
-                const currentMax = profitMode === 'OP_PROFIT' ? maxOpProfit : maxAdjOpProfit;
-
-                const planVal = profitMode === 'OP_PROFIT' ? item.planOpProfit : item.planAdjOpProfit;
-                const planH = Math.max((planVal / currentMax) * bottomTierHeight, 2);
-                const planY = bottomTierBottom - planH;
-
-                const actualVal = item.isActual
-                  ? (profitMode === 'OP_PROFIT' ? item.actualOpProfit || 0 : item.actualAdjOpProfit || 0)
-                  : (profitMode === 'OP_PROFIT' ? item.forecastOpProfit || 0 : item.forecastAdjOpProfit || 0);
-                const actualH = Math.max((actualVal / currentMax) * bottomTierHeight, 2);
-                const actualY = bottomTierBottom - actualH;
-
-                return (
-                  <g
-                    key={`profit-bar-${item.month}`}
-                    style={{ cursor: onSelectMonth ? 'pointer' : 'default' }}
-                    onClick={() => onSelectMonth && onSelectMonth(item.month)}
-                  >
-                    {/* Plan Bar */}
-                    <rect
-                      x={x + colWidth * 0.14}
-                      y={planY}
-                      width={barW}
-                      height={planH}
-                      fill="url(#profit-plan-grad)"
-                      stroke="#94a3b8"
-                      strokeWidth="0.6"
-                      rx="2"
-                    />
-
-                    {/* Actual / Forecast Bar */}
-                    <rect
-                      x={x + colWidth * 0.14 + barW + 2}
-                      y={actualY}
-                      width={barW}
-                      height={actualH}
-                      fill={profitMode === 'ADJ_OP_PROFIT' ? 'url(#profit-orange-grad)' : 'url(#profit-blue-grad)'}
-                      stroke={profitMode === 'ADJ_OP_PROFIT' ? '#c2410c' : '#1d4ed8'}
-                      strokeWidth="0.6"
-                      rx="2"
-                    />
-
-                    {/* Amount Label - with plenty of headroom below subtitle/divider */}
-                    <text
-                      x={x + colWidth * 0.14 + barW + 2 + barW / 2}
-                      y={actualY - 5}
-                      textAnchor="middle"
-                      fontSize="9.5"
-                      fontWeight="700"
-                      fill={profitMode === 'ADJ_OP_PROFIT' ? '#c2410c' : '#1e3a8a'}
-                      className="tabular-nums"
-                    >
-                      {actualVal.toLocaleString()}
-                    </text>
-
-                    {/* Month Label */}
-                    <text
-                      x={x + colWidth / 2}
-                      y={bottomTierBottom + 17}
-                      textAnchor="middle"
-                      fontSize="10"
-                      fontWeight="600"
-                      fill="#475569"
-                    >
-                      {item.monthLabel}
-                    </text>
-                  </g>
-                );
-              })}
-            </svg>
-          </div>
-        ) : (
-          /* Monthly Numeric Matrix Table with Right-aligned Unit */
-          <div style={{ overflowX: 'auto', maxHeight: '260px' }}>
-            <table className="financial-table" style={{ fontSize: '11px' }}>
-              <thead>
-                <tr>
-                  <th style={{ width: '16%' }}>손익 지표</th>
-                  {data.map(d => (
-                    <th key={d.month} className="text-right" style={{ width: '7%' }}>{d.monthLabel}</th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                <tr>
-                  <td style={{ fontWeight: 600 }}>매출액 계획</td>
-                  {data.map(d => (
-                    <td key={d.month} className="text-right tabular-nums" style={{ color: 'var(--text-muted)' }}>
-                      {d.planRevenue.toLocaleString()}
-                    </td>
-                  ))}
-                </tr>
-                <tr>
-                  <td style={{ fontWeight: 700, color: '#1e3a8a' }}>매출액 실적</td>
-                  {data.map(d => (
-                    <td key={d.month} className="text-right tabular-nums" style={{ fontWeight: 700, color: '#1e3a8a' }}>
-                      {(d.actualRevenue || d.forecastRevenue || 0).toLocaleString()}
-                    </td>
-                  ))}
-                </tr>
-                <tr style={{ backgroundColor: '#f0fdf4' }}>
-                  <td style={{ fontWeight: 600 }}>영업이익 계획</td>
-                  {data.map(d => (
-                    <td key={d.month} className="text-right tabular-nums" style={{ color: 'var(--text-muted)' }}>
-                      {d.planOpProfit.toLocaleString()}
-                    </td>
-                  ))}
-                </tr>
-                <tr style={{ backgroundColor: '#f0fdf4' }}>
-                  <td style={{ fontWeight: 700, color: '#047857' }}>영업이익 실적</td>
-                  {data.map(d => (
-                    <td key={d.month} className="text-right tabular-nums" style={{ fontWeight: 700, color: '#047857' }}>
-                      {(d.actualOpProfit || d.forecastOpProfit || 0).toLocaleString()}
-                    </td>
-                  ))}
-                </tr>
-                <tr style={{ backgroundColor: '#f0fdf4' }}>
-                  <td style={{ color: '#047857', fontWeight: 600 }}>영업이익률</td>
-                  {data.map(d => (
-                    <td key={d.month} className="text-right tabular-nums" style={{ color: '#047857', fontWeight: 600 }}>
-                      {(d.actualOpMargin || d.forecastOpMargin || 0).toFixed(1)}%
-                    </td>
-                  ))}
-                </tr>
-                <tr style={{ backgroundColor: '#fff7ed' }}>
-                  <td style={{ fontWeight: 600 }}>조정 영업이익 계획</td>
-                  {data.map(d => (
-                    <td key={d.month} className="text-right tabular-nums" style={{ color: 'var(--text-muted)' }}>
-                      {d.planAdjOpProfit.toLocaleString()}
-                    </td>
-                  ))}
-                </tr>
-                <tr style={{ backgroundColor: '#fff7ed' }}>
-                  <td style={{ fontWeight: 700, color: '#c2410c' }}>조정 영업이익 실적</td>
-                  {data.map(d => (
-                    <td key={d.month} className="text-right tabular-nums" style={{ fontWeight: 700, color: '#c2410c' }}>
-                      {(d.actualAdjOpProfit || d.forecastAdjOpProfit || 0).toLocaleString()}
-                    </td>
-                  ))}
-                </tr>
-                <tr style={{ backgroundColor: '#fff7ed' }}>
-                  <td style={{ color: '#c2410c', fontWeight: 600 }}>조정 영업이익률</td>
-                  {data.map(d => (
-                    <td key={d.month} className="text-right tabular-nums" style={{ color: '#c2410c', fontWeight: 600 }}>
-                      {(d.actualAdjOpMargin || d.forecastAdjOpMargin || 0).toFixed(1)}%
-                    </td>
-                  ))}
-                </tr>
-              </tbody>
-            </table>
-          </div>
-        )}
-      </div>
-    </div>
-  );
-};
+      </header>
+      {profitMode === 'DATA_TABLE' ? <div className="pnl-report__chart-scroll">
+        <table className="pnl-report__financial-table pnl-report__monthly-table" data-column-count={data.length + 1}>
+          <thead><tr><th>손익 지표</th>{data.map((slot) => <th key={slot.periodKey}>{slot.label}</th>)}</tr></thead>
+          <tbody>{dataRows.map((row) => <tr key={row.key} data-tone={row.tone}><td>{row.label}</td>{data.map((slot, index) => <td className="pnl-report__tabular" key={slot.periodKey}>{row.cells[index]?.text ?? '—'}</td>)}</tr>)}</tbody>
+        </table>
+      </div> : <div className="pnl-report__chart-scroll">
+        <svg className="pnl-report__trend-svg" viewBox="0 0 920 275" role="img" aria-label="월별 영업이익 계획 실적 막대와 실적 이익률 복합 차트">
+          <defs>
+            <linearGradient id="pnl-profit-plan" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="#e2e8f0" /><stop offset="100%" stopColor="#cbd5e1" /></linearGradient>
+            <linearGradient id="pnl-profit-actual" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="#fb923c" /><stop offset="100%" stopColor="#ea580c" /></linearGradient>
+            <linearGradient id="pnl-profit-adjusted" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="#2dd4bf" /><stop offset="100%" stopColor="#0d9488" /></linearGradient>
+          </defs>
+          {marginPath && <path data-series="actual-margin" d={marginPath} fill="none" stroke={profitMode === 'ADJ_OP_PROFIT' ? '#0d9488' : '#ea580c'} strokeWidth="2.2" />}
+          {actualMarginPoints.map((point) => <g key={point.slot.periodKey}>
+            <circle data-series="actual-margin-point" cx={point.x} cy={point.y} r="3.5" fill="#fff" stroke={profitMode === 'ADJ_OP_PROFIT' ? '#0d9488' : '#ea580c'} strokeWidth="2" />
+            <text x={point.x} y={point.y - 5.5} textAnchor="middle" fontSize="11" fontWeight="800" fill={profitMode === 'ADJ_OP_PROFIT' ? '#0f766e' : '#c2410c'}>{profitMode === 'ADJ_OP_PROFIT' ? point.slot.actualAdjustedOperatingMarginText : point.slot.actualOperatingMarginText}</text>
+          </g>)}
+          {[0, .33, .66, 1].map((ratio) => {
+            const y = profitTop + profitHeight * (1 - ratio);
+            const label = Math.round((profitMaximum * ratio) / 100) * 100;
+            return <g key={ratio}><line x1={LEFT} y1={y} x2={SVG_WIDTH - RIGHT} y2={y} stroke="#f1f5f9" strokeWidth="1" /><text x={LEFT - 8} y={y + 3.5} textAnchor="end" fontSize="11" fill="#94a3b8">{label.toLocaleString()}</text></g>;
+          })}
+          <line x1={LEFT} y1={profitBottom} x2={SVG_WIDTH - RIGHT} y2={profitBottom} stroke="#cbd5e1" strokeWidth="1" />
+          {data.map((slot, index) => {
+            const x = LEFT + index * columnWidth;
+            const planValue = profitMode === 'ADJ_OP_PROFIT' ? slot.planAdjustedOperatingProfit : slot.planOperatingProfit;
+            const actualValue = profitMode === 'ADJ_OP_PROFIT' ? slot.actualAdjustedOperatingProfit : slot.actualOperatingProfit;
+            const actualText = profitMode === 'ADJ_OP_PROFIT' ? slot.actualAdjustedOperatingProfitText : slot.actualOperatingProfitText;
+            const hasActual = slot.isActual && actualValue !== null;
+            const groupWidth = hasActual ? BAR_WIDTH * 2 + BAR_GAP : BAR_WIDTH;
+            const groupStart = x + (columnWidth - groupWidth) / 2;
+            const plan = planValue === null ? null : barGeometry(planValue, profitMaximum, profitBottom, profitHeight);
+            const actual = hasActual ? barGeometry(actualValue as number, profitMaximum, profitBottom, profitHeight) : null;
+            return <g key={slot.periodKey} data-period-key={slot.periodKey}>
+              {plan && <rect data-series="plan" x={groupStart} y={plan.y} width={BAR_WIDTH} height={plan.height} fill="url(#pnl-profit-plan)" stroke="#94a3b8" strokeWidth=".6" rx="2" />}
+              {actual && <>
+                <rect data-series="actual" x={groupStart + BAR_WIDTH + BAR_GAP} y={actual.y} width={BAR_WIDTH} height={actual.height} fill={profitMode === 'ADJ_OP_PROFIT' ? 'url(#pnl-profit-adjusted)' : 'url(#pnl-profit-actual)'} stroke={profitMode === 'ADJ_OP_PROFIT' ? '#0f766e' : '#c2410c'} strokeWidth=".6" rx="2" />
+                {actualText && <text x={groupStart + BAR_WIDTH + BAR_GAP + BAR_WIDTH / 2} y={actual.y - 5} textAnchor="middle" fontSize="11" fontWeight="700" fill={profitMode === 'ADJ_OP_PROFIT' ? '#0f766e' : '#c2410c'}>{actualText}</text>}
+              </>}
+              <text x={x + columnWidth / 2} y={profitBottom + 17} textAnchor="middle" fontSize="11.5" fontWeight="600" fill="#475569">{slot.label}</text>
+            </g>;
+          })}
+        </svg>
+      </div>}
+    </article>
+  </section>;
+}

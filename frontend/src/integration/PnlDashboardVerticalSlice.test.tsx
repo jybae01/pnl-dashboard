@@ -1,174 +1,236 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { readFileSync } from 'node:fs';
+import { dirname, extname, resolve } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { pnlReportingVisualFixture } from '../test-support/pnlReportingVisualFixture';
+import { PnlReportingSourceError, type PnlProductSegmentSlot, type PnlReportingSource } from '../types/pnlReporting';
 import { PnlStatusView } from '../views/PnlStatusView';
-import { PnlDashboardDto } from './types';
 
-const BASE = '11111111-1111-4111-8111-111111111111';
-const COMP = '22222222-2222-4222-8222-222222222222';
-const MILLION = 1_000_000;
-
-function krw(value: number) { return value * MILLION; }
-
-function line(code: string, label: string, baseline: number, comparison: number, ratio: number | null = null) {
-  return { code, label, baseline: krw(baseline), comparison: krw(comparison), delta: krw(comparison - baseline), comparison_ratio_to_revenue: ratio };
+function source(result: unknown): PnlReportingSource {
+  return { load: vi.fn().mockResolvedValue(result) };
 }
 
-function fixture(): PnlDashboardDto {
-  const revenue1 = line('revenue', '매출액', 100, 120);
-  const gp1 = line('gross_profit', '매출총이익', 40, 50);
-  const op1 = line('operating_profit', '영업이익', 20, 27);
-  const revenue2 = line('revenue', '매출액', 110, 105);
-  const gp2 = line('gross_profit', '매출총이익', 44, 42);
-  const op2 = line('operating_profit', '영업이익', 22, 18);
-  const revenue3 = line('revenue', '매출액', 120, 140);
-  const gp3 = line('gross_profit', '매출총이익', 48, 56);
-  const op3 = line('operating_profit', '영업이익', 24, 32);
-  const periodRevenue = line('revenue', '매출액', 330, 365);
-  const periodGp = line('gross_profit', '매출총이익', 132, 148);
-  const periodOp = line('operating_profit', '영업이익', 66, 77);
-  const cost = line('cogs', '매출원가', 60, 70);
-  const effects = [
-    { code: 'sales_price', label: '판가', profit_effect: krw(1) },
-    { code: 'material_total', label: '원재료', profit_effect: krw(-2) },
-    { code: 'sales_quantity', label: '판매수량', profit_effect: krw(2) },
-    { code: 'sales_mix', label: '제품 Mix', profit_effect: 0 },
-    { code: 'sales_fx', label: '매출환율', profit_effect: 0 },
-    { code: 'manufacturing_realized', label: '제조', profit_effect: krw(-2) },
-    { code: 'inventory_timing', label: '재고·원가 반영시차', profit_effect: 0 },
-    { code: 'sga_variable', label: '변동 판매관리비', profit_effect: krw(2) },
-    { code: 'sga_fixed', label: '고정 판매관리비', profit_effect: krw(-2) },
-    { code: 'tariff', label: '관세', profit_effect: krw(-1) },
-  ];
-  return {
-    result_id: '44444444-4444-4444-8444-444444444444',
-    job_id: '33333333-3333-4333-8333-333333333333',
-    identity: {
-      baseline_model_id: BASE,
-      baseline_model_name: '계획 모형',
-      comparison_model_id: COMP,
-      comparison_model_name: '실적 모형',
-      model_year: 2026,
-      start_month: 1,
-      end_month: 3,
-      available_months: [1, 2, 3],
-      actual_months: [1],
-      actual_through_month: 1,
-    },
-    kpis: {
-      latest_month: 3,
-      revenue: { latest: revenue3, period: periodRevenue },
-      gross_profit: { latest: gp3, period: periodGp },
-      operating_profit: { latest: op3, period: periodOp },
-      latest_operating_margin: { baseline: 20, comparison: 22.857142857, delta_percentage_points: 2.857142857 },
-      period_operating_margin: { baseline: 20, comparison: 21.0958904, delta_percentage_points: 1.0958904 },
-    },
-    monthly_series: [
-      { month: 1, comparison_period_type: '실적', revenue: revenue1, cogs: cost, gross_profit: gp1, operating_profit: op1, baseline_operating_margin: 20, comparison_operating_margin: 22.5 },
-      { month: 2, comparison_period_type: '추정', revenue: revenue2, cogs: line('cogs', '매출원가', 66, 63), gross_profit: gp2, operating_profit: op2, baseline_operating_margin: 20, comparison_operating_margin: 17.142857142857 },
-      { month: 3, comparison_period_type: '계획', revenue: revenue3, cogs: line('cogs', '매출원가', 72, 84), gross_profit: gp3, operating_profit: op3, baseline_operating_margin: 20, comparison_operating_margin: 22.857142857 },
-    ],
-    pnl_statement: [periodRevenue, line('cogs', '매출원가', 198, 217), periodGp, periodOp],
-    manufacturing: {
-      cost_lines: [line('raw_material', '원재료비', 30, 33)],
-      material_components: { nonwoven_price_ex_fx: krw(-1), nonwoven_jpy: krw(-2), materials_ex_nonwoven: krw(-3), total: krw(-6), jpy_fx_unit: 'KRW/JPY', mcm_is_separate_effect: false },
-      accounts: [{ account: '고정 제조경비', classification: 'fixed', section: 'manufacturing', baseline: krw(4), comparison: krw(5), delta: krw(1), profit_effect: krw(-1), inventory_realization_rate: 1, activity_effect: 0, unit_effect: 0, fixed_effect: krw(-1) }],
-      fixed_cost_policy: { manufacturing_effect_includes_variable_and_fixed: true, fixed_manufacturing_is_not_a_separate_top_level_effect: true },
-    },
-    sga: { fixed_scope: 'internal scope', accounts: [{ account: '판매관리비 계정', classification: 'variable', section: 'sga', baseline: krw(3), comparison: krw(4), delta: krw(1), profit_effect: krw(-1), inventory_realization_rate: null, activity_effect: null, unit_effect: null, fixed_effect: null }] },
-    product_groups: [
-      { code: 'LC', display_name: '4인치 LC', quantity_unit: 'PCS', baseline_quantity: 3, comparison_quantity: 4, baseline_revenue: krw(20), comparison_revenue: krw(25), revenue_delta: krw(5), baseline_cogs: krw(12), comparison_cogs: krw(14), baseline_gross_profit: krw(8), comparison_gross_profit: krw(11) },
-      { code: 'FS', display_name: 'FS', quantity_unit: 'm', baseline_quantity: 100, comparison_quantity: 110, baseline_revenue: krw(30), comparison_revenue: krw(35), revenue_delta: krw(5), baseline_cogs: krw(15), comparison_cogs: krw(17), baseline_gross_profit: krw(15), comparison_gross_profit: krw(18) },
-    ],
-    key_facts: { effects, effects_total: krw(-2), residual: krw(9), operating_profit_delta: krw(7), reconciled: false },
-    result_schema_version: '1', completed_at: '2026-08-11T00:00:00Z', published_at: '2026-08-11T01:00:00Z', currency_unit: 'KRW', dto_version: '1',
+function readySource(): PnlReportingSource {
+  return source({ state: 'DATA_READY', report: pnlReportingVisualFixture });
+}
+
+async function renderReady(onNavigateToVariance?: () => void) {
+  render(<PnlStatusView reportingSource={readySource()} initialYear={2026} onNavigateToVariance={onNavigateToVariance} />);
+  await screen.findByTestId('revenue-trend-card');
+}
+
+function productionImportGraph(entry: string): string[] {
+  const visited = new Set<string>();
+  const visit = (file: string) => {
+    if (visited.has(file)) return;
+    visited.add(file);
+    const sourceText = readFileSync(file, 'utf8');
+    for (const match of sourceText.matchAll(/from\s+['"](\.[^'"]+)['"]/g)) {
+      const base = resolve(dirname(file), match[1]);
+      const candidates = extname(base) ? [base] : [`${base}.ts`, `${base}.tsx`];
+      const target = candidates.find((candidate) => {
+        try { readFileSync(candidate); return true; } catch { return false; }
+      });
+      if (target) visit(target);
+    }
   };
+  visit(entry);
+  return [...visited];
 }
 
-function json(body: unknown, status = 200) {
-  return Promise.resolve(new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } }));
-}
+afterEach(() => vi.restoreAllMocks());
 
-afterEach(() => vi.unstubAllGlobals());
+describe('P&L Status exact visual skeleton port', () => {
+  it('renders three exact KPIs and two vertically ordered Mockup trend cards', async () => {
+    await renderReady();
+    const kpis = [...document.querySelectorAll('[data-kpi-key]')];
+    expect(kpis).toHaveLength(3);
+    expect(kpis.map((node) => node.getAttribute('data-kpi-key'))).toEqual(['revenue', 'operating_profit', 'adjusted_operating_profit']);
+    expect(kpis.map((node) => node.querySelector('.pnl-report__kpi-label')?.textContent)).toEqual(['매출액', '영업이익', '조정 영업이익']);
 
-describe('P&L Dashboard seven-source vertical slice', () => {
-  it('renders authoritative KPI, trend scenarios, seven stored blocks, and separate units', async () => {
-    vi.stubGlobal('fetch', vi.fn(() => json(fixture())));
-    render(<PnlStatusView />);
-
-    expect(await screen.findByRole('heading', { name: '핵심 손익 요약' })).toBeInTheDocument();
-    expect(screen.getAllByText('365 백만원').length).toBeGreaterThan(0);
-    expect(screen.getByTestId('revenue-trend-card')).toBeInTheDocument();
-    expect(screen.getByTestId('composite-trend-card')).toBeInTheDocument();
-    expect(screen.getByText('월별 매출액 추이')).toBeInTheDocument();
-    expect(screen.getByText('월별 손익 추이')).toBeInTheDocument();
-    expect(screen.getByText('실적')).toBeInTheDocument();
-    expect(screen.getByText('추정')).toBeInTheDocument();
-    expect(screen.getByText('계획')).toBeInTheDocument();
-    expect(screen.getByRole('heading', { name: '손익계산서' })).toBeInTheDocument();
-    expect(screen.getByText('기타 요인')).toBeInTheDocument();
-
-    fireEvent.click(screen.getByRole('tab', { name: '제조원가' }));
-    expect(screen.getByText('고정 제조경비')).toBeInTheDocument();
-    expect(screen.getByText('고정')).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('tab', { name: '판매관리비' }));
-    expect(screen.getByText('판매관리비 계정')).toBeInTheDocument();
-    expect(screen.getByText('변동')).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('tab', { name: '제품군 손익' }));
-    expect(screen.getByText('4인치 LC')).toBeInTheDocument();
-    expect(screen.getByText('PCS')).toBeInTheDocument();
-    expect(screen.getByText('FS')).toBeInTheDocument();
-    expect(screen.getByText('m')).toBeInTheDocument();
-    expect(screen.getAllByText(/백만원/).length).toBeGreaterThan(0);
-    expect(screen.queryByText('16인치')).not.toBeInTheDocument();
-    expect(screen.queryByText('대사')).not.toBeInTheDocument();
-    expect(screen.queryByText(BASE)).not.toBeInTheDocument();
+    const trends = document.querySelector('.pnl-report__trends');
+    expect(trends?.children).toHaveLength(2);
+    expect(trends?.children[0]).toHaveAttribute('data-testid', 'revenue-trend-card');
+    expect(trends?.children[1]).toHaveAttribute('data-testid', 'profit-trend-card');
+    expect(within(screen.getByTestId('revenue-trend-card')).getByRole('img')).toHaveAttribute('viewBox', '0 0 920 195');
+    expect(within(screen.getByTestId('profit-trend-card')).getByRole('img')).toHaveAttribute('viewBox', '0 0 920 275');
+    expect(within(screen.getByTestId('revenue-trend-card')).getByRole('img').querySelectorAll('text')).not.toHaveLength(6);
   });
 
-  it('preserves backend key-fact order and sends the analysis CTA to the existing route callback', async () => {
-    vi.stubGlobal('fetch', vi.fn(() => json(fixture())));
+  it('renders grouped revenue bars, profit bars plus actual-margin points, and three trend modes', async () => {
+    await renderReady();
+    const revenue = screen.getByTestId('revenue-trend-card');
+    const profit = screen.getByTestId('profit-trend-card');
+    expect(revenue.querySelectorAll('rect[data-series="plan"]')).toHaveLength(6);
+    expect(revenue.querySelectorAll('rect[data-series="actual"]')).toHaveLength(6);
+    expect(profit.querySelectorAll('rect[data-series="plan"]')).toHaveLength(6);
+    expect(profit.querySelectorAll('rect[data-series="actual"]')).toHaveLength(6);
+    expect(profit.querySelector('path[data-series="actual-margin"]')).toBeInTheDocument();
+    expect(profit.querySelectorAll('circle[data-series="actual-margin-point"]')).toHaveLength(6);
+    expect(within(profit).getAllByRole('button').map((button) => button.textContent)).toEqual(['영업이익', '조정 영업이익', '월별 데이터표']);
+    fireEvent.click(within(profit).getByRole('button', { name: '월별 데이터표' }));
+    expect(profit.querySelector('.pnl-report__monthly-table')).toBeInTheDocument();
+    expect([...profit.querySelectorAll('[data-tone]')].map((row) => row.getAttribute('data-tone'))).toEqual([
+      'revenue-plan', 'revenue-actual', 'operating-plan', 'operating-actual', 'operating-margin', 'adjusted-plan', 'adjusted-actual', 'adjusted-margin',
+    ]);
+  });
+
+  it('keeps the exact four-tab order, default tab, table shells, and Analysis callback', async () => {
     const onNavigate = vi.fn();
-    render(<PnlStatusView onNavigateToVariance={onNavigate} />);
-    await screen.findByRole('heading', { name: '핵심 손익 요약' });
-    const labels = screen.getAllByText(/^(판가|원재료|판매수량|제품 Mix|매출환율|제조|재고·원가 반영시차|변동 판매관리비|고정 판매관리비|관세)$/).map((node) => node.textContent);
-    expect(labels.slice(-10)).toEqual(['판가', '원재료', '판매수량', '제품 Mix', '매출환율', '제조', '재고·원가 반영시차', '변동 판매관리비', '고정 판매관리비', '관세']);
-    expect(screen.queryByText(/Top|주요 긍정|주요 부정/)).not.toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: '손익 요인 Waterfall 분석 바로가기' }));
+    await renderReady(onNavigate);
+    const tabs = screen.getAllByRole('tab');
+    expect(tabs.map((tab) => tab.textContent)).toEqual(['1. 손익계산서 (P&L)', '2. 제품/반제품 매출원가 내역', '3. 판매관리비 내역', '4. Item별 구분손익']);
+    expect(tabs[0]).toHaveAttribute('aria-selected', 'true');
+    expect(screen.getByTestId('pnl-table-shell')).toBeInTheDocument();
+    fireEvent.click(tabs[1]);
+    expect(screen.getByTestId('cogs-table-shell')).toBeInTheDocument();
+    fireEvent.click(tabs[2]);
+    expect(screen.getByTestId('sga-table-shell')).toBeInTheDocument();
+    fireEvent.click(tabs[3]);
+    expect(screen.getByTestId('product-table-shell')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: /손익 요인 Waterfall 분석 바로가기/ }));
     expect(onNavigate).toHaveBeenCalledTimes(1);
   });
 
-  it('uses green/red/neutral tones from authoritative profit effects', async () => {
-    vi.stubGlobal('fetch', vi.fn(() => json(fixture())));
-    render(<PnlStatusView />);
-    await screen.findByRole('heading', { name: '핵심 손익 요약' });
-    expect(screen.getAllByText('+11 백만원').some((node) => String(node.className).includes('pnl-dashboard__tone--positive'))).toBe(true);
-    expect(screen.getAllByText('-2 백만원').some((node) => String(node.className).includes('pnl-dashboard__tone--negative'))).toBe(true);
-    expect(screen.getAllByText('0 백만원').some((node) => String(node.className).includes('pnl-dashboard__tone--neutral'))).toBe(true);
+  it('matches exact table column counts for every supported mode', async () => {
+    await renderReady();
+    const pnl = screen.getByTestId('pnl-table-shell');
+    expect(pnl.querySelector('table')).toHaveAttribute('data-column-count', '10');
+    expect(within(pnl).getByText('월 선택:')).toBeInTheDocument();
+    expect(within(pnl).getByRole('button', { name: '6월(당월)' })).toBeInTheDocument();
+    fireEvent.click(within(pnl).getByRole('button', { name: '실적만 보기' }));
+    expect(pnl.querySelector('table')).toHaveAttribute('data-column-count', '9');
+    expect(within(pnl).queryByText('월 선택:')).not.toBeInTheDocument();
+    fireEvent.click(within(pnl).getByRole('button', { name: '기간 설정 비교' }));
+    expect(pnl.querySelector('table')).toHaveAttribute('data-column-count', '6');
+
+    fireEvent.click(screen.getAllByRole('tab')[1]);
+    expect(screen.getByTestId('cogs-table-shell').querySelector('table')).toHaveAttribute('data-column-count', '15');
+
+    fireEvent.click(screen.getAllByRole('tab')[2]);
+    const sga = screen.getByTestId('sga-table-shell');
+    expect(sga.querySelector('table')).toHaveAttribute('data-column-count', '10');
+    fireEvent.click(within(sga).getByRole('button', { name: '실적만 보기' }));
+    expect(sga.querySelector('table')).toHaveAttribute('data-column-count', '9');
+    fireEvent.click(within(sga).getByRole('button', { name: '기간 설정 비교' }));
+    expect(sga.querySelector('table')).toHaveAttribute('data-column-count', '6');
+
+    fireEvent.click(screen.getAllByRole('tab')[3]);
+    const product = screen.getByTestId('product-table-shell');
+    expect(product.querySelector('table')).toHaveAttribute('data-column-count', '10');
+    fireEvent.click(within(product).getByRole('button', { name: '실적만 보기' }));
+    expect(product.querySelector('table')).toHaveAttribute('data-column-count', '9');
+    fireEvent.click(within(product).getByRole('button', { name: '기간 설정 비교' }));
+    expect(product.querySelector('table')).toHaveAttribute('data-column-count', '5');
   });
 
-  it('keeps EMPTY, ERROR, FORBIDDEN, and invalid payload distinct', async () => {
-    vi.stubGlobal('fetch', vi.fn(() => json({ error: { code: 'RESULT_NOT_AVAILABLE', message: 'none' } }, 404)));
-    const { unmount } = render(<PnlStatusView />);
-    expect(await screen.findByText('아직 확인할 수 있는 손익 데이터가 없습니다.')).toBeInTheDocument();
-    unmount();
+  it('uses the exact Mockup selector while preserving stable PCS, 4-inch LC, and future LENGTH/m slots', async () => {
+    await renderReady();
+    fireEvent.click(screen.getAllByRole('tab')[3]);
+    const selectors = [...screen.getByTestId('product-table-shell').querySelectorAll('[data-unit]')];
+    expect(selectors.map((node) => [node.textContent, node.getAttribute('data-unit'), node.getAttribute('data-dimension')])).toEqual([
+      ['8인치 SW', 'PCS', '8-inch'],
+      ['8인치 BW', 'PCS', '8-inch'],
+      ['4인치 LC', 'PCS', '4-inch'],
+      ['신사업', 'PCS', 'item'],
+    ]);
+    const fsSlot: PnlProductSegmentSlot = { key: 'FS', label: 'FS', businessUnit: 'm', dimensionLabel: 'LENGTH', rows: [] };
+    expect([fsSlot.key, fsSlot.businessUnit, fsSlot.dimensionLabel]).toEqual(['FS', 'm', 'LENGTH']);
+    expect(screen.queryByText(/통합 수량 합계|mixed-unit/i)).not.toBeInTheDocument();
+  });
 
-    vi.stubGlobal('fetch', vi.fn(() => json({ error: { code: 'TRANSIENT_SYSTEM_ERROR', message: 'failed' } }, 500)));
-    render(<PnlStatusView />);
+  it('keeps Mockup fixture row hierarchy counts isolated to DATA_READY rendering', () => {
+    expect(pnlReportingVisualFixture.pnlRows).toHaveLength(25);
+    expect(pnlReportingVisualFixture.pnlRows.filter((row) => !row.parentKey).map((row) => row.label)).toEqual([
+      'Ⅰ. 매출액', 'Ⅱ. 매출수량', 'Ⅲ. 매출원가', '매출원가율', 'Ⅳ. 매출총이익', '매출총이익률', 'Ⅴ. 판매비와 관리비', 'Ⅵ. 영업이익', '영업이익률', 'Ⅶ. 조정 영업이익', '조정 영업이익률',
+    ]);
+    expect(pnlReportingVisualFixture.pnlRows.find((row) => row.key === 'sales_volume')?.compareByPeriod['2026-06'].every((value) => value.text === '—')).toBe(true);
+    expect(pnlReportingVisualFixture.sgaRows.filter((row) => !row.parentKey)).toHaveLength(16);
+    expect(pnlReportingVisualFixture.sgaRows.filter((row) => row.parentKey)).toHaveLength(7);
+    expect(pnlReportingVisualFixture.sgaRows.filter((row) => row.parentKey).every((row) => row.category === '세부항목')).toBe(true);
+    expect(pnlReportingVisualFixture.sgaRows.filter((row) => !row.parentKey).map((row) => row.label)).toEqual([
+      '일반관리비 소계', '1. 인건비', '2. 감가상각비', '3. 경상개발비', '4. 수수료', '5. 기타', '판매비 소계', '1. 운반비', '2. 수수료', '3. 브랜드사용료', '4. 인건비', '5. 견본비', '6. 대손상각', '7. 잡비', '8. 기타', '판관비 총계',
+    ]);
+    expect(pnlReportingVisualFixture.productSegments.map((segment) => segment.rows.length)).toEqual([10, 10, 10, 8]);
+  });
+
+  it('keeps REPORTING_GAP, EMPTY, ERROR, FORBIDDEN, INVALID_PAYLOAD, and LOADING distinct', async () => {
+    const loadingSource: PnlReportingSource = { load: vi.fn(() => new Promise(() => undefined)) };
+    const loading = render(<PnlStatusView initialYear={2026} reportingSource={loadingSource} />);
+    expect(screen.getByText('손익 현황을 불러오는 중…').closest('[role="status"]')).toBeInTheDocument();
+    loading.unmount();
+
+    const gap = render(<PnlStatusView initialYear={2026} />);
+    expect(await screen.findByText('손익현황 데이터가 아직 등록되지 않았습니다.')).toBeInTheDocument();
+    gap.unmount();
+
+    const empty = render(<PnlStatusView initialYear={2026} reportingSource={source({ state: 'EMPTY' })} />);
+    expect(await screen.findByText('선택한 조건의 손익 데이터가 없습니다.')).toBeInTheDocument();
+    empty.unmount();
+
+    const failedSource: PnlReportingSource = { load: vi.fn().mockRejectedValue(new Error('failed')) };
+    const error = render(<PnlStatusView initialYear={2026} reportingSource={failedSource} />);
     expect(await screen.findByText('손익 현황을 불러오지 못했습니다.')).toBeInTheDocument();
-    expect(screen.queryByText('아직 확인할 수 있는 손익 데이터가 없습니다.')).not.toBeInTheDocument();
-    document.body.innerHTML = '';
+    error.unmount();
 
-    vi.stubGlobal('fetch', vi.fn(() => json({ error: { code: 'FORBIDDEN', message: 'forbidden' } }, 403)));
-    render(<PnlStatusView />);
+    const forbiddenSource: PnlReportingSource = { load: vi.fn().mockRejectedValue(new PnlReportingSourceError('FORBIDDEN', 'forbidden')) };
+    const forbidden = render(<PnlStatusView initialYear={2026} reportingSource={forbiddenSource} />);
     expect(await screen.findByText('손익 현황을 조회할 권한이 없습니다.')).toBeInTheDocument();
-    expect(screen.queryByText('아직 확인할 수 있는 손익 데이터가 없습니다.')).not.toBeInTheDocument();
+    forbidden.unmount();
+
+    render(<PnlStatusView initialYear={2026} reportingSource={source({ broken: true })} />);
+    expect(await screen.findByText('손익 현황 데이터 형식을 확인할 수 없습니다.')).toBeInTheDocument();
   });
 
-  it('does not render a server contract failure as a dashboard', async () => {
-    const broken = fixture();
-    broken.pnl_statement[2].comparison = 51;
-    vi.stubGlobal('fetch', vi.fn(() => json(broken)));
-    render(<PnlStatusView />);
-    await waitFor(() => expect(screen.getByText('손익 현황 데이터 형식을 확인할 수 없습니다.')).toBeInTheDocument());
-    expect(screen.queryByTestId('pnl-dashboard')).not.toBeInTheDocument();
+  it('aborts an earlier request and ignores stale results', async () => {
+    const resolvers: Array<(value: unknown) => void> = [];
+    const signals: AbortSignal[] = [];
+    const reportingSource: PnlReportingSource = { load: vi.fn((_year, signal) => {
+      signals.push(signal);
+      return new Promise((resolvePromise) => resolvers.push(resolvePromise));
+    }) };
+    render(<PnlStatusView initialYear={2026} reportingSource={reportingSource} />);
+    await waitFor(() => expect(resolvers).toHaveLength(1));
+    fireEvent.click(screen.getByRole('button', { name: '손익 현황 새로고침' }));
+    await waitFor(() => expect(resolvers).toHaveLength(2));
+    expect(signals[0].aborted).toBe(true);
+    resolvers[0]({ state: 'EMPTY' });
+    resolvers[1]({ state: 'DATA_READY', report: pnlReportingVisualFixture });
+    expect(await screen.findByTestId('revenue-trend-card')).toBeInTheDocument();
+    expect(screen.queryByText('선택한 조건의 손익 데이터가 없습니다.')).not.toBeInTheDocument();
+  });
+
+  it('isolates fixtures and removes legacy runtime dependencies and business formulas from the production import graph', () => {
+    const entry = resolve(process.cwd(), 'src/views/PnlStatusView.tsx');
+    const graph = productionImportGraph(entry);
+    const sourceText = graph.map((file) => readFileSync(file, 'utf8')).join('\n');
+    expect(graph.some((file) => file.includes('test-support') || file.includes('__tests__') || file.includes('fixtures'))).toBe(false);
+    expect(sourceText).not.toMatch(/MockPnlService|dummyPnlData|dummyPnl|pnlService/);
+    expect(sourceText).not.toContain('/api/viewer/pnl-dashboard');
+    expect(sourceText).not.toContain('PnlDashboardPanel');
+    expect(sourceText).not.toMatch(/inventory_timing|key_facts|baseline_model_name|comparison_model_name/);
+    expect(sourceText).not.toMatch(/\.reduce\s*\(/);
+    expect(sourceText).not.toMatch(/actual\s*[-/]\s*plan|operatingProfit\s*\/\s*revenue|grossProfit\s*\/\s*revenue/i);
+  });
+
+  it('locks the audited Mockup CSS metrics and excludes the old two-column trend grid', () => {
+    const css = readFileSync(resolve(process.cwd(), 'src/styles/pnl-dashboard.css'), 'utf8');
+    expect(css).toContain('grid-template-columns: repeat(3, 1fr)');
+    expect(css).toContain('gap: 16px');
+    expect(css).toContain('min-height: 118px');
+    expect(css).toContain('padding: 16px 20px');
+    expect(css).toContain('gap: 14px');
+    expect(css).toContain('padding: 14px 18px');
+    expect(css).toContain('padding: 18px 20px 36px');
+    expect(css).toContain('height: 40px');
+    expect(css).toContain('height: 36px');
+    expect(css).toContain('height: 42px');
+    expect(css).toContain('height: 44px');
+    expect(css).toContain('padding-left: 32px');
+    expect(css).toContain('padding-left: 48px');
+    expect(css).toMatch(/pnl-report__filter-item \{ gap: 7px; \}/);
+    expect(css).toMatch(/pnl-report__filter-label \{[^}]*font-size: 13px/);
+    expect(css).toMatch(/pnl-report__financial-table th \{ position: sticky; top: 0; z-index: 10;/);
+    expect(css).not.toMatch(/pnl-report__trends[^}]*grid-template-columns/s);
   });
 });

@@ -16,7 +16,6 @@ import {
   Role,
   AnalysisPresentationDto,
   AnalysisPresentationEffectDto,
-  PnlDashboardDto,
   ForecastGenerateRequestDto,
   ForecastGenerateResponseDto,
   ForecastExcelPreviewDto,
@@ -158,9 +157,6 @@ export const bffClient = {
   ),
   viewerPresentation: async (resultId: string) => validatePresentation(
     await request<unknown>(`/api/viewer/results/${resultId}/presentation`),
-  ),
-  pnlDashboard: async (signal?: AbortSignal) => validatePnlDashboard(
-    await request<unknown>('/api/viewer/pnl-dashboard', { signal, cache: 'no-store' }),
   ),
   history: async (limit = 25, beforeCreatedAt?: string, beforeJobId?: string) => {
     const query = new URLSearchParams({ limit: String(limit) });
@@ -671,116 +667,6 @@ function uuid(value: unknown): boolean {
 
 function close(left: number, right: number): boolean {
   return Math.abs(left - right) <= Math.max(1, Math.abs(left), Math.abs(right)) * 1e-9;
-}
-
-function validateFinancial(value: unknown): void {
-  if (!isRecord(value) || typeof value.code !== 'string' || typeof value.label !== 'string'
-    || !finite(value.baseline) || !finite(value.comparison) || !finite(value.delta)
-    || !optionalFinite(value.comparison_ratio_to_revenue)
-    || !close(value.comparison - value.baseline, value.delta)) invalidPayload();
-}
-
-function validatePnlDashboard(value: unknown): PnlDashboardDto {
-  if (!isRecord(value) || !uuid(value.result_id) || !uuid(value.job_id)
-    || !isRecord(value.identity) || !isRecord(value.kpis)
-    || !Array.isArray(value.monthly_series) || !Array.isArray(value.pnl_statement)
-    || !isRecord(value.manufacturing) || !isRecord(value.sga)
-    || !Array.isArray(value.product_groups) || !isRecord(value.key_facts)
-    || value.currency_unit !== 'KRW' || value.dto_version !== '1') invalidPayload();
-  const identity = value.identity;
-  if (!uuid(identity.baseline_model_id) || !uuid(identity.comparison_model_id)
-    || identity.baseline_model_id === identity.comparison_model_id
-    || !integerInRange(identity.start_month, 1, 12) || !integerInRange(identity.end_month, 1, 12)
-    || !Array.isArray(identity.available_months) || !Array.isArray(identity.actual_months)
-    || !(identity.actual_through_month === null || integerInRange(identity.actual_through_month, 1, 12))) invalidPayload();
-  const months = identity.available_months as unknown[];
-  if (months.length === 0 || months.some((month, index) => !integerInRange(month, 1, 12)
-    || Number(month) !== Number(identity.start_month) + index
-    || Number(month) > Number(identity.end_month))) invalidPayload();
-  if (Number(months[months.length - 1]) !== Number(identity.end_month)) invalidPayload();
-  const actualMonths = identity.actual_months as unknown[];
-  if (actualMonths.some((month, index) => month !== months[index])
-    || ((actualMonths.length === 0) !== (identity.actual_through_month === null))
-    || (actualMonths.length > 0 && identity.actual_through_month !== actualMonths[actualMonths.length - 1])) invalidPayload();
-
-  const kpis = value.kpis;
-  if (!integerInRange(kpis.latest_month, 1, 12)) invalidPayload();
-  for (const code of ['revenue', 'gross_profit', 'operating_profit']) {
-    const metric = kpis[code];
-    if (!isRecord(metric)) invalidPayload();
-    validateFinancial(metric.latest); validateFinancial(metric.period);
-  }
-  for (const key of ['latest_operating_margin', 'period_operating_margin']) {
-    const margin = kpis[key];
-    if (!isRecord(margin) || !optionalFinite(margin.baseline) || !optionalFinite(margin.comparison)
-      || !optionalFinite(margin.delta_percentage_points)) invalidPayload();
-    if (finite(margin.baseline) && finite(margin.comparison)
-      && (!finite(margin.delta_percentage_points)
-        || !close(margin.comparison - margin.baseline, margin.delta_percentage_points))) invalidPayload();
-  }
-  const latestMargin = kpis.latest_operating_margin as Record<string, unknown>;
-  const periodMargin = kpis.period_operating_margin as Record<string, unknown>;
-  const opKpi = kpis.operating_profit as Record<string, Record<string, unknown>>;
-  const revenueKpi = kpis.revenue as Record<string, Record<string, unknown>>;
-  validateRatio(latestMargin.baseline, opKpi.latest.baseline, revenueKpi.latest.baseline);
-  validateRatio(latestMargin.comparison, opKpi.latest.comparison, revenueKpi.latest.comparison);
-  validateRatio(periodMargin.baseline, opKpi.period.baseline, revenueKpi.period.baseline);
-  validateRatio(periodMargin.comparison, opKpi.period.comparison, revenueKpi.period.comparison);
-  if (value.monthly_series.length !== months.length) invalidPayload();
-  value.monthly_series.forEach((row, index) => {
-    if (!isRecord(row) || row.month !== months[index]
-      || !['실적', '추정', '계획', null].includes(row.comparison_period_type as never)) invalidPayload();
-    validateFinancial(row.revenue); validateFinancial(row.cogs); validateFinancial(row.gross_profit); validateFinancial(row.operating_profit);
-    const revenue = row.revenue as Record<string, number>;
-    const cogs = row.cogs as Record<string, number>;
-    const gp = row.gross_profit as Record<string, number>;
-    const op = row.operating_profit as Record<string, number>;
-    if (!close(revenue.baseline - cogs.baseline, gp.baseline)
-      || !close(revenue.comparison - cogs.comparison, gp.comparison)) invalidPayload();
-    if (!optionalFinite(row.baseline_operating_margin) || !optionalFinite(row.comparison_operating_margin)) invalidPayload();
-    validateRatio(row.baseline_operating_margin, op.baseline, revenue.baseline);
-    validateRatio(row.comparison_operating_margin, op.comparison, revenue.comparison);
-  });
-  const required = new Set(['revenue', 'cogs', 'gross_profit', 'operating_profit']);
-  value.pnl_statement.forEach((row) => { validateFinancial(row); if (isRecord(row)) required.delete(String(row.code)); });
-  if (required.size) invalidPayload();
-
-  const manufacturing = value.manufacturing;
-  if (!Array.isArray(manufacturing.cost_lines) || !Array.isArray(manufacturing.accounts)
-    || !isRecord(manufacturing.material_components) || !isRecord(manufacturing.fixed_cost_policy)
-    || manufacturing.material_components.jpy_fx_unit !== 'KRW/JPY'
-    || manufacturing.material_components.mcm_is_separate_effect !== false
-    || manufacturing.fixed_cost_policy.manufacturing_effect_includes_variable_and_fixed !== true
-    || manufacturing.fixed_cost_policy.fixed_manufacturing_is_not_a_separate_top_level_effect !== true) invalidPayload();
-  manufacturing.cost_lines.forEach(validateFinancial);
-  if (!Array.isArray(value.sga.accounts) || typeof value.sga.fixed_scope !== 'string') invalidPayload();
-  const groups = new Set<string>();
-  for (const group of value.product_groups) {
-    if (!isRecord(group) || !['SW', 'BW', 'LC', 'FS', '신사업'].includes(String(group.code))
-      || groups.has(String(group.code)) || (group.code === 'LC' && group.display_name !== '4인치 LC')
-      || (group.code === 'FS' ? group.quantity_unit !== 'm' : group.quantity_unit !== 'PCS')) invalidPayload();
-    groups.add(String(group.code));
-  }
-  const facts = value.key_facts;
-  const dashboardEffectCodes = new Set([
-    'sales_quantity', 'sales_mix', 'sales_price', 'sales_fx', 'tariff',
-    'material_total', 'manufacturing_realized', 'inventory_timing', 'sga_variable', 'sga_fixed',
-  ]);
-  if (!Array.isArray(facts.effects) || !finite(facts.effects_total) || !finite(facts.residual)
-    || !finite(facts.operating_profit_delta) || typeof facts.reconciled !== 'boolean'
-    || !close(facts.effects_total + facts.residual, facts.operating_profit_delta)) invalidPayload();
-  if (facts.effects.length !== dashboardEffectCodes.size
-    || facts.effects.some((effect) => !isRecord(effect) || !dashboardEffectCodes.delete(String(effect.code))
-      || typeof effect.label !== 'string' || !finite(effect.profit_effect))) invalidPayload();
-  if (!close(facts.effects.reduce((sum, effect) => sum + Number(effect.profit_effect), 0), facts.effects_total)) invalidPayload();
-  return value as unknown as PnlDashboardDto;
-}
-
-function validateRatio(value: unknown, numerator: unknown, denominator: unknown): void {
-  if (!finite(numerator) || !finite(denominator)) invalidPayload();
-  if (denominator === 0) {
-    if (value !== null) invalidPayload();
-  } else if (!finite(value) || !close(value, numerator / denominator * 100)) invalidPayload();
 }
 
 function validateHistory(value: unknown): CalculationHistoryDto {
