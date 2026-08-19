@@ -106,9 +106,10 @@ $Target = @{
 ```
 
 All examples first omit `-Execute`. That mode renders and validates manifests,
-optionally validates an offline captured service JSON, saves a JSON plan plus a
-readable command under ignored `deploy/gcp/rendered/staging-release/`, and
-performs zero Cloud calls and zero traffic changes.
+optionally validates paired offline service and exact active-revision JSON,
+saves a JSON plan plus a readable command under ignored
+`deploy/gcp/rendered/staging-release/`, and performs zero Cloud calls and zero
+traffic changes.
 
 ## Authoritative release flow
 
@@ -133,9 +134,12 @@ partial preflight.
 
 ### 2. Capture the active pre-release revision
 
-First render the read-only command, then under the later release approval add
-`-Execute` to perform only `run services describe` and persist its strict
-single-100%-revision result:
+First render the read-only command, then add `-Execute` to perform only
+`run services describe` followed by `run revisions describe` for the exact
+single-100%-traffic revision. This operation has `cloud_mutation=false`; it
+validates Ready, topology, and resolved image provenance, persists the rollback
+revision state, and writes paired `captured-active-service.json` and
+`captured-active-revision.json` evidence plus the resolved-baseline summary:
 
 ```powershell
 ./deploy/gcp/staging-release.ps1 @Target `
@@ -145,8 +149,10 @@ single-100%-revision result:
 ```
 
 The capture must identify the exact project, region, service, explicit revision,
-integer 100% traffic, release identity, purpose, and validity. Split, tag-only,
-missing-revision, malformed-percent, or ambiguous traffic fails closed.
+integer 100% traffic, release identity, purpose, validity, `Ready=True`, exact
+`edge`/`bff` topology, and approved resolved edge/runtime digests. Split,
+tag-only, missing-revision, malformed-percent, ambiguous traffic, missing
+digest, or provenance drift fails closed.
 
 ### 3. Validate the rollback baseline
 
@@ -183,7 +189,8 @@ drift.
   -WorkerControllerUrl $WorkerControllerUrl `
   -FrozenEdgeImage $FrozenEdgeImage `
   -RuntimeImage $RuntimeImageA `
-  -CapturedServiceJsonPath '<OFFLINE_REVISION_A_SERVICE_JSON>' `
+  -CapturedServiceJsonPath '<CAPTURE_ACTIVE_OUTPUT>/captured-active-service.json' `
+  -CapturedActiveRevisionJsonPath '<CAPTURE_ACTIVE_OUTPUT>/captured-active-revision.json' `
   -RevisionSuffix $RevisionASuffix `
   -CandidateTag $RevisionATag
 ```
@@ -193,14 +200,24 @@ two containers, the frozen edge image, the new runtime digest,
 `--revision-suffix=$RevisionASuffix`, `--tag=$RevisionATag`, and
 `--no-traffic`, with edge `--port=8080` and `--depends-on=bff`. It updates only
 the BFF allowed-origin value and source labels;
-execute mode first reads and validates the live required service configuration
-so malformed traffic, missing containers, secret references, cookie settings,
-volumes, limits, concurrency, or timeout block deployment. Candidate generation
-also requires the release-bound pre-release rollback baseline and requires the
-preflight active revision to match that baseline. The image contract requires
-`$FrozenEdgeImage` to equal the current live edge digest and `$RuntimeImageA`
-to differ from the current runtime digest. The captured JSON argument is
-offline-only; execute mode always recaptures live state itself.
+execute mode first reads and validates the live required service configuration,
+selects the sole explicit 100% revision, and reads that exact revision with
+`run revisions describe`. The revision name and project must match, its single
+`Ready` condition must be `True`, and its topology must be exactly `edge` plus
+`bff`. Both resolved revision images must pass the existing staging
+registry/project/image-role/lowercase-sha256 provenance contract. Those resolved
+images are the authoritative active baseline even when a legacy service-template
+image string is mutable. Candidate inputs remain immutable digest references:
+`$FrozenEdgeImage` must equal the resolved active edge digest and
+`$RuntimeImageA` must differ from the resolved active runtime digest.
+The mutable-template exception is limited to the Revision A pre-release
+baseline; Revision B also retains the immutable service-template check.
+Malformed traffic, missing containers, secret references, cookie settings,
+volumes, limits, concurrency, or timeout still block deployment. Candidate
+generation also requires the release-bound pre-release rollback baseline and
+requires the preflight active revision to match it. The two captured JSON
+arguments are an inseparable offline-only pair; execute mode always recaptures
+both live objects.
 
 Only after the plan is approved may an operator repeat the same invocation
 with:
@@ -253,8 +270,9 @@ rebuild or change `$RuntimeImageA`.
 
 Freeze `$ValidatedRevisionAEdgeImage` from the validated Revision A evidence
 and `$ValidatedRevisionARuntimeImage` from its runtime evidence. Recapture the
-live service into an offline JSON evidence file. Before Revision B candidate
-creation, require all of these simultaneously:
+live service and its exact active revision into paired offline JSON evidence
+files. Before Revision B candidate creation, require all of these
+simultaneously:
 
 - deterministic Revision A is the sole 100% active revision;
 - live Revision A edge equals `$ValidatedRevisionAEdgeImage`;
@@ -279,15 +297,16 @@ Any missing value or edge/runtime drift stops the release.
   -ValidatedRevisionAEdgeImage $ValidatedRevisionAEdgeImage `
   -ValidatedRevisionARuntimeImage $ValidatedRevisionARuntimeImage `
   -CapturedServiceJsonPath '<OFFLINE_VALIDATED_REVISION_A_SERVICE_JSON>' `
+  -CapturedActiveRevisionJsonPath '<OFFLINE_VALIDATED_REVISION_A_JSON>' `
   -RevisionSuffix $RevisionBSuffix `
   -CandidateTag $RevisionBTag
 ```
 
-Review the explicit lineage result and zero-traffic plan, then omit the offline
-JSON input and add `-Execute -MutationApproval APPROVE_STAGING_CANDIDATE` only
+Review the explicit lineage result and zero-traffic plan, then omit both offline
+JSON inputs and add `-Execute -MutationApproval APPROVE_STAGING_CANDIDATE` only
 after approval. Execute mode recaptures live Revision A and repeats every edge,
-runtime, active-revision, origin, topology, provenance, and traffic check before
-creating Revision B.
+runtime, active-revision, Ready, origin, topology, provenance, and traffic check
+before creating Revision B.
 
 ### 12. Smoke Revision B
 

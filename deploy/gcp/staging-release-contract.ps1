@@ -249,6 +249,94 @@ function Get-PnlActiveRevision {
     return [string]$positiveTraffic[0].revision
 }
 
+function Get-PnlResolvedActiveRevisionBaseline {
+    param(
+        [Parameter(Mandatory)] [object] $ServiceDescription,
+        [Parameter(Mandatory)] [object] $RevisionDescription,
+        [string] $Service = $script:PnlStagingService
+    )
+
+    $activeRevision = Get-PnlActiveRevision -ServiceDescription $ServiceDescription -Service $Service
+    $metadata = Get-PnlRequiredJsonProperty -Object $RevisionDescription -Name 'metadata' -FieldName 'revision.metadata'
+    if ([string](Get-PnlRequiredJsonProperty -Object $metadata -Name 'name' -FieldName 'revision.metadata.name') -cne $activeRevision) {
+        throw 'Resolved revision identity does not match the exact 100-percent active revision.'
+    }
+    if ([string](Get-PnlRequiredJsonProperty -Object $metadata -Name 'namespace' -FieldName 'revision.metadata.namespace') -cne $script:PnlStagingProjectNumber) {
+        throw 'Resolved revision project does not match the exact staging project number.'
+    }
+
+    $status = Get-PnlRequiredJsonProperty -Object $RevisionDescription -Name 'status' -FieldName 'revision.status'
+    $conditions = @(Get-PnlRequiredJsonProperty -Object $status -Name 'conditions' -FieldName 'revision.status.conditions')
+    $readyConditions = @()
+    foreach ($condition in $conditions) {
+        if ($null -eq $condition) {
+            throw 'Resolved revision conditions must be non-null objects.'
+        }
+        $conditionType = [string](Get-PnlRequiredJsonProperty `
+            -Object $condition `
+            -Name 'type' `
+            -FieldName 'revision.status.conditions[].type')
+        if ($conditionType -ceq 'Ready') {
+            $readyConditions += $condition
+        }
+    }
+    if ($readyConditions.Count -ne 1) {
+        throw 'Resolved active revision must expose exactly one Ready condition.'
+    }
+    if ([string](Get-PnlRequiredJsonProperty `
+        -Object $readyConditions[0] `
+        -Name 'status' `
+        -FieldName 'revision.status.conditions[Ready].status') -cne 'True') {
+        throw 'Resolved active revision must be Ready before candidate planning.'
+    }
+
+    $spec = Get-PnlRequiredJsonProperty -Object $RevisionDescription -Name 'spec' -FieldName 'revision.spec'
+    $containers = @(Get-PnlRequiredJsonProperty -Object $spec -Name 'containers' -FieldName 'revision.spec.containers')
+    if ($containers.Count -ne 2) {
+        throw 'Resolved active revision must contain exactly two containers.'
+    }
+    $containersByName = @{}
+    foreach ($container in $containers) {
+        if ($null -eq $container) {
+            throw 'Resolved active revision containers must be non-null objects.'
+        }
+        $containerName = [string](Get-PnlRequiredJsonProperty `
+            -Object $container `
+            -Name 'name' `
+            -FieldName 'revision.spec.containers[].name')
+        if ($containerName -cne 'edge' -and $containerName -cne 'bff') {
+            throw 'Resolved active revision container names must exactly match edge and bff.'
+        }
+        if ($containersByName.ContainsKey($containerName)) {
+            throw "Resolved active revision contains duplicate $containerName containers."
+        }
+        $containersByName[$containerName] = $container
+    }
+    if (-not $containersByName.ContainsKey('edge') -or -not $containersByName.ContainsKey('bff')) {
+        throw 'Resolved active revision container topology must exactly match edge and bff.'
+    }
+
+    $resolvedEdgeImage = [string](Get-PnlRequiredJsonProperty `
+        -Object $containersByName['edge'] `
+        -Name 'image' `
+        -FieldName 'revision.spec.containers[edge].image')
+    $resolvedRuntimeImage = [string](Get-PnlRequiredJsonProperty `
+        -Object $containersByName['bff'] `
+        -Name 'image' `
+        -FieldName 'revision.spec.containers[bff].image')
+    Assert-PnlDigestImage -Image $resolvedEdgeImage -Role 'edge'
+    Assert-PnlDigestImage -Image $resolvedRuntimeImage -Role 'runtime'
+
+    return [pscustomobject][ordered]@{
+        active_revision = $activeRevision
+        traffic_percent = 100
+        ready = $true
+        edge_image = $resolvedEdgeImage
+        runtime_image = $resolvedRuntimeImage
+        source = 'resolved active revision'
+    }
+}
+
 function Assert-PnlRevisionBLineage {
     param(
         [Parameter(Mandatory)] [string] $FinalEdgeImage,

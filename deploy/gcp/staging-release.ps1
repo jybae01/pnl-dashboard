@@ -28,6 +28,7 @@ param(
     [string] $RollbackKind,
     [string] $PreReleaseStatePath,
     [string] $CapturedServiceJsonPath,
+    [string] $CapturedActiveRevisionJsonPath,
     [string] $IncidentApproval,
 
     [string] $GcloudPath = "$env:LOCALAPPDATA\Google\Cloud SDK\google-cloud-sdk\bin\gcloud.cmd",
@@ -236,6 +237,28 @@ function Get-LiveServiceDescription {
     }
 }
 
+function Get-LiveRevisionDescription {
+    param([Parameter(Mandatory)] [string] $Revision)
+
+    Assert-PnlExplicitRevisionTarget -Revision $Revision -Service $Service | Out-Null
+    $json = Invoke-PnlGcloud -Arguments @(
+        'run', 'revisions', 'describe', $Revision,
+        "--project=$ProjectId",
+        "--region=$Region",
+        '--format=json',
+        '--quiet'
+    )
+    if (-not $json) {
+        throw 'Cloud Run revision describe returned no data.'
+    }
+    try {
+        return ($json | ConvertFrom-Json -Depth 100)
+    }
+    catch {
+        throw 'Cloud Run revision describe returned malformed JSON.'
+    }
+}
+
 function Get-ContainerByName {
     param([Parameter(Mandatory)] [object] $Description, [Parameter(Mandatory)] [string] $Name)
     $matches = @($Description.spec.template.spec.containers | Where-Object { [string]$_.name -eq $Name })
@@ -254,9 +277,27 @@ function Get-EnvironmentValue {
     return [string]$matches[0].value
 }
 
+function Get-CloudRunZeroDefaultInteger {
+    param(
+        [Parameter(Mandatory)] [object] $Object,
+        [Parameter(Mandatory)] [string] $Name,
+        [Parameter(Mandatory)] [string] $FieldName
+    )
+
+    $property = $Object.PSObject.Properties[$Name]
+    if ($null -eq $property) {
+        return 0
+    }
+    if ($null -eq $property.Value) {
+        throw "$FieldName must not be null."
+    }
+    return [int]$property.Value
+}
+
 function Assert-LiveServicePreservationContract {
     param(
         [Parameter(Mandatory)] [object] $Description,
+        [Parameter(Mandatory)] [object] $ActiveRevisionDescription,
         [Parameter(Mandatory)] [ValidateSet('BACKEND_FIRST', 'FINAL_FRONTEND')] [string] $CandidateStage,
         [Parameter(Mandatory)] [string] $CandidateEdgeImage,
         [Parameter(Mandatory)] [string] $CandidateRuntimeImage,
@@ -272,17 +313,19 @@ function Assert-LiveServicePreservationContract {
     if ([string](Get-PnlRequiredJsonProperty -Object $metadata -Name 'namespace' -FieldName 'metadata.namespace') -cne $ProjectNumber) {
         throw 'Live service preflight returned an unexpected project namespace.'
     }
-    $activeRevision = Get-PnlActiveRevision -ServiceDescription $Description -Service $Service
+    $activeBaseline = Get-PnlResolvedActiveRevisionBaseline `
+        -ServiceDescription $Description `
+        -RevisionDescription $ActiveRevisionDescription `
+        -Service $Service
+    $activeRevision = [string]$activeBaseline.active_revision
     $containers = @($Description.spec.template.spec.containers)
     if ($containers.Count -ne 2) {
         throw 'Live staging service must contain exactly two containers before candidate deployment.'
     }
     $edge = Get-ContainerByName -Description $Description -Name 'edge'
     $bff = Get-ContainerByName -Description $Description -Name 'bff'
-    $observedEdgeImage = [string]$edge.image
-    $observedRuntimeImage = [string]$bff.image
-    Assert-PnlDigestImage -Image $observedEdgeImage -Role 'edge'
-    Assert-PnlDigestImage -Image $observedRuntimeImage -Role 'runtime'
+    $observedEdgeImage = [string]$activeBaseline.edge_image
+    $observedRuntimeImage = [string]$activeBaseline.runtime_image
     if ($CandidateStage -eq 'BACKEND_FIRST') {
         if (-not [string]::Equals($observedEdgeImage, $CandidateEdgeImage, [StringComparison]::Ordinal)) {
             throw 'Revision A frozen edge must exactly equal the current live service edge digest.'
@@ -292,6 +335,8 @@ function Assert-LiveServicePreservationContract {
         }
     }
     else {
+        Assert-PnlDigestImage -Image ([string]$edge.image) -Role 'edge'
+        Assert-PnlDigestImage -Image ([string]$bff.image) -Role 'runtime'
         $expectedRevisionA = (
             Get-PnlStagingReleaseIdentity -Stage 'BACKEND_FIRST' -GitHead $CandidateGitHead -Service $Service
         ).revision_name
@@ -402,20 +447,28 @@ function Assert-LiveServicePreservationContract {
     ) {
         throw 'Live edge port contract drifted.'
     }
+    $edgeStartupInitialDelay = Get-CloudRunZeroDefaultInteger `
+        -Object $edge.startupProbe `
+        -Name 'initialDelaySeconds' `
+        -FieldName 'edge.startupProbe.initialDelaySeconds'
     if (
         [string]$edge.startupProbe.httpGet.path -ne '/health/ready' -or
         [int]$edge.startupProbe.httpGet.port -ne 8080 -or
-        [int]$edge.startupProbe.initialDelaySeconds -ne 0 -or
+        $edgeStartupInitialDelay -ne 0 -or
         [int]$edge.startupProbe.timeoutSeconds -ne 3 -or
         [int]$edge.startupProbe.periodSeconds -ne 5 -or
         [int]$edge.startupProbe.failureThreshold -ne 24
     ) {
         throw 'Live edge startup probe drifted.'
     }
+    $runtimeStartupInitialDelay = Get-CloudRunZeroDefaultInteger `
+        -Object $bff.startupProbe `
+        -Name 'initialDelaySeconds' `
+        -FieldName 'bff.startupProbe.initialDelaySeconds'
     if (
         [string]$bff.startupProbe.httpGet.path -ne '/health/ready' -or
         [int]$bff.startupProbe.httpGet.port -ne 8000 -or
-        [int]$bff.startupProbe.initialDelaySeconds -ne 0 -or
+        $runtimeStartupInitialDelay -ne 0 -or
         [int]$bff.startupProbe.timeoutSeconds -ne 3 -or
         [int]$bff.startupProbe.periodSeconds -ne 5 -or
         [int]$bff.startupProbe.failureThreshold -ne 24
@@ -509,6 +562,8 @@ function Assert-LiveServicePreservationContract {
         contract_valid = $true
         active_revision = $activeRevision
         traffic_percent = 100
+        active_revision_ready = [bool]$activeBaseline.ready
+        active_image_source = [string]$activeBaseline.source
         observed_edge_image = $observedEdgeImage
         observed_runtime_image = $observedRuntimeImage
         validated_revision_a_edge_image = if ($CandidateStage -eq 'FINAL_FRONTEND') { $ValidatedAEdgeImage } else { $null }
@@ -709,15 +764,25 @@ if ($Operation -eq 'CANDIDATE') {
         required = $true
         evaluated = $false
         source = $null
+        active_revision_source = $null
         result = $null
     }
-    if (-not [string]::IsNullOrWhiteSpace($CapturedServiceJsonPath)) {
+    $hasCapturedService = -not [string]::IsNullOrWhiteSpace($CapturedServiceJsonPath)
+    $hasCapturedActiveRevision = -not [string]::IsNullOrWhiteSpace($CapturedActiveRevisionJsonPath)
+    if ($hasCapturedService -xor $hasCapturedActiveRevision) {
+        throw 'CapturedServiceJsonPath and CapturedActiveRevisionJsonPath must be supplied together.'
+    }
+    if ($hasCapturedService) {
         if ($Execute) {
-            throw 'CapturedServiceJsonPath is offline-only input and cannot be combined with Execute.'
+            throw 'Captured service and active-revision JSON paths are offline-only inputs and cannot be combined with Execute.'
         }
         $resolvedCapturedServicePath = [IO.Path]::GetFullPath($CapturedServiceJsonPath)
         if (-not (Test-Path -LiteralPath $resolvedCapturedServicePath -PathType Leaf)) {
             throw 'CapturedServiceJsonPath does not identify a readable service JSON fixture.'
+        }
+        $resolvedCapturedActiveRevisionPath = [IO.Path]::GetFullPath($CapturedActiveRevisionJsonPath)
+        if (-not (Test-Path -LiteralPath $resolvedCapturedActiveRevisionPath -PathType Leaf)) {
+            throw 'CapturedActiveRevisionJsonPath does not identify a readable revision JSON fixture.'
         }
         try {
             $capturedDescription = Get-Content -Raw -LiteralPath $resolvedCapturedServicePath | ConvertFrom-Json -Depth 100
@@ -725,8 +790,15 @@ if ($Operation -eq 'CANDIDATE') {
         catch {
             throw 'CapturedServiceJsonPath must contain valid Cloud Run service JSON.'
         }
+        try {
+            $capturedActiveRevisionDescription = Get-Content -Raw -LiteralPath $resolvedCapturedActiveRevisionPath | ConvertFrom-Json -Depth 100
+        }
+        catch {
+            throw 'CapturedActiveRevisionJsonPath must contain valid Cloud Run revision JSON.'
+        }
         $preflightResult = Assert-LiveServicePreservationContract `
             -Description $capturedDescription `
+            -ActiveRevisionDescription $capturedActiveRevisionDescription `
             -CandidateStage $Stage `
             -CandidateEdgeImage $edgeImage `
             -CandidateRuntimeImage $RuntimeImage `
@@ -737,6 +809,7 @@ if ($Operation -eq 'CANDIDATE') {
             required = $true
             evaluated = $true
             source = $resolvedCapturedServicePath
+            active_revision_source = $resolvedCapturedActiveRevisionPath
             result = $preflightResult
         }
     }
@@ -746,8 +819,11 @@ if ($Operation -eq 'CANDIDATE') {
         }
         $null = Assert-GcloudCandidateCapabilities
         $liveDescription = Get-LiveServiceDescription
+        $liveActiveRevision = Get-PnlActiveRevision -ServiceDescription $liveDescription -Service $Service
+        $liveActiveRevisionDescription = Get-LiveRevisionDescription -Revision $liveActiveRevision
         $preflightResult = Assert-LiveServicePreservationContract `
             -Description $liveDescription `
+            -ActiveRevisionDescription $liveActiveRevisionDescription `
             -CandidateStage $Stage `
             -CandidateEdgeImage $edgeImage `
             -CandidateRuntimeImage $RuntimeImage `
@@ -758,6 +834,7 @@ if ($Operation -eq 'CANDIDATE') {
             required = $true
             evaluated = $true
             source = 'live promotion-safe service recapture'
+            active_revision_source = 'live exact active revision describe'
             result = $preflightResult
         }
     }
@@ -856,6 +933,8 @@ if ($Operation -eq 'CAPTURE_ACTIVE') {
         source_commit = $GitHead
         release_identity = $GitHead
         purpose = 'pre-release rollback target'
+        resolved_active_revision_capture_required = $true
+        resolved_active_revision_capture_operation = 'run revisions describe <exact 100-percent revisionName>'
         output = [IO.Path]::GetFullPath($statePath)
         gcloud = [ordered]@{
             executable_requested = $GcloudPath
@@ -870,12 +949,49 @@ if ($Operation -eq 'CAPTURE_ACTIVE') {
         return
     }
     $description = Get-LiveServiceDescription
+    $activeRevision = Get-PnlActiveRevision -ServiceDescription $description -Service $Service
+    $activeRevisionDescription = Get-LiveRevisionDescription -Revision $activeRevision
+    $resolvedBaseline = Get-PnlResolvedActiveRevisionBaseline `
+        -ServiceDescription $description `
+        -RevisionDescription $activeRevisionDescription `
+        -Service $Service
+    $capturedServicePath = Write-ReleaseArtifact `
+        -Name 'captured-active-service' `
+        -Payload $description
+    $capturedActiveRevisionPath = Write-ReleaseArtifact `
+        -Name 'captured-active-revision' `
+        -Payload $activeRevisionDescription
+    $capturedBaselinePath = Write-ReleaseArtifact `
+        -Name 'captured-active-resolved-baseline' `
+        -Payload ([ordered]@{
+            schema = 'pnl-staging-resolved-active-baseline-v1'
+            captured_at_utc = [DateTime]::UtcNow.ToString('o')
+            project = $ProjectId
+            project_number = $ProjectNumber
+            region = $Region
+            service = $Service
+            source_commit = $GitHead
+            active_revision = [string]$resolvedBaseline.active_revision
+            traffic_percent = [long]$resolvedBaseline.traffic_percent
+            ready = [bool]$resolvedBaseline.ready
+            resolved_edge_image = [string]$resolvedBaseline.edge_image
+            resolved_runtime_image = [string]$resolvedBaseline.runtime_image
+            source = [string]$resolvedBaseline.source
+            captured_service_json = $capturedServicePath
+            captured_active_revision_json = $capturedActiveRevisionPath
+            cloud_mutation = $false
+        })
     $active = Write-ActiveRevisionState `
         -Description $description `
         -Path $statePath `
         -SourceCommit $GitHead `
         -Purpose 'pre-release rollback target'
-    Write-Output "ACTIVE_REVISION_CAPTURED=PASS revision=$active path=$([IO.Path]::GetFullPath($statePath))"
+    Write-Output (
+        "ACTIVE_REVISION_CAPTURED=PASS revision=$active traffic=100 ready=True " +
+        "resolved_edge=$($resolvedBaseline.edge_image) resolved_runtime=$($resolvedBaseline.runtime_image) " +
+        "service_json=$capturedServicePath revision_json=$capturedActiveRevisionPath " +
+        "baseline_json=$capturedBaselinePath path=$([IO.Path]::GetFullPath($statePath)) cloud_mutation=NONE"
+    )
     return
 }
 

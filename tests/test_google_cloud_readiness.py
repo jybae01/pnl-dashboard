@@ -393,6 +393,15 @@ def test_staging_release_tooling_is_source_controlled_and_fail_closed():
     assert "Revision B candidate creation requires deterministic Revision A" in release
     assert "Traffic percentage must be an integer JSON number" in contract
     assert "Expected exactly one explicit revision serving 100 percent" in contract
+    assert "Get-PnlResolvedActiveRevisionBaseline" in contract
+    assert "Resolved active revision must be Ready before candidate planning" in contract
+    assert "Resolved active revision container topology must exactly match edge and bff" in contract
+    assert "'run', 'revisions', 'describe', $Revision" in release
+    assert "CapturedActiveRevisionJsonPath" in release
+    assert "captured-active-service" in release
+    assert "captured-active-revision" in release
+    assert "captured-active-resolved-baseline" in release
+    assert "active_image_source" in release
     assert "metadata.namespace" in contract
     assert "Live staging service must contain exactly two containers" in release
     assert "capture_current_100_percent_revision_before_promotion" in release
@@ -413,6 +422,9 @@ def test_staging_release_tooling_is_source_controlled_and_fail_closed():
     assert "windows_cmd_arguments" in release
     assert "Assert-PnlGcloudCandidateCapabilities" in contract
     assert "sb_secret_" in contract
+    assert "Revision A candidate accepted a mutable runtime image input" in test_script
+    assert "Revision B candidate accepted a mutable edge image input" in test_script
+    assert "authoritative active baseline" in runbook
     assert "STAGING_RELEASE_TOOLING_TESTS=PASS cloud_mutation=NONE" in test_script
 
 

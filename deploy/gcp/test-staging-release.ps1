@@ -49,6 +49,8 @@ $frozenEdge = 'asia-southeast1-docker.pkg.dev/pnl-dashboard-staging/pnl-staging/
 $finalEdge = 'asia-southeast1-docker.pkg.dev/pnl-dashboard-staging/pnl-staging/pnl-web@sha256:' + ('2' * 64)
 $runtimeA = 'asia-southeast1-docker.pkg.dev/pnl-dashboard-staging/pnl-staging/pnl-runtime@sha256:' + ('3' * 64)
 $runtimeB = 'asia-southeast1-docker.pkg.dev/pnl-dashboard-staging/pnl-staging/pnl-runtime@sha256:' + ('4' * 64)
+$mutableEdgeTag = 'asia-southeast1-docker.pkg.dev/pnl-dashboard-staging/pnl-staging/pnl-web:legacy-edge'
+$mutableRuntimeTag = 'asia-southeast1-docker.pkg.dev/pnl-dashboard-staging/pnl-staging/pnl-runtime:analysis-v31-4ad67ad'
 $backendIdentity = Get-PnlStagingReleaseIdentity -Stage BACKEND_FIRST -GitHead $head -Service $service
 $frontendIdentity = Get-PnlStagingReleaseIdentity -Stage FINAL_FRONTEND -GitHead $head -Service $service
 
@@ -131,6 +133,7 @@ foreach ($invalidImageCase in @(
     @('asia-southeast1-docker.pkg.dev/wrong-project/pnl-staging/pnl-web@sha256:' + ('1' * 64), 'edge'),
     @($runtimeA, 'edge'),
     @('asia-southeast1-docker.pkg.dev/pnl-dashboard-staging/pnl-staging/pnl-web:latest', 'edge'),
+    @($mutableRuntimeTag, 'runtime'),
     @('asia-southeast1-docker.pkg.dev/pnl-dashboard-staging/pnl-staging/pnl-web@sha256:1234', 'edge')
 )) {
     Assert-Throws `
@@ -251,7 +254,6 @@ function New-TestServiceDescription {
                             resources = [ordered]@{ limits = [ordered]@{ cpu = '1'; memory = '512Mi' } }
                             startupProbe = [ordered]@{
                                 httpGet = [ordered]@{ path = '/health/ready'; port = 8080 }
-                                initialDelaySeconds = 0
                                 timeoutSeconds = 3
                                 periodSeconds = 5
                                 failureThreshold = 24
@@ -266,7 +268,6 @@ function New-TestServiceDescription {
                             })
                             startupProbe = [ordered]@{
                                 httpGet = [ordered]@{ path = '/health/ready'; port = 8000 }
-                                initialDelaySeconds = 0
                                 timeoutSeconds = 3
                                 periodSeconds = 5
                                 failureThreshold = 24
@@ -307,6 +308,121 @@ function New-TestServiceDescription {
     return ($fixture | ConvertTo-Json -Depth 100 | ConvertFrom-Json -Depth 100)
 }
 
+function New-TestActiveRevisionDescription {
+    param(
+        [Parameter(Mandatory)] [string] $Revision,
+        [Parameter(Mandatory)] [string] $ResolvedEdgeImage,
+        [Parameter(Mandatory)] [string] $ResolvedRuntimeImage,
+        [string] $ReadyStatus = 'True'
+    )
+
+    return ([ordered]@{
+        metadata = [ordered]@{
+            name = $Revision
+            namespace = $projectNumber
+        }
+        spec = [ordered]@{
+            containers = @(
+                [ordered]@{ name = 'edge'; image = $ResolvedEdgeImage },
+                [ordered]@{ name = 'bff'; image = $ResolvedRuntimeImage }
+            )
+        }
+        status = [ordered]@{
+            conditions = @(
+                [ordered]@{ type = 'Ready'; status = $ReadyStatus },
+                [ordered]@{ type = 'Active'; status = 'True' }
+            )
+        }
+    } | ConvertTo-Json -Depth 20 | ConvertFrom-Json -Depth 20)
+}
+
+$legacyActiveRevision = 'pnl-web-legacy-active'
+$legacyTemplateFixture = New-TestServiceDescription `
+    -ObservedEdgeImage $finalEdge `
+    -ObservedRuntimeImage $mutableRuntimeTag `
+    -ActiveRevision $legacyActiveRevision
+$validResolvedRevision = New-TestActiveRevisionDescription `
+    -Revision $legacyActiveRevision `
+    -ResolvedEdgeImage $frozenEdge `
+    -ResolvedRuntimeImage $runtimeB
+$resolvedBaseline = Get-PnlResolvedActiveRevisionBaseline `
+    -ServiceDescription $legacyTemplateFixture `
+    -RevisionDescription $validResolvedRevision `
+    -Service $service
+Assert-Equal -Actual $resolvedBaseline.active_revision -Expected $legacyActiveRevision -Message 'Resolved baseline selected the wrong active revision.'
+Assert-Equal -Actual $resolvedBaseline.ready -Expected $true -Message 'Resolved baseline did not require Ready=True.'
+Assert-Equal -Actual $resolvedBaseline.edge_image -Expected $frozenEdge -Message 'Resolved baseline used the mutable service template instead of the active edge digest.'
+Assert-Equal -Actual $resolvedBaseline.runtime_image -Expected $runtimeB -Message 'Resolved baseline used the mutable service template instead of the active runtime digest.'
+
+$missingResolvedDigest = New-TestActiveRevisionDescription `
+    -Revision $legacyActiveRevision `
+    -ResolvedEdgeImage $frozenEdge `
+    -ResolvedRuntimeImage $runtimeB
+$missingResolvedDigest.spec.containers[1].PSObject.Properties.Remove('image')
+Assert-Throws -Action {
+    Get-PnlResolvedActiveRevisionBaseline `
+        -ServiceDescription $legacyTemplateFixture `
+        -RevisionDescription $missingResolvedDigest `
+        -Service $service
+} -Message 'Mutable service template passed when the active revision runtime digest was missing.'
+
+foreach ($invalidResolvedRuntime in @(
+    'asia-southeast1-docker.pkg.dev/wrong-project/pnl-staging/pnl-runtime@sha256:' + ('4' * 64),
+    'us-central1-docker.pkg.dev/pnl-dashboard-staging/pnl-staging/pnl-runtime@sha256:' + ('4' * 64),
+    $frozenEdge,
+    'asia-southeast1-docker.pkg.dev/pnl-dashboard-staging/pnl-staging/pnl-runtime@sha256:malformed'
+)) {
+    $invalidResolvedRevision = New-TestActiveRevisionDescription `
+        -Revision $legacyActiveRevision `
+        -ResolvedEdgeImage $frozenEdge `
+        -ResolvedRuntimeImage $invalidResolvedRuntime
+    Assert-Throws -Action {
+        Get-PnlResolvedActiveRevisionBaseline `
+            -ServiceDescription $legacyTemplateFixture `
+            -RevisionDescription $invalidResolvedRevision `
+            -Service $service
+    } -Message "Invalid active revision runtime provenance passed: $invalidResolvedRuntime"
+}
+
+$notReadyRevision = New-TestActiveRevisionDescription `
+    -Revision $legacyActiveRevision `
+    -ResolvedEdgeImage $frozenEdge `
+    -ResolvedRuntimeImage $runtimeB `
+    -ReadyStatus 'False'
+Assert-Throws -Action {
+    Get-PnlResolvedActiveRevisionBaseline `
+        -ServiceDescription $legacyTemplateFixture `
+        -RevisionDescription $notReadyRevision `
+        -Service $service
+} -Message 'An active revision without Ready=True passed the resolved baseline.'
+
+$badResolvedTopology = New-TestActiveRevisionDescription `
+    -Revision $legacyActiveRevision `
+    -ResolvedEdgeImage $frozenEdge `
+    -ResolvedRuntimeImage $runtimeB
+$badResolvedTopology.spec.containers[1].name = 'worker'
+Assert-Throws -Action {
+    Get-PnlResolvedActiveRevisionBaseline `
+        -ServiceDescription $legacyTemplateFixture `
+        -RevisionDescription $badResolvedTopology `
+        -Service $service
+} -Message 'Unexpected active revision container topology passed the resolved baseline.'
+
+$splitTrafficFixture = New-TestServiceDescription `
+    -ObservedEdgeImage $finalEdge `
+    -ObservedRuntimeImage $mutableRuntimeTag `
+    -ActiveRevision $legacyActiveRevision
+$splitTrafficFixture.status.traffic = @(
+    [pscustomobject]@{ revisionName = $legacyActiveRevision; percent = 50 },
+    [pscustomobject]@{ revisionName = 'pnl-web-other-active'; percent = 50 }
+)
+Assert-Throws -Action {
+    Get-PnlResolvedActiveRevisionBaseline `
+        -ServiceDescription $splitTrafficFixture `
+        -RevisionDescription $validResolvedRevision `
+        -Service $service
+} -Message 'Split traffic passed the resolved active-revision baseline.'
+
 $installedGcloud = if ([Environment]::OSVersion.Platform -eq [PlatformID]::Win32NT) {
     Join-Path $env:LOCALAPPDATA 'Google\Cloud SDK\google-cloud-sdk\bin\gcloud.cmd'
 }
@@ -339,13 +455,24 @@ try {
         [Text.ASCIIEncoding]::new()
     )
     $revisionAPreflightPath = Join-Path $testRoot 'revision-a-service.json'
+    $revisionAActiveRevisionPath = Join-Path $testRoot 'revision-a-active-revision.json'
     $revisionBPreflightPath = Join-Path $testRoot 'revision-b-service.json'
+    $revisionBMutableTemplatePath = Join-Path $testRoot 'revision-b-mutable-template-service.json'
+    $revisionBActiveRevisionPath = Join-Path $testRoot 'revision-b-active-revision.json'
     [IO.File]::WriteAllText(
         $revisionAPreflightPath,
         ((New-TestServiceDescription `
-            -ObservedEdgeImage $frozenEdge `
-            -ObservedRuntimeImage $runtimeB `
+            -ObservedEdgeImage $finalEdge `
+            -ObservedRuntimeImage $mutableRuntimeTag `
             -ActiveRevision 'pnl-web-pre-release-fixture') | ConvertTo-Json -Depth 100),
+        [Text.UTF8Encoding]::new($false)
+    )
+    [IO.File]::WriteAllText(
+        $revisionAActiveRevisionPath,
+        ((New-TestActiveRevisionDescription `
+            -Revision 'pnl-web-pre-release-fixture' `
+            -ResolvedEdgeImage $frozenEdge `
+            -ResolvedRuntimeImage $runtimeB) | ConvertTo-Json -Depth 100),
         [Text.UTF8Encoding]::new($false)
     )
     [IO.File]::WriteAllText(
@@ -356,13 +483,38 @@ try {
             -ActiveRevision $backendIdentity.revision_name) | ConvertTo-Json -Depth 100),
         [Text.UTF8Encoding]::new($false)
     )
+    [IO.File]::WriteAllText(
+        $revisionBActiveRevisionPath,
+        ((New-TestActiveRevisionDescription `
+            -Revision $backendIdentity.revision_name `
+            -ResolvedEdgeImage $frozenEdge `
+            -ResolvedRuntimeImage $runtimeA) | ConvertTo-Json -Depth 100),
+        [Text.UTF8Encoding]::new($false)
+    )
+    [IO.File]::WriteAllText(
+        $revisionBMutableTemplatePath,
+        ((New-TestServiceDescription `
+            -ObservedEdgeImage $frozenEdge `
+            -ObservedRuntimeImage $mutableRuntimeTag `
+            -ActiveRevision $backendIdentity.revision_name) | ConvertTo-Json -Depth 100),
+        [Text.UTF8Encoding]::new($false)
+    )
     $baselineMismatchPath = Join-Path $testRoot 'revision-a-baseline-mismatch.json'
+    $baselineMismatchActiveRevisionPath = Join-Path $testRoot 'revision-a-baseline-mismatch-active-revision.json'
     [IO.File]::WriteAllText(
         $baselineMismatchPath,
         ((New-TestServiceDescription `
             -ObservedEdgeImage $frozenEdge `
             -ObservedRuntimeImage $runtimeB `
             -ActiveRevision 'pnl-web-other-pre-release') | ConvertTo-Json -Depth 100),
+        [Text.UTF8Encoding]::new($false)
+    )
+    [IO.File]::WriteAllText(
+        $baselineMismatchActiveRevisionPath,
+        ((New-TestActiveRevisionDescription `
+            -Revision 'pnl-web-other-pre-release' `
+            -ResolvedEdgeImage $frozenEdge `
+            -ResolvedRuntimeImage $runtimeB) | ConvertTo-Json -Depth 100),
         [Text.UTF8Encoding]::new($false)
     )
     $preReleaseState = Join-Path $testRoot 'captured-pre-release.json'
@@ -432,6 +584,38 @@ try {
         Assert-True -Condition (-not $renderedWeb.Contains($forbidden, [StringComparison]::OrdinalIgnoreCase)) -Message "Rendered manifest contains forbidden value: $forbidden"
     }
 
+    Assert-Throws -Action {
+        & (Join-Path $PSScriptRoot 'staging-release.ps1') `
+            -Operation CANDIDATE -ProjectId $project -ProjectNumber $projectNumber -Region $region -Service $service `
+            -Stage BACKEND_FIRST -GitHead $head -ApprovedOrigins $originPair `
+            -SupabaseUrl $supabaseUrl -WorkerControllerUrl $controllerUrl `
+            -FrozenEdgeImage $frozenEdge -RuntimeImage $mutableRuntimeTag `
+            -PreReleaseStatePath $preReleaseState `
+            -RevisionSuffix $backendIdentity.revision_suffix -CandidateTag $backendIdentity.candidate_tag `
+            -OutputDirectory (Join-Path $testRoot 'reject-a-mutable-runtime')
+    } -Message 'Revision A candidate accepted a mutable runtime image input.'
+    Assert-Throws -Action {
+        & (Join-Path $PSScriptRoot 'staging-release.ps1') `
+            -Operation CANDIDATE -ProjectId $project -ProjectNumber $projectNumber -Region $region -Service $service `
+            -Stage FINAL_FRONTEND -GitHead $head -ApprovedOrigins $originPair `
+            -SupabaseUrl $supabaseUrl -WorkerControllerUrl $controllerUrl `
+            -FinalEdgeImage $mutableEdgeTag -RuntimeImage $runtimeA `
+            -ValidatedRevisionAEdgeImage $frozenEdge -ValidatedRevisionARuntimeImage $runtimeA `
+            -RevisionSuffix $frontendIdentity.revision_suffix -CandidateTag $frontendIdentity.candidate_tag `
+            -OutputDirectory (Join-Path $testRoot 'reject-b-mutable-edge')
+    } -Message 'Revision B candidate accepted a mutable edge image input.'
+    Assert-Throws -Action {
+        & (Join-Path $PSScriptRoot 'staging-release.ps1') `
+            -Operation CANDIDATE -ProjectId $project -ProjectNumber $projectNumber -Region $region -Service $service `
+            -Stage BACKEND_FIRST -GitHead $head -ApprovedOrigins $originPair `
+            -SupabaseUrl $supabaseUrl -WorkerControllerUrl $controllerUrl `
+            -FrozenEdgeImage $frozenEdge -RuntimeImage $runtimeA `
+            -PreReleaseStatePath $preReleaseState `
+            -CapturedServiceJsonPath $revisionAPreflightPath `
+            -RevisionSuffix $backendIdentity.revision_suffix -CandidateTag $backendIdentity.candidate_tag `
+            -OutputDirectory (Join-Path $testRoot 'reject-missing-active-revision-capture')
+    } -Message 'Candidate preflight accepted a service capture without the exact active revision capture.'
+
     $backendOutput = Join-Path $testRoot 'backend'
     Assert-Throws -Action {
         & (Join-Path $PSScriptRoot 'staging-release.ps1') `
@@ -440,6 +624,7 @@ try {
             -SupabaseUrl $supabaseUrl -WorkerControllerUrl $controllerUrl `
             -FrozenEdgeImage $frozenEdge -RuntimeImage $runtimeA `
             -CapturedServiceJsonPath $revisionAPreflightPath `
+            -CapturedActiveRevisionJsonPath $revisionAActiveRevisionPath `
             -RevisionSuffix $backendIdentity.revision_suffix -CandidateTag $backendIdentity.candidate_tag `
             -GcloudPath $mustNotRunGcloud -OutputDirectory (Join-Path $testRoot 'backend-missing-baseline')
     } -Message 'Revision A candidate generation accepted a missing persisted rollback baseline.'
@@ -458,6 +643,7 @@ try {
         -RuntimeImage $runtimeA `
         -PreReleaseStatePath $preReleaseState `
         -CapturedServiceJsonPath $revisionAPreflightPath `
+        -CapturedActiveRevisionJsonPath $revisionAActiveRevisionPath `
         -RevisionSuffix $backendIdentity.revision_suffix `
         -CandidateTag $backendIdentity.candidate_tag `
         -GcloudPath (Join-Path $testRoot 'must-not-run-gcloud.cmd') `
@@ -471,6 +657,10 @@ try {
     Assert-Equal -Actual $backendPlan.production_traffic_percent -Expected ([long]0) -Message 'Candidate plan must declare zero production traffic.'
     Assert-Equal -Actual $backendPlan.service_preflight.evaluated -Expected $true -Message 'Offline Revision A preflight was not evaluated.'
     Assert-Equal -Actual $backendPlan.service_preflight.result.contract_valid -Expected $true -Message 'Offline Revision A preflight did not pass.'
+    Assert-Equal -Actual $backendPlan.service_preflight.result.active_revision_ready -Expected $true -Message 'Offline Revision A preflight did not prove the active revision Ready.'
+    Assert-Equal -Actual $backendPlan.service_preflight.result.active_image_source -Expected 'resolved active revision' -Message 'Offline Revision A preflight did not identify resolved revision images as authoritative.'
+    Assert-Equal -Actual $backendPlan.service_preflight.result.observed_edge_image -Expected $frozenEdge -Message 'Offline Revision A preflight used the service template edge instead of the resolved active revision edge.'
+    Assert-Equal -Actual $backendPlan.service_preflight.result.observed_runtime_image -Expected $runtimeB -Message 'Offline Revision A preflight used the mutable service template runtime instead of the resolved active revision runtime.'
     Assert-Equal -Actual $backendPlan.rollback_target -Expected 'pnl-web-pre-release-fixture' -Message 'Revision A candidate lost the explicit pre-release rollback target.'
     Assert-Equal -Actual $backendPlan.rollback_baseline.active_revision -Expected 'pnl-web-pre-release-fixture' -Message 'Revision A candidate did not validate the release-bound rollback baseline.'
     Assert-True -Condition ($backendArguments -contains '--no-traffic') -Message 'Candidate command omitted --no-traffic.'
@@ -518,6 +708,7 @@ try {
             -SupabaseUrl $supabaseUrl -WorkerControllerUrl $controllerUrl `
             -FrozenEdgeImage $frozenEdge -RuntimeImage $runtimeA `
             -PreReleaseStatePath $preReleaseState -CapturedServiceJsonPath $baselineMismatchPath `
+            -CapturedActiveRevisionJsonPath $baselineMismatchActiveRevisionPath `
             -RevisionSuffix $backendIdentity.revision_suffix -CandidateTag $backendIdentity.candidate_tag `
             -GcloudPath $mustNotRunGcloud -OutputDirectory (Join-Path $testRoot 'backend-baseline-mismatch')
     } -Message 'Revision A candidate accepted a live active revision different from its persisted rollback baseline.'
@@ -539,6 +730,7 @@ try {
         -ValidatedRevisionAEdgeImage $frozenEdge `
         -ValidatedRevisionARuntimeImage $runtimeA `
         -CapturedServiceJsonPath $revisionBPreflightPath `
+        -CapturedActiveRevisionJsonPath $revisionBActiveRevisionPath `
         -RevisionSuffix $frontendIdentity.revision_suffix `
         -CandidateTag $frontendIdentity.candidate_tag `
         -GcloudPath (Join-Path $testRoot 'must-not-run-gcloud.cmd') `
@@ -552,6 +744,19 @@ try {
     Assert-Equal -Actual $finalPlan.service_preflight.result.active_revision -Expected $backendIdentity.revision_name -Message 'Revision B preflight did not require active Revision A.'
     Assert-True -Condition (@($finalPlan.gcloud.arguments) -contains "--image=$finalEdge") -Message 'Final candidate omitted final edge digest.'
     Write-Output 'REVISION_B_DRY_RUN=PASS traffic=0 runtime_lineage=PASS edge_lineage=PASS cloud_mutation=NONE'
+
+    Assert-Throws -Action {
+        & (Join-Path $PSScriptRoot 'staging-release.ps1') `
+            -Operation CANDIDATE -ProjectId $project -ProjectNumber $projectNumber -Region $region -Service $service `
+            -Stage FINAL_FRONTEND -GitHead $head -ApprovedOrigins $originPair `
+            -SupabaseUrl $supabaseUrl -WorkerControllerUrl $controllerUrl `
+            -FinalEdgeImage $finalEdge -RuntimeImage $runtimeA `
+            -ValidatedRevisionAEdgeImage $frozenEdge -ValidatedRevisionARuntimeImage $runtimeA `
+            -CapturedServiceJsonPath $revisionBMutableTemplatePath `
+            -CapturedActiveRevisionJsonPath $revisionBActiveRevisionPath `
+            -RevisionSuffix $frontendIdentity.revision_suffix -CandidateTag $frontendIdentity.candidate_tag `
+            -OutputDirectory (Join-Path $testRoot 'reject-b-mutable-service-template')
+    } -Message 'Revision B preflight inherited the legacy mutable service-template exception.'
 
     Assert-Throws -Action {
         & (Join-Path $PSScriptRoot 'staging-release.ps1') `
@@ -608,15 +813,33 @@ try {
     } -Message 'Revision B accepted a final edge equal to the validated Revision A edge.'
 
     $lineageFixtures = @(
-        @('live-a-edge-mismatch', (New-TestServiceDescription -ObservedEdgeImage $finalEdge -ObservedRuntimeImage $runtimeA -ActiveRevision $backendIdentity.revision_name)),
-        @('live-a-runtime-mismatch', (New-TestServiceDescription -ObservedEdgeImage $frozenEdge -ObservedRuntimeImage $runtimeB -ActiveRevision $backendIdentity.revision_name)),
-        @('active-a-mismatch', (New-TestServiceDescription -ObservedEdgeImage $frozenEdge -ObservedRuntimeImage $runtimeA -ActiveRevision 'pnl-web-unexpected-active'))
+        @(
+            'live-a-edge-mismatch',
+            (New-TestServiceDescription -ObservedEdgeImage $frozenEdge -ObservedRuntimeImage $runtimeA -ActiveRevision $backendIdentity.revision_name),
+            (New-TestActiveRevisionDescription -Revision $backendIdentity.revision_name -ResolvedEdgeImage $finalEdge -ResolvedRuntimeImage $runtimeA)
+        ),
+        @(
+            'live-a-runtime-mismatch',
+            (New-TestServiceDescription -ObservedEdgeImage $frozenEdge -ObservedRuntimeImage $runtimeA -ActiveRevision $backendIdentity.revision_name),
+            (New-TestActiveRevisionDescription -Revision $backendIdentity.revision_name -ResolvedEdgeImage $frozenEdge -ResolvedRuntimeImage $runtimeB)
+        ),
+        @(
+            'active-a-mismatch',
+            (New-TestServiceDescription -ObservedEdgeImage $frozenEdge -ObservedRuntimeImage $runtimeA -ActiveRevision 'pnl-web-unexpected-active'),
+            (New-TestActiveRevisionDescription -Revision 'pnl-web-unexpected-active' -ResolvedEdgeImage $frozenEdge -ResolvedRuntimeImage $runtimeA)
+        )
     )
     foreach ($lineageFixture in $lineageFixtures) {
         $lineagePath = Join-Path $testRoot "$($lineageFixture[0]).json"
+        $lineageActiveRevisionPath = Join-Path $testRoot "$($lineageFixture[0])-active-revision.json"
         [IO.File]::WriteAllText(
             $lineagePath,
             ($lineageFixture[1] | ConvertTo-Json -Depth 100),
+            [Text.UTF8Encoding]::new($false)
+        )
+        [IO.File]::WriteAllText(
+            $lineageActiveRevisionPath,
+            ($lineageFixture[2] | ConvertTo-Json -Depth 100),
             [Text.UTF8Encoding]::new($false)
         )
         Assert-Throws -Action {
@@ -627,18 +850,28 @@ try {
                 -FinalEdgeImage $finalEdge -RuntimeImage $runtimeA `
                 -ValidatedRevisionAEdgeImage $frozenEdge -ValidatedRevisionARuntimeImage $runtimeA `
                 -CapturedServiceJsonPath $lineagePath `
+                -CapturedActiveRevisionJsonPath $lineageActiveRevisionPath `
                 -RevisionSuffix $frontendIdentity.revision_suffix -CandidateTag $frontendIdentity.candidate_tag `
                 -OutputDirectory (Join-Path $testRoot "reject-$($lineageFixture[0])")
         } -Message "Revision B accepted invalid live Revision A lineage: $($lineageFixture[0])"
     }
 
     $sameRuntimeAPath = Join-Path $testRoot 'revision-a-same-runtime.json'
+    $sameRuntimeAActiveRevisionPath = Join-Path $testRoot 'revision-a-same-runtime-active-revision.json'
     [IO.File]::WriteAllText(
         $sameRuntimeAPath,
         ((New-TestServiceDescription `
             -ObservedEdgeImage $frozenEdge `
             -ObservedRuntimeImage $runtimeA `
             -ActiveRevision 'pnl-web-pre-release-fixture') | ConvertTo-Json -Depth 100),
+        [Text.UTF8Encoding]::new($false)
+    )
+    [IO.File]::WriteAllText(
+        $sameRuntimeAActiveRevisionPath,
+        ((New-TestActiveRevisionDescription `
+            -Revision 'pnl-web-pre-release-fixture' `
+            -ResolvedEdgeImage $frozenEdge `
+            -ResolvedRuntimeImage $runtimeA) | ConvertTo-Json -Depth 100),
         [Text.UTF8Encoding]::new($false)
     )
     Assert-Throws -Action {
@@ -649,6 +882,7 @@ try {
             -FrozenEdgeImage $frozenEdge -RuntimeImage $runtimeA `
             -PreReleaseStatePath $preReleaseState `
             -CapturedServiceJsonPath $sameRuntimeAPath `
+            -CapturedActiveRevisionJsonPath $sameRuntimeAActiveRevisionPath `
             -RevisionSuffix $backendIdentity.revision_suffix -CandidateTag $backendIdentity.candidate_tag `
             -OutputDirectory (Join-Path $testRoot 'reject-a-same-runtime')
     } -Message 'Revision A accepted a runtime digest equal to the active runtime.'
@@ -668,9 +902,30 @@ try {
             -FrozenEdgeImage $frozenEdge -RuntimeImage $runtimeA `
             -PreReleaseStatePath $preReleaseState `
             -CapturedServiceJsonPath $badTopologyPath `
+            -CapturedActiveRevisionJsonPath $revisionAActiveRevisionPath `
             -RevisionSuffix $backendIdentity.revision_suffix -CandidateTag $backendIdentity.candidate_tag `
             -OutputDirectory (Join-Path $testRoot 'reject-topology')
     } -Message 'Service preflight accepted a missing BFF container.'
+
+    $badStartupDelay = New-TestServiceDescription `
+        -ObservedEdgeImage $finalEdge `
+        -ObservedRuntimeImage $mutableRuntimeTag `
+        -ActiveRevision 'pnl-web-pre-release-fixture'
+    $badStartupDelay.spec.template.spec.containers[0].startupProbe | Add-Member -NotePropertyName initialDelaySeconds -NotePropertyValue 1
+    $badStartupDelayPath = Join-Path $testRoot 'bad-startup-delay.json'
+    [IO.File]::WriteAllText($badStartupDelayPath, ($badStartupDelay | ConvertTo-Json -Depth 100), [Text.UTF8Encoding]::new($false))
+    Assert-Throws -Action {
+        & (Join-Path $PSScriptRoot 'staging-release.ps1') `
+            -Operation CANDIDATE -ProjectId $project -ProjectNumber $projectNumber -Region $region -Service $service `
+            -Stage BACKEND_FIRST -GitHead $head -ApprovedOrigins $originPair `
+            -SupabaseUrl $supabaseUrl -WorkerControllerUrl $controllerUrl `
+            -FrozenEdgeImage $frozenEdge -RuntimeImage $runtimeA `
+            -PreReleaseStatePath $preReleaseState `
+            -CapturedServiceJsonPath $badStartupDelayPath `
+            -CapturedActiveRevisionJsonPath $revisionAActiveRevisionPath `
+            -RevisionSuffix $backendIdentity.revision_suffix -CandidateTag $backendIdentity.candidate_tag `
+            -OutputDirectory (Join-Path $testRoot 'reject-startup-delay')
+    } -Message 'Service preflight accepted a nonzero startup-probe initial delay.'
 
     $captureOutput = Join-Path $testRoot 'capture'
     Assert-Throws -Action {
@@ -700,6 +955,57 @@ try {
     $capturePlan = Get-Content -Raw -LiteralPath (Join-Path $captureOutput 'capture-active.json') | ConvertFrom-Json
     Assert-Equal -Actual $capturePlan.cloud_mutation -Expected $false -Message 'Capture plan must be read-only.'
     Assert-True -Condition (($capturePlan.gcloud.arguments -join ' ') -match 'run services describe pnl-web') -Message 'Capture plan did not dynamically describe the service.'
+    Assert-Equal -Actual $capturePlan.resolved_active_revision_capture_required -Expected $true -Message 'Capture plan did not require exact active-revision resolution.'
+    Assert-True -Condition ($capturePlan.resolved_active_revision_capture_operation -match 'run revisions describe') -Message 'Capture plan omitted the read-only exact revision describe.'
+
+    $captureExecuteOutput = Join-Path $testRoot 'capture-execute-read-only'
+    $readOnlyGcloud = Join-Path $testRoot 'read-only-gcloud.ps1'
+    $unexpectedMutationMarker = Join-Path $testRoot 'unexpected-cloud-mutation.txt'
+    [IO.File]::WriteAllText(
+        $readOnlyGcloud,
+        @'
+if ($args.Count -ge 3 -and $args[0] -ceq 'run' -and $args[1] -ceq 'services' -and $args[2] -ceq 'describe') {
+    [IO.File]::ReadAllText($env:PNL_CAPTURE_TEST_SERVICE_JSON)
+    exit 0
+}
+if ($args.Count -ge 3 -and $args[0] -ceq 'run' -and $args[1] -ceq 'revisions' -and $args[2] -ceq 'describe') {
+    [IO.File]::ReadAllText($env:PNL_CAPTURE_TEST_REVISION_JSON)
+    exit 0
+}
+[IO.File]::WriteAllText($env:PNL_CAPTURE_TEST_MUTATION_MARKER, ($args -join ' '))
+exit 97
+'@,
+        [Text.UTF8Encoding]::new($false)
+    )
+    $env:PNL_CAPTURE_TEST_SERVICE_JSON = $revisionAPreflightPath
+    $env:PNL_CAPTURE_TEST_REVISION_JSON = $revisionAActiveRevisionPath
+    $env:PNL_CAPTURE_TEST_MUTATION_MARKER = $unexpectedMutationMarker
+    try {
+        & (Join-Path $PSScriptRoot 'staging-release.ps1') `
+            -Operation CAPTURE_ACTIVE `
+            -ProjectId $project `
+            -ProjectNumber $projectNumber `
+            -Region $region `
+            -Service $service `
+            -GitHead $head `
+            -GcloudPath $readOnlyGcloud `
+            -OutputDirectory $captureExecuteOutput `
+            -Execute | Out-Null
+    }
+    finally {
+        Remove-Item Env:\PNL_CAPTURE_TEST_SERVICE_JSON -ErrorAction SilentlyContinue
+        Remove-Item Env:\PNL_CAPTURE_TEST_REVISION_JSON -ErrorAction SilentlyContinue
+        Remove-Item Env:\PNL_CAPTURE_TEST_MUTATION_MARKER -ErrorAction SilentlyContinue
+    }
+    $capturedBaseline = Get-Content -Raw -LiteralPath (Join-Path $captureExecuteOutput 'captured-active-resolved-baseline.json') | ConvertFrom-Json
+    Assert-Equal -Actual $capturedBaseline.active_revision -Expected 'pnl-web-pre-release-fixture' -Message 'Read-only active capture selected the wrong revision.'
+    Assert-Equal -Actual $capturedBaseline.ready -Expected $true -Message 'Read-only active capture did not prove Ready=True.'
+    Assert-Equal -Actual $capturedBaseline.resolved_edge_image -Expected $frozenEdge -Message 'Read-only active capture did not persist the resolved edge digest.'
+    Assert-Equal -Actual $capturedBaseline.resolved_runtime_image -Expected $runtimeB -Message 'Read-only active capture did not persist the resolved runtime digest.'
+    Assert-Equal -Actual $capturedBaseline.cloud_mutation -Expected $false -Message 'Read-only active capture reported a Cloud mutation.'
+    Assert-True -Condition (Test-Path -LiteralPath (Join-Path $captureExecuteOutput 'captured-active-service.json')) -Message 'Read-only active capture omitted the service evidence JSON.'
+    Assert-True -Condition (Test-Path -LiteralPath (Join-Path $captureExecuteOutput 'captured-active-revision.json')) -Message 'Read-only active capture omitted the revision evidence JSON.'
+    Assert-True -Condition (-not (Test-Path -LiteralPath $unexpectedMutationMarker)) -Message 'Read-only active capture attempted a non-describe gcloud command.'
 
     $promotionOutput = Join-Path $testRoot 'promotion'
     Assert-Throws -Action {
