@@ -1,11 +1,14 @@
 from __future__ import annotations
 
+import hashlib
 from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
 RESOURCE = "forecast/bff/resources/PNL_REPORTING_TEMPLATE_V1.xlsx"
 ALLOW_RULE = f"!{RESOURCE}"
+APPROVED_SIZE = 20_686
+APPROVED_SHA256 = "c11b72c7f4bb29cea6a5a626f354fab6d3ac38c82c6c726658e739faf8b37e3b"
 
 
 def _ignore_lines(name: str) -> list[str]:
@@ -30,6 +33,10 @@ def test_build_contexts_keep_generic_xlsx_exclusion_and_allow_only_approved_reso
 def test_template_is_backend_only_and_root_runtime_copy_owns_it():
     resource = ROOT / RESOURCE
     assert resource.is_file()
+    content = resource.read_bytes()
+    assert resource.name == "PNL_REPORTING_TEMPLATE_V1.xlsx"
+    assert len(content) == APPROVED_SIZE
+    assert hashlib.sha256(content).hexdigest() == APPROVED_SHA256
     assert list((ROOT / "frontend").rglob("*.xlsx")) == []
     assert not (ROOT / "frontend" / "public" / resource.name).exists()
 

@@ -20,9 +20,10 @@ from forecast.bff.pnl_reporting_template import (
     PnlReportingTemplateService,
 )
 from forecast.provenance import ResultProvenance
+from forecast.reporting import TEMPLATE_VERSION
 
 
-APPROVED_SHA256 = "ddaf345de82c8a91fc1ccc852dd90e3586f996709f020cf0f597a09345700b1a"
+APPROVED_SHA256 = "c11b72c7f4bb29cea6a5a626f354fab6d3ac38c82c6c726658e739faf8b37e3b"
 INTEGRITY_ERROR = "P&L Reporting template resource integrity check failed"
 
 
@@ -65,7 +66,8 @@ def _login(client: TestClient, code: str = "admin-code") -> None:
 
 def test_approved_resource_and_service_are_exact_immutable_bytes():
     assert PNL_REPORTING_TEMPLATE_FILENAME == "PNL_REPORTING_TEMPLATE_V1.xlsx"
-    assert PNL_REPORTING_TEMPLATE_SIZE == 20_639
+    assert TEMPLATE_VERSION == "PNL_REPORTING_V1"
+    assert PNL_REPORTING_TEMPLATE_SIZE == 20_686
     assert PNL_REPORTING_TEMPLATE_SHA256 == APPROVED_SHA256
     assert PNL_REPORTING_TEMPLATE_RESOURCE.name == PNL_REPORTING_TEMPLATE_FILENAME
     assert PNL_REPORTING_TEMPLATE_RESOURCE.is_file()
@@ -116,7 +118,7 @@ def test_admin_get_without_csrf_returns_exact_private_artifact():
     )
     assert response.headers["cache-control"] == "private, no-store"
     assert response.headers["x-content-type-options"] == "nosniff"
-    assert len(response.content) == 20_639
+    assert len(response.content) == 20_686
     assert hashlib.sha256(response.content).hexdigest() == APPROVED_SHA256
     assert response.content == PNL_REPORTING_TEMPLATE_RESOURCE.read_bytes()
 

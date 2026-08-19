@@ -9,9 +9,9 @@ from .auth import AccessCodeSessionService
 
 
 PNL_REPORTING_TEMPLATE_FILENAME = "PNL_REPORTING_TEMPLATE_V1.xlsx"
-PNL_REPORTING_TEMPLATE_SIZE = 20_639
+PNL_REPORTING_TEMPLATE_SIZE = 20_686
 PNL_REPORTING_TEMPLATE_SHA256 = (
-    "ddaf345de82c8a91fc1ccc852dd90e3586f996709f020cf0f597a09345700b1a"
+    "c11b72c7f4bb29cea6a5a626f354fab6d3ac38c82c6c726658e739faf8b37e3b"
 )
 PNL_REPORTING_TEMPLATE_MEDIA_TYPE = (
     "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
