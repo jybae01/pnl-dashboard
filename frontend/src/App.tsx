@@ -4,6 +4,7 @@ import { Header } from './components/common/Header';
 import { PnlStatusView } from './views/PnlStatusView';
 import { ForecastGenerationView } from './views/ForecastGenerationView';
 import { bffClient } from './integration/client';
+import { pnlReportingSource } from './integration/pnlReportingSource';
 import { CoreAnalysisView } from './integration/CoreAnalysisView';
 import { LoginBrandLogo, LoginView } from './integration/LoginView';
 import { ModelManagementView } from './integration/ModelManagementView';
@@ -34,6 +35,7 @@ export function App() {
   const [sessionState, setSessionState] = useState<'LOADING' | 'READY' | 'ANONYMOUS' | 'ERROR'>('LOADING');
   const [route, setRoute] = useState<CoreRoute>('variance');
   const [analysisResultId, setAnalysisResultId] = useState<string | null>(null);
+  const [pnlReportingRefreshToken, setPnlReportingRefreshToken] = useState(0);
   const navigationRef = useRef<HTMLElement>(null);
   const activeTabRef = useRef<HTMLButtonElement>(null);
 
@@ -189,7 +191,7 @@ export function App() {
       </div>
     </nav>
     <main className="app-content">
-      {route === 'pnl' && <PnlStatusView onNavigateToVariance={() => navigate('variance')} />}
+      {route === 'pnl' && <PnlStatusView reportingSource={pnlReportingSource} refreshToken={pnlReportingRefreshToken} onNavigateToVariance={() => navigate('variance')} />}
       {route === 'forecast' && session.role === 'admin' && <ForecastGenerationView
         onNavigateToPnl={() => navigate('pnl')}
         onNavigateToAnalysis={() => navigate('variance')}
@@ -199,6 +201,7 @@ export function App() {
         onNavigateToForecast={() => navigate('forecast')}
         onNavigateToAnalysis={() => navigate('variance')}
         onNavigateToAnalysisResult={navigateToAnalysisResult}
+        onPnlReportingChanged={() => setPnlReportingRefreshToken((value) => value + 1)}
         initialHistoryOpen={route === 'management' && window.location.hash.includes('section=history')}
       />}
       {route === 'operations' && session.role === 'admin' && <AdminOperationsView onNavigateToHistory={navigateToHistory} />}

@@ -46,7 +46,7 @@ class PnlReportingReadIntegrityError(ValueError):
 
 
 class PnlReportingReadGateway(Protocol):
-    def load_active(self, reporting_year: int) -> Mapping[str, Any]: ...
+    def load_active(self, reporting_year: int | None) -> Mapping[str, Any]: ...
 
 
 @dataclass(frozen=True)
@@ -75,7 +75,7 @@ class SupabasePnlReportingReadGateway(PnlReportingReadGateway):
     def __init__(self, client: Any) -> None:
         self._client = client
 
-    def load_active(self, reporting_year: int) -> Mapping[str, Any]:
+    def load_active(self, reporting_year: int | None) -> Mapping[str, Any]:
         try:
             response = self._client.rpc(
                 "get_pnl_reporting_viewer_source",
@@ -100,9 +100,9 @@ class PnlReportingViewerService:
         self._sessions = sessions
         self._gateway = gateway
 
-    def viewer_read(self, session_id: str, reporting_year: int) -> dict[str, Any]:
+    def viewer_read(self, session_id: str, reporting_year: int | None = None) -> dict[str, Any]:
         self._sessions.require_viewer(session_id)
-        if (
+        if reporting_year is not None and (
             not isinstance(reporting_year, int)
             or isinstance(reporting_year, bool)
             or not 2000 <= reporting_year <= 2200
@@ -125,7 +125,8 @@ class PnlReportingViewerService:
                 "P&L Reporting data integrity validation failed",
             ) from exc
         try:
-            return build_pnl_reporting_viewer_response(source, reporting_year)
+            selected_year = _selected_year(source, reporting_year)
+            return build_pnl_reporting_viewer_response(source, selected_year)
         except (PnlReportingReadIntegrityError, ReportingPairIntegrityError) as exc:
             raise BffError(
                 ApiErrorCode.INPUT_INTEGRITY_MISMATCH,
@@ -136,6 +137,19 @@ class PnlReportingViewerService:
                 ApiErrorCode.INPUT_INTEGRITY_MISMATCH,
                 "P&L Reporting data integrity validation failed",
             ) from exc
+
+
+def _selected_year(source: Mapping[str, Any], requested_year: int | None) -> int:
+    if not isinstance(source, Mapping):
+        raise PnlReportingReadIntegrityError("P&L Reporting source must be an object")
+    source_year = _integer(source.get("selected_year"), "selected year")
+    if not 2000 <= source_year <= 2200:
+        raise PnlReportingReadIntegrityError("selected year is outside the supported range")
+    if requested_year is not None:
+        if source_year != requested_year:
+            raise PnlReportingReadIntegrityError("selected year does not match the request")
+        return requested_year
+    return source_year
 
 
 def build_pnl_reporting_viewer_response(

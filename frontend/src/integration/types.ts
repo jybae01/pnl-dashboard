@@ -466,6 +466,7 @@ export class ApiClientError extends Error {
     message: string,
     public readonly correlationId: string | null = null,
     public readonly retryAfterSeconds: number | null = null,
+    public readonly fieldErrors: Record<string, string> = {},
   ) {
     super(message);
   }

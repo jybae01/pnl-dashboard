@@ -1164,7 +1164,7 @@ def create_http_bff(
     @app.get("/api/viewer/pnl-reporting")
     def viewer_pnl_reporting(
         response: Response,
-        year: Annotated[int, Query(ge=2000, le=2200)],
+        year: Annotated[int | None, Query(ge=2000, le=2200)] = None,
         value: str = Depends(viewer_session),
     ):
         if application.pnl_reporting_read is None:

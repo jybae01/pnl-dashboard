@@ -28,6 +28,55 @@ import {
 
 const API_ROOT = (import.meta.env.VITE_BFF_BASE_URL || '').replace(/\/$/, '');
 
+export interface PnlReportingUploadInput {
+  datasetType: 'PLAN' | 'ACTUAL';
+  reportingYear: number;
+  actualThroughMonth: number | null;
+  idempotencyKey: string;
+  file: File;
+}
+
+export interface PnlReportingValidationIssueDto {
+  severity: 'BLOCKING' | 'WARNING';
+  errorCode: string;
+  message: string;
+  sheet?: string;
+  rowKey?: string;
+  productGroupKey?: string;
+  displayLabel?: string;
+  field?: string;
+  month?: number;
+}
+
+export interface PnlReportingValidationSummaryDto {
+  status: 'INVALID';
+  errorCount: number;
+  warningCount: number;
+  truncated: boolean;
+  errors: PnlReportingValidationIssueDto[];
+  warnings: PnlReportingValidationIssueDto[];
+}
+
+export interface PnlReportingUploadResponseDto {
+  datasetId: string;
+  datasetType: 'PLAN' | 'ACTUAL';
+  reportingYear: number;
+  actualThroughMonth: number | null;
+  templateVersion: string;
+  sourceSha256: string;
+  uploadedAt: string;
+  warnings: PnlReportingValidationIssueDto[];
+  supersededDatasetId: string | null;
+  replayed: boolean;
+}
+
+export class PnlReportingWorkbookValidationError extends ApiClientError {
+  constructor(public readonly summary: PnlReportingValidationSummaryDto) {
+    super(422, 'VALIDATION_ERROR', 'P&L Reporting workbook validation failed');
+    this.name = 'PnlReportingWorkbookValidationError';
+  }
+}
+
 function csrfToken(): string {
   const entry = document.cookie
     .split('; ')
@@ -36,22 +85,26 @@ function csrfToken(): string {
   try { return decodeURIComponent(entry.slice('pnl_csrf='.length)); } catch { return ''; }
 }
 
-async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
+async function securedFetch(path: string, init: RequestInit = {}): Promise<Response> {
   const headers = new Headers(init.headers);
   if (init.body && !(init.body instanceof FormData)) headers.set('Content-Type', 'application/json');
   if (init.method && !['GET', 'HEAD'].includes(init.method.toUpperCase()) && path !== '/api/session/login') {
     headers.set('X-CSRF-Token', csrfToken());
   }
-  let response: Response;
   try {
-    response = await fetch(`${API_ROOT}${path}`, {
+    return await fetch(`${API_ROOT}${path}`, {
       ...init,
       headers,
       credentials: 'include',
     });
-  } catch {
+  } catch (error) {
+    if (init.signal?.aborted) throw error;
     throw new ApiClientError(0, 'TRANSIENT_SYSTEM_ERROR', '서버에 연결할 수 없습니다.');
   }
+}
+
+async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
+  const response = await securedFetch(path, init);
   if (!response.ok) {
     let payload: ApiErrorDto | null = null;
     try {
@@ -66,6 +119,7 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
       payload?.error.message || '요청을 처리할 수 없습니다.',
       payload?.error.correlation_id || response.headers.get('X-Correlation-ID'),
       parseRetryAfter(response.headers.get('Retry-After')),
+      payload?.error.field_errors || {},
     );
   }
   return response.json() as Promise<T>;
@@ -182,9 +236,91 @@ export const bffClient = {
     }),
     'analysis',
   ),
+  pnlReporting: (year: number | null, signal: AbortSignal) => request<unknown>(
+    `/api/viewer/pnl-reporting${year === null ? '' : `?year=${encodeURIComponent(String(year))}`}`,
+    { signal, cache: 'no-store' },
+  ),
+  uploadPnlReportingPlan: (input: Omit<PnlReportingUploadInput, 'datasetType' | 'actualThroughMonth'>) => (
+    uploadPnlReporting({ ...input, datasetType: 'PLAN', actualThroughMonth: null })
+  ),
+  uploadPnlReportingActual: (input: Omit<PnlReportingUploadInput, 'datasetType'>) => (
+    uploadPnlReporting({ ...input, datasetType: 'ACTUAL' })
+  ),
   downloadEvidence: (resultId: string, role: Role) => downloadEvidence(resultId, role),
   downloadForecastWorkbook: (modelId: string) => downloadForecastWorkbook(modelId),
 };
+
+async function uploadPnlReporting(input: PnlReportingUploadInput): Promise<PnlReportingUploadResponseDto> {
+  const body = new FormData();
+  body.set('reporting_year', String(input.reportingYear));
+  if (input.datasetType === 'ACTUAL' && input.actualThroughMonth !== null) {
+    body.set('actual_through_month', String(input.actualThroughMonth));
+  }
+  body.set('idempotency_key', input.idempotencyKey);
+  body.set('file', input.file, input.file.name);
+  const path = `/api/admin/pnl-reporting/${input.datasetType === 'PLAN' ? 'plan' : 'actual'}`;
+  const response = await securedFetch(path, { method: 'POST', body });
+  let value: unknown = null;
+  try { value = await response.json(); } catch { /* safe fallback below */ }
+  if (response.ok) return validatePnlReportingUploadResponse(value, input.datasetType);
+  if (response.status === 422 && isPnlReportingValidationSummary(value)) {
+    throw new PnlReportingWorkbookValidationError(value);
+  }
+  const payload = isRecord(value) && isRecord(value.error) ? value.error : null;
+  throw new ApiClientError(
+    response.status,
+    payload && typeof payload.code === 'string' ? payload.code : 'TRANSIENT_SYSTEM_ERROR',
+    payload && typeof payload.message === 'string' ? payload.message : '요청을 처리할 수 없습니다.',
+    payload && typeof payload.correlation_id === 'string' ? payload.correlation_id : response.headers.get('X-Correlation-ID'),
+    parseRetryAfter(response.headers.get('Retry-After')),
+    payload && isRecord(payload.field_errors)
+      ? Object.fromEntries(Object.entries(payload.field_errors).filter((entry): entry is [string, string] => typeof entry[1] === 'string'))
+      : {},
+  );
+}
+
+function validatePnlReportingIssue(value: unknown, expectedSeverity: 'BLOCKING' | 'WARNING'): value is PnlReportingValidationIssueDto {
+  if (!isRecord(value)
+    || value.severity !== expectedSeverity
+    || typeof value.errorCode !== 'string'
+    || typeof value.message !== 'string') return false;
+  for (const field of ['sheet', 'rowKey', 'productGroupKey', 'displayLabel', 'field']) {
+    if (value[field] !== undefined && typeof value[field] !== 'string') return false;
+  }
+  return value.month === undefined || integerInRange(value.month, 1, 12);
+}
+
+function isPnlReportingValidationSummary(value: unknown): value is PnlReportingValidationSummaryDto {
+  return isRecord(value)
+    && value.status === 'INVALID'
+    && nonnegativeInteger(value.errorCount)
+    && nonnegativeInteger(value.warningCount)
+    && typeof value.truncated === 'boolean'
+    && Array.isArray(value.errors)
+    && Array.isArray(value.warnings)
+    && value.errors.every((issue) => validatePnlReportingIssue(issue, 'BLOCKING'))
+    && value.warnings.every((issue) => validatePnlReportingIssue(issue, 'WARNING'))
+    && value.errors.length <= value.errorCount
+    && value.warnings.length <= value.warningCount;
+}
+
+function validatePnlReportingUploadResponse(value: unknown, expectedType: 'PLAN' | 'ACTUAL'): PnlReportingUploadResponseDto {
+  if (!isRecord(value)
+    || !uuid(value.datasetId)
+    || value.datasetType !== expectedType
+    || !integerInRange(value.reportingYear, 2000, 2200)
+    || !(value.actualThroughMonth === null || integerInRange(value.actualThroughMonth, 1, 12))
+    || (expectedType === 'PLAN' ? value.actualThroughMonth !== null : value.actualThroughMonth === null)
+    || typeof value.templateVersion !== 'string'
+    || typeof value.sourceSha256 !== 'string'
+    || !/^[0-9a-f]{64}$/.test(value.sourceSha256)
+    || typeof value.uploadedAt !== 'string'
+    || !Array.isArray(value.warnings)
+    || !value.warnings.every((issue) => validatePnlReportingIssue(issue, 'WARNING'))
+    || !(value.supersededDatasetId === null || uuid(value.supersededDatasetId))
+    || typeof value.replayed !== 'boolean') invalidPayload();
+  return value as unknown as PnlReportingUploadResponseDto;
+}
 
 function validateForecast(value: unknown): ForecastGenerateResponseDto {
   if (!isRecord(value) || !uuid(value.generation_id) || !uuid(value.model_id)

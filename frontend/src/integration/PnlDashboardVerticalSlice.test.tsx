@@ -3,15 +3,41 @@ import { readFileSync } from 'node:fs';
 import { dirname, extname, resolve } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { createPnlReportingVisualFixture, pnlReportingVisualFixture } from '../test-support/pnlReportingVisualFixture';
-import { parsePnlReportingLoadResult, PnlReportingSourceError, type PnlReportingReadModel, type PnlReportingSource } from '../types/pnlReporting';
+import { parsePnlReportingLoadResult, PnlReportingSourceError, type PnlReportingReadModel, type PnlReportingSource, type PnlReportingState, type PnlStatementRowSlot } from '../types/pnlReporting';
 import { PnlStatusView } from '../views/PnlStatusView';
 
 function source(result: unknown): PnlReportingSource {
   return { load: vi.fn().mockResolvedValue(result) };
 }
 
+function reportingResult(state: PnlReportingState, report: PnlReportingReadModel | null = null, selectedYear = 2026, availableYears = [2026, 2025]) {
+  const planExists = state === 'READY' || state === 'MISSING_ACTUAL';
+  const actualExists = state === 'READY' || state === 'MISSING_PLAN';
+  return {
+    reportingState: state,
+    metadata: {
+      selectedYear,
+      availableYears,
+      plan: { exists: planExists, datasetId: planExists ? 'plan-id' : null, lastUpdated: planExists ? '2026-08-19T00:00:00Z' : null },
+      actual: { exists: actualExists, datasetId: actualExists ? 'actual-id' : null, actualThroughMonth: actualExists ? (report?.actualThroughMonth ?? 6) : null, lastUpdated: actualExists ? '2026-08-19T01:00:00Z' : null },
+      lastUpdated: planExists || actualExists ? '2026-08-19T01:00:00Z' : null,
+    },
+    report: state === 'READY' ? report : null,
+  };
+}
+
 function readySource(report: PnlReportingReadModel = pnlReportingVisualFixture): PnlReportingSource {
-  return source({ state: 'DATA_READY', report });
+  return source(reportingResult('READY', report, report.year, report.availableYears));
+}
+
+function reportingRowForYear<T extends PnlStatementRowSlot>(row: T, year: number): T {
+  return {
+    ...row,
+    compareByPeriod: Object.fromEntries(Object.entries(row.compareByPeriod).map(([key, cells]) => [
+      key.replace(/^\d{4}/, String(year)),
+      cells,
+    ])),
+  } as T;
 }
 
 async function renderReady(onNavigateToVariance?: () => void, report: PnlReportingReadModel = pnlReportingVisualFixture) {
@@ -72,9 +98,9 @@ describe('P&L Status exact visual skeleton port', () => {
     expect(profit.querySelectorAll('rect[data-series="actual"]')).toHaveLength(6);
     expect(profit.querySelectorAll('g[data-actual-available="false"] rect[data-series="actual"]')).toHaveLength(0);
     expect(profit.querySelector('path[data-series="actual-margin"]')).toHaveAttribute('data-last-period-key', '2026-06');
-    expect(profit.querySelectorAll('circle[data-series="actual-margin-point"]')).toHaveLength(6);
+    expect(profit.querySelectorAll('circle[data-series="actual-margin-point"]')).toHaveLength(5);
     expect(profit.querySelector('g[data-period-key="2026-05"] rect[data-series="actual"]')).toHaveAttribute('height', '2');
-    expect(profit.querySelector('circle[data-series="actual-margin-point"][data-period-key="2026-05"]')).toBeInTheDocument();
+    expect(profit.querySelector('circle[data-series="actual-margin-point"][data-period-key="2026-05"]')).not.toBeInTheDocument();
     expect(profit.querySelector('circle[data-series="actual-margin-point"][data-period-key="2026-06"]')).toBeInTheDocument();
     expect(profit.querySelector('circle[data-series="actual-margin-point"][data-period-key="2026-07"]')).not.toBeInTheDocument();
 
@@ -95,9 +121,9 @@ describe('P&L Status exact visual skeleton port', () => {
     fireEvent.click(within(profit).getByRole('button', { name: '조정 영업이익' }));
     expect(profit.querySelectorAll('rect[data-series="plan"]')).toHaveLength(12);
     expect(profit.querySelectorAll('rect[data-series="actual"]')).toHaveLength(6);
-    expect(profit.querySelectorAll('circle[data-series="actual-margin-point"]')).toHaveLength(6);
+    expect(profit.querySelectorAll('circle[data-series="actual-margin-point"]')).toHaveLength(5);
     expect(profit.querySelector('g[data-period-key="2026-05"] rect[data-series="actual"]')).toHaveAttribute('height', '2');
-    expect(profit.querySelector('circle[data-series="actual-margin-point"][data-period-key="2026-05"]')).toBeInTheDocument();
+    expect(profit.querySelector('circle[data-series="actual-margin-point"][data-period-key="2026-05"]')).not.toBeInTheDocument();
     expect(profit.querySelector('path[data-series="actual-margin"]')).toHaveAttribute('data-last-period-key', '2026-06');
 
     fireEvent.click(within(profit).getByRole('button', { name: '월별 데이터표' }));
@@ -117,8 +143,8 @@ describe('P&L Status exact visual skeleton port', () => {
   });
 
   it('requires a unique sequential ACTUAL availability prefix while accepting an available zero', () => {
-    const ready = { state: 'DATA_READY', report: pnlReportingVisualFixture };
-    expect(parsePnlReportingLoadResult(ready)?.state).toBe('DATA_READY');
+    const ready = reportingResult('READY', pnlReportingVisualFixture);
+    expect(parsePnlReportingLoadResult(ready)?.reportingState).toBe('READY');
 
     const duplicateActualKeys = {
       ...ready,
@@ -142,10 +168,11 @@ describe('P&L Status exact visual skeleton port', () => {
       },
     };
     expect(parsePnlReportingLoadResult(availableWithMissingCoreValue)).toBeNull();
-    expect(pnlReportingVisualFixture.monthlyTrends[4]).toMatchObject({ actualAvailable: true, actualRevenue: 0, actualOperatingProfit: 0 });
+    expect(pnlReportingVisualFixture.monthlyTrends[4]).toMatchObject({ actualAvailable: true, actualRevenue: 0, actualOperatingProfit: 0, actualOperatingMargin: null });
 
-    const aprilCutoff = { state: 'DATA_READY', report: createPnlReportingVisualFixture(4) };
-    expect(parsePnlReportingLoadResult(aprilCutoff)?.state).toBe('DATA_READY');
+    const aprilReport = createPnlReportingVisualFixture(4);
+    const aprilCutoff = reportingResult('READY', aprilReport, aprilReport.year, aprilReport.availableYears);
+    expect(parsePnlReportingLoadResult(aprilCutoff)?.reportingState).toBe('READY');
   });
 
   it('keeps the exact four-tab order, default tab, table shells, and Analysis callback', async () => {
@@ -199,7 +226,7 @@ describe('P&L Status exact visual skeleton port', () => {
 
   it.each([1, 6, 12])('renders COGS and all actual-only tables through month %i plus backend-provided YTD', async (actualThroughMonth) => {
     const report = createPnlReportingVisualFixture(actualThroughMonth);
-    expect(parsePnlReportingLoadResult({ state: 'DATA_READY', report })?.state).toBe('DATA_READY');
+    expect(parsePnlReportingLoadResult(reportingResult('READY', report, report.year, report.availableYears))?.reportingState).toBe('READY');
     const rendered = await renderReady(undefined, report);
 
     const pnl = screen.getByTestId('pnl-table-shell');
@@ -209,11 +236,14 @@ describe('P&L Status exact visual skeleton port', () => {
     if (actualThroughMonth >= 5) {
       expect(pnl.querySelector('tr[data-row-key="revenue"]')?.querySelectorAll('td')[6]).toHaveTextContent('0');
     }
+    fireEvent.click(within(pnl).getByRole('button', { name: '기간 설정 비교' }));
+    expect(within(pnl).getByRole('combobox', { name: '시작월' })).toHaveValue('1월');
+    expect(within(pnl).getByRole('combobox', { name: '종료월' })).toHaveValue(`${actualThroughMonth}월`);
 
     fireEvent.click(screen.getAllByRole('tab')[1]);
     const cogs = screen.getByTestId('cogs-table-shell');
     expect(cogs.querySelector('table')).toHaveAttribute('data-column-count', String(actualThroughMonth * 2 + 3));
-    expect(cogs.querySelector('tr[data-row-key="cogs_0"]')?.querySelectorAll('td')).toHaveLength(actualThroughMonth * 2 + 3);
+    expect(cogs.querySelector('tr[data-row-key="mfg_material"]')?.querySelectorAll('td')).toHaveLength(actualThroughMonth * 2 + 3);
     if (actualThroughMonth === 12) {
       for (const month of ['7월', '8월', '9월', '10월', '11월', '12월']) expect(within(cogs).getByText(month)).toBeInTheDocument();
     }
@@ -253,14 +283,14 @@ describe('P&L Status exact visual skeleton port', () => {
     expect(screen.queryByText(/통합 수량 합계|mixed-unit/i)).not.toBeInTheDocument();
 
     const invalidLcUnit = {
-      state: 'DATA_READY',
+      ...reportingResult('READY', pnlReportingVisualFixture),
       report: {
         ...pnlReportingVisualFixture,
         productSegments: pnlReportingVisualFixture.productSegments.map((segment) => segment.key === 'LC' ? { ...segment, businessUnit: null } : segment),
       },
     };
     const invalidFsUnit = {
-      state: 'DATA_READY',
+      ...reportingResult('READY', pnlReportingVisualFixture),
       report: {
         ...pnlReportingVisualFixture,
         productSegments: pnlReportingVisualFixture.productSegments.map((segment) => segment.key === 'FS' ? { ...segment, businessUnit: null } : segment),
@@ -268,6 +298,18 @@ describe('P&L Status exact visual skeleton port', () => {
     };
     expect(parsePnlReportingLoadResult(invalidLcUnit)).toBeNull();
     expect(parsePnlReportingLoadResult(invalidFsUnit)).toBeNull();
+
+    const missingPeriodCells = {
+      ...reportingResult('READY', pnlReportingVisualFixture),
+      report: {
+        ...pnlReportingVisualFixture,
+        pnlRows: pnlReportingVisualFixture.pnlRows.map((row, index) => index === 0 ? {
+          ...row,
+          compareByPeriod: {},
+        } : row),
+      },
+    };
+    expect(parsePnlReportingLoadResult(missingPeriodCells)).toBeNull();
   });
 
   it('keeps Mockup fixture row hierarchy counts isolated to DATA_READY rendering', () => {
@@ -290,50 +332,78 @@ describe('P&L Status exact visual skeleton port', () => {
     expect(pnlReportingVisualFixture.productSegments.map((segment) => segment.rows.length)).toEqual([10, 10, 10, 10, 8]);
   });
 
-  it('keeps REPORTING_GAP, EMPTY, ERROR, FORBIDDEN, INVALID_PAYLOAD, and LOADING distinct', async () => {
+  it('keeps the four backend reporting states plus frontend-only LOADING and ERROR, with error-specific copy', async () => {
     const loadingSource: PnlReportingSource = { load: vi.fn(() => new Promise(() => undefined)) };
-    const loading = render(<PnlStatusView initialYear={2026} reportingSource={loadingSource} />);
+    const loading = render(<PnlStatusView reportingSource={loadingSource} />);
     expect(screen.getByText('손익 현황을 불러오는 중…').closest('[role="status"]')).toBeInTheDocument();
     loading.unmount();
 
-    const gap = render(<PnlStatusView initialYear={2026} />);
-    expect(await screen.findByText('손익현황 데이터가 아직 등록되지 않았습니다.')).toBeInTheDocument();
-    gap.unmount();
-
-    const empty = render(<PnlStatusView initialYear={2026} reportingSource={source({ state: 'EMPTY' })} />);
-    expect(await screen.findByText('선택한 조건의 손익 데이터가 없습니다.')).toBeInTheDocument();
-    empty.unmount();
+    for (const [reportingState, copy] of [
+      ['MISSING_BOTH', 'PLAN과 ACTUAL 데이터가 아직 등록되지 않았습니다.'],
+      ['MISSING_PLAN', 'PLAN 데이터가 아직 등록되지 않았습니다.'],
+      ['MISSING_ACTUAL', 'ACTUAL 데이터가 아직 등록되지 않았습니다.'],
+    ] as const) {
+      const gap = render(<PnlStatusView reportingSource={source(reportingResult(reportingState))} />);
+      expect(await screen.findByText(copy)).toBeInTheDocument();
+      expect(screen.getByRole('combobox', { name: '기준년도' })).toHaveValue('2026');
+      expect(within(screen.getByRole('combobox', { name: '기준년도' })).getAllByRole('option').map((option) => option.textContent)).toEqual(['2026년', '2025년']);
+      gap.unmount();
+    }
 
     const failedSource: PnlReportingSource = { load: vi.fn().mockRejectedValue(new Error('failed')) };
-    const error = render(<PnlStatusView initialYear={2026} reportingSource={failedSource} />);
+    const error = render(<PnlStatusView reportingSource={failedSource} />);
     expect(await screen.findByText('손익 현황을 불러오지 못했습니다.')).toBeInTheDocument();
+    expect(screen.getByTestId('pnl-report')).toHaveAttribute('data-state', 'ERROR');
     error.unmount();
 
     const forbiddenSource: PnlReportingSource = { load: vi.fn().mockRejectedValue(new PnlReportingSourceError('FORBIDDEN', 'forbidden')) };
-    const forbidden = render(<PnlStatusView initialYear={2026} reportingSource={forbiddenSource} />);
+    const forbidden = render(<PnlStatusView reportingSource={forbiddenSource} />);
     expect(await screen.findByText('손익 현황을 조회할 권한이 없습니다.')).toBeInTheDocument();
+    expect(screen.getByTestId('pnl-report')).toHaveAttribute('data-state', 'ERROR');
     forbidden.unmount();
 
-    render(<PnlStatusView initialYear={2026} reportingSource={source({ broken: true })} />);
+    render(<PnlStatusView reportingSource={source({ broken: true })} />);
     expect(await screen.findByText('손익 현황 데이터 형식을 확인할 수 없습니다.')).toBeInTheDocument();
+    expect(screen.getByTestId('pnl-report')).toHaveAttribute('data-state', 'ERROR');
   });
 
-  it('aborts an earlier request and ignores stale results', async () => {
+  it('bootstraps without a frontend year, switches using backend years, aborts stale requests, and resets report state', async () => {
     const resolvers: Array<(value: unknown) => void> = [];
     const signals: AbortSignal[] = [];
     const reportingSource: PnlReportingSource = { load: vi.fn((_year, signal) => {
       signals.push(signal);
       return new Promise((resolvePromise) => resolvers.push(resolvePromise));
     }) };
-    render(<PnlStatusView initialYear={2026} reportingSource={reportingSource} />);
+    render(<PnlStatusView reportingSource={reportingSource} />);
     await waitFor(() => expect(resolvers).toHaveLength(1));
-    fireEvent.click(screen.getByRole('button', { name: '손익 현황 새로고침' }));
+    expect(reportingSource.load).toHaveBeenNthCalledWith(1, null, expect.any(AbortSignal));
+    resolvers[0](reportingResult('MISSING_BOTH'));
+    expect(await screen.findByText('PLAN과 ACTUAL 데이터가 아직 등록되지 않았습니다.')).toBeInTheDocument();
+    fireEvent.change(screen.getByRole('combobox', { name: '기준년도' }), { target: { value: '2025' } });
     await waitFor(() => expect(resolvers).toHaveLength(2));
-    expect(signals[0].aborted).toBe(true);
-    resolvers[0]({ state: 'EMPTY' });
-    resolvers[1]({ state: 'DATA_READY', report: pnlReportingVisualFixture });
+    expect(reportingSource.load).toHaveBeenNthCalledWith(2, 2025, expect.any(AbortSignal));
+    fireEvent.click(screen.getByRole('button', { name: '손익 현황 새로고침' }));
+    await waitFor(() => expect(resolvers).toHaveLength(3));
+    expect(signals[1].aborted).toBe(true);
+    resolvers[1](reportingResult('MISSING_BOTH', null, 2025, [2026, 2025]));
+    const report2025 = {
+      ...pnlReportingVisualFixture,
+      reportKey: 'test-only-2025',
+      year: 2025,
+      periods: pnlReportingVisualFixture.periods.map((period) => ({ ...period, key: period.key.replace('2026', '2025') })),
+      selectedPeriodKey: pnlReportingVisualFixture.selectedPeriodKey.replace('2026', '2025'),
+      actualPeriodKeys: pnlReportingVisualFixture.actualPeriodKeys.map((key) => key.replace('2026', '2025')),
+      monthlyTrends: pnlReportingVisualFixture.monthlyTrends.map((trend) => ({ ...trend, periodKey: trend.periodKey.replace('2026', '2025') })),
+      pnlRows: pnlReportingVisualFixture.pnlRows.map((row) => reportingRowForYear(row, 2025)),
+      sgaRows: pnlReportingVisualFixture.sgaRows.map((row) => reportingRowForYear(row, 2025)),
+      productSegments: pnlReportingVisualFixture.productSegments.map((segment) => ({
+        ...segment,
+        rows: segment.rows.map((row) => reportingRowForYear(row, 2025)),
+      })),
+    };
+    resolvers[2](reportingResult('READY', report2025, 2025, [2026, 2025]));
     expect(await screen.findByTestId('revenue-trend-card')).toBeInTheDocument();
-    expect(screen.queryByText('선택한 조건의 손익 데이터가 없습니다.')).not.toBeInTheDocument();
+    expect(screen.getByRole('combobox', { name: '기준년도' })).toHaveValue('2025');
   });
 
   it('isolates fixtures and removes legacy runtime dependencies and business formulas from the production import graph', () => {

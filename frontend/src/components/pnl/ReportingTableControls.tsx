@@ -8,13 +8,15 @@ const MONTHS = ['1월', '2월', '3월', '4월', '5월', '6월', '7월', '8월', 
 
 interface ReportingTableControlsProps {
   mode: PnlReportingViewMode;
+  defaultRangeKey: string;
   onModeChange: (mode: PnlReportingViewMode) => void;
   onRangeApply: (start: string, end: string) => void;
 }
 
-export function ReportingTableControls({ mode, onModeChange, onRangeApply }: ReportingTableControlsProps) {
-  const [start, setStart] = useState('1월');
-  const [end, setEnd] = useState('6월');
+export function ReportingTableControls({ mode, defaultRangeKey, onModeChange, onRangeApply }: ReportingTableControlsProps) {
+  const [defaultStart, defaultEnd] = defaultRangeKey.split(':');
+  const [start, setStart] = useState(MONTHS.includes(defaultStart) ? defaultStart : MONTHS[0]);
+  const [end, setEnd] = useState(MONTHS.includes(defaultEnd) ? defaultEnd : MONTHS[0]);
 
   return <div className="pnl-report__table-controls">
     <div className="pnl-report__segmented" role="group" aria-label="표 보기 방식">
@@ -47,7 +49,7 @@ export function ReportingMonthSelector({ periods, actualPeriodKeys, selectedKey,
 
 export function displayCells(cells: PnlDisplayCell[] | undefined, expected: number): PnlDisplayCell[] {
   if (cells?.length === expected) return cells;
-  return Array.from({ length: expected }, () => ({ text: '—', tone: 'neutral' as const }));
+  return Array.from({ length: expected }, () => ({ value: null, text: '—', tone: 'neutral' as const, emphasis: 'normal' as const }));
 }
 
 export function ReportingValueCell({ cell }: { cell: PnlDisplayCell }) {

@@ -1,13 +1,27 @@
 import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AlertTriangle } from 'lucide-react';
 import { ApiClientError, AdminModelDto, PersistentDeleteBatchDto } from './types';
-import { bffClient } from './client';
+import {
+  bffClient,
+  PnlReportingWorkbookValidationError,
+  type PnlReportingUploadResponseDto,
+  type PnlReportingValidationIssueDto,
+} from './client';
 import { CalculationHistoryView } from './CalculationHistoryView';
 import { ManagementHeader } from './management/ManagementHeader';
 import { ModelUploadArea } from './management/ModelUploadArea';
 import { ModelListState, ModelTable, modelPeriodLabel } from './management/ModelTable';
 import { ModelDetailModal } from './management/ModelDetailModal';
 import { ModelDeleteConfirmModal } from './management/ModelDeleteConfirmModal';
+import {
+  PnlReportingUploadSection,
+  type PnlReportingActualSubmitPayload,
+  type PnlReportingExistingDatasetSummary,
+  type PnlReportingPlanSubmitPayload,
+  type PnlReportingUploadPresentation,
+  type PnlReportingValidationIssue,
+  type PnlReportingValidationSummary,
+} from './management/PnlReportingUploadSection';
 
 type UploadState = 'IDLE' | 'SELECTED' | 'UPLOADING' | 'SUCCESS' | 'VALIDATION_ERROR' | 'ERROR' | 'FORBIDDEN';
 type ModelType = 'PLAN' | 'ACTUAL' | 'FORECAST';
@@ -20,6 +34,71 @@ export interface ModelManagementViewProps {
   onNavigateToAnalysis?: () => void;
   onNavigateToAnalysisResult?: (resultId: string) => void;
   initialHistoryOpen?: boolean;
+  onPnlReportingChanged?: () => void;
+}
+
+type PnlUploadAttempt = {
+  file: File;
+  reportingYear: number;
+  actualThroughMonth: number | null;
+  idempotencyKey: string;
+};
+
+const PNL_UPLOAD_IDLE: PnlReportingUploadPresentation = { status: 'IDLE' };
+
+function uploadIssue(issue: PnlReportingValidationIssueDto): PnlReportingValidationIssue {
+  return {
+    ...issue,
+    severity: issue.severity === 'BLOCKING' ? 'ERROR' : 'WARNING',
+  };
+}
+
+function successValidation(response: PnlReportingUploadResponseDto): PnlReportingValidationSummary {
+  return {
+    status: 'VALID',
+    errorCount: 0,
+    warningCount: response.warnings.length,
+    truncated: false,
+    errors: [],
+    warnings: response.warnings.map(uploadIssue),
+  };
+}
+
+function invalidValidation(value: PnlReportingWorkbookValidationError): PnlReportingValidationSummary {
+  return {
+    ...value.summary,
+    errors: value.summary.errors.map(uploadIssue),
+    warnings: value.summary.warnings.map(uploadIssue),
+  };
+}
+
+function fieldValidation(value: ApiClientError): PnlReportingValidationSummary {
+  const errors = Object.entries(value.fieldErrors).map(([field, message]): PnlReportingValidationIssue => ({
+    severity: 'ERROR',
+    errorCode: 'VALIDATION_ERROR',
+    field,
+    message,
+  }));
+  return {
+    status: 'INVALID',
+    errorCount: errors.length,
+    warningCount: 0,
+    truncated: false,
+    errors,
+    warnings: [],
+  };
+}
+
+function pnlUploadMessage(value: unknown): string {
+  if (!(value instanceof ApiClientError)) return '업로드 요청을 처리할 수 없습니다. 같은 파일로 다시 시도하세요.';
+  if (value.status === 401 || value.code === 'AUTH_REQUIRED') return '로그인 세션이 만료되었습니다. 다시 로그인하세요.';
+  if (value.status === 403) return 'P&L Reporting 업로드 권한 또는 CSRF 보안 토큰을 확인하세요.';
+  if (value.code === 'IDEMPOTENCY_CONFLICT') return '동일한 업로드 키가 다른 입력에 사용되었습니다. 자동 재시도하지 않았습니다.';
+  if (value.code === 'INPUT_INTEGRITY_MISMATCH') return '업로드 입력 무결성을 확인할 수 없습니다. 관리자에게 문의하세요.';
+  if (value.code === 'INGESTION_CLEANUP_REQUIRED') return '업로드 정리가 필요합니다. 관리자 복구 절차를 진행하세요.';
+  if (value.status === 0 || value.status === 503) return '일시적인 연결 오류입니다. 같은 업로드 키로 다시 시도할 수 있습니다.';
+  if (value.status === 422 || value.code === 'VALIDATION_ERROR') return '업로드 입력값 또는 workbook 검증 결과를 확인하세요.';
+  return '업로드 요청을 처리할 수 없습니다. 같은 파일로 다시 시도하세요.';
 }
 
 type PublicationAction = {
@@ -46,7 +125,7 @@ function isForbidden(value: unknown): boolean {
   return value instanceof ApiClientError && (value.status === 403 || value.code === 'FORBIDDEN');
 }
 
-export function ModelManagementView({ onNavigateToForecast, onNavigateToAnalysis, onNavigateToAnalysisResult, initialHistoryOpen = false }: ModelManagementViewProps) {
+export function ModelManagementView({ onNavigateToForecast, onNavigateToAnalysis, onNavigateToAnalysisResult, initialHistoryOpen = false, onPnlReportingChanged }: ModelManagementViewProps) {
   const [models, setModels] = useState<AdminModelDto[]>([]);
   const [listState, setListState] = useState<ModelListState>('LOADING');
   const [listMessage, setListMessage] = useState<string | null>(null);
@@ -73,8 +152,114 @@ export function ModelManagementView({ onNavigateToForecast, onNavigateToAnalysis
   const [deleteResult, setDeleteResult] = useState<PersistentDeleteBatchDto | null>(null);
   const [deleteError, setDeleteError] = useState<string | null>(null);
   const uploadSubmittingRef = useRef(false);
+  const [pnlPlanState, setPnlPlanState] = useState<PnlReportingUploadPresentation>(PNL_UPLOAD_IDLE);
+  const [pnlActualState, setPnlActualState] = useState<PnlReportingUploadPresentation>(PNL_UPLOAD_IDLE);
+  const [pnlValidation, setPnlValidation] = useState<PnlReportingValidationSummary | null>(null);
+  const [existingPnlPlan, setExistingPnlPlan] = useState<PnlReportingExistingDatasetSummary | null>(null);
+  const [existingPnlActual, setExistingPnlActual] = useState<PnlReportingExistingDatasetSummary | null>(null);
+  const pnlPlanAttempt = useRef<PnlUploadAttempt | null>(null);
+  const pnlActualAttempt = useRef<PnlUploadAttempt | null>(null);
+  const pnlPlanPending = useRef(false);
+  const pnlActualPending = useRef(false);
 
   const publicationPendingRef = useRef(false);
+
+  function uploadKey(
+    current: PnlUploadAttempt | null,
+    file: File,
+    reportingYear: number,
+    actualThroughMonth: number | null,
+  ): PnlUploadAttempt {
+    if (current
+      && current.file === file
+      && current.reportingYear === reportingYear
+      && current.actualThroughMonth === actualThroughMonth) return current;
+    return { file, reportingYear, actualThroughMonth, idempotencyKey: crypto.randomUUID() };
+  }
+
+  async function submitPnlPlan(payload: PnlReportingPlanSubmitPayload) {
+    if (pnlPlanPending.current) return;
+    const attempt = uploadKey(pnlPlanAttempt.current, payload.file, payload.reportingYear, null);
+    pnlPlanAttempt.current = attempt;
+    pnlPlanPending.current = true;
+    setPnlPlanState({ status: 'PENDING' });
+    setPnlValidation(null);
+    try {
+      const response = await bffClient.uploadPnlReportingPlan({
+        reportingYear: payload.reportingYear,
+        idempotencyKey: attempt.idempotencyKey,
+        file: payload.file,
+      });
+      setPnlPlanState({
+        status: 'SUCCESS',
+        reportingYear: response.reportingYear,
+        registeredAt: response.uploadedAt,
+        replacedExisting: response.supersededDatasetId !== null,
+        warningCount: response.warnings.length,
+      });
+      setExistingPnlPlan({ reportingYear: response.reportingYear, registeredAt: response.uploadedAt });
+      setPnlValidation(successValidation(response));
+      pnlPlanAttempt.current = null;
+      onPnlReportingChanged?.();
+    } catch (value) {
+      if (value instanceof PnlReportingWorkbookValidationError) {
+        setPnlPlanState({ status: 'INVALID', message: pnlUploadMessage(value) });
+        setPnlValidation(invalidValidation(value));
+      } else {
+        setPnlPlanState({ status: value instanceof ApiClientError && value.status === 422 ? 'INVALID' : 'ERROR', message: pnlUploadMessage(value) });
+        setPnlValidation(value instanceof ApiClientError && value.status === 422 ? fieldValidation(value) : {
+          status: 'ERROR', errorCount: 0, warningCount: 0, truncated: false, errors: [], warnings: [],
+        });
+      }
+    } finally {
+      pnlPlanPending.current = false;
+    }
+  }
+
+  async function submitPnlActual(payload: PnlReportingActualSubmitPayload) {
+    if (pnlActualPending.current) return;
+    const attempt = uploadKey(pnlActualAttempt.current, payload.file, payload.reportingYear, payload.actualThroughMonth);
+    pnlActualAttempt.current = attempt;
+    pnlActualPending.current = true;
+    setPnlActualState({ status: 'PENDING' });
+    setPnlValidation(null);
+    try {
+      const response = await bffClient.uploadPnlReportingActual({
+        reportingYear: payload.reportingYear,
+        actualThroughMonth: payload.actualThroughMonth,
+        idempotencyKey: attempt.idempotencyKey,
+        file: payload.file,
+      });
+      setPnlActualState({
+        status: 'SUCCESS',
+        reportingYear: response.reportingYear,
+        actualThroughMonth: response.actualThroughMonth ?? undefined,
+        registeredAt: response.uploadedAt,
+        replacedExisting: response.supersededDatasetId !== null,
+        warningCount: response.warnings.length,
+      });
+      setExistingPnlActual({
+        reportingYear: response.reportingYear,
+        actualThroughMonth: response.actualThroughMonth ?? undefined,
+        registeredAt: response.uploadedAt,
+      });
+      setPnlValidation(successValidation(response));
+      pnlActualAttempt.current = null;
+      onPnlReportingChanged?.();
+    } catch (value) {
+      if (value instanceof PnlReportingWorkbookValidationError) {
+        setPnlActualState({ status: 'INVALID', message: pnlUploadMessage(value) });
+        setPnlValidation(invalidValidation(value));
+      } else {
+        setPnlActualState({ status: value instanceof ApiClientError && value.status === 422 ? 'INVALID' : 'ERROR', message: pnlUploadMessage(value) });
+        setPnlValidation(value instanceof ApiClientError && value.status === 422 ? fieldValidation(value) : {
+          status: 'ERROR', errorCount: 0, warningCount: 0, truncated: false, errors: [], warnings: [],
+        });
+      }
+    } finally {
+      pnlActualPending.current = false;
+    }
+  }
 
   const refresh = useCallback(async () => {
     setListState('LOADING');
@@ -282,6 +467,17 @@ export function ModelManagementView({ onNavigateToForecast, onNavigateToAnalysis
       onFileChange={selectFile}
       onSubmit={upload}
     />}
+
+    <PnlReportingUploadSection
+      templateDownloadAvailable={false}
+      planState={pnlPlanState}
+      actualState={pnlActualState}
+      validationSummary={pnlValidation}
+      existingPlan={existingPnlPlan}
+      existingActual={existingPnlActual}
+      onPlanSubmit={(payload) => void submitPnlPlan(payload)}
+      onActualSubmit={(payload) => void submitPnlActual(payload)}
+    />
 
     {publicationMessage && <div className={`data-management__notice ${publicationError ? 'is-error' : 'is-success'}`} role={publicationError ? 'alert' : 'status'}>{publicationMessage}</div>}
 

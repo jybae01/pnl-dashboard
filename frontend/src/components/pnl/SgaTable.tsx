@@ -25,7 +25,7 @@ export function SgaTable({ rows, periods, actualPeriodKeys, initialPeriodKey, de
   return <section className="pnl-report__table-container" data-testid="sga-table-shell">
     <header className="pnl-report__table-toolbar">
       <div className="pnl-report__table-toolbar-primary"><div className="pnl-report__table-title"><Landmark size={16} color="#7c3aed" />판매관리비 내역</div>{mode === 'PLAN_ACTUAL_COMPARE' && <ReportingMonthSelector periods={periods} actualPeriodKeys={actualPeriodKeys} selectedKey={periodKey} latestKey={initialPeriodKey} onSelect={setPeriodKey} />}</div>
-      <ReportingTableControls mode={mode} onModeChange={setMode} onRangeApply={(start, end) => setRangeKey(`${start}:${end}`)} />
+      <ReportingTableControls mode={mode} defaultRangeKey={defaultCustomRangeKey} onModeChange={setMode} onRangeApply={(start, end) => setRangeKey(`${start}:${end}`)} />
     </header>
     <div className="pnl-report__table-wrap">
       <div className="pnl-report__table-unit" style={{ width: tableWidth }}>(단위: 백만원, %)</div>

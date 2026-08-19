@@ -2,6 +2,9 @@ from pathlib import Path
 
 
 MIGRATION = Path("supabase/migrations/202608190002_pnl_reporting_viewer_read_slice_c.sql")
+BOOTSTRAP_MIGRATION = Path(
+    "supabase/migrations/202608190003_pnl_reporting_viewer_year_bootstrap.sql"
+)
 
 
 def test_viewer_rpc_is_additive_service_role_only_and_fixed_search_path():
@@ -38,3 +41,17 @@ def test_viewer_rpc_reads_only_active_canonical_identity_without_reporting_arith
     assert "pnl_dashboard" not in text
     assert "revenue" not in text
     assert "margin" not in text
+
+
+def test_viewer_year_bootstrap_is_backend_authoritative_and_service_role_only():
+    text = BOOTSTRAP_MIGRATION.read_text(encoding="utf-8").casefold()
+    assert "p_reporting_year integer default null" in text
+    assert "'selected_year', v_selected_year" in text
+    assert "pg_catalog.max(active.reporting_year)" in text
+    assert "pg_catalog.date_part('year', pg_catalog.now())" in text
+    assert "where active.reporting_year = v_selected_year" in text
+    assert "set search_path = ''" in text
+    assert "from public, anon, authenticated, service_role" in text
+    assert "to service_role" in text
+    assert "to authenticated" not in text
+    assert "to anon" not in text

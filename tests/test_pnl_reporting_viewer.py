@@ -162,8 +162,12 @@ def _dataset(
     }
 
 
-def _source(*datasets, years=(2026,)):
-    return {"available_years": list(years), "datasets": list(datasets)}
+def _source(*datasets, years=(2026,), selected_year=2026):
+    return {
+        "selected_year": selected_year,
+        "available_years": list(years),
+        "datasets": list(datasets),
+    }
 
 
 def _service(source):
@@ -399,7 +403,7 @@ def _http_client(source):
     ))
 
 
-def test_viewer_endpoint_auth_required_year_no_csrf_and_private_no_store():
+def test_viewer_endpoint_auth_optional_year_no_csrf_and_private_no_store():
     source = _source(_dataset(DatasetType.PLAN), _dataset(DatasetType.ACTUAL, through=6))
     client = _http_client(source)
     assert client.get("/api/viewer/pnl-reporting?year=2026").status_code == 401
@@ -415,7 +419,10 @@ def test_viewer_endpoint_auth_required_year_no_csrf_and_private_no_store():
     assert admin.status_code == 200
     assert admin.json()["reportingState"] == "READY"
 
-    assert client.get("/api/viewer/pnl-reporting").status_code == 422
+    bootstrap = client.get("/api/viewer/pnl-reporting")
+    assert bootstrap.status_code == 200
+    assert bootstrap.json()["metadata"]["selectedYear"] == 2026
+    assert bootstrap.json()["metadata"]["availableYears"] == [2026]
     assert client.get("/api/viewer/pnl-reporting?year=not-a-year").status_code == 422
     assert client.get("/api/viewer/pnl-reporting?year=1999").status_code == 422
 
@@ -461,6 +468,15 @@ def test_malformed_gateway_payload_is_a_safe_integrity_error():
     assert caught.value.code.value == "INPUT_INTEGRITY_MISMATCH"
 
 
+def test_explicit_year_also_requires_matching_backend_selected_year_metadata():
+    source = _source()
+    source.pop("selected_year")
+    sessions, _, service = _service(source)
+    with pytest.raises(BffError) as caught:
+        service.viewer_read(sessions.login("viewer-code").session_id, 2026)
+    assert caught.value.code.value == "INPUT_INTEGRITY_MISMATCH"
+
+
 def test_supabase_read_gateway_calls_only_the_narrow_rpc_and_never_storage():
     class Client:
         def __init__(self):
@@ -473,16 +489,21 @@ def test_supabase_read_gateway_calls_only_the_narrow_rpc_and_never_storage():
         def rpc(self, name, params):
             self.calls.append((name, params))
             return SimpleNamespace(execute=lambda: SimpleNamespace(data={
+                "selected_year": 2026,
                 "available_years": [2026],
                 "datasets": [],
             }))
 
     client = Client()
     gateway = SupabasePnlReportingReadGateway(client)
-    assert gateway.load_active(2026) == {"available_years": [2026], "datasets": []}
+    assert gateway.load_active(None) == {
+        "selected_year": 2026,
+        "available_years": [2026],
+        "datasets": [],
+    }
     assert client.calls == [(
         "get_pnl_reporting_viewer_source",
-        {"p_reporting_year": 2026},
+        {"p_reporting_year": None},
     )]
 
 

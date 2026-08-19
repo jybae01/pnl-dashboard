@@ -220,13 +220,16 @@ describe('P&L reporting upload UI shell', () => {
     expect(window.localStorage.length).toBe(0);
   });
 
-  it('stays outside the production graph and contains no API, fake async, persistence, parser, or business-formula path', () => {
+  it('is mounted in Data Management while the frozen shell contains no API, persistence, parser, or business-formula path', () => {
     const appSource = readFileSync(resolve(process.cwd(), 'src/App.tsx'), 'utf8');
     const managementSource = readFileSync(resolve(process.cwd(), 'src/integration/ModelManagementView.tsx'), 'utf8');
     const pnlSource = readFileSync(resolve(process.cwd(), 'src/views/PnlStatusView.tsx'), 'utf8');
     const componentSource = readFileSync(resolve(process.cwd(), 'src/integration/management/PnlReportingUploadSection.tsx'), 'utf8');
 
-    expect(`${appSource}\n${managementSource}\n${pnlSource}`).not.toContain('PnlReportingUploadSection');
+    expect(managementSource).toContain("import {\n  PnlReportingUploadSection,");
+    expect(managementSource).toContain('<PnlReportingUploadSection');
+    expect(appSource).toContain('onPnlReportingChanged');
+    expect(pnlSource).not.toContain('PnlReportingUploadSection');
     expect(componentSource).not.toMatch(/bffClient|fetch\s*\(|\/api\/(admin|viewer)\/pnl-reporting/i);
     expect(componentSource).not.toMatch(/\bsupabase\b|\bstorage\b|\blocalStorage\b|\bsessionStorage\b|from\s+['"][^'"]*parser/i);
     expect(componentSource).not.toMatch(/setTimeout|Promise\.resolve|new Promise/i);

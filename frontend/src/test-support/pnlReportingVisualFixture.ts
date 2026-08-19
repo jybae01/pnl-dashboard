@@ -11,12 +11,15 @@ import type {
   PnlStatementRowSlot,
 } from '../types/pnlReporting';
 
-const PERIOD = '2026-06';
 const RANGE = '1월:6월';
+const PERIOD_KEYS = Array.from({ length: 12 }, (_, index) => `2026-${String(index + 1).padStart(2, '0')}`);
+const RANGE_KEYS = Array.from({ length: 12 }, (_, startIndex) => (
+  Array.from({ length: 12 - startIndex }, (_, offset) => `${startIndex + 1}월:${startIndex + offset + 1}월`)
+)).flat();
 const ACTUAL_MONTH_VALUES = ['101', '102', '103', '104', '0', '106', '107', '108', '109', '110', '111', '112'];
 
 function cell(text: string, tone: PnlDisplayCell['tone'] = 'neutral', emphasis: PnlDisplayCell['emphasis'] = 'normal'): PnlDisplayCell {
-  return { text, tone, emphasis };
+  return { value: null, text, tone, emphasis };
 }
 
 function statementRow(
@@ -34,9 +37,15 @@ function statementRow(
     kind: options.kind ?? 'default',
     parentKey: options.parentKey,
     collapsible: options.collapsible,
-    compareByPeriod: { [PERIOD]: values.slice(0, 8).map((value, index) => cell(value, [2, 3, 6, 7].includes(index) ? 'favorable' : 'neutral')) },
+    compareByPeriod: Object.fromEntries(PERIOD_KEYS.map((periodKey) => [
+      periodKey,
+      values.slice(0, 8).map((value, index) => cell(value, [2, 3, 6, 7].includes(index) ? 'favorable' : 'neutral')),
+    ])),
     actualOnly: [...ACTUAL_MONTH_VALUES, '1,173'].map((value) => cell(value)),
-    customByRange: { [RANGE]: values.slice(0, 4).map((value) => cell(value)) },
+    customByRange: Object.fromEntries(RANGE_KEYS.map((rangeKey) => [
+      rangeKey,
+      values.slice(0, 4).map((value) => cell(value)),
+    ])),
   };
 }
 
@@ -96,15 +105,19 @@ function productSegment(config:
     statementRow(`${config.key}_sga`, `${newBusiness ? '4' : '6'}. 판매관리비`, '백만원', ['56', '58', '+2', '+3.6%', '320', '340', '+20', '+6.3%']),
     statementRow(`${config.key}_op`, `${newBusiness ? '5' : '7'}. 영업이익`, '백만원', ['64', '72', '+8', '+12.5%', '360', '405', '+45', '+12.5%'], { kind: 'total' }),
     statementRow(`${config.key}_op_margin`, '• 영업이익률', '%', ['18.8%', '20.3%', '+1.5%p', '+1.5%p', '18.6%', '20.0%', '+1.4%p', '+1.4%p'], { level: 1 }),
-  ].map((row) => ({ ...row, customByRange: { [RANGE]: row.customByRange[RANGE].slice(0, 3) } }));
+  ].map((row) => ({
+    ...row,
+    customByRange: Object.fromEntries(Object.entries(row.customByRange).map(([rangeKey, cells]) => [rangeKey, cells.slice(0, 3)])),
+  }));
   return {
     ...config,
     rows,
   } as PnlProductSegmentSlot;
 }
 
+const cogsKeys = ['mfg_material', 'mfg_labor', 'mfg_outsourcing', 'mfg_other', 'mfg_total'];
 const cogsRows: PnlCogsRowSlot[] = ['원부재료비', '노무비', '외주가공비', '기타 제조경비', '합계'].map((label, index) => ({
-  key: `cogs_${index}`,
+  key: cogsKeys[index],
   label,
   kind: index === 4 ? 'total' : 'default',
   cells: [
@@ -120,9 +133,9 @@ const monthlyTrends: PnlMonthlyTrendSlot[] = Array.from({ length: 12 }, (_, inde
   const zeroActual = month === 5;
   const actualRevenue = zeroActual ? 0 : 10950 + index * 310;
   const actualOperatingProfit = zeroActual ? 0 : 810 + index * 88;
-  const actualOperatingMargin = zeroActual ? 0 : 7.4 + index * .52;
+  const actualOperatingMargin = zeroActual ? null : 7.4 + index * .52;
   const actualAdjustedOperatingProfit = zeroActual ? 0 : 940 + index * 86;
-  const actualAdjustedOperatingMargin = zeroActual ? 0 : 8.6 + index * .48;
+  const actualAdjustedOperatingMargin = zeroActual ? null : 8.6 + index * .48;
   return {
     periodKey: `2026-${String(month).padStart(2, '0')}`,
     label: `${month}월`,
@@ -170,7 +183,7 @@ const monthlyDataRows: PnlMonthlyDataRow[] = [
     label,
     tone: rowTone,
     cells: Array.from({ length: 12 }, (_, monthIndex) => {
-      if (actualMonthlyRowTones.has(rowTone) && monthIndex === 4) return cell(marginMonthlyRowTones.has(rowTone) ? '0.0%' : '0');
+      if (actualMonthlyRowTones.has(rowTone) && monthIndex === 4) return cell(marginMonthlyRowTones.has(rowTone) ? '—' : '0');
       return cell(`${100 + rowIndex * 10 + monthIndex}`);
     }),
   };
@@ -179,6 +192,7 @@ const monthlyDataRows: PnlMonthlyDataRow[] = [
 const fullYearFixture: PnlReportingReadModel = {
   reportKey: 'test-only-visual-fixture',
   year: 2026,
+  templateVersion: 'PNL_REPORTING_V1',
   actualThroughMonth: 12,
   availableYears: [2026, 2025],
   periods: Array.from({ length: 12 }, (_, index) => ({ key: `2026-${String(index + 1).padStart(2, '0')}`, label: `${index + 1}월`, isActual: true })),
@@ -186,9 +200,9 @@ const fullYearFixture: PnlReportingReadModel = {
   actualPeriodKeys: Array.from({ length: 12 }, (_, index) => `2026-${String(index + 1).padStart(2, '0')}`),
   defaultCustomRangeKey: RANGE,
   kpis: [
-    { key: 'revenue', label: '매출액', amountText: '7,420', unitText: '백만원', progressText: '61.8%', achievementText: '104.5%', tone: 'favorable' },
-    { key: 'operating_profit', label: '영업이익', amountText: '1,090', unitText: '백만원', progressText: '58.2%', achievementText: '121.1%', tone: 'favorable' },
-    { key: 'adjusted_operating_profit', label: '조정 영업이익', amountText: '1,140', unitText: '백만원', progressText: '60.4%', achievementText: '118.7%', tone: 'favorable' },
+    { key: 'revenue', label: '매출액', amount: 7420, amountText: '7,420', unitText: '백만원', annualPlan: 12000, ytdPlan: 7100, ytdActual: 7420, progress: 61.8, progressText: '61.8%', achievement: 104.5, achievementText: '104.5%', tone: 'favorable' },
+    { key: 'operating_profit', label: '영업이익', amount: 1090, amountText: '1,090', unitText: '백만원', annualPlan: 1873, ytdPlan: 900, ytdActual: 1090, progress: 58.2, progressText: '58.2%', achievement: 121.1, achievementText: '121.1%', tone: 'favorable' },
+    { key: 'adjusted_operating_profit', label: '조정 영업이익', amount: 1140, amountText: '1,140', unitText: '백만원', annualPlan: 1887, ytdPlan: 960, ytdActual: 1140, progress: 60.4, progressText: '60.4%', achievement: 118.7, achievementText: '118.7%', tone: 'favorable' },
   ],
   monthlyTrends,
   monthlyDataRows,
@@ -225,6 +239,7 @@ export function createPnlReportingVisualFixture(actualThroughMonth = 6): PnlRepo
     periods,
     selectedPeriodKey: actualPeriodKeys[actualPeriodKeys.length - 1],
     actualPeriodKeys,
+    defaultCustomRangeKey: `1월:${actualThroughMonth}월`,
     monthlyTrends: fullYearFixture.monthlyTrends.map((trend, index) => index < actualThroughMonth ? trend : {
       ...trend,
       actualAvailable: false,

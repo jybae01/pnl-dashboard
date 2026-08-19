@@ -29,7 +29,7 @@ export function ProductSegmentPnlTable({ segments, periods, actualPeriodKeys, in
         <div className="pnl-report__segmented pnl-report__segment-selector" role="group" aria-label="제품군 선택">{segments.map((item) => <button type="button" key={item.key} className={item.key === segment?.key ? 'active' : ''} data-unit={item.businessUnit ?? undefined} data-dimension={item.dimensionLabel ?? undefined} onClick={() => setSegmentKey(item.key)}>{item.label}</button>)}</div>
         {mode === 'PLAN_ACTUAL_COMPARE' && <ReportingMonthSelector periods={periods} actualPeriodKeys={actualPeriodKeys} selectedKey={periodKey} latestKey={initialPeriodKey} onSelect={setPeriodKey} />}
       </div>
-      <ReportingTableControls mode={mode} onModeChange={setMode} onRangeApply={(start, end) => setRangeKey(`${start}:${end}`)} />
+      <ReportingTableControls mode={mode} defaultRangeKey={defaultCustomRangeKey} onModeChange={setMode} onRangeApply={(start, end) => setRangeKey(`${start}:${end}`)} />
     </header>
     {segment ? <div className="pnl-report__table-wrap">
       <div className="pnl-report__table-unit" style={{ width: tableWidth }}>{segment.businessUnit ? `(단위: 백만원, ${segment.businessUnit}, 원, %)` : '(단위: 백만원, 원, %)'}</div>
