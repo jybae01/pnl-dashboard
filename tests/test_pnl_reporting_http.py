@@ -230,8 +230,9 @@ def test_actual_future_value_is_422_while_zero_actual_value_is_accepted():
     assert zero.status_code == 201
 
 
-def test_template_endpoint_remains_deferred():
+def test_template_endpoint_fails_closed_when_capability_is_not_configured():
     client, _ = fixture()
-    csrf = login(client)
-    assert client.get("/api/admin/pnl-reporting/template").status_code == 404
-    assert csrf
+    login(client)
+    response = client.get("/api/admin/pnl-reporting/template")
+    assert response.status_code == 503
+    assert response.json()["error"]["code"] == ApiErrorCode.TRANSIENT_SYSTEM_ERROR.value

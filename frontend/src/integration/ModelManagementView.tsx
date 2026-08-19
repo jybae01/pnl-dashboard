@@ -101,6 +101,17 @@ function pnlUploadMessage(value: unknown): string {
   return '업로드 요청을 처리할 수 없습니다. 같은 파일로 다시 시도하세요.';
 }
 
+function pnlTemplateDownloadMessage(value: unknown): string {
+  if (!(value instanceof ApiClientError)) return 'P&L Reporting 표준 양식을 내려받을 수 없습니다. 잠시 후 다시 시도하세요.';
+  if (value.status === 401 || value.code === 'AUTH_REQUIRED') return '로그인 세션이 만료되었습니다. 다시 로그인하세요.';
+  if (value.status === 403 || value.code === 'FORBIDDEN') return 'P&L Reporting 표준 양식 다운로드 권한이 없습니다.';
+  if (value.status >= 500 || value.code === 'INPUT_INTEGRITY_MISMATCH') {
+    return 'P&L Reporting 표준 양식을 내려받을 수 없습니다. 시스템 관리자에게 문의하세요.';
+  }
+  if (value.status === 0) return '다운로드 서버에 연결할 수 없습니다. 잠시 후 다시 시도하세요.';
+  return 'P&L Reporting 표준 양식을 내려받을 수 없습니다. 잠시 후 다시 시도하세요.';
+}
+
 type PublicationAction = {
   model: AdminModelDto;
   is_published: boolean;
@@ -157,10 +168,12 @@ export function ModelManagementView({ onNavigateToForecast, onNavigateToAnalysis
   const [pnlValidation, setPnlValidation] = useState<PnlReportingValidationSummary | null>(null);
   const [existingPnlPlan, setExistingPnlPlan] = useState<PnlReportingExistingDatasetSummary | null>(null);
   const [existingPnlActual, setExistingPnlActual] = useState<PnlReportingExistingDatasetSummary | null>(null);
+  const [pnlTemplateError, setPnlTemplateError] = useState<string | null>(null);
   const pnlPlanAttempt = useRef<PnlUploadAttempt | null>(null);
   const pnlActualAttempt = useRef<PnlUploadAttempt | null>(null);
   const pnlPlanPending = useRef(false);
   const pnlActualPending = useRef(false);
+  const pnlTemplatePending = useRef(false);
 
   const publicationPendingRef = useRef(false);
 
@@ -258,6 +271,19 @@ export function ModelManagementView({ onNavigateToForecast, onNavigateToAnalysis
       }
     } finally {
       pnlActualPending.current = false;
+    }
+  }
+
+  async function downloadPnlReportingTemplate() {
+    if (pnlTemplatePending.current) return;
+    pnlTemplatePending.current = true;
+    setPnlTemplateError(null);
+    try {
+      await bffClient.downloadPnlReportingTemplate();
+    } catch (value) {
+      setPnlTemplateError(pnlTemplateDownloadMessage(value));
+    } finally {
+      pnlTemplatePending.current = false;
     }
   }
 
@@ -469,7 +495,8 @@ export function ModelManagementView({ onNavigateToForecast, onNavigateToAnalysis
     />}
 
     <PnlReportingUploadSection
-      templateDownloadAvailable={false}
+      templateDownloadAvailable
+      onTemplateDownload={() => void downloadPnlReportingTemplate()}
       planState={pnlPlanState}
       actualState={pnlActualState}
       validationSummary={pnlValidation}
@@ -478,6 +505,8 @@ export function ModelManagementView({ onNavigateToForecast, onNavigateToAnalysis
       onPlanSubmit={(payload) => void submitPnlPlan(payload)}
       onActualSubmit={(payload) => void submitPnlActual(payload)}
     />
+
+    {pnlTemplateError && <div className="data-management__notice is-error" role="alert">{pnlTemplateError}</div>}
 
     {publicationMessage && <div className={`data-management__notice ${publicationError ? 'is-error' : 'is-success'}`} role={publicationError ? 'alert' : 'status'}>{publicationMessage}</div>}
 

@@ -246,6 +246,7 @@ export const bffClient = {
   uploadPnlReportingActual: (input: Omit<PnlReportingUploadInput, 'datasetType'>) => (
     uploadPnlReporting({ ...input, datasetType: 'ACTUAL' })
   ),
+  downloadPnlReportingTemplate: () => downloadPnlReportingTemplate(),
   downloadEvidence: (resultId: string, role: Role) => downloadEvidence(resultId, role),
   downloadForecastWorkbook: (modelId: string) => downloadForecastWorkbook(modelId),
 };
@@ -353,6 +354,40 @@ async function downloadForecastInputTemplate(): Promise<void> {
   const blob = await response.blob();
   if (!blob.size) invalidPayload();
   deliverBlob(blob, safeXlsxFilename(response.headers.get('Content-Disposition'), 'Forecast_Input_Template.xlsx'));
+}
+
+async function downloadPnlReportingTemplate(): Promise<void> {
+  const response = await securedFetch('/api/admin/pnl-reporting/template', {
+    method: 'GET',
+    cache: 'no-store',
+  });
+  if (!response.ok) {
+    let code = 'TRANSIENT_SYSTEM_ERROR';
+    let message = 'P&L Reporting 표준 양식을 내려받을 수 없습니다.';
+    let correlationId = response.headers.get('X-Correlation-ID');
+    try {
+      const value: unknown = await response.json();
+      if (isRecord(value) && isRecord(value.error)) {
+        if (typeof value.error.code === 'string') code = value.error.code;
+        if (typeof value.error.message === 'string') message = value.error.message;
+        if (typeof value.error.correlation_id === 'string') correlationId = value.error.correlation_id;
+      }
+    } catch { /* safe fallback */ }
+    throw new ApiClientError(response.status, code, message, correlationId);
+  }
+  const contentType = response.headers.get('Content-Type')?.split(';', 1)[0].trim().toLowerCase();
+  if (contentType !== 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet') {
+    invalidPayload();
+  }
+  const blob = await response.blob();
+  if (!blob.size) invalidPayload();
+  deliverBlob(
+    blob,
+    safeXlsxFilename(
+      response.headers.get('Content-Disposition'),
+      'PNL_REPORTING_TEMPLATE_V1.xlsx',
+    ),
+  );
 }
 
 function validateForecastExcelPreview(value: unknown): ForecastExcelPreviewDto {
@@ -485,12 +520,15 @@ async function downloadForecastWorkbook(modelId: string): Promise<void> {
 
 function deliverBlob(blob: Blob, filename: string): void {
   const url = URL.createObjectURL(blob);
+  const anchor = document.createElement('a');
   try {
-    const anchor = document.createElement('a');
+    anchor.hidden = true;
     anchor.href = url;
     anchor.download = filename;
+    document.body.append(anchor);
     anchor.click();
   } finally {
+    anchor.remove();
     URL.revokeObjectURL(url);
   }
 }

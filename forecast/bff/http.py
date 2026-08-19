@@ -620,6 +620,35 @@ def create_http_bff(
             )
         return application.models.list_eligible(value)
 
+    @app.get("/api/admin/pnl-reporting/template")
+    def download_pnl_reporting_template(
+        request: Request,
+        value: str = Depends(admin_session),
+    ):
+        if application.pnl_reporting_template is None:
+            raise BffError(
+                ApiErrorCode.TRANSIENT_SYSTEM_ERROR,
+                "P&L Reporting template capability is not configured",
+            )
+        artifact = application.pnl_reporting_template.admin_download(value)
+        _operation_audit(
+            audit,
+            application,
+            value,
+            request,
+            "pnl_reporting_template_download",
+            artifact.filename,
+        )
+        return Response(
+            content=artifact.content,
+            media_type=artifact.media_type,
+            headers={
+                "Content-Disposition": content_disposition(artifact.filename),
+                "Cache-Control": "private, no-store",
+                "X-Content-Type-Options": "nosniff",
+            },
+        )
+
     @app.get("/api/admin/models")
     def list_admin_models(value: str = Depends(admin_session)):
         if application.model_management is None:

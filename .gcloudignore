@@ -11,6 +11,7 @@ __pycache__
 *.pyc
 *.pyo
 *.xlsx
+!forecast/bff/resources/PNL_REPORTING_TEMPLATE_V1.xlsx
 *.xls
 *.xlsm
 *.xlsb

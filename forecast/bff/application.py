@@ -489,6 +489,7 @@ class TrustedBffApplication:
         persistent_delete: Any | None = None,
         pnl_reporting_ingestion: Any | None = None,
         pnl_reporting_read: Any | None = None,
+        pnl_reporting_template: Any | None = None,
     ) -> None:
         self.sessions = sessions
         self.submissions = submissions
@@ -512,6 +513,7 @@ class TrustedBffApplication:
         self.persistent_delete = persistent_delete
         self.pnl_reporting_ingestion = pnl_reporting_ingestion
         self.pnl_reporting_read = pnl_reporting_read
+        self.pnl_reporting_template = pnl_reporting_template
 
     def login(self, access_code: str) -> SessionTicket:
         return self.sessions.login(access_code)
