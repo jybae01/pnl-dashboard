@@ -251,17 +251,36 @@ describe('analysis presentation vertical slice', () => {
     fireEvent.click(screen.getByRole('button', { name: '변동비 상세 펼치기' }));
     const variableSga = screen.getByTestId('sga_variable-sga-subgroup');
     const variableSgaSubtotal = screen.getByTestId('sga_variable-sga-subtotal');
+    const variableSgaHeader = variableSga.querySelector('.variance-analysis__cost-subgroup-header')!;
     expect(variableSgaSubtotal).toHaveTextContent('-4 백만원');
     expect(screen.getByTestId('sga_variable-manufacturing-subtotal')).toHaveTextContent('-2 백만원');
     expect(variableSgaSubtotal).toHaveClass('variance-analysis__tone--negative');
-    expect(variableSga.querySelector('.variance-analysis__cost-subgroup-header')).not.toHaveTextContent('합계');
+    expect(variableSgaHeader).toHaveTextContent('판관비 변동비손익 영향-4 백만원');
+    expect(variableSgaHeader).not.toHaveTextContent('합계');
+    expect(variableSgaHeader).toContainElement(screen.getByTestId('sga_variable-sga-subtotal-controls'));
+    expect(variableSgaHeader.nextElementSibling).toHaveClass('variance-analysis__cost-account-table');
+    const variableManufacturingHeader = screen.getByTestId('sga_variable-manufacturing-subgroup').querySelector('.variance-analysis__cost-subgroup-header')!;
+    expect(variableManufacturingHeader).toHaveTextContent('제조경비 변동비손익 영향-2 백만원');
+    expect(variableManufacturingHeader.nextElementSibling).toHaveClass('variance-analysis__cost-account-table');
     fireEvent.click(within(variableSga).getByRole('button', { name: '일반관리비' }));
     expect(variableSgaSubtotal).toHaveTextContent('-4 백만원');
 
     fireEvent.click(screen.getByRole('button', { name: '고정비 상세 펼치기' }));
-    expect(screen.getByTestId('sga_fixed-sga-subtotal')).toHaveTextContent('+2 백만원');
-    expect(screen.getByTestId('sga_fixed-sga-subtotal')).toHaveClass('variance-analysis__tone--positive');
-    expect(screen.getByTestId('sga_fixed-manufacturing-subtotal')).toHaveTextContent('-4 백만원');
+    const fixedSgaSubtotal = screen.getByTestId('sga_fixed-sga-subtotal');
+    expect(fixedSgaSubtotal).toHaveTextContent('+2 백만원');
+    expect(fixedSgaSubtotal).toHaveClass('variance-analysis__tone--positive');
+    const fixedSgaHeader = fixedSgaSubtotal.closest('.variance-analysis__cost-subgroup-header')!;
+    expect(fixedSgaHeader).toHaveTextContent('판관비 고정비손익 영향+2 백만원');
+    expect(fixedSgaHeader).toContainElement(screen.getByTestId('sga_fixed-sga-subtotal-controls'));
+    expect(fixedSgaHeader.nextElementSibling).toHaveClass('variance-analysis__cost-account-table');
+    const fixedManufacturingSubtotal = screen.getByTestId('sga_fixed-manufacturing-subtotal');
+    const fixedManufacturingHeader = fixedManufacturingSubtotal.closest('.variance-analysis__cost-subgroup-header')!;
+    expect(fixedManufacturingSubtotal).toHaveTextContent('-4 백만원');
+    expect(fixedManufacturingHeader).toHaveTextContent('제조경비 고정비손익 영향-4 백만원');
+    expect(fixedManufacturingHeader.nextElementSibling).toHaveClass('variance-analysis__cost-account-table');
+    for (const header of [variableSgaHeader, variableManufacturingHeader, fixedSgaHeader, fixedManufacturingHeader]) {
+      expect(header).not.toHaveTextContent(/합계|총액/);
+    }
   });
 
   it('removes drilldown controls from sales FX and inventory while preserving click selection', () => {

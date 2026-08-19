@@ -835,11 +835,10 @@
 
 .variance-analysis__cost-subgroup-header {
   display: flex;
-  flex-direction: column;
-  align-items: stretch;
-  gap: 10px;
-  min-height: 48px;
-  padding: 11px 14px 12px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 12px;
   border-bottom: 1px solid #e2e8f0;
   background: #f8fafc;
 }
@@ -847,9 +846,9 @@
 .variance-analysis__cost-subgroup-title-row {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 14px;
+  gap: 6px;
   min-width: 0;
+  white-space: nowrap;
 }
 
 .variance-analysis__cost-subgroup-header h4 {
@@ -857,6 +856,12 @@
   color: #334155;
   font-size: 12.5px;
   font-weight: 800;
+}
+
+.variance-analysis__cost-subtotal-label {
+  color: #64748b;
+  font-size: 12px;
+  font-weight: 600;
 }
 
 .variance-analysis__cost-subtotal {
@@ -869,9 +874,12 @@
 
 .variance-analysis__cost-subgroup-controls {
   display: flex;
+  flex: 0 0 auto;
   justify-content: flex-end;
-  min-height: 34px;
+  margin-left: auto;
 }
+
+.variance-analysis__cost-subgroup-header .variance-analysis__sga-toggle { width: auto; }
 
 .variance-analysis__sga-toggle {
   display: inline-grid;

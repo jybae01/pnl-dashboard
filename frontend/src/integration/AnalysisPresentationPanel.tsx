@@ -437,6 +437,7 @@ function CostSubgroupHeader({
     <div className="variance-analysis__cost-subgroup-header">
       <div className="variance-analysis__cost-subgroup-title-row">
         <h4>{title}</h4>
+        <span className="variance-analysis__cost-subtotal-label">손익 영향</span>
         <strong
           className={`variance-analysis__cost-subtotal tabular-nums variance-analysis__tone--${profitEffectTone(subtotal)}`}
           data-testid={testId}
@@ -444,7 +445,7 @@ function CostSubgroupHeader({
           {formatMillions(subtotal, true)}
         </strong>
       </div>
-      {children && <div className="variance-analysis__cost-subgroup-controls">{children}</div>}
+      {children && <div className="variance-analysis__cost-subgroup-controls" data-testid={`${testId}-controls`}>{children}</div>}
     </div>
   );
 }
