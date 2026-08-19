@@ -30,6 +30,10 @@ from .model_ingestion import (
 )
 from ..persistence.supabase import SupabaseResultPublicationRepository
 from .persistent_delete import PersistentDeleteService, SupabasePersistentDeleteGateway
+from .pnl_reporting_ingestion import (
+    PnlReportingIngestionService,
+    SupabasePnlReportingGateway,
+)
 
 
 def create_supabase_bff_application(
@@ -175,5 +179,8 @@ def create_supabase_bff_application(
         ),
         persistent_delete=PersistentDeleteService(
             sessions, SupabasePersistentDeleteGateway(supabase_client)
+        ),
+        pnl_reporting_ingestion=PnlReportingIngestionService(
+            sessions, SupabasePnlReportingGateway(supabase_client)
         ),
     )

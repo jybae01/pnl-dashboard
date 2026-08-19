@@ -487,6 +487,7 @@ class TrustedBffApplication:
         forecast_production_allocation: Any | None = None,
         forecast_input_preview: Any | None = None,
         persistent_delete: Any | None = None,
+        pnl_reporting_ingestion: Any | None = None,
     ) -> None:
         self.sessions = sessions
         self.submissions = submissions
@@ -508,6 +509,7 @@ class TrustedBffApplication:
         self.forecast_generation = forecast_generation
         self.worker_administration = worker_administration
         self.persistent_delete = persistent_delete
+        self.pnl_reporting_ingestion = pnl_reporting_ingestion
 
     def login(self, access_code: str) -> SessionTicket:
         return self.sessions.login(access_code)

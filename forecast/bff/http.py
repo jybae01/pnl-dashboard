@@ -27,6 +27,11 @@ from .application import TrustedBffApplication
 from .dto import AnalysisSubmitRequest, ModelUploadRequest
 from .errors import ApiErrorCode, BffError
 from .model_ingestion import MAX_WORKBOOK_BYTES
+from .pnl_reporting_ingestion import (
+    PnlReportingUploadRequest,
+    PnlReportingValidationFailure,
+)
+from ..reporting import DatasetType
 from .forecast_orchestration import (
     ForecastAdjustmentInput, ForecastGenerateRequest, ForecastMonthInput,
     ForecastQuantityInput, ForecastSalesInput,
@@ -355,7 +360,12 @@ def create_http_bff(
     @app.middleware("http")
     async def correlation_id(request: Request, call_next):
         request.state.correlation_id = str(uuid.uuid4())
-        upload_request = request.method == "POST" and request.url.path == "/api/admin/models"
+        model_upload_request = request.method == "POST" and request.url.path == "/api/admin/models"
+        reporting_upload_request = request.method == "POST" and request.url.path in {
+            "/api/admin/pnl-reporting/plan",
+            "/api/admin/pnl-reporting/actual",
+        }
+        upload_request = model_upload_request or reporting_upload_request
         forecast_request = request.method == "POST" and request.url.path == "/api/admin/forecasts"
         forecast_input_preview_request = (
             request.method == "POST" and request.url.path == "/api/admin/forecasts/input-preview"
@@ -450,6 +460,25 @@ def create_http_bff(
         payload["code"] = exc.code.value
         payload["correlation_id"] = request.state.correlation_id
         return JSONResponse(status_code=status, content={"error": payload})
+
+    @app.exception_handler(PnlReportingValidationFailure)
+    async def pnl_reporting_validation_error(
+        request: Request,
+        exc: PnlReportingValidationFailure,
+    ) -> JSONResponse:
+        principal = getattr(request.state, "principal", None)
+        if principal is not None:
+            _audit(
+                audit,
+                event_type="mutation_failed",
+                principal_id=principal.actor_id,
+                role=principal.role,
+                session_ref=principal.session_ref,
+                correlation_id=request.state.correlation_id,
+                outcome="failed",
+                error_code="PNL_REPORTING_VALIDATION_FAILED",
+            )
+        return JSONResponse(status_code=422, content=dict(exc.payload))
 
     @app.exception_handler(RequestValidationError)
     async def validation_error(request: Request, exc: RequestValidationError) -> JSONResponse:
@@ -633,6 +662,108 @@ def create_http_bff(
             )
             _operation_audit(audit, application, value, request, "model_upload", result.model.model_id)
             return result
+        finally:
+            await file.close()
+            if staged is not None:
+                staged.unlink(missing_ok=True)
+
+    @app.post("/api/admin/pnl-reporting/plan", dependencies=[Depends(csrf_guard)])
+    async def upload_pnl_reporting_plan(
+        request: Request,
+        file: Annotated[UploadFile, File()],
+        reporting_year: Annotated[str, Form(min_length=1, max_length=16)],
+        idempotency_key: Annotated[str, Form(min_length=1, max_length=128)],
+        actual_through_month: Annotated[str | None, Form(max_length=16)] = None,
+        value: str = Depends(admin_session),
+    ):
+        if application.pnl_reporting_ingestion is None:
+            raise BffError(
+                ApiErrorCode.TRANSIENT_SYSTEM_ERROR,
+                "P&L Reporting ingestion capability is not configured",
+            )
+        submitted_form = await request.form()
+        if "actual_through_month" in submitted_form or actual_through_month is not None:
+            raise BffError(
+                ApiErrorCode.VALIDATION_ERROR,
+                "PLAN upload request is invalid",
+                field_errors={"actual_through_month": "must not be provided for PLAN"},
+            )
+        year = _reporting_integer(reporting_year, "reporting_year")
+        staged: Path | None = None
+        try:
+            staged = await _stage_upload(file)
+            result = await run_in_threadpool(
+                application.pnl_reporting_ingestion.ingest,
+                value,
+                PnlReportingUploadRequest(
+                    dataset_type=DatasetType.PLAN,
+                    reporting_year=year,
+                    actual_through_month=None,
+                    original_filename=file.filename or "",
+                    idempotency_key=idempotency_key,
+                ),
+                staged,
+            )
+            _operation_audit(
+                audit,
+                application,
+                value,
+                request,
+                "pnl_reporting_plan_upload",
+                result.dataset_id,
+            )
+            return JSONResponse(
+                status_code=200 if result.replayed else 201,
+                content=result.to_dict(),
+            )
+        finally:
+            await file.close()
+            if staged is not None:
+                staged.unlink(missing_ok=True)
+
+    @app.post("/api/admin/pnl-reporting/actual", dependencies=[Depends(csrf_guard)])
+    async def upload_pnl_reporting_actual(
+        request: Request,
+        file: Annotated[UploadFile, File()],
+        reporting_year: Annotated[str, Form(min_length=1, max_length=16)],
+        actual_through_month: Annotated[str, Form(min_length=1, max_length=16)],
+        idempotency_key: Annotated[str, Form(min_length=1, max_length=128)],
+        value: str = Depends(admin_session),
+    ):
+        if application.pnl_reporting_ingestion is None:
+            raise BffError(
+                ApiErrorCode.TRANSIENT_SYSTEM_ERROR,
+                "P&L Reporting ingestion capability is not configured",
+            )
+        year = _reporting_integer(reporting_year, "reporting_year")
+        through = _reporting_integer(actual_through_month, "actual_through_month")
+        staged: Path | None = None
+        try:
+            staged = await _stage_upload(file)
+            result = await run_in_threadpool(
+                application.pnl_reporting_ingestion.ingest,
+                value,
+                PnlReportingUploadRequest(
+                    dataset_type=DatasetType.ACTUAL,
+                    reporting_year=year,
+                    actual_through_month=through,
+                    original_filename=file.filename or "",
+                    idempotency_key=idempotency_key,
+                ),
+                staged,
+            )
+            _operation_audit(
+                audit,
+                application,
+                value,
+                request,
+                "pnl_reporting_actual_upload",
+                result.dataset_id,
+            )
+            return JSONResponse(
+                status_code=200 if result.replayed else 201,
+                content=result.to_dict(),
+            )
         finally:
             await file.close()
             if staged is not None:
@@ -1173,6 +1304,17 @@ async def _stage_upload(file: UploadFile) -> Path:
     except Exception:
         path.unlink(missing_ok=True)
         raise
+
+
+def _reporting_integer(value: str, field: str) -> int:
+    try:
+        return int(value)
+    except (TypeError, ValueError) as exc:
+        raise BffError(
+            ApiErrorCode.VALIDATION_ERROR,
+            "P&L Reporting upload request is invalid",
+            field_errors={field: "must be an integer"},
+        ) from exc
 
 
 async def _stage_input_preview_upload(file: UploadFile, max_bytes: int) -> Path:
