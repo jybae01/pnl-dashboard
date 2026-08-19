@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { CoreAnalysisView } from './CoreAnalysisView';
 import { CalculationHistoryView } from './CalculationHistoryView';
@@ -92,6 +92,7 @@ describe('Evidence and history vertical slice', () => {
     expect(screen.getAllByRole('button', { name: '결과 보기' })).toHaveLength(1);
     expect(screen.getAllByRole('button', { name: '분석 근거 엑셀 내려받기' })).toHaveLength(1);
     expect(screen.getAllByRole('button', { name: '공개 설정' })).toHaveLength(1);
+    expect(within(screen.getByRole('table')).getAllByRole('columnheader')).toHaveLength(7);
     expect(screen.queryByText(RESULT)).not.toBeInTheDocument();
     expect(screen.queryByText(JOB)).not.toBeInTheDocument();
 

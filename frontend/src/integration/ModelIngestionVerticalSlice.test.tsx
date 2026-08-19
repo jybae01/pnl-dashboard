@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { ModelManagementView } from './ModelManagementView';
 
@@ -35,7 +35,7 @@ function withEmptyHistory(fetcher: (input: RequestInfo | URL, init?: RequestInit
 }
 
 function openUpload() {
-  expect(screen.getByRole('heading', { name: '새 모형 등록' })).toBeInTheDocument();
+  expect(screen.getByRole('heading', { name: '손익 데이터 모형 등록' })).toBeInTheDocument();
 }
 
 function apiError(code: string, status = 422) {
@@ -58,11 +58,12 @@ describe('model management vertical slice', () => {
     expect(screen.getAllByText('추정').some((element) => element.classList.contains('data-management__scenario--forecast'))).toBe(true);
     expect(screen.getAllByText('실적').some((element) => element.classList.contains('data-management__scenario--actual'))).toBe(true);
     expect(screen.getByText('기본')).toBeInTheDocument();
-    expect(screen.getByText('2026년 7~12월')).toBeInTheDocument();
+    expect(screen.getAllByText('7~12월').length).toBeGreaterThan(0);
     expect(screen.queryByText(SHA)).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: /^2026 Forecast/ }));
-    fireEvent.click(screen.getByText('관리자 기술 정보'));
     expect(screen.getByText(SHA)).toBeInTheDocument();
+    const table = screen.getAllByRole('table')[0];
+    expect(within(table).getAllByRole('columnheader')).toHaveLength(10);
   });
 
   it('supports name/file/period search and type/publication filters', async () => {
@@ -79,7 +80,7 @@ describe('model management vertical slice', () => {
     fireEvent.change(screen.getByLabelText('공개 상태 필터'), { target: { value: 'PUBLISHED' } });
     expect(screen.getByText('조건에 맞는 모형이 없습니다.')).toBeInTheDocument();
     fireEvent.change(screen.getByLabelText('모형 검색'), { target: { value: '' } });
-    fireEvent.change(screen.getByLabelText('유형 필터'), { target: { value: 'PLAN' } });
+    fireEvent.click(within(screen.getByRole('group', { name: '유형 필터' })).getByRole('button', { name: '계획' }));
     expect(screen.getByText('Plan Budget')).toBeInTheDocument();
     expect(screen.queryByText('Forecast July')).not.toBeInTheDocument();
   });
@@ -130,6 +131,11 @@ describe('model management vertical slice', () => {
     expect((uploadInit.headers as Headers).get('Content-Type')).toBeNull();
     expect((uploadInit.headers as Headers).get('X-CSRF-Token')).toBe('test-csrf');
     const sentFile = (uploadInit.body as FormData).get('file');
+    expect((uploadInit.body as FormData).get('name')).toBe('Uploaded Forecast');
+    expect((uploadInit.body as FormData).get('model_type')).toBe('FORECAST');
+    expect((uploadInit.body as FormData).get('model_year')).toBe('2026');
+    expect((uploadInit.body as FormData).get('version')).toBe('V1');
+    expect(String((uploadInit.body as FormData).get('idempotency_key'))).not.toBe('');
     expect(sentFile).toBeInstanceOf(File);
     expect((sentFile as File).name).toBe('forecast.xlsx');
     expect((sentFile as File).size).toBe(new TextEncoder().encode('exact-browser-bytes').byteLength);
@@ -143,10 +149,25 @@ describe('model management vertical slice', () => {
     render(<ModelManagementView />);
     await screen.findByText('등록된 모형이 없습니다.');
     openUpload();
+    expect(screen.getByRole('button', { name: /^모형 등록$/ })).toBeDisabled();
     fireEvent.change(screen.getByLabelText('워크북 파일'), { target: { files: [new File(['csv'], 'bad.csv')] } });
     fireEvent.click(screen.getByRole('button', { name: /^모형 등록$/ }));
     expect(await screen.findByText('.xlsx 파일만 등록할 수 있습니다.')).toHaveAttribute('role', 'alert');
+    fireEvent.change(screen.getByLabelText('워크북 파일'), { target: { files: [new File(['xls'], 'legacy.xls')] } });
+    fireEvent.click(screen.getByRole('button', { name: /^모형 등록$/ }));
+    expect(await screen.findByText('.xlsx 파일만 등록할 수 있습니다.')).toBeInTheDocument();
     fireEvent.change(screen.getByLabelText('워크북 파일'), { target: { files: [new File(['xlsx'], 'good.xlsx')] } });
+    const year = screen.getByLabelText('모델 연도') as HTMLInputElement;
+    fireEvent.change(year, { target: { value: '' } });
+    expect(year.value).toBe('');
+    fireEvent.click(screen.getByRole('button', { name: /^모형 등록$/ }));
+    expect(await screen.findByText('모형명, 연도, 버전을 확인하세요.')).toHaveAttribute('role', 'alert');
+    expect(year.value).toBe('');
+    fireEvent.change(year, { target: { value: 'invalid' } });
+    fireEvent.click(screen.getByRole('button', { name: /^모형 등록$/ }));
+    expect(await screen.findByText('모형명, 연도, 버전을 확인하세요.')).toBeInTheDocument();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    fireEvent.change(year, { target: { value: '2026' } });
     fireEvent.click(screen.getByRole('button', { name: /^모형 등록$/ }));
     expect(await screen.findByText(/같은 등록 키가 다른 내용에 사용되었습니다/)).toBeInTheDocument();
     expect(screen.queryByText(/raw IDEMPOTENCY/)).not.toBeInTheDocument();

@@ -310,14 +310,19 @@ export function CalculationHistoryView({ onOpenResult }: CalculationHistoryViewP
         <>
           {filteredItems.length > 0 && <div className="calculation-history__table-wrap">
             <table className="calculation-history__table">
-              <thead><tr><th><input type="checkbox" aria-label="표시된 분석 이력 전체 선택" checked={filteredItems.length > 0 && filteredItems.every((item) => deleteSelection.has(item.job_id))} onChange={(event) => setDeleteSelection((current) => { const next = new Set(current); filteredItems.forEach((item) => { if (event.target.checked) next.add(item.job_id); else next.delete(item.job_id); }); return next; })} /></th><th>상태</th><th>기준 모형 / 비교 모형</th><th>기간</th><th>생성</th><th>완료</th><th>공개 상태</th><th>Dashboard 기본</th><th>작업</th></tr></thead>
+              <colgroup><col className="col-select" /><col className="col-created" /><col className="col-model" /><col className="col-model" /><col className="col-period" /><col className="col-status" /><col className="col-actions" /></colgroup>
+              <thead><tr><th><input type="checkbox" aria-label="표시된 분석 이력 전체 선택" checked={filteredItems.length > 0 && filteredItems.every((item) => deleteSelection.has(item.job_id))} onChange={(event) => setDeleteSelection((current) => { const next = new Set(current); filteredItems.forEach((item) => { if (event.target.checked) next.add(item.job_id); else next.delete(item.job_id); }); return next; })} /></th><th>계산일시</th><th>기준 모형</th><th>비교 모형</th><th>분석기간</th><th>상태</th><th>결과 / 작업</th></tr></thead>
               <tbody>{filteredItems.map((item) => {
                 const failure = rowFailureMessage(item);
                 const completed = item.status === 'COMPLETED' && Boolean(item.result_id);
                 const selected = selectedItem?.job_id === item.job_id;
-                return <tr key={item.job_id} className={selected ? 'is-selected' : ''}>
+                return <tr key={item.job_id} className={selected || deleteSelection.has(item.job_id) ? 'is-selected' : ''}>
                   <td><input type="checkbox" aria-label={`${item.baseline_model_name} → ${item.comparison_model_name} 분석 이력 삭제 선택`} checked={deleteSelection.has(item.job_id)} onChange={(event) => setDeleteSelection((current) => { const next = new Set(current); if (event.target.checked) next.add(item.job_id); else next.delete(item.job_id); return next; })} /></td>
-                  <td>
+                  <td className="tabular-nums"><strong>{dateLabel(item.created_at)}</strong>{item.completed_at && <small>완료 {dateLabel(item.completed_at)}</small>}</td>
+                  <td><strong>{item.baseline_model_name}</strong></td>
+                  <td><strong>{item.comparison_model_name}</strong></td>
+                  <td className="tabular-nums">{periodLabel(item)}</td>
+                  <td><div className="calculation-history__status-stack">
                     <span className={`calculation-history__status calculation-history__status--${statusClass(item.status)}`}>
                       {item.status === 'COMPLETED' && <CheckCircle2 size={13} aria-hidden="true" />}
                       {item.status === 'PROCESSING' && <Clock3 size={13} aria-hidden="true" />}
@@ -325,13 +330,9 @@ export function CalculationHistoryView({ onOpenResult }: CalculationHistoryViewP
                       {statusLabel(item.status)}
                     </span>
                     {failure && <span className="calculation-history__failure">{failure}</span>}
-                  </td>
-                  <td><strong>{item.baseline_model_name}</strong><span className="calculation-history__arrow">→</span><strong>{item.comparison_model_name}</strong></td>
-                  <td className="tabular-nums">{periodLabel(item)}</td>
-                  <td className="tabular-nums">{dateLabel(item.created_at)}</td>
-                  <td className="tabular-nums">{dateLabel(item.completed_at)}</td>
-                  <td><span className={`calculation-history__publication ${item.is_published ? 'is-published' : ''}`}>{item.is_published ? '공개' : '비공개'}</span></td>
-                  <td><span className={`calculation-history__default ${item.is_default ? 'is-default' : ''}`}>{item.is_default ? '기본 결과' : item.is_published ? '일반 결과' : '해당 없음'}</span></td>
+                    <span className={`calculation-history__publication ${item.is_published ? 'is-published' : ''}`}>{item.is_published ? '공개' : '비공개'}</span>
+                    {item.is_default && <span className="calculation-history__default is-default">기본 결과</span>}
+                  </div></td>
                   <td>
                     <div className="calculation-history__actions">
                       {completed && onOpenResult && <button type="button" className="calculation-history__action" onClick={() => onOpenResult(item.result_id!)}><ExternalLink size={13} />결과 보기</button>}
