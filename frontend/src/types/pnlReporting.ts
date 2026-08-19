@@ -35,7 +35,7 @@ export interface PnlPeriodSlot {
 export interface PnlMonthlyTrendSlot {
   periodKey: string;
   label: string;
-  isActual: boolean;
+  actualAvailable: boolean;
   planRevenue: number | null;
   actualRevenue: number | null;
   planRevenueText: string | null;
@@ -141,6 +141,66 @@ function isNullableNumber(value: unknown): value is number | null {
   return value === null || (typeof value === 'number' && Number.isFinite(value));
 }
 
+function isFiniteNumber(value: unknown): value is number {
+  return typeof value === 'number' && Number.isFinite(value);
+}
+
+function isFixedTrendMonth(value: unknown, index: number, year: number): boolean {
+  if (!isRecord(value)) return false;
+  const month = String(index + 1).padStart(2, '0');
+  const actualFields = [
+    'actualRevenue',
+    'actualRevenueText',
+    'actualOperatingProfit',
+    'actualOperatingProfitText',
+    'actualOperatingMargin',
+    'actualOperatingMarginText',
+    'actualAdjustedOperatingProfit',
+    'actualAdjustedOperatingProfitText',
+    'actualAdjustedOperatingMargin',
+    'actualAdjustedOperatingMarginText',
+  ];
+  const coreActualAvailable = isFiniteNumber(value.actualRevenue)
+    && isFiniteNumber(value.actualOperatingProfit)
+    && isFiniteNumber(value.actualOperatingMargin);
+  return value.periodKey === `${year}-${month}`
+    && value.label === `${index + 1}월`
+    && typeof value.actualAvailable === 'boolean'
+    && isNullableNumber(value.planRevenue)
+    && isNullableNumber(value.actualRevenue)
+    && isNullableString(value.planRevenueText)
+    && isNullableString(value.actualRevenueText)
+    && isNullableNumber(value.planOperatingProfit)
+    && isNullableNumber(value.actualOperatingProfit)
+    && isNullableNumber(value.actualOperatingMargin)
+    && isNullableString(value.planOperatingProfitText)
+    && isNullableString(value.actualOperatingProfitText)
+    && isNullableString(value.actualOperatingMarginText)
+    && isNullableNumber(value.planAdjustedOperatingProfit)
+    && isNullableNumber(value.actualAdjustedOperatingProfit)
+    && isNullableNumber(value.actualAdjustedOperatingMargin)
+    && isNullableString(value.planAdjustedOperatingProfitText)
+    && isNullableString(value.actualAdjustedOperatingProfitText)
+    && isNullableString(value.actualAdjustedOperatingMarginText)
+    && (value.actualAvailable ? coreActualAvailable : actualFields.every((field) => value[field] === null));
+}
+
+function isFixedPeriodMonth(value: unknown, index: number, year: number): boolean {
+  if (!isRecord(value)) return false;
+  const month = String(index + 1).padStart(2, '0');
+  return value.key === `${year}-${month}`
+    && value.label === `${index + 1}월`
+    && typeof value.isActual === 'boolean';
+}
+
+function hasSequentialActualPeriods(periods: PnlPeriodSlot[], actualPeriodKeys: string[]): boolean {
+  const periodActualKeys = periods.filter((period) => period.isActual).map((period) => period.key);
+  return new Set(actualPeriodKeys).size === actualPeriodKeys.length
+    && periodActualKeys.length === actualPeriodKeys.length
+    && periodActualKeys.every((key, index) => key === actualPeriodKeys[index])
+    && periods.every((period, index) => period.isActual === (index < actualPeriodKeys.length));
+}
+
 function isDisplayCell(value: unknown): value is PnlDisplayCell {
   return isRecord(value) && typeof value.text === 'string';
 }
@@ -176,11 +236,13 @@ export function parsePnlReportingLoadResult(value: unknown): PnlReportingLoadRes
     || typeof report.year !== 'number'
     || !Array.isArray(report.availableYears)
     || !Array.isArray(report.periods)
-    || !report.periods.every((period) => isRecord(period) && typeof period.key === 'string' && typeof period.label === 'string' && typeof period.isActual === 'boolean')
+    || report.periods.length !== 12
+    || !report.periods.every((period, index) => isFixedPeriodMonth(period, index, report.year as number))
     || typeof report.selectedPeriodKey !== 'string'
     || !Array.isArray(report.actualPeriodKeys)
-    || report.actualPeriodKeys.length !== 6
+    || report.actualPeriodKeys.length > 12
     || !report.actualPeriodKeys.every((key) => typeof key === 'string')
+    || !hasSequentialActualPeriods(report.periods as PnlPeriodSlot[], report.actualPeriodKeys as string[])
     || typeof report.defaultCustomRangeKey !== 'string'
     || !Array.isArray(report.kpis)
     || report.kpis.length !== 3
@@ -189,9 +251,11 @@ export function parsePnlReportingLoadResult(value: unknown): PnlReportingLoadRes
     || report.kpis[2]?.key !== 'adjusted_operating_profit'
     || !report.kpis.every((kpi) => isRecord(kpi) && typeof kpi.label === 'string' && isNullableString(kpi.amountText) && typeof kpi.unitText === 'string' && isNullableString(kpi.progressText) && isNullableString(kpi.achievementText) && (kpi.tone === 'favorable' || kpi.tone === 'unfavorable' || kpi.tone === 'neutral'))
     || !Array.isArray(report.monthlyTrends)
-    || !report.monthlyTrends.every((trend) => isRecord(trend) && typeof trend.periodKey === 'string' && typeof trend.label === 'string' && typeof trend.isActual === 'boolean' && isNullableNumber(trend.planRevenue) && isNullableNumber(trend.actualRevenue) && isNullableNumber(trend.planOperatingProfit) && isNullableNumber(trend.actualOperatingProfit) && isNullableNumber(trend.actualOperatingMargin) && isNullableNumber(trend.planAdjustedOperatingProfit) && isNullableNumber(trend.actualAdjustedOperatingProfit) && isNullableNumber(trend.actualAdjustedOperatingMargin))
+    || report.monthlyTrends.length !== 12
+    || !report.monthlyTrends.every((trend, index) => isFixedTrendMonth(trend, index, report.year as number))
+    || !report.monthlyTrends.every((trend, index) => isRecord(trend) && trend.actualAvailable === (report.periods as PnlPeriodSlot[])[index]?.isActual)
     || !Array.isArray(report.monthlyDataRows)
-    || !report.monthlyDataRows.every((row) => isRecord(row) && typeof row.key === 'string' && typeof row.label === 'string' && isCellArray(row.cells, (report.periods as PnlPeriodSlot[]).length))
+    || !report.monthlyDataRows.every((row) => isRecord(row) && typeof row.key === 'string' && typeof row.label === 'string' && isCellArray(row.cells, (report.monthlyTrends as PnlMonthlyTrendSlot[]).length))
     || !Array.isArray(report.pnlRows)
     || !report.pnlRows.every((row) => isStatementRow(row, 4))
     || !Array.isArray(report.cogsRows)

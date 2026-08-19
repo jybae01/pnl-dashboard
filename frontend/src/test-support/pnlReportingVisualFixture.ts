@@ -3,6 +3,8 @@
 import type {
   PnlCogsRowSlot,
   PnlDisplayCell,
+  PnlMonthlyDataRow,
+  PnlMonthlyTrendSlot,
   PnlProductSegmentSlot,
   PnlReportingReadModel,
   PnlSgaRowSlot,
@@ -106,11 +108,74 @@ const cogsRows: PnlCogsRowSlot[] = ['원부재료비', '노무비', '외주가�
   cells: ['72', '5.8%', '75', '5.7%', '77', '5.9%', '74', '5.6%', '79', '5.8%', '81', '5.9%', '458', '34.9%'].map((value) => cell(value)),
 }));
 
+const monthlyTrends: PnlMonthlyTrendSlot[] = Array.from({ length: 12 }, (_, index) => {
+  const month = index + 1;
+  const actualAvailable = month <= 6;
+  const zeroActual = month === 5;
+  const actualRevenue = actualAvailable ? (zeroActual ? 0 : 10950 + index * 310) : null;
+  const actualOperatingProfit = actualAvailable ? (zeroActual ? 0 : 810 + index * 88) : null;
+  const actualOperatingMargin = actualAvailable ? (zeroActual ? 0 : 7.4 + index * .52) : null;
+  const actualAdjustedOperatingProfit = actualAvailable ? (zeroActual ? 0 : 940 + index * 86) : null;
+  const actualAdjustedOperatingMargin = actualAvailable ? (zeroActual ? 0 : 8.6 + index * .48) : null;
+  return {
+    periodKey: `2026-${String(month).padStart(2, '0')}`,
+    label: `${month}월`,
+    actualAvailable,
+    planRevenue: 10800 + index * 240,
+    actualRevenue,
+    planRevenueText: String(10800 + index * 240),
+    actualRevenueText: actualRevenue === null ? null : String(actualRevenue),
+    planOperatingProfit: 780 + index * 30,
+    actualOperatingProfit,
+    actualOperatingMargin,
+    planOperatingProfitText: String(780 + index * 30),
+    actualOperatingProfitText: actualOperatingProfit === null ? null : String(actualOperatingProfit),
+    actualOperatingMarginText: actualOperatingMargin === null ? null : `${actualOperatingMargin.toFixed(1)}%`,
+    planAdjustedOperatingProfit: 890 + index * 42,
+    actualAdjustedOperatingProfit,
+    actualAdjustedOperatingMargin,
+    planAdjustedOperatingProfitText: String(890 + index * 42),
+    actualAdjustedOperatingProfitText: actualAdjustedOperatingProfit === null ? null : String(actualAdjustedOperatingProfit),
+    actualAdjustedOperatingMarginText: actualAdjustedOperatingMargin === null ? null : `${actualAdjustedOperatingMargin.toFixed(1)}%`,
+  };
+});
+
+const actualMonthlyRowTones = new Set<PnlMonthlyDataRow['tone']>([
+  'revenue-actual',
+  'operating-actual',
+  'operating-margin',
+  'adjusted-actual',
+  'adjusted-margin',
+]);
+const marginMonthlyRowTones = new Set<PnlMonthlyDataRow['tone']>(['operating-margin', 'adjusted-margin']);
+const monthlyDataRows: PnlMonthlyDataRow[] = [
+  ['매출액 계획', 'revenue-plan'],
+  ['매출액 실적', 'revenue-actual'],
+  ['영업이익 계획', 'operating-plan'],
+  ['영업이익 실적', 'operating-actual'],
+  ['영업이익률', 'operating-margin'],
+  ['조정 영업이익 계획', 'adjusted-plan'],
+  ['조정 영업이익 실적', 'adjusted-actual'],
+  ['조정 영업이익률', 'adjusted-margin'],
+].map(([label, tone], rowIndex) => {
+  const rowTone = tone as PnlMonthlyDataRow['tone'];
+  return {
+    key: `monthly_${rowIndex}`,
+    label,
+    tone: rowTone,
+    cells: Array.from({ length: 12 }, (_, monthIndex) => {
+      if (actualMonthlyRowTones.has(rowTone) && monthIndex >= 6) return cell('—');
+      if (actualMonthlyRowTones.has(rowTone) && monthIndex === 4) return cell(marginMonthlyRowTones.has(rowTone) ? '0.0%' : '0');
+      return cell(`${100 + rowIndex * 10 + monthIndex}`);
+    }),
+  };
+});
+
 export const pnlReportingVisualFixture: PnlReportingReadModel = {
   reportKey: 'test-only-visual-fixture',
   year: 2026,
   availableYears: [2026, 2025],
-  periods: Array.from({ length: 6 }, (_, index) => ({ key: `2026-0${index + 1}`, label: `${index + 1}월`, isActual: true })),
+  periods: Array.from({ length: 12 }, (_, index) => ({ key: `2026-${String(index + 1).padStart(2, '0')}`, label: `${index + 1}월`, isActual: index < 6 })),
   selectedPeriodKey: PERIOD,
   actualPeriodKeys: ['2026-01', '2026-02', '2026-03', '2026-04', '2026-05', PERIOD],
   defaultCustomRangeKey: RANGE,
@@ -119,22 +184,8 @@ export const pnlReportingVisualFixture: PnlReportingReadModel = {
     { key: 'operating_profit', label: '영업이익', amountText: '1,090', unitText: '백만원', progressText: '58.2%', achievementText: '121.1%', tone: 'favorable' },
     { key: 'adjusted_operating_profit', label: '조정 영업이익', amountText: '1,140', unitText: '백만원', progressText: '60.4%', achievementText: '118.7%', tone: 'favorable' },
   ],
-  monthlyTrends: Array.from({ length: 6 }, (_, index) => ({
-    periodKey: `2026-0${index + 1}`, label: `${index + 1}월`, isActual: true,
-    planRevenue: 10800 + index * 240, actualRevenue: 10950 + index * 310, planRevenueText: String(10800 + index * 240), actualRevenueText: String(10950 + index * 310),
-    planOperatingProfit: 780 + index * 30, actualOperatingProfit: 810 + index * 88, actualOperatingMargin: 7.4 + index * .52, planOperatingProfitText: String(780 + index * 30), actualOperatingProfitText: String(810 + index * 88), actualOperatingMarginText: `${(7.4 + index * .52).toFixed(1)}%`,
-    planAdjustedOperatingProfit: 890 + index * 42, actualAdjustedOperatingProfit: 940 + index * 86, actualAdjustedOperatingMargin: 8.6 + index * .48, planAdjustedOperatingProfitText: String(890 + index * 42), actualAdjustedOperatingProfitText: String(940 + index * 86), actualAdjustedOperatingMarginText: `${(8.6 + index * .48).toFixed(1)}%`,
-  })),
-  monthlyDataRows: [
-    ['매출액 계획', 'revenue-plan'],
-    ['매출액 실적', 'revenue-actual'],
-    ['영업이익 계획', 'operating-plan'],
-    ['영업이익 실적', 'operating-actual'],
-    ['영업이익률', 'operating-margin'],
-    ['조정 영업이익 계획', 'adjusted-plan'],
-    ['조정 영업이익 실적', 'adjusted-actual'],
-    ['조정 영업이익률', 'adjusted-margin'],
-  ].map(([label, tone], index) => ({ key: `monthly_${index}`, label, tone: tone as PnlReportingReadModel['monthlyDataRows'][number]['tone'], cells: Array.from({ length: 6 }, (_, cellIndex) => cell(`${100 + index * 10 + cellIndex}`)) })),
+  monthlyTrends,
+  monthlyDataRows,
   pnlRows,
   cogsRows,
   sgaRows,

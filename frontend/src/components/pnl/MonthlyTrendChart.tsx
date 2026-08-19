@@ -14,6 +14,11 @@ const LEFT = 58;
 const RIGHT = 40;
 const BAR_WIDTH = 18;
 const BAR_GAP = 4;
+const GROUP_WIDTH = BAR_WIDTH * 2 + BAR_GAP;
+
+function hasGeometryValue(value: number | null | undefined): value is number {
+  return typeof value === 'number' && Number.isFinite(value);
+}
 
 function maxGeometryValue(values: Array<number | null>): number {
   const available = values.filter((value): value is number => typeof value === 'number' && Number.isFinite(value));
@@ -45,12 +50,13 @@ export function MonthlyTrendChart({ data, dataRows }: MonthlyTrendChartProps) {
 
   const marginPoint = (value: number) => marginTop + marginHeight * (1 - Math.max(0, Math.min(value, marginMaximum)) / marginMaximum);
   const actualMarginPoints = data.flatMap((slot, index) => {
-    if (!slot.isActual) return [];
+    if (!slot.actualAvailable) return [];
     const value = profitMode === 'ADJ_OP_PROFIT' ? slot.actualAdjustedOperatingMargin : slot.actualOperatingMargin;
-    if (value === null) return [];
+    if (!hasGeometryValue(value)) return [];
     return [{ slot, value, x: LEFT + index * columnWidth + columnWidth / 2, y: marginPoint(value) }];
   });
   const marginPath = actualMarginPoints.map((point, index) => `${index === 0 ? 'M' : 'L'} ${point.x} ${point.y}`).join(' ');
+  const lastActualMarginPeriod = actualMarginPoints[actualMarginPoints.length - 1]?.slot.periodKey;
 
   return <section className="pnl-report__trends" aria-label="월별 손익 추이">
     <article className="pnl-report__chart-card" data-testid="revenue-trend-card">
@@ -78,19 +84,16 @@ export function MonthlyTrendChart({ data, dataRows }: MonthlyTrendChartProps) {
           <line x1={LEFT} y1={revenueBottom} x2={SVG_WIDTH - RIGHT} y2={revenueBottom} stroke="#cbd5e1" strokeWidth="1" />
           {data.map((slot, index) => {
             const x = LEFT + index * columnWidth;
-            const hasPlan = slot.planRevenue !== null;
-            const hasActual = slot.isActual && slot.actualRevenue !== null;
-            const groupWidth = hasActual ? BAR_WIDTH * 2 + BAR_GAP : BAR_WIDTH;
-            const groupStart = x + (columnWidth - groupWidth) / 2;
-            const plan = hasPlan ? barGeometry(slot.planRevenue as number, revenueMaximum, revenueBottom, revenueHeight) : null;
-            const actual = hasActual ? barGeometry(slot.actualRevenue as number, revenueMaximum, revenueBottom, revenueHeight) : null;
-            return <g key={slot.periodKey} data-period-key={slot.periodKey}>
+            const groupStart = x + (columnWidth - GROUP_WIDTH) / 2;
+            const plan = hasGeometryValue(slot.planRevenue) ? barGeometry(slot.planRevenue, revenueMaximum, revenueBottom, revenueHeight) : null;
+            const actual = slot.actualAvailable && hasGeometryValue(slot.actualRevenue) ? barGeometry(slot.actualRevenue, revenueMaximum, revenueBottom, revenueHeight) : null;
+            return <g key={slot.periodKey} data-period-key={slot.periodKey} data-actual-available={slot.actualAvailable ? 'true' : 'false'}>
               {plan && <rect data-series="plan" x={groupStart} y={plan.y} width={BAR_WIDTH} height={plan.height} fill="url(#pnl-revenue-plan)" stroke="#94a3b8" strokeWidth=".6" rx="2" />}
               {actual && <>
                 <rect data-series="actual" x={groupStart + BAR_WIDTH + BAR_GAP} y={actual.y} width={BAR_WIDTH} height={actual.height} fill="url(#pnl-revenue-actual)" stroke="#1d4ed8" strokeWidth=".6" rx="2" />
                 {slot.actualRevenueText && <text x={groupStart + BAR_WIDTH + BAR_GAP + BAR_WIDTH / 2} y={actual.y - 5} textAnchor="middle" fontSize="11" fontWeight="700" fill="#1d4ed8">{slot.actualRevenueText}</text>}
               </>}
-              <text x={x + columnWidth / 2} y={revenueBottom + 17} textAnchor="middle" fontSize="11.5" fontWeight="600" fill="#475569">{slot.label}</text>
+              <text data-axis-label="month" x={x + columnWidth / 2} y={revenueBottom + 17} textAnchor="middle" fontSize="11.5" fontWeight="600" fill="#475569">{slot.label}</text>
             </g>;
           })}
         </svg>
@@ -128,9 +131,9 @@ export function MonthlyTrendChart({ data, dataRows }: MonthlyTrendChartProps) {
             <linearGradient id="pnl-profit-actual" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="#fb923c" /><stop offset="100%" stopColor="#ea580c" /></linearGradient>
             <linearGradient id="pnl-profit-adjusted" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="#2dd4bf" /><stop offset="100%" stopColor="#0d9488" /></linearGradient>
           </defs>
-          {marginPath && <path data-series="actual-margin" d={marginPath} fill="none" stroke={profitMode === 'ADJ_OP_PROFIT' ? '#0d9488' : '#ea580c'} strokeWidth="2.2" />}
+          {marginPath && <path data-series="actual-margin" data-last-period-key={lastActualMarginPeriod} d={marginPath} fill="none" stroke={profitMode === 'ADJ_OP_PROFIT' ? '#0d9488' : '#ea580c'} strokeWidth="2.2" />}
           {actualMarginPoints.map((point) => <g key={point.slot.periodKey}>
-            <circle data-series="actual-margin-point" cx={point.x} cy={point.y} r="3.5" fill="#fff" stroke={profitMode === 'ADJ_OP_PROFIT' ? '#0d9488' : '#ea580c'} strokeWidth="2" />
+            <circle data-series="actual-margin-point" data-period-key={point.slot.periodKey} cx={point.x} cy={point.y} r="3.5" fill="#fff" stroke={profitMode === 'ADJ_OP_PROFIT' ? '#0d9488' : '#ea580c'} strokeWidth="2" />
             <text x={point.x} y={point.y - 5.5} textAnchor="middle" fontSize="11" fontWeight="800" fill={profitMode === 'ADJ_OP_PROFIT' ? '#0f766e' : '#c2410c'}>{profitMode === 'ADJ_OP_PROFIT' ? point.slot.actualAdjustedOperatingMarginText : point.slot.actualOperatingMarginText}</text>
           </g>)}
           {[0, .33, .66, 1].map((ratio) => {
@@ -144,18 +147,16 @@ export function MonthlyTrendChart({ data, dataRows }: MonthlyTrendChartProps) {
             const planValue = profitMode === 'ADJ_OP_PROFIT' ? slot.planAdjustedOperatingProfit : slot.planOperatingProfit;
             const actualValue = profitMode === 'ADJ_OP_PROFIT' ? slot.actualAdjustedOperatingProfit : slot.actualOperatingProfit;
             const actualText = profitMode === 'ADJ_OP_PROFIT' ? slot.actualAdjustedOperatingProfitText : slot.actualOperatingProfitText;
-            const hasActual = slot.isActual && actualValue !== null;
-            const groupWidth = hasActual ? BAR_WIDTH * 2 + BAR_GAP : BAR_WIDTH;
-            const groupStart = x + (columnWidth - groupWidth) / 2;
-            const plan = planValue === null ? null : barGeometry(planValue, profitMaximum, profitBottom, profitHeight);
-            const actual = hasActual ? barGeometry(actualValue as number, profitMaximum, profitBottom, profitHeight) : null;
-            return <g key={slot.periodKey} data-period-key={slot.periodKey}>
+            const groupStart = x + (columnWidth - GROUP_WIDTH) / 2;
+            const plan = hasGeometryValue(planValue) ? barGeometry(planValue, profitMaximum, profitBottom, profitHeight) : null;
+            const actual = slot.actualAvailable && hasGeometryValue(actualValue) ? barGeometry(actualValue, profitMaximum, profitBottom, profitHeight) : null;
+            return <g key={slot.periodKey} data-period-key={slot.periodKey} data-actual-available={slot.actualAvailable ? 'true' : 'false'}>
               {plan && <rect data-series="plan" x={groupStart} y={plan.y} width={BAR_WIDTH} height={plan.height} fill="url(#pnl-profit-plan)" stroke="#94a3b8" strokeWidth=".6" rx="2" />}
               {actual && <>
                 <rect data-series="actual" x={groupStart + BAR_WIDTH + BAR_GAP} y={actual.y} width={BAR_WIDTH} height={actual.height} fill={profitMode === 'ADJ_OP_PROFIT' ? 'url(#pnl-profit-adjusted)' : 'url(#pnl-profit-actual)'} stroke={profitMode === 'ADJ_OP_PROFIT' ? '#0f766e' : '#c2410c'} strokeWidth=".6" rx="2" />
                 {actualText && <text x={groupStart + BAR_WIDTH + BAR_GAP + BAR_WIDTH / 2} y={actual.y - 5} textAnchor="middle" fontSize="11" fontWeight="700" fill={profitMode === 'ADJ_OP_PROFIT' ? '#0f766e' : '#c2410c'}>{actualText}</text>}
               </>}
-              <text x={x + columnWidth / 2} y={profitBottom + 17} textAnchor="middle" fontSize="11.5" fontWeight="600" fill="#475569">{slot.label}</text>
+              <text data-axis-label="month" x={x + columnWidth / 2} y={profitBottom + 17} textAnchor="middle" fontSize="11.5" fontWeight="600" fill="#475569">{slot.label}</text>
             </g>;
           })}
         </svg>
