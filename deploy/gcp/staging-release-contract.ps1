@@ -146,12 +146,13 @@ function Get-PnlStagingReleaseIdentity {
     }
     $token = if ($Stage -eq 'BACKEND_FIRST') { 'pnlbe' } else { 'pnlfe' }
     $headToken = $GitHead
+    $tagHeadToken = $GitHead.Substring(0, 16)
     $suffix = "$token-$headToken"
     $revision = "$Service-$suffix"
     if ($revision.Length -gt 63) {
         throw 'The deterministic Cloud Run revision name exceeds 63 characters.'
     }
-    $candidateTag = Assert-PnlCandidateTag -Tag $suffix
+    $candidateTag = Assert-PnlCandidateTag -Tag "$token-$tagHeadToken"
     return [pscustomobject][ordered]@{
         stage = $Stage
         head_token = $headToken

@@ -105,12 +105,18 @@ foreach ($invalid in @(
 
 Assert-Equal -Actual $backendIdentity.revision_suffix -Expected "pnlbe-$head" -Message 'Backend suffix is not deterministic.'
 Assert-Equal -Actual $frontendIdentity.revision_suffix -Expected "pnlfe-$head" -Message 'Frontend suffix is not deterministic.'
+Assert-Equal -Actual $backendIdentity.candidate_tag -Expected "pnlbe-$($head.Substring(0, 16))" -Message 'Revision A tag is not the deterministic 16-character HEAD prefix.'
+Assert-Equal -Actual $frontendIdentity.candidate_tag -Expected "pnlfe-$($head.Substring(0, 16))" -Message 'Revision B tag is not the deterministic 16-character HEAD prefix.'
 Assert-True -Condition ($backendIdentity.revision_name -ne $frontendIdentity.revision_name) -Message 'Revision A/B names collided.'
 Assert-True -Condition ($backendIdentity.candidate_tag -ne $frontendIdentity.candidate_tag) -Message 'Revision A/B tags collided.'
 Assert-Equal `
     -Actual (Get-PnlStagingReleaseIdentity -Stage BACKEND_FIRST -GitHead $head -Service $service).revision_name `
     -Expected $backendIdentity.revision_name `
     -Message 'The same full HEAD and stage must be deterministic.'
+Assert-Equal `
+    -Actual (Get-PnlStagingReleaseIdentity -Stage BACKEND_FIRST -GitHead $head -Service $service).candidate_tag `
+    -Expected $backendIdentity.candidate_tag `
+    -Message 'The same full HEAD and stage must produce the same tag.'
 Assert-True `
     -Condition ((Get-PnlStagingReleaseIdentity -Stage BACKEND_FIRST -GitHead $otherHead -Service $service).revision_name -ne $backendIdentity.revision_name) `
     -Message 'Different HEAD values must produce different identities.'
@@ -119,6 +125,8 @@ Assert-True `
     -Message 'The final identity must not retain the 12-character-prefix collision risk.'
 Assert-True -Condition ($backendIdentity.revision_name -match '^pnl-web-pnlbe-[0-9a-f]{40}$') -Message 'Backend revision must contain the full HEAD.'
 Assert-True -Condition ($frontendIdentity.revision_name -match '^pnl-web-pnlfe-[0-9a-f]{40}$') -Message 'Frontend revision must contain the full HEAD.'
+Assert-True -Condition (($service.Length + $backendIdentity.candidate_tag.Length) -le 46) -Message 'Revision A service and tag exceed the Cloud Run combined length limit.'
+Assert-True -Condition (($service.Length + $frontendIdentity.candidate_tag.Length) -le 46) -Message 'Revision B service and tag exceed the Cloud Run combined length limit.'
 Assert-Throws -Action { Get-PnlStagingReleaseIdentity -Stage BACKEND_FIRST -GitHead 'abc123' -Service $service } -Message 'Invalid HEAD passed.'
 foreach ($ambiguous in @('latest', 'newest', 'current', 'candidate', 'pnlbe-latest')) {
     Assert-Throws -Action { Assert-PnlCandidateTag -Tag $ambiguous } -Message "Ambiguous tag passed: $ambiguous"
