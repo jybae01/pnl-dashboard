@@ -250,3 +250,15 @@
 .pnl-report__financial-table[data-table-kind="cogs"] tbody td:nth-last-child(2) { color: #1e3a8a; background: #f8fafc; font-weight: 800; }
 .pnl-report__financial-table[data-table-kind="cogs"] tbody tr.row-total td { background: #f1f5f9; }
 .pnl-report__inline-empty { padding: 28px; color: #64748b; text-align: center; }
+
+@media (max-width: 760px) {
+  .pnl-report__kpi-grid {
+    grid-template-columns: 1fr;
+    width: 100%;
+    min-width: 0;
+  }
+
+  .pnl-report__kpi-card {
+    min-width: 0;
+  }
+}
