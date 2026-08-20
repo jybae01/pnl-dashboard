@@ -670,6 +670,10 @@ try {
     Assert-True -Condition ($backendArguments -contains '--container=bff') -Message 'Candidate command omitted BFF container.'
     Assert-True -Condition ($backendArguments -contains '--port=8080') -Message 'Candidate command omitted explicit edge port.'
     Assert-True -Condition ($backendArguments -contains '--depends-on=bff') -Message 'Candidate command omitted explicit edge-to-BFF dependency.'
+    $quietIndex = [Array]::IndexOf($backendArguments, '--quiet')
+    $firstContainerIndex = [Array]::IndexOf($backendArguments, '--container=edge')
+    Assert-Equal -Actual @($backendArguments | Where-Object { $_ -eq '--quiet' }).Count -Expected 1 -Message 'Candidate command must contain exactly one --quiet flag.'
+    Assert-True -Condition ($quietIndex -ge 0 -and $quietIndex -lt $firstContainerIndex) -Message 'Candidate command must place --quiet before the first --container flag for gcloud 580.'
     Assert-True -Condition (-not ($backendArguments -contains '--platform=managed')) -Message 'Candidate command used unsupported --platform.'
     Assert-True -Condition ($backendArguments -contains "--image=$frozenEdge") -Message 'Backend candidate omitted frozen edge digest.'
     Assert-True -Condition ($backendArguments -contains "--image=$runtimeA") -Message 'Backend candidate omitted runtime digest.'
@@ -695,6 +699,16 @@ try {
         Assert-Equal -Actual $LASTEXITCODE -Expected 0 -Message "Windows command parser split the escaped gcloud dictionary argument. Output=[$propagated]"
         Assert-True -Condition ($propagated.Contains('^@^BFF_ALLOWED_ORIGINS=', [StringComparison]::Ordinal)) -Message 'Windows command parser did not deliver gcloud alternate-delimiter syntax.'
         Assert-True -Condition ($propagated.EndsWith($originPair, [StringComparison]::Ordinal)) -Message 'Windows command parser altered the approved origin pair.'
+        $parserCompatibleFakeGcloud = Join-Path $testRoot 'fake-gcloud-580-parser.cmd'
+        [IO.File]::WriteAllText(
+            $parserCompatibleFakeGcloud,
+            "@echo off`r`nsetlocal EnableExtensions DisableDelayedExpansion`r`nset `"seenContainer=`"`r`n:next`r`nif `"%~1`"==`"`" goto pass`r`nif /I `"%~1`"==`"--container=edge`" set `"seenContainer=1`"`r`nif /I `"%~1`"==`"--container=bff`" set `"seenContainer=1`"`r`nif /I `"%~1`"==`"--quiet`" if defined seenContainer exit /b 87`r`nshift`r`ngoto next`r`n:pass`r`necho GCLOUD580_PARSER_COMPATIBLE`r`nexit /b 0`r`n",
+            [Text.ASCIIEncoding]::new()
+        )
+        $resolvedParserCompatibleFakeGcloud = Resolve-PnlGcloudExecutable -GcloudPath $parserCompatibleFakeGcloud
+        $parserOutput = (& $resolvedParserCompatibleFakeGcloud @windowsArguments 2>&1 | Out-String).Trim()
+        Assert-Equal -Actual $LASTEXITCODE -Expected 0 -Message "Windows fake gcloud rejected candidate service flags after the first container. Output=[$parserOutput]"
+        Assert-True -Condition ($parserOutput.Contains('GCLOUD580_PARSER_COMPATIBLE', [StringComparison]::Ordinal)) -Message 'Windows fake gcloud did not complete the gcloud 580 parser-compatible candidate path.'
     }
     Assert-True -Condition (-not (($backendArguments -join ' ').Contains('services replace', [StringComparison]::OrdinalIgnoreCase))) -Message 'Candidate command used unsafe services replace.'
     Assert-Equal -Actual $backendPlan.gcloud.executable_resolved -Expected ([IO.Path]::GetFullPath($mustNotRunGcloud)) -Message 'Dry-run did not record the explicitly resolved gcloud executable.'

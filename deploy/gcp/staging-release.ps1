@@ -741,6 +741,7 @@ if ($Operation -eq 'CANDIDATE') {
 
     $candidateArguments = @(
         'run', 'deploy', $Service,
+        '--quiet',
         "--project=$ProjectId",
         "--region=$Region",
         "--revision-suffix=$RevisionSuffix",
@@ -753,8 +754,7 @@ if ($Operation -eq 'CANDIDATE') {
         '--depends-on=bff',
         '--container=bff',
         "--image=$RuntimeImage",
-        "--update-env-vars=^@^BFF_ALLOWED_ORIGINS=$originValue",
-        '--quiet'
+        "--update-env-vars=^@^BFF_ALLOWED_ORIGINS=$originValue"
     )
     if ($candidateArguments -contains '--platform=managed') {
         throw 'Candidate command must not use the unsupported --platform flag.'
