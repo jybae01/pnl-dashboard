@@ -498,6 +498,42 @@ function Invoke-TestRevisionBCandidate {
     return Get-Content -Raw -LiteralPath (Join-Path $OutputDirectory 'candidate-final-frontend.json') | ConvertFrom-Json
 }
 
+function Invoke-TestRevisionBPromotion {
+    param(
+        [Parameter(Mandatory)] [string] $CandidateGitHead,
+        [Parameter(Mandatory)] [string] $ServiceJsonPath,
+        [Parameter(Mandatory)] [string] $OutputDirectory,
+        [Parameter(Mandatory)] [string] $GcloudPath,
+        [AllowEmptyString()] [string] $ExplicitRevisionA,
+        [AllowEmptyString()] [string] $ActiveRevisionJsonPath
+    )
+
+    $candidateIdentity = Get-PnlStagingReleaseIdentity `
+        -Stage FINAL_FRONTEND `
+        -GitHead $CandidateGitHead `
+        -Service $service
+    $promotionParameters = @{
+        Operation = 'PROMOTE'
+        ProjectId = $project
+        ProjectNumber = $projectNumber
+        Region = $region
+        Service = $service
+        Stage = 'FINAL_FRONTEND'
+        GitHead = $CandidateGitHead
+        Revision = $candidateIdentity.revision_name
+        SmokeGate = 'passed'
+        CapturedServiceJsonPath = $ServiceJsonPath
+        GcloudPath = $GcloudPath
+        OutputDirectory = $OutputDirectory
+    }
+    if (-not [string]::IsNullOrWhiteSpace($ExplicitRevisionA)) {
+        $promotionParameters.ValidatedRevisionA = $ExplicitRevisionA
+        $promotionParameters.CapturedActiveRevisionJsonPath = $ActiveRevisionJsonPath
+    }
+    & (Join-Path $PSScriptRoot 'staging-release.ps1') @promotionParameters | Out-Null
+    return Get-Content -Raw -LiteralPath (Join-Path $OutputDirectory 'promote-final-frontend.json') | ConvertFrom-Json
+}
+
 $legacyActiveRevision = 'pnl-web-legacy-active'
 $legacyTemplateFixture = New-TestServiceDescription `
     -ObservedEdgeImage $finalEdge `
@@ -665,6 +701,8 @@ try {
     $explicitRevisionAActiveRevisionPath = Join-Path $testRoot 'explicit-revision-a-active-revision.json'
     $explicitRevisionAEdgeMismatchPath = Join-Path $testRoot 'explicit-revision-a-edge-mismatch.json'
     $explicitRevisionARuntimeMismatchPath = Join-Path $testRoot 'explicit-revision-a-runtime-mismatch.json'
+    $explicitRevisionAInvalidEdgePath = Join-Path $testRoot 'explicit-revision-a-invalid-edge.json'
+    $explicitRevisionAInvalidRuntimePath = Join-Path $testRoot 'explicit-revision-a-invalid-runtime.json'
     [IO.File]::WriteAllText(
         $explicitRevisionAServicePath,
         ((New-TestServiceDescription `
@@ -695,6 +733,22 @@ try {
             -Revision $explicitBackendIdentity.revision_name `
             -ResolvedEdgeImage $frozenEdge `
             -ResolvedRuntimeImage $runtimeB) | ConvertTo-Json -Depth 100),
+        [Text.UTF8Encoding]::new($false)
+    )
+    [IO.File]::WriteAllText(
+        $explicitRevisionAInvalidEdgePath,
+        ((New-TestActiveRevisionDescription `
+            -Revision $explicitBackendIdentity.revision_name `
+            -ResolvedEdgeImage $mutableEdgeTag `
+            -ResolvedRuntimeImage $runtimeA) | ConvertTo-Json -Depth 100),
+        [Text.UTF8Encoding]::new($false)
+    )
+    [IO.File]::WriteAllText(
+        $explicitRevisionAInvalidRuntimePath,
+        ((New-TestActiveRevisionDescription `
+            -Revision $explicitBackendIdentity.revision_name `
+            -ResolvedEdgeImage $frozenEdge `
+            -ResolvedRuntimeImage $mutableRuntimeTag) | ConvertTo-Json -Depth 100),
         [Text.UTF8Encoding]::new($false)
     )
     $explicitRevisionANotActiveService = New-TestServiceDescription `
@@ -1402,7 +1456,62 @@ exit 97
         -GcloudPath (Join-Path $testRoot 'must-not-run-gcloud.cmd') -OutputDirectory $promotionBOutput | Out-Null
     $promotionBPlan = Get-Content -Raw -LiteralPath (Join-Path $promotionBOutput 'promote-final-frontend.json') | ConvertFrom-Json
     Assert-Equal -Actual $promotionBPlan.promotion_time_active_recapture.active_revision -Expected $backendIdentity.revision_name -Message 'Revision B promotion did not require active Revision A.'
+    Assert-Equal -Actual $promotionBPlan.validated_revision_a -Expected $backendIdentity.revision_name -Message 'Revision B promotion did not preserve same-HEAD Revision A fallback.'
+    Assert-Equal -Actual $promotionBPlan.rollback_target -Expected $backendIdentity.revision_name -Message 'Same-HEAD Revision B promotion lost its Revision A rollback target.'
     Assert-Equal -Actual $promotionBPlan.rollback_operation_type -Expected 'REVISION_B_TO_A' -Message 'Revision B promotion lost the B-to-A rollback meaning.'
+
+    $explicitPromotionOutput = Join-Path $testRoot 'promotion-b-explicit-a'
+    $explicitPromotionPlan = Invoke-TestRevisionBPromotion `
+        -CandidateGitHead $revisionBHead `
+        -ExplicitRevisionA $explicitBackendIdentity.revision_name `
+        -ServiceJsonPath $explicitRevisionAServicePath `
+        -ActiveRevisionJsonPath $explicitRevisionAActiveRevisionPath `
+        -GcloudPath $mustNotRunGcloud `
+        -OutputDirectory $explicitPromotionOutput
+    Assert-Equal -Actual $explicitPromotionPlan.target_revision -Expected $explicitFrontendIdentity.revision_name -Message 'Explicit Revision A promotion changed the existing Revision B identity.'
+    Assert-Equal -Actual $explicitPromotionPlan.validated_revision_a -Expected $explicitBackendIdentity.revision_name -Message 'Explicit Revision A promotion lost its authoritative Revision A.'
+    Assert-Equal -Actual $explicitPromotionPlan.rollback_target -Expected $explicitBackendIdentity.revision_name -Message 'Explicit Revision A promotion lost its rollback target.'
+    Assert-Equal -Actual $explicitPromotionPlan.promotion_time_active_recapture.active_revision -Expected $explicitBackendIdentity.revision_name -Message 'Explicit Revision A promotion recaptured the wrong active revision.'
+    Assert-Equal -Actual $explicitPromotionPlan.promotion_revision_a_validation.evaluated -Expected $true -Message 'Explicit Revision A promotion did not validate Ready and lineage evidence.'
+    Assert-Equal -Actual $explicitPromotionPlan.promotion_revision_a_validation.result.active_revision_ready -Expected $true -Message 'Explicit Revision A promotion did not prove Ready=True.'
+    Assert-Equal -Actual $explicitPromotionPlan.promotion_revision_a_validation.result.observed_edge_image -Expected $frozenEdge -Message 'Explicit Revision A promotion did not preserve edge lineage evidence.'
+    Assert-Equal -Actual $explicitPromotionPlan.promotion_revision_a_validation.result.observed_runtime_image -Expected $runtimeA -Message 'Explicit Revision A promotion did not preserve runtime lineage evidence.'
+    Assert-True -Condition (@($explicitPromotionPlan.gcloud.arguments) -contains "--to-revisions=$($explicitFrontendIdentity.revision_name)=100") -Message 'Explicit Revision A promotion did not target the exact existing Revision B.'
+
+    Assert-Throws -Action {
+        Invoke-TestRevisionBPromotion `
+            -CandidateGitHead $revisionBHead `
+            -ExplicitRevisionA $explicitBackendIdentity.revision_name `
+            -ServiceJsonPath $explicitRevisionAServicePath `
+            -ActiveRevisionJsonPath (Join-Path $testRoot 'nonexistent-explicit-a.json') `
+            -GcloudPath $mustNotRunGcloud `
+            -OutputDirectory (Join-Path $testRoot 'promotion-b-explicit-a-nonexistent')
+    } -Message 'Revision B promotion accepted a nonexistent explicit Revision A.'
+    Assert-Throws -Action {
+        Invoke-TestRevisionBPromotion `
+            -CandidateGitHead $revisionBHead `
+            -ExplicitRevisionA $explicitBackendIdentity.revision_name `
+            -ServiceJsonPath $explicitRevisionANotActiveServicePath `
+            -ActiveRevisionJsonPath $explicitRevisionAActiveRevisionPath `
+            -GcloudPath $mustNotRunGcloud `
+            -OutputDirectory (Join-Path $testRoot 'promotion-b-explicit-a-not-active')
+    } -Message 'Revision B promotion accepted an explicit Revision A that was not active at 100 percent.'
+    foreach ($lineageMismatch in @(
+        @('edge', $explicitRevisionAInvalidEdgePath),
+        @('runtime', $explicitRevisionAInvalidRuntimePath)
+    )) {
+        Assert-Throws -Action {
+            Invoke-TestRevisionBPromotion `
+                -CandidateGitHead $revisionBHead `
+                -ExplicitRevisionA $explicitBackendIdentity.revision_name `
+                -ServiceJsonPath $explicitRevisionAServicePath `
+                -ActiveRevisionJsonPath $lineageMismatch[1] `
+                -GcloudPath $mustNotRunGcloud `
+                -OutputDirectory (Join-Path $testRoot "promotion-b-explicit-a-$($lineageMismatch[0])-mismatch")
+        } -Message "Revision B promotion accepted invalid explicit Revision A $($lineageMismatch[0]) lineage."
+    }
+    Write-Output 'REVISION_B_PROMOTION_EXPLICIT_A_DRY_RUN=PASS cloud_mutation=NONE'
+
     Assert-Throws -Action {
         & (Join-Path $PSScriptRoot 'staging-release.ps1') `
             -Operation PROMOTE -ProjectId $project -ProjectNumber $projectNumber -Region $region -Service $service `

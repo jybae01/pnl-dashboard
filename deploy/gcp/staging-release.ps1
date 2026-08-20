@@ -671,6 +671,34 @@ function Resolve-ValidatedRevisionATarget {
     return $validatedTarget
 }
 
+function Assert-PromotionRevisionAContract {
+    param(
+        [Parameter(Mandatory)] [object] $ServiceDescription,
+        [Parameter(Mandatory)] [object] $RevisionDescription,
+        [Parameter(Mandatory)] [string] $ExpectedRevisionA
+    )
+
+    $activeBaseline = Get-PnlResolvedActiveRevisionBaseline `
+        -ServiceDescription $ServiceDescription `
+        -RevisionDescription $RevisionDescription `
+        -Service $Service
+    if (-not [string]::Equals(
+        [string]$activeBaseline.active_revision,
+        $ExpectedRevisionA,
+        [StringComparison]::Ordinal
+    )) {
+        throw 'Promotion-time active revision does not match the validated Revision A.'
+    }
+    return [pscustomobject][ordered]@{
+        result = 'PASS'
+        active_revision = [string]$activeBaseline.active_revision
+        traffic_percent = [long]$activeBaseline.traffic_percent
+        active_revision_ready = [bool]$activeBaseline.ready
+        observed_edge_image = [string]$activeBaseline.edge_image
+        observed_runtime_image = [string]$activeBaseline.runtime_image
+    }
+}
+
 $describeArguments = @(
     'run', 'services', 'describe', $Service,
     "--project=$ProjectId",
@@ -1052,6 +1080,17 @@ if ($Operation -eq 'CAPTURE_ACTIVE') {
 
 if ($Operation -eq 'PROMOTE') {
     $identity = Assert-StageAndHead
+    $validatedRevisionATarget = $null
+    $explicitValidatedRevisionA = $false
+    if ($Stage -eq 'FINAL_FRONTEND') {
+        $explicitValidatedRevisionA = -not [string]::IsNullOrWhiteSpace($ValidatedRevisionA)
+        $validatedRevisionATarget = Resolve-ValidatedRevisionATarget `
+            -CandidateGitHead $GitHead `
+            -ExplicitRevision $ValidatedRevisionA
+    }
+    elseif (-not [string]::IsNullOrWhiteSpace($ValidatedRevisionA)) {
+        throw 'ValidatedRevisionA is accepted only for FINAL_FRONTEND promotion.'
+    }
     if ($SmokeGate -ne 'passed') {
         throw 'Promotion command generation requires SmokeGate=passed from the candidate-specific smoke.'
     }
@@ -1093,12 +1132,24 @@ if ($Operation -eq 'PROMOTE') {
         $preReleaseBaseline.active_revision
     }
     else {
-        (Get-PnlStagingReleaseIdentity -Stage 'BACKEND_FIRST' -GitHead $GitHead -Service $Service).revision_name
+        $validatedRevisionATarget
     }
     $offlinePromotionRecapture = [ordered]@{
         required = $true
         evaluated = $false
         active_revision = $null
+    }
+    $promotionRevisionAValidation = [ordered]@{
+        required = $explicitValidatedRevisionA
+        evaluated = $false
+        source = $null
+        result = $null
+    }
+    if (
+        -not [string]::IsNullOrWhiteSpace($CapturedActiveRevisionJsonPath) -and
+        [string]::IsNullOrWhiteSpace($CapturedServiceJsonPath)
+    ) {
+        throw 'CapturedActiveRevisionJsonPath requires CapturedServiceJsonPath during promotion.'
     }
     if (-not [string]::IsNullOrWhiteSpace($CapturedServiceJsonPath)) {
         if ($Execute) {
@@ -1119,11 +1170,35 @@ if ($Operation -eq 'PROMOTE') {
             throw 'The explicit promotion target already serves 100 percent traffic.'
         }
         if ($Stage -eq 'FINAL_FRONTEND') {
-            $expectedRevisionA = (
-                Get-PnlStagingReleaseIdentity -Stage 'BACKEND_FIRST' -GitHead $GitHead -Service $Service
-            ).revision_name
-            if (-not [string]::Equals($capturedActive, $expectedRevisionA, [StringComparison]::Ordinal)) {
-                throw 'FINAL_FRONTEND promotion requires deterministic Revision A to be the current 100-percent revision.'
+            if (-not [string]::Equals($capturedActive, $validatedRevisionATarget, [StringComparison]::Ordinal)) {
+                throw 'FINAL_FRONTEND promotion requires the validated Revision A to be the current 100-percent revision.'
+            }
+            if ($explicitValidatedRevisionA) {
+                Assert-RequiredText `
+                    -Name 'CapturedActiveRevisionJsonPath' `
+                    -Value $CapturedActiveRevisionJsonPath
+                $resolvedPromotionActiveRevisionPath = [IO.Path]::GetFullPath($CapturedActiveRevisionJsonPath)
+                if (-not (Test-Path -LiteralPath $resolvedPromotionActiveRevisionPath -PathType Leaf)) {
+                    throw 'CapturedActiveRevisionJsonPath does not identify readable Revision A evidence.'
+                }
+                try {
+                    $promotionActiveRevisionDescription = Get-Content `
+                        -Raw `
+                        -LiteralPath $resolvedPromotionActiveRevisionPath | ConvertFrom-Json -Depth 100
+                }
+                catch {
+                    throw 'CapturedActiveRevisionJsonPath must contain valid Cloud Run revision JSON.'
+                }
+                $promotionPreflight = Assert-PromotionRevisionAContract `
+                    -ServiceDescription $promotionDescription `
+                    -RevisionDescription $promotionActiveRevisionDescription `
+                    -ExpectedRevisionA $validatedRevisionATarget
+                $promotionRevisionAValidation = [ordered]@{
+                    required = $true
+                    evaluated = $true
+                    source = $resolvedPromotionActiveRevisionPath
+                    result = $promotionPreflight
+                }
             }
         }
         elseif (-not [string]::Equals(
@@ -1151,12 +1226,14 @@ if ($Operation -eq 'PROMOTE') {
         source_commit = $GitHead
         stage = $Stage
         target_revision = $Revision
+        validated_revision_a = if ($Stage -eq 'FINAL_FRONTEND') { $validatedRevisionATarget } else { $null }
         smoke_gate_required = 'passed'
         smoke_gate = $SmokeGate
         capture_current_100_percent_revision_before_promotion = $true
         capture_output = $capturePath
         capture_command = ConvertTo-CommandText -Arguments $describeArguments
         promotion_time_active_recapture = $offlinePromotionRecapture
+        promotion_revision_a_validation = $promotionRevisionAValidation
         rollback_operation_type = $rollbackKind
         rollback_target = $rollbackTarget
         rollback_baseline = if ($Stage -eq 'BACKEND_FIRST') { $preReleaseBaseline } else { $null }
@@ -1185,11 +1262,31 @@ if ($Operation -eq 'PROMOTE') {
         throw 'The explicit promotion target already serves 100 percent traffic.'
     }
     if ($Stage -eq 'FINAL_FRONTEND') {
-        $expectedRevisionA = (
-            Get-PnlStagingReleaseIdentity -Stage 'BACKEND_FIRST' -GitHead $GitHead -Service $Service
-        ).revision_name
-        if (-not [string]::Equals($active, $expectedRevisionA, [StringComparison]::Ordinal)) {
-            throw 'FINAL_FRONTEND promotion requires deterministic Revision A to be the current 100-percent revision.'
+        if (-not [string]::Equals($active, $validatedRevisionATarget, [StringComparison]::Ordinal)) {
+            throw 'FINAL_FRONTEND promotion requires the validated Revision A to be the current 100-percent revision.'
+        }
+        if ($explicitValidatedRevisionA) {
+            $liveActiveRevisionDescription = Get-LiveRevisionDescription -Revision $validatedRevisionATarget
+            $promotionPreflight = Assert-PromotionRevisionAContract `
+                -ServiceDescription $description `
+                -RevisionDescription $liveActiveRevisionDescription `
+                -ExpectedRevisionA $validatedRevisionATarget
+            $plan['promotion_time_active_recapture'] = [ordered]@{
+                required = $true
+                evaluated = $true
+                source = 'live promotion-time service recapture'
+                active_revision = $active
+            }
+            $plan['promotion_revision_a_validation'] = [ordered]@{
+                required = $true
+                evaluated = $true
+                source = 'live exact active revision describe'
+                result = $promotionPreflight
+            }
+            $artifactPath = Write-ReleaseArtifact `
+                -Name "promote-$($Stage.ToLowerInvariant().Replace('_', '-'))" `
+                -Payload $plan `
+                -CommandArguments $promotionArguments
         }
     }
     elseif (-not [string]::Equals(
