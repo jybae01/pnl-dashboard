@@ -336,7 +336,7 @@ class GoldenModelTests(unittest.TestCase):
         self.assertAlmostEqual(result.operating_profit_delta, -6500.0, delta=0.01)
         self.assertTrue(result.reconciled)
 
-    def test_forecast_keeps_reference_costs_manual_and_applies_cogs_adjustments(self):
+    def test_forecast_applies_authoritative_transport_and_cogs_adjustments(self):
         sales = {key: SalesInput() for key in [
             "SW400", "SW440", "BW400", "BW440", "LC", "FS_SW", "FS_BW", "FS_TW",
             "UF_MBR", "IX", "OTHER",
@@ -364,9 +364,9 @@ class GoldenModelTests(unittest.TestCase):
             result = ForecastEngine(self.model, self.mapping).run(request, output)
             workbook = GoldenWorkbook(output)
             baseline = GoldenWorkbook(self.model)
-            self.assertAlmostEqual(result.detail["plan_na_sa_tariff"], 6_500.0, delta=0.01)
-            self.assertAlmostEqual(result.detail["forecast_na_sa_tariff"], 13_000.0, delta=0.01)
-            self.assertAlmostEqual(result.detail["na_sa_tariff_adjustment"], 6_500.0, delta=0.01)
+            self.assertAlmostEqual(result.detail["plan_na_sa_tariff"], 42_500.0, delta=0.01)
+            self.assertAlmostEqual(result.detail["forecast_na_sa_tariff"], 85_000.0, delta=0.01)
+            self.assertAlmostEqual(result.detail["na_sa_tariff_adjustment"], 42_500.0, delta=0.01)
             self.assertAlmostEqual(
                 result.detail["new_business_goods_cogs_reference"], 2_550_000.0, delta=0.01,
             )
@@ -387,7 +387,7 @@ class GoldenModelTests(unittest.TestCase):
                 delta=1.0,
             )
             self.assertAlmostEqual(
-                float(workbook.value("K1168")), float(baseline.value("K1168")), delta=1.0,
+                float(workbook.value("K1168")), 285_000.0, delta=1.0,
             )
             self.assertAlmostEqual(
                 float(workbook.value("K1194")), float(baseline.value("K1194")), delta=1.0,
@@ -408,13 +408,13 @@ class GoldenModelTests(unittest.TestCase):
                 self.assertIn("'Data'!K1294", locations)
                 self.assertIn("'Data'!K1273", locations)
                 self.assertIn("'Data'!K1295", locations)
-                self.assertNotIn("'Data'!K1168", locations)
+                self.assertIn("'Data'!K1168", locations)
                 self.assertNotIn("'Data'!K1194", locations)
                 audit_text = audit_bytes.decode("utf-8")
                 self.assertIn("원재료 관세 환급금", audit_text)
                 self.assertIn("제품 폐기손실", audit_text)
 
-    def test_reference_tariff_is_not_applied_until_sga_is_manually_changed(self):
+    def test_authoritative_tariff_and_manual_sga_adjustment_are_each_applied_once(self):
         sales = {key: SalesInput() for key in [
             "SW400", "SW440", "BW400", "BW440", "LC", "FS_SW", "FS_BW", "FS_TW",
             "UF_MBR", "IX", "OTHER",
@@ -453,7 +453,17 @@ class GoldenModelTests(unittest.TestCase):
             target_workbook = GoldenWorkbook(target)
             self.assertAlmostEqual(
                 float(target_workbook.value("K1168")),
-                float(GoldenWorkbook(self.model).value("K1168")) + 6_500,
+                91_500.0,
+                delta=1.0,
+            )
+            self.assertAlmostEqual(
+                forecast.detail["selling_transport_before_adjustment"],
+                85_000.0,
+                delta=1.0,
+            )
+            self.assertAlmostEqual(
+                forecast.detail["selling_transport_after_adjustment"],
+                91_500.0,
                 delta=1.0,
             )
             with zipfile.ZipFile(target) as archive:

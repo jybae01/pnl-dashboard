@@ -580,7 +580,7 @@ class SupabaseForecastGateway(ForecastGateway):
                  period_types: Mapping[str, str], provenance: Any) -> Mapping[str, Any]:
         error: Exception | None = None
         try:
-            row = _first(self._client.rpc("finalize_forecast_generation", {
+            row = _first(self._client.rpc("finalize_forecast_generation_v11", {
                 "p_generation_id": reservation.generation_id,
                 "p_lease_token": reservation.lease_token,
                 "p_generated_workbook_sha256": sha256,
@@ -629,7 +629,9 @@ class SupabaseForecastGateway(ForecastGateway):
     def get_model(self, model_id: str) -> Mapping[str, Any] | None:
         return _first(self._client.table("models").select(
             "id,name,model_year,start_month,end_month,is_published,is_default,workbook_sha256,"
-            "source_kind,source_model_id,forecast_generation_id,generation_input_fingerprint"
+            "source_kind,source_model_id,forecast_generation_id,generation_input_fingerprint,"
+            "regional_sales_monthly,tariff_adjustment_monthly,tariff_applicable_rate,"
+            "tariff_rate,tariff_in_workbook"
         ).eq("id", model_id).limit(1).execute())
 
     def acquire_execution_permit(self, operation_id: str) -> str:

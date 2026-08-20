@@ -35,8 +35,10 @@ class Gateway:
         self.uploaded = b""
         self.lock = threading.Lock()
         self.reservations = 0
+        self.reserved_payload = None
 
     def reserve(self, *, fingerprint, **kwargs):
+        self.reserved_payload = kwargs.get("payload")
         with self.lock:
             if self.fingerprint is not None and self.fingerprint != fingerprint:
                 raise RuntimeError("IDEMPOTENCY_CONFLICT")
@@ -160,6 +162,7 @@ def test_exact_generated_bytes_sha_draft_and_idempotent_replay(_mapping_hash, _p
     assert first.model_id == MODEL_ID
     assert first.is_published is False and first.is_default is False
     assert first.workbook_sha256 == hashlib.sha256(b"base\x07").hexdigest()
+    assert gateway.reserved_payload["request"]["months"][0]["na_sa_sales"] == 0
     second = target.generate(session, request())
     assert second.model_id == first.model_id and second.idempotency_replayed
     assert gateway.reservations == 2

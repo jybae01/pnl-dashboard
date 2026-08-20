@@ -11,7 +11,16 @@ from dataclasses import asdict, dataclass, replace
 from pathlib import Path
 from typing import Any, Mapping, Protocol, Sequence
 
-from ..engine import CostAdjustment, ForecastEngine, ForecastInput, SalesInput
+from ..engine import (
+    CostAdjustment,
+    ForecastEngine,
+    ForecastInput,
+    SalesInput,
+    V11_IX_FREIGHT_RATE,
+    V11_TARIFF_ELIGIBLE_RATIO,
+    V11_TARIFF_RATE,
+    V11_UF_MBR_FREIGHT_RATE,
+)
 from ..merchandise_cogs import (
     MerchandiseSourceValidationError,
     NewBusinessGoodsCogsSelection,
@@ -73,14 +82,14 @@ class ForecastMonthInput:
     new_business_goods_cogs_legacy_normalized: bool = False
     uf_mbr_cogs_rate: float = 0.85
     ix_cogs_rate: float = 0.85
-    uf_mbr_transport_rate: float = 0.05
-    ix_transport_rate: float = 0.05
+    uf_mbr_transport_rate: float = V11_UF_MBR_FREIGHT_RATE
+    ix_transport_rate: float = V11_IX_FREIGHT_RATE
     ix_pack_liters: float = 25
     ix_pack_cost: float = 380
     plan_na_sa_sales: float = 0
     na_sa_sales: float = 0
-    tariff_applicable_rate: float = 0.10
-    tariff_rate: float = 0.13
+    tariff_applicable_rate: float = V11_TARIFF_ELIGIBLE_RATIO
+    tariff_rate: float = V11_TARIFF_RATE
     raw_material_basis: str = "model"
     raw_material_direct: float | None = None
     raw_material_adjustment: float = 0

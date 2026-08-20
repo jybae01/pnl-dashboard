@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import re
 from dataclasses import asdict, dataclass, field
+from math import isfinite
 from pathlib import Path
 from typing import Any, Mapping
 
@@ -23,6 +24,13 @@ from .sales_contract import (
     LC_SALES_MODE_LEGACY_PRODUCT_ONLY,
 )
 from .workbook import GoldenWorkbook
+
+
+V11_EXISTING_PRODUCT_FREIGHT_RATE = 0.03
+V11_UF_MBR_FREIGHT_RATE = 0.10
+V11_IX_FREIGHT_RATE = 0.05
+V11_TARIFF_ELIGIBLE_RATIO = 0.85
+V11_TARIFF_RATE = 0.10
 
 
 @dataclass
@@ -56,14 +64,16 @@ class ForecastInput:
     new_business_goods_cogs_legacy_normalized: bool = False
     uf_mbr_cogs_rate: float = 0.85
     ix_cogs_rate: float = 0.85
-    uf_mbr_transport_rate: float = 0.05
-    ix_transport_rate: float = 0.05
+    # Legacy DTO fields retained for compatibility. The v1.1 engine uses the
+    # authoritative constants above regardless of request values.
+    uf_mbr_transport_rate: float = V11_UF_MBR_FREIGHT_RATE
+    ix_transport_rate: float = V11_IX_FREIGHT_RATE
     ix_pack_liters: float = 25
     ix_pack_cost: float = 380
     plan_na_sa_sales: float = 0
     na_sa_sales: float = 0
-    tariff_applicable_rate: float = 0.10
-    tariff_rate: float = 0.13
+    tariff_applicable_rate: float = V11_TARIFF_ELIGIBLE_RATIO
+    tariff_rate: float = V11_TARIFF_RATE
     raw_material_basis: str = "model"
     raw_material_direct: float | None = None
     raw_material_adjustment: float = 0
@@ -88,6 +98,73 @@ class ForecastResult:
     workbook_path: str
     start_month: int = 0
     end_month: int = 0
+
+
+def calculate_v11_forecast_transport_policy(
+    sales: Mapping[str, SalesInput],
+    *,
+    plan_na_sa_sales: float,
+    na_sa_sales: float,
+) -> dict[str, float]:
+    """Return the backend-authoritative monthly freight and tariff policy."""
+
+    def revenue(code: str) -> float:
+        value = float(sales.get(code, SalesInput()).amount)
+        if not isfinite(value) or value < 0:
+            raise ValueError(f"{code} Forecast 매출액은 유한한 0 이상 값이어야 합니다.")
+        return value
+
+    plan_regional = float(plan_na_sa_sales)
+    forecast_regional = float(na_sa_sales)
+    if (
+        not isfinite(plan_regional)
+        or not isfinite(forecast_regional)
+        or plan_regional < 0
+        or forecast_regional < 0
+    ):
+        raise ValueError("북미·남미 매출액은 유한한 0 이상 값이어야 합니다.")
+
+    sw_revenue = revenue("SW400") + revenue("SW440")
+    bw_revenue = revenue("BW400") + revenue("BW440")
+    lc_revenue = revenue(LC_PRODUCT_CODE)
+    fs_revenue = revenue("FS_SW") + revenue("FS_BW") + revenue("FS_TW")
+    uf_mbr_revenue = revenue("UF_MBR")
+    ix_revenue = revenue("IX")
+
+    sw_freight = sw_revenue * V11_EXISTING_PRODUCT_FREIGHT_RATE
+    bw_freight = bw_revenue * V11_EXISTING_PRODUCT_FREIGHT_RATE
+    lc_freight = lc_revenue * V11_EXISTING_PRODUCT_FREIGHT_RATE
+    fs_freight = fs_revenue * V11_EXISTING_PRODUCT_FREIGHT_RATE
+    uf_mbr_freight = uf_mbr_revenue * V11_UF_MBR_FREIGHT_RATE
+    ix_freight = ix_revenue * V11_IX_FREIGHT_RATE
+    existing_freight = sw_freight + bw_freight + lc_freight + fs_freight
+    default_customer_freight = existing_freight + uf_mbr_freight + ix_freight
+    plan_tariff = plan_regional * V11_TARIFF_ELIGIBLE_RATIO * V11_TARIFF_RATE
+    forecast_tariff = (
+        forecast_regional * V11_TARIFF_ELIGIBLE_RATIO * V11_TARIFF_RATE
+    )
+
+    return {
+        "sw_revenue": sw_revenue,
+        "bw_revenue": bw_revenue,
+        "lc_revenue": lc_revenue,
+        "fs_revenue": fs_revenue,
+        "uf_mbr_revenue": uf_mbr_revenue,
+        "ix_revenue": ix_revenue,
+        "sw_freight": sw_freight,
+        "bw_freight": bw_freight,
+        "lc_freight": lc_freight,
+        "fs_freight": fs_freight,
+        "existing_product_freight": existing_freight,
+        "uf_mbr_freight": uf_mbr_freight,
+        "ix_freight": ix_freight,
+        "new_business_freight": uf_mbr_freight + ix_freight,
+        "default_customer_freight": default_customer_freight,
+        "plan_tariff": plan_tariff,
+        "forecast_tariff": forecast_tariff,
+        "tariff_adjustment": forecast_tariff - plan_tariff,
+        "target_selling_transport": default_customer_freight + forecast_tariff,
+    }
 
 
 def calculate_lc_merchandise_forecast(
@@ -295,20 +372,49 @@ class ForecastEngine:
         for adjustment in request.manufacturing_adjustments:
             base = float(wb.value(f"{col}{adjustment.row}") or 0)
             put(adjustment.row, base + adjustment.amount, "manufacturing_adjustment", adjustment.reason)
-        for adjustment in request.sga_adjustments:
-            base = float(wb.value(f"{col}{adjustment.row}") or 0)
-            put(adjustment.row, base + adjustment.amount, "sga_adjustment", adjustment.reason)
 
         selling_transport_row = self.mapping["special_rows"]["selling_transport"]
         packaging_row = self.mapping["special_rows"]["packaging"]
-        transport = uf.amount * request.uf_mbr_transport_rate + ix.amount * request.ix_transport_rate
+        transport_policy = calculate_v11_forecast_transport_policy(
+            request.sales,
+            plan_na_sa_sales=request.plan_na_sa_sales,
+            na_sa_sales=request.na_sa_sales,
+        )
+        transport = transport_policy["new_business_freight"]
         packaging = (ix.quantity / request.ix_pack_liters * request.ix_pack_cost) if request.ix_pack_liters else 0
-        plan_tariff = request.plan_na_sa_sales * request.tariff_applicable_rate * request.tariff_rate
-        forecast_tariff = request.na_sa_sales * request.tariff_applicable_rate * request.tariff_rate
-        tariff_adjustment = forecast_tariff - plan_tariff
-        # These amounts are reference calculations only. The administrator
-        # decides which amounts to reflect in the SG&A forecast inputs.
-        selling_transport_value = float(wb.value(f"{col}{selling_transport_row}") or 0)
+        plan_tariff = transport_policy["plan_tariff"]
+        forecast_tariff = transport_policy["forecast_tariff"]
+        tariff_adjustment = transport_policy["tariff_adjustment"]
+        plan_selling_transport = float(
+            wb.value(f"{col}{selling_transport_row}") or 0
+        )
+        authoritative_selling_transport = transport_policy["target_selling_transport"]
+        selling_transport_automatic_adjustment = (
+            authoritative_selling_transport - plan_selling_transport
+        )
+        put(
+            selling_transport_row,
+            authoritative_selling_transport,
+            "sga_authoritative_default",
+            (
+                "v1.1 Backend authoritative: 기존제품 운반비 3%, UF/MBR 10%, "
+                "IX 5%, Forecast 미주매출 관세 8.5%"
+            ),
+        )
+        selling_transport_before_user_adjustment = float(
+            wb.value(f"{col}{selling_transport_row}") or 0
+        )
+        for adjustment in request.sga_adjustments:
+            base = float(wb.value(f"{col}{adjustment.row}") or 0)
+            put(
+                adjustment.row,
+                base + adjustment.amount,
+                "sga_adjustment",
+                adjustment.reason,
+            )
+        selling_transport_after_user_adjustment = float(
+            wb.value(f"{col}{selling_transport_row}") or 0
+        )
         packaging_value = float(wb.value(f"{col}{packaging_row}") or 0)
 
         disposal_row = self.mapping["special_rows"]["disposal"]
@@ -443,6 +549,26 @@ class ForecastEngine:
             }
             for item in (lc_merchandise, new_business_merchandise)
         ])
+        explicit_transport_adjustment = sum(
+            float(item.amount)
+            for item in request.sga_adjustments
+            if int(item.row) == int(selling_transport_row)
+        )
+        expected_selling_transport = (
+            authoritative_selling_transport + explicit_transport_adjustment
+        )
+        validation.append({
+            "name": "판매비 운반비 Backend authoritative 및 1회 반영",
+            "ok": abs(
+                selling_transport_after_user_adjustment
+                - expected_selling_transport
+            ) < 1,
+            "value": (
+                selling_transport_after_user_adjustment
+                - expected_selling_transport
+            ),
+            "message": "Backend Target Selling Transport + 명시적 사용자 조정",
+        })
         if request.raw_material_basis == "direct" and request.raw_material_direct is not None:
             allocation_delta = applied_front_rm + applied_back_rm - applied_rm
             validation.append({
@@ -495,14 +621,30 @@ class ForecastEngine:
                 "forecast_merchandise_source_mapping_version": new_business_merchandise.source_mapping_version,
                 "forecast_merchandise_source_mapping_hash": new_business_merchandise.source_mapping_hash,
                 "new_business_transport": transport,
+                "sw_default_freight": transport_policy["sw_freight"],
+                "bw_default_freight": transport_policy["bw_freight"],
+                "lc_default_freight": transport_policy["lc_freight"],
+                "fs_default_freight": transport_policy["fs_freight"],
+                "existing_product_freight": transport_policy["existing_product_freight"],
+                "uf_mbr_default_freight": transport_policy["uf_mbr_freight"],
+                "ix_default_freight": transport_policy["ix_freight"],
+                "default_customer_freight": transport_policy["default_customer_freight"],
                 "ix_packaging": packaging,
                 "plan_na_sa_sales": request.plan_na_sa_sales,
                 "forecast_na_sa_sales": request.na_sa_sales,
                 "plan_na_sa_tariff": plan_tariff,
                 "forecast_na_sa_tariff": forecast_tariff,
                 "na_sa_tariff_adjustment": tariff_adjustment,
-                "selling_transport_before_adjustment": selling_transport_value,
-                "selling_transport_after_adjustment": selling_transport_value,
+                "plan_selling_transport": plan_selling_transport,
+                "selling_transport_automatic_adjustment": selling_transport_automatic_adjustment,
+                "selling_transport_authoritative_target": authoritative_selling_transport,
+                "selling_transport_before_adjustment": selling_transport_before_user_adjustment,
+                "selling_transport_after_adjustment": selling_transport_after_user_adjustment,
+                "authoritative_existing_freight_rate": V11_EXISTING_PRODUCT_FREIGHT_RATE,
+                "authoritative_uf_mbr_freight_rate": V11_UF_MBR_FREIGHT_RATE,
+                "authoritative_ix_freight_rate": V11_IX_FREIGHT_RATE,
+                "authoritative_tariff_eligible_ratio": V11_TARIFF_ELIGIBLE_RATIO,
+                "authoritative_tariff_rate": V11_TARIFF_RATE,
                 "packaging_model_value": packaging_value,
                 "disposal_adjustment": request.disposal_adjustment,
                 "obsolescence_adjustment": request.obsolescence_adjustment,

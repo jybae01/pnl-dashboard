@@ -660,6 +660,7 @@ class GoldenWorkbook:
         direct_sources = {
             "manufacturing_adjustment",
             "sga_adjustment",
+            "sga_authoritative_default",
             "cogs.goods",
             "cogs.customs_refund",
             "cogs.disposal",
@@ -743,7 +744,7 @@ class GoldenWorkbook:
             return "원재료 투입비"
         if source == "manufacturing_adjustment":
             return "제조경비"
-        if source == "sga_adjustment":
+        if source in {"sga_adjustment", "sga_authoritative_default"}:
             return "판관비"
         return "매출원가"
 
@@ -798,7 +799,7 @@ class GoldenWorkbook:
             return "원재료 관세 환급금"
         if source == "cogs.goods":
             return "상품 매출원가"
-        if source == "sga_adjustment":
+        if source in {"sga_adjustment", "sga_authoritative_default"}:
             row = int(re.search(r"\d+", item.cell).group(0))
             prefix = self._sga_section(row)
             return f"{prefix}_{self._row_label(row)}"

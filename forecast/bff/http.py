@@ -32,6 +32,12 @@ from .pnl_reporting_ingestion import (
     PnlReportingValidationFailure,
 )
 from ..reporting import DatasetType
+from ..engine import (
+    V11_IX_FREIGHT_RATE,
+    V11_TARIFF_ELIGIBLE_RATIO,
+    V11_TARIFF_RATE,
+    V11_UF_MBR_FREIGHT_RATE,
+)
 from .forecast_orchestration import (
     ForecastAdjustmentInput, ForecastGenerateRequest, ForecastMonthInput,
     ForecastQuantityInput, ForecastSalesInput,
@@ -133,14 +139,14 @@ class ForecastMonthBody(BaseModel):
     new_business_goods_cogs_reason: StrictStr = Field(default="", max_length=500)
     uf_mbr_cogs_rate: StrictFloat | StrictInt = 0.85
     ix_cogs_rate: StrictFloat | StrictInt = 0.85
-    uf_mbr_transport_rate: StrictFloat | StrictInt = 0.05
-    ix_transport_rate: StrictFloat | StrictInt = 0.05
+    uf_mbr_transport_rate: StrictFloat | StrictInt = V11_UF_MBR_FREIGHT_RATE
+    ix_transport_rate: StrictFloat | StrictInt = V11_IX_FREIGHT_RATE
     ix_pack_liters: StrictFloat | StrictInt = 25
     ix_pack_cost: StrictFloat | StrictInt = 380
     plan_na_sa_sales: StrictFloat | StrictInt = 0
     na_sa_sales: StrictFloat | StrictInt = 0
-    tariff_applicable_rate: StrictFloat | StrictInt = 0.10
-    tariff_rate: StrictFloat | StrictInt = 0.13
+    tariff_applicable_rate: StrictFloat | StrictInt = V11_TARIFF_ELIGIBLE_RATIO
+    tariff_rate: StrictFloat | StrictInt = V11_TARIFF_RATE
     raw_material_basis: StrictStr = "model"
     raw_material_direct: StrictFloat | StrictInt | None = None
     raw_material_adjustment: StrictFloat | StrictInt = 0

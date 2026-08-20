@@ -132,6 +132,41 @@ class ComparisonAnalysisBridgeTests(unittest.TestCase):
         self.assertEqual(len(detail_tariffs), 1)
         self.assertEqual(detail_tariffs[0]["profit_effect"], -100.0)
 
+    def test_tariff_embedded_in_forecast_transport_is_subtracted_and_added_once(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            base_path = root / "base.xlsx"
+            comparison_path = root / "comparison.xlsx"
+            _build_workbook(base_path)
+            _build_workbook(comparison_path, comparison=True)
+            base = _meta("base")
+            comparison = _meta("comparison")
+            base.tariff_adjustment_monthly = {"1": 2.0}
+            comparison.tariff_adjustment_monthly = {"1": 5.0}
+            base.tariff_in_workbook = True
+            comparison.tariff_in_workbook = True
+
+            result = GenericComparisonEngine("config/model_mapping.json").compare(
+                base,
+                base_path,
+                comparison,
+                comparison_path,
+                PeriodOption("M01", "1월", (1,), "월"),
+            )
+
+        tariff_effects = [row for row in result.effects if row["code"] == "tariff"]
+        self.assertEqual(len(tariff_effects), 1)
+        self.assertEqual(tariff_effects[0]["profit_effect"], -3.0)
+        freight = result.sales_analysis["freight_trace_rows"][0]
+        self.assertEqual(freight["base_freight_including_tariff"], 10.0)
+        self.assertEqual(freight["comparison_freight_including_tariff"], 20.0)
+        self.assertEqual(freight["base_freight_ex_tariff"], 8.0)
+        self.assertEqual(freight["comparison_freight_ex_tariff"], 15.0)
+        transport_sga = next(
+            row for row in result.sga_accounts if row["classification"] == "transport"
+        )
+        self.assertEqual(transport_sga["profit_effect"], 0.0)
+
 
 if __name__ == "__main__":
     unittest.main()

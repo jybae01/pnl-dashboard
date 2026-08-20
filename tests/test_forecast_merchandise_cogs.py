@@ -8,6 +8,7 @@ import pytest
 
 import forecast.engine as engine_module
 from forecast.engine import (
+    CostAdjustment,
     ForecastEngine,
     ForecastInput,
     SalesInput,
@@ -260,7 +261,7 @@ def test_engine_writes_explicit_lc_merchandise_revenue_and_excludes_manufactured
     monkeypatch.setattr(engine_module, "GoldenWorkbook", EngineWorkbook)
     monkeypatch.setattr(engine_module, "GoldenForecastMerchandiseAdapter", Adapter)
 
-    def run(product_amount, production_quantity, suffix):
+    def run(product_amount, production_quantity, suffix, transport_adjustment=0):
         request = ForecastInput(
             month=7,
             sales={
@@ -271,6 +272,16 @@ def test_engine_writes_explicit_lc_merchandise_revenue_and_excludes_manufactured
             production={"LC": production_quantity},
             new_business_goods_cogs_mode="ACTUAL_YTD_DEFAULT",
             lc_sales_mode="EXPLICIT_LC_PRODUCT_MERCHANDISE",
+            plan_na_sa_sales=1_000_000,
+            na_sa_sales=2_000_000,
+            uf_mbr_transport_rate=0.99,
+            ix_transport_rate=0.99,
+            tariff_applicable_rate=0.01,
+            tariff_rate=0.99,
+            sga_adjustments=(
+                [CostAdjustment(1168, transport_adjustment, "명시적 운반비 조정")]
+                if transport_adjustment else []
+            ),
         )
         result = ForecastEngine(
             model_path,
@@ -310,6 +321,21 @@ def test_engine_writes_explicit_lc_merchandise_revenue_and_excludes_manufactured
     assert changed.detail["merchandise_cogs_total"] == pytest.approx(20_000_000)
     assert first.detail["forecast_sales_contract_version"] == "forecast-sales-v2.0.0"
     assert first.detail["lc_sales_mode"] == "EXPLICIT_LC_PRODUCT_MERCHANDISE"
+    assert first_workbook.inputs["K1168"] == pytest.approx(5_170_000)
+    assert changed_workbook.inputs["K1168"] == pytest.approx(29_170_000)
+    assert first.detail["plan_na_sa_tariff"] == pytest.approx(85_000)
+    assert first.detail["forecast_na_sa_tariff"] == pytest.approx(170_000)
+    assert first.detail["authoritative_uf_mbr_freight_rate"] == pytest.approx(0.10)
+    assert first.detail["authoritative_tariff_eligible_ratio"] == pytest.approx(0.85)
+
+    adjusted, adjusted_workbook = run(100_000_000, 100, "adjusted", 1_234)
+    assert adjusted.detail["selling_transport_before_adjustment"] == pytest.approx(
+        5_170_000
+    )
+    assert adjusted.detail["selling_transport_after_adjustment"] == pytest.approx(
+        5_171_234
+    )
+    assert adjusted_workbook.inputs["K1168"] == pytest.approx(5_171_234)
 
     legacy = ForecastEngine(
         model_path,
