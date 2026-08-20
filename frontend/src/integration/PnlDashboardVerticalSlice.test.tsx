@@ -211,11 +211,11 @@ describe('P&L Status exact visual skeleton port', () => {
 
     fireEvent.click(screen.getAllByRole('tab')[2]);
     const sga = screen.getByTestId('sga-table-shell');
-    expect(sga.querySelector('table')).toHaveAttribute('data-column-count', '10');
-    fireEvent.click(within(sga).getByRole('button', { name: '실적만 보기' }));
     expect(sga.querySelector('table')).toHaveAttribute('data-column-count', '9');
+    fireEvent.click(within(sga).getByRole('button', { name: '실적만 보기' }));
+    expect(sga.querySelector('table')).toHaveAttribute('data-column-count', '8');
     fireEvent.click(within(sga).getByRole('button', { name: '기간 설정 비교' }));
-    expect(sga.querySelector('table')).toHaveAttribute('data-column-count', '6');
+    expect(sga.querySelector('table')).toHaveAttribute('data-column-count', '5');
 
     fireEvent.click(screen.getAllByRole('tab')[3]);
     const product = screen.getByTestId('product-table-shell');
@@ -269,8 +269,8 @@ describe('P&L Status exact visual skeleton port', () => {
       expect(within(sga).queryByText('6월 당월 실적 비교')).not.toBeInTheDocument();
     }
     fireEvent.click(within(sga).getByRole('button', { name: '실적만 보기' }));
-    expect(sga.querySelector('table')).toHaveAttribute('data-column-count', String(actualThroughMonth + 3));
-    expect(sga.querySelector('tr[data-row-key="admin"]')?.querySelectorAll('td')).toHaveLength(actualThroughMonth + 3);
+    expect(sga.querySelector('table')).toHaveAttribute('data-column-count', String(actualThroughMonth + 2));
+    expect(sga.querySelector('tr[data-row-key="admin"]')?.querySelectorAll('td')).toHaveLength(actualThroughMonth + 2);
 
     fireEvent.click(screen.getAllByRole('tab')[3]);
     const product = screen.getByTestId('product-table-shell');
@@ -285,6 +285,83 @@ describe('P&L Status exact visual skeleton port', () => {
     expect(product.querySelector('table')).toHaveAttribute('data-column-count', String(actualThroughMonth + 3));
     expect(product.querySelector('tr[data-row-key="SW_revenue"]')?.querySelectorAll('td')).toHaveLength(actualThroughMonth + 3);
     rendered.unmount();
+  });
+
+  it('keeps SGA groups open, hides other-detail controls, and removes only the category column', async () => {
+    const fullYearReport = createPnlReportingVisualFixture(12);
+    const report = {
+      ...fullYearReport,
+      sgaRows: fullYearReport.sgaRows.map((row) => {
+        if (row.key === 'admin' || row.key === 'sales') return { ...row, collapsible: true };
+        if (row.level !== 1) return row;
+        return {
+          ...row,
+          parentKey: row.category === '일반관리비' ? 'admin' : row.category === '판매비' ? 'sales' : row.parentKey,
+        };
+      }),
+    };
+    expect(parsePnlReportingLoadResult(reportingResult('READY', report, report.year, report.availableYears))?.reportingState).toBe('READY');
+    await renderReady(undefined, report);
+    fireEvent.click(screen.getAllByRole('tab')[2]);
+
+    const sga = screen.getByTestId('sga-table-shell');
+    const table = sga.querySelector('table');
+    const rowByKey = (key: string) => sga.querySelector<HTMLTableRowElement>(`tr[data-row-key="${key}"]`);
+    const cellTexts = (row: HTMLTableRowElement) => [...row.querySelectorAll('td')].map((cell) => cell.textContent);
+    const admin = rowByKey('admin');
+    const sales = rowByKey('sales');
+    expect(admin).toHaveTextContent('일반관리비 소계');
+    expect(sales).toHaveTextContent('판매비 소계');
+    expect(within(admin!).queryByRole('button')).not.toBeInTheDocument();
+    expect(within(sales!).queryByRole('button')).not.toBeInTheDocument();
+    for (const key of ['admin_labor', 'admin_depr', 'admin_rnd', 'admin_fee', 'admin_other']) expect(rowByKey(key)).toBeInTheDocument();
+    for (const key of ['sales_freight', 'sales_commission', 'sales_brand', 'sales_labor', 'sales_sample', 'sales_bad_debt', 'sales_sundry', 'sales_other']) expect(rowByKey(key)).toBeInTheDocument();
+
+    const adminOther = rowByKey('admin_other');
+    const salesOther = rowByKey('sales_other');
+    expect(adminOther).toHaveTextContent('5. 기타');
+    expect(salesOther).toHaveTextContent('8. 기타');
+    expect(within(adminOther!).queryByRole('button')).not.toBeInTheDocument();
+    expect(within(salesOther!).queryByRole('button')).not.toBeInTheDocument();
+    expect(report.sgaRows.find((row) => row.key === 'admin_other')).toMatchObject({ parentKey: 'admin', collapsible: true });
+    expect(report.sgaRows.find((row) => row.key === 'sales_other')).toMatchObject({ parentKey: 'sales', collapsible: true });
+    expect(report.sgaRows.filter((row) => row.parentKey === 'admin_other')).toHaveLength(4);
+    expect(report.sgaRows.filter((row) => row.parentKey === 'sales_other')).toHaveLength(3);
+    expect(rowByKey('admin_other_1')).not.toBeInTheDocument();
+    expect(rowByKey('sales_other_1')).not.toBeInTheDocument();
+
+    expect(within(sga).getByRole('columnheader', { name: '판관비 항목' })).toBeInTheDocument();
+    expect(within(sga).queryByRole('columnheader', { name: '구분' })).not.toBeInTheDocument();
+    expect(sga.querySelectorAll('tbody td.pnl-report__unit-cell')).toHaveLength(0);
+    expect(table).toHaveAttribute('data-column-count', '9');
+    expect(table).toHaveStyle('width: 1150px');
+    expect(table?.querySelector('thead tr:first-child th:first-child')).toHaveStyle('width: 270px');
+    expect([...table!.querySelectorAll<HTMLTableCellElement>('thead tr:first-child th')].map((cell) => cell.colSpan)).toEqual([1, 4, 4]);
+    expect(admin?.querySelectorAll('td')).toHaveLength(9);
+    expect(cellTexts(admin!)).toEqual(['일반관리비 소계', '60', '55', '-5', '-8.33%', '360', '340', '-20', '-5.56%']);
+    expect(sga.querySelector('.pnl-report__table-unit')).toHaveTextContent('(단위: 백만원, %)');
+
+    expect(within(sga).getByText('12월 당월 실적 비교')).toBeInTheDocument();
+    fireEvent.click(within(sga).getByRole('button', { name: '6월' }));
+    expect(within(sga).getByText('6월 실적 비교')).toBeInTheDocument();
+    expect(within(sga).queryByText('6월 당월 실적 비교')).not.toBeInTheDocument();
+    fireEvent.click(within(sga).getByRole('button', { name: '12월(당월)' }));
+    expect(within(sga).getByText('12월 당월 실적 비교')).toBeInTheDocument();
+
+    fireEvent.click(within(sga).getByRole('button', { name: '실적만 보기' }));
+    expect(table).toHaveAttribute('data-column-count', '14');
+    expect(table).toHaveStyle('width: 1343px');
+    expect(table?.querySelector('thead th:first-child')).toHaveStyle('width: 264px');
+    expect(table?.querySelectorAll('thead th')).toHaveLength(14);
+    expect(rowByKey('admin')?.querySelectorAll('td')).toHaveLength(14);
+    expect(cellTexts(rowByKey('admin')!).slice(1)).toEqual(['101', '102', '103', '104', '0', '106', '107', '108', '109', '110', '111', '112', '1,173']);
+
+    fireEvent.click(within(sga).getByRole('button', { name: '기간 설정 비교' }));
+    expect(table).toHaveAttribute('data-column-count', '5');
+    expect(table).toHaveStyle('width: 760px');
+    expect(table?.querySelector('thead th:first-child')).toHaveStyle('width: 284px');
+    expect(table?.querySelectorAll('thead th')).toHaveLength(5);
+    expect(cellTexts(rowByKey('admin')!)).toEqual(['일반관리비 소계', '60', '55', '-5', '-8.33%']);
   });
 
   it('preserves regular product units and omits inapplicable NEW_BUSINESS quantity metadata and rows', async () => {
