@@ -33,6 +33,38 @@ function Assert-Throws {
     throw $Message
 }
 
+function Get-TestSha256Digest {
+    param([Parameter(Mandatory)] [string] $Value)
+
+    return 'sha256:' + [Convert]::ToHexString(
+        [Security.Cryptography.SHA256]::HashData([Text.Encoding]::UTF8.GetBytes($Value))
+    ).ToLowerInvariant()
+}
+
+function New-TestOciIndexManifestJson {
+    param(
+        [Parameter(Mandatory)] [string] $ChildDigest,
+        [string] $OperatingSystem = 'linux',
+        [string] $Architecture = 'amd64'
+    )
+
+    return [ordered]@{
+        schemaVersion = 2
+        mediaType = 'application/vnd.oci.image.index.v1+json'
+        manifests = @(
+            [ordered]@{
+                mediaType = 'application/vnd.oci.image.manifest.v1+json'
+                digest = $ChildDigest
+                size = 1234
+                platform = [ordered]@{
+                    architecture = $Architecture
+                    os = $OperatingSystem
+                }
+            }
+        )
+    } | ConvertTo-Json -Depth 10 -Compress
+}
+
 $canonical = 'https://pnl-web-498160536475.asia-southeast1.run.app'
 $statusUrl = 'https://pnl-web-t4n4rdoznq-as.a.run.app'
 $originPair = "$canonical,$statusUrl"
@@ -49,6 +81,17 @@ $frozenEdge = 'asia-southeast1-docker.pkg.dev/pnl-dashboard-staging/pnl-staging/
 $finalEdge = 'asia-southeast1-docker.pkg.dev/pnl-dashboard-staging/pnl-staging/pnl-web@sha256:' + ('2' * 64)
 $runtimeA = 'asia-southeast1-docker.pkg.dev/pnl-dashboard-staging/pnl-staging/pnl-runtime@sha256:' + ('3' * 64)
 $runtimeB = 'asia-southeast1-docker.pkg.dev/pnl-dashboard-staging/pnl-staging/pnl-runtime@sha256:' + ('4' * 64)
+$runtimeRepository = 'asia-southeast1-docker.pkg.dev/pnl-dashboard-staging/pnl-staging/pnl-runtime'
+$runtimeChildDigest = 'sha256:' + ('5' * 64)
+$runtimeUnrelatedDigest = 'sha256:' + ('6' * 64)
+$runtimeChild = "$runtimeRepository@$runtimeChildDigest"
+$runtimeUnrelatedChild = "$runtimeRepository@$runtimeUnrelatedDigest"
+$runtimeIndexJson = New-TestOciIndexManifestJson -ChildDigest $runtimeChildDigest
+$runtimeIndex = "$runtimeRepository@$(Get-TestSha256Digest -Value $runtimeIndexJson)"
+$wrongPlatformIndexJson = New-TestOciIndexManifestJson `
+    -ChildDigest $runtimeChildDigest `
+    -Architecture 'arm64'
+$wrongPlatformIndex = "$runtimeRepository@$(Get-TestSha256Digest -Value $wrongPlatformIndexJson)"
 $mutableEdgeTag = 'asia-southeast1-docker.pkg.dev/pnl-dashboard-staging/pnl-staging/pnl-web:legacy-edge'
 $mutableRuntimeTag = 'asia-southeast1-docker.pkg.dev/pnl-dashboard-staging/pnl-staging/pnl-runtime:analysis-v31-4ad67ad'
 $backendIdentity = Get-PnlStagingReleaseIdentity -Stage BACKEND_FIRST -GitHead $head -Service $service
@@ -139,6 +182,7 @@ foreach ($invalidImageCase in @(
     @('us-central1-docker.pkg.dev/pnl-dashboard-staging/pnl-staging/pnl-web@sha256:' + ('1' * 64), 'edge'),
     @('gcr.io/pnl-dashboard-staging/pnl-web@sha256:' + ('1' * 64), 'edge'),
     @('asia-southeast1-docker.pkg.dev/wrong-project/pnl-staging/pnl-web@sha256:' + ('1' * 64), 'edge'),
+    @('asia-southeast1-docker.pkg.dev/pnl-dashboard-staging/wrong-repository/pnl-runtime@sha256:' + ('1' * 64), 'runtime'),
     @($runtimeA, 'edge'),
     @('asia-southeast1-docker.pkg.dev/pnl-dashboard-staging/pnl-staging/pnl-web:latest', 'edge'),
     @($mutableRuntimeTag, 'runtime'),
@@ -158,6 +202,67 @@ $activeFixture = [pscustomobject]@{
         )
     }
 }
+
+$directRuntimeAuthority = Assert-PnlRuntimeImageResolution `
+    -RequestedImage $runtimeA `
+    -ObservedImage $runtimeA
+Assert-Equal `
+    -Actual $directRuntimeAuthority.resolution `
+    -Expected 'DIRECT_MANIFEST' `
+    -Message 'Direct immutable runtime manifest equality did not pass.'
+
+$indexRuntimeAuthority = Assert-PnlRuntimeImageResolution `
+    -RequestedImage $runtimeIndex `
+    -ObservedImage $runtimeChild `
+    -RequestedManifestJson $runtimeIndexJson
+Assert-Equal `
+    -Actual $indexRuntimeAuthority.resolution `
+    -Expected 'OCI_INDEX' `
+    -Message 'Exact OCI index to linux/amd64 child resolution did not pass.'
+Assert-Equal `
+    -Actual $indexRuntimeAuthority.platform `
+    -Expected 'linux/amd64' `
+    -Message 'OCI runtime authority recorded the wrong platform.'
+Assert-Equal `
+    -Actual $indexRuntimeAuthority.parent_child_confirmed `
+    -Expected $true `
+    -Message 'OCI runtime authority did not record the verified parent-child relation.'
+
+Assert-Throws -Action {
+    Assert-PnlRuntimeImageResolution `
+        -RequestedImage $runtimeIndex `
+        -ObservedImage $runtimeUnrelatedChild `
+        -RequestedManifestJson $runtimeIndexJson
+} -Message 'OCI index accepted an unrelated child digest.'
+Assert-Throws -Action {
+    Assert-PnlRuntimeImageResolution `
+        -RequestedImage $wrongPlatformIndex `
+        -ObservedImage $runtimeChild `
+        -RequestedManifestJson $wrongPlatformIndexJson
+} -Message 'OCI index accepted a child for the wrong platform.'
+foreach ($wrongRepositoryChild in @(
+    'asia-southeast1-docker.pkg.dev/pnl-dashboard-staging/wrong-repository/pnl-runtime@' + $runtimeChildDigest,
+    'asia-southeast1-docker.pkg.dev/wrong-project/pnl-staging/pnl-runtime@' + $runtimeChildDigest
+)) {
+    Assert-Throws -Action {
+        Assert-PnlRuntimeImageResolution `
+            -RequestedImage $runtimeIndex `
+            -ObservedImage $wrongRepositoryChild `
+            -RequestedManifestJson $runtimeIndexJson
+    } -Message "OCI index accepted a child from the wrong repository or project: $wrongRepositoryChild"
+}
+Assert-Throws -Action {
+    Assert-PnlRuntimeImageResolution `
+        -RequestedImage $mutableRuntimeTag `
+        -ObservedImage $runtimeChild `
+        -RequestedManifestJson $runtimeIndexJson
+} -Message 'OCI runtime resolution accepted a mutable requested image.'
+Assert-Throws -Action {
+    Assert-PnlRuntimeImageResolution `
+        -RequestedImage $runtimeIndex `
+        -ObservedImage $runtimeChild `
+        -RequestedManifestJson ''
+} -Message 'OCI runtime resolution accepted a missing parent-child relation.'
 Assert-Equal `
     -Actual (Get-PnlActiveRevision -ServiceDescription $activeFixture -Service $service) `
     -Expected 'pnl-web-dynamic-fixture-a1b2c3' `
@@ -764,8 +869,40 @@ try {
     Assert-Equal -Actual $finalPlan.revision_a_edge_lineage -Expected 'validated' -Message 'Final candidate did not report validated edge lineage.'
     Assert-Equal -Actual $finalPlan.service_preflight.evaluated -Expected $true -Message 'Offline Revision B preflight was not evaluated.'
     Assert-Equal -Actual $finalPlan.service_preflight.result.active_revision -Expected $backendIdentity.revision_name -Message 'Revision B preflight did not require active Revision A.'
+    Assert-Equal -Actual $finalPlan.revision_a_runtime_authority.resolution -Expected 'DIRECT_MANIFEST' -Message 'Direct Revision A runtime authority was not recorded.'
     Assert-True -Condition (@($finalPlan.gcloud.arguments) -contains "--image=$finalEdge") -Message 'Final candidate omitted final edge digest.'
     Write-Output 'REVISION_B_DRY_RUN=PASS traffic=0 runtime_lineage=PASS edge_lineage=PASS cloud_mutation=NONE'
+
+    $runtimeIndexPath = Join-Path $testRoot 'runtime-index.json'
+    [IO.File]::WriteAllText($runtimeIndexPath, $runtimeIndexJson, [Text.UTF8Encoding]::new($false))
+    $revisionBOciActiveRevisionPath = Join-Path $testRoot 'revision-b-oci-active-revision.json'
+    [IO.File]::WriteAllText(
+        $revisionBOciActiveRevisionPath,
+        ((New-TestActiveRevisionDescription `
+            -Revision $backendIdentity.revision_name `
+            -ResolvedEdgeImage $frozenEdge `
+            -ResolvedRuntimeImage $runtimeChild) | ConvertTo-Json -Depth 100),
+        [Text.UTF8Encoding]::new($false)
+    )
+    $ociFinalOutput = Join-Path $testRoot 'final-oci-index'
+    & (Join-Path $PSScriptRoot 'staging-release.ps1') `
+        -Operation CANDIDATE -ProjectId $project -ProjectNumber $projectNumber -Region $region -Service $service `
+        -Stage FINAL_FRONTEND -GitHead $head -ApprovedOrigins $originPair `
+        -SupabaseUrl $supabaseUrl -WorkerControllerUrl $controllerUrl `
+        -FinalEdgeImage $finalEdge -RuntimeImage $runtimeIndex `
+        -ValidatedRevisionAEdgeImage $frozenEdge -ValidatedRevisionARuntimeImage $runtimeIndex `
+        -CapturedServiceJsonPath $revisionBPreflightPath `
+        -CapturedActiveRevisionJsonPath $revisionBOciActiveRevisionPath `
+        -RuntimeManifestJsonPath $runtimeIndexPath `
+        -RevisionSuffix $frontendIdentity.revision_suffix -CandidateTag $frontendIdentity.candidate_tag `
+        -GcloudPath (Join-Path $testRoot 'must-not-run-gcloud.cmd') `
+        -OutputDirectory $ociFinalOutput | Out-Null
+    $ociFinalPlan = Get-Content -Raw -LiteralPath (Join-Path $ociFinalOutput 'candidate-final-frontend.json') | ConvertFrom-Json
+    Assert-Equal -Actual $ociFinalPlan.revision_a_runtime_authority.requested_runtime_image -Expected $runtimeIndex -Message 'OCI authority lost the requested immutable index.'
+    Assert-Equal -Actual $ociFinalPlan.revision_a_runtime_authority.resolved_runtime_image -Expected $runtimeChild -Message 'OCI authority lost the resolved linux/amd64 child.'
+    Assert-Equal -Actual $ociFinalPlan.revision_a_runtime_authority.platform -Expected 'linux/amd64' -Message 'OCI authority lost the resolved platform.'
+    Assert-Equal -Actual $ociFinalPlan.revision_a_runtime_authority.same_repository -Expected $true -Message 'OCI authority did not retain same-repository proof.'
+    Assert-Equal -Actual $ociFinalPlan.revision_a_runtime_authority.parent_child_confirmed -Expected $true -Message 'OCI authority did not retain parent-child proof.'
 
     Assert-Throws -Action {
         & (Join-Path $PSScriptRoot 'staging-release.ps1') `

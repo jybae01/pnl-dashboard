@@ -29,6 +29,7 @@ param(
     [string] $PreReleaseStatePath,
     [string] $CapturedServiceJsonPath,
     [string] $CapturedActiveRevisionJsonPath,
+    [string] $RuntimeManifestJsonPath,
     [string] $IncidentApproval,
 
     [string] $GcloudPath = "$env:LOCALAPPDATA\Google\Cloud SDK\google-cloud-sdk\bin\gcloud.cmd",
@@ -303,7 +304,8 @@ function Assert-LiveServicePreservationContract {
         [Parameter(Mandatory)] [string] $CandidateRuntimeImage,
         [Parameter(Mandatory)] [string] $CandidateGitHead,
         [AllowEmptyString()] [string] $ValidatedAEdgeImage,
-        [AllowEmptyString()] [string] $ValidatedARuntimeImage
+        [AllowEmptyString()] [string] $ValidatedARuntimeImage,
+        [AllowEmptyString()] [string] $RequestedRuntimeManifestJson
     )
 
     $metadata = Get-PnlRequiredJsonProperty -Object $Description -Name 'metadata' -FieldName 'metadata'
@@ -343,13 +345,14 @@ function Assert-LiveServicePreservationContract {
         if (-not [string]::Equals($activeRevision, $expectedRevisionA, [StringComparison]::Ordinal)) {
             throw 'Revision B candidate creation requires deterministic Revision A to be the current 100-percent revision.'
         }
-        Assert-PnlRevisionBLineage `
+        $runtimeAuthority = Assert-PnlRevisionBLineage `
             -FinalEdgeImage $CandidateEdgeImage `
             -RuntimeImage $CandidateRuntimeImage `
             -ValidatedRevisionAEdgeImage $ValidatedAEdgeImage `
             -ValidatedRevisionARuntimeImage $ValidatedARuntimeImage `
             -ObservedRevisionAEdgeImage $observedEdgeImage `
-            -ObservedRevisionARuntimeImage $observedRuntimeImage
+            -ObservedRevisionARuntimeImage $observedRuntimeImage `
+            -RequestedRuntimeManifestJson $RequestedRuntimeManifestJson
     }
     if ([string]$Description.spec.template.spec.serviceAccountName -ne "pnl-web@$ProjectId.iam.gserviceaccount.com") {
         throw 'Live staging service uses an unexpected service account.'
@@ -568,6 +571,7 @@ function Assert-LiveServicePreservationContract {
         observed_runtime_image = $observedRuntimeImage
         validated_revision_a_edge_image = if ($CandidateStage -eq 'FINAL_FRONTEND') { $ValidatedAEdgeImage } else { $null }
         validated_revision_a_runtime_image = if ($CandidateStage -eq 'FINAL_FRONTEND') { $ValidatedARuntimeImage } else { $null }
+        revision_a_runtime_authority = if ($CandidateStage -eq 'FINAL_FRONTEND') { $runtimeAuthority } else { $null }
         origins = $currentOriginValue
         edge_port = 8080
         dependency = 'edge->bff'
@@ -656,6 +660,21 @@ $describeArguments = @(
 
 if ($Operation -eq 'CANDIDATE') {
     $identity = Assert-StageAndHead
+    $requestedRuntimeManifestJson = ''
+    $resolvedRuntimeManifestPath = $null
+    if (-not [string]::IsNullOrWhiteSpace($RuntimeManifestJsonPath)) {
+        if ($Stage -ne 'FINAL_FRONTEND') {
+            throw 'RuntimeManifestJsonPath is accepted only for FINAL_FRONTEND runtime lineage validation.'
+        }
+        $resolvedRuntimeManifestPath = [IO.Path]::GetFullPath($RuntimeManifestJsonPath)
+        if (-not (Test-Path -LiteralPath $resolvedRuntimeManifestPath -PathType Leaf)) {
+            throw 'RuntimeManifestJsonPath does not identify a readable raw manifest JSON file.'
+        }
+        $requestedRuntimeManifestJson = [IO.File]::ReadAllText($resolvedRuntimeManifestPath)
+        if ([string]::IsNullOrWhiteSpace($requestedRuntimeManifestJson)) {
+            throw 'RuntimeManifestJsonPath must contain an exact raw manifest inspection.'
+        }
+    }
     foreach ($required in @(
         @('ApprovedOrigins', $ApprovedOrigins),
         @('SupabaseUrl', $SupabaseUrl),
@@ -804,7 +823,8 @@ if ($Operation -eq 'CANDIDATE') {
             -CandidateRuntimeImage $RuntimeImage `
             -CandidateGitHead $GitHead `
             -ValidatedAEdgeImage $ValidatedRevisionAEdgeImage `
-            -ValidatedARuntimeImage $ValidatedRevisionARuntimeImage
+            -ValidatedARuntimeImage $ValidatedRevisionARuntimeImage `
+            -RequestedRuntimeManifestJson $requestedRuntimeManifestJson
         $servicePreflight = [ordered]@{
             required = $true
             evaluated = $true
@@ -829,7 +849,8 @@ if ($Operation -eq 'CANDIDATE') {
             -CandidateRuntimeImage $RuntimeImage `
             -CandidateGitHead $GitHead `
             -ValidatedAEdgeImage $ValidatedRevisionAEdgeImage `
-            -ValidatedARuntimeImage $ValidatedRevisionARuntimeImage
+            -ValidatedARuntimeImage $ValidatedRevisionARuntimeImage `
+            -RequestedRuntimeManifestJson $requestedRuntimeManifestJson
         $servicePreflight = [ordered]@{
             required = $true
             evaluated = $true
@@ -879,6 +900,13 @@ if ($Operation -eq 'CANDIDATE') {
         validated_revision_a_runtime_image = if ($Stage -eq 'FINAL_FRONTEND') { $ValidatedRevisionARuntimeImage } else { $null }
         revision_a_edge_lineage = if ($Stage -eq 'FINAL_FRONTEND') { 'validated' } else { 'not-applicable' }
         revision_a_runtime_lineage = if ($Stage -eq 'FINAL_FRONTEND') { 'validated' } else { 'not-applicable' }
+        revision_a_runtime_authority = if ($Stage -eq 'FINAL_FRONTEND' -and $servicePreflight.evaluated) {
+            $servicePreflight.result.revision_a_runtime_authority
+        }
+        else {
+            $null
+        }
+        runtime_manifest_source = if ($Stage -eq 'FINAL_FRONTEND') { $resolvedRuntimeManifestPath } else { $null }
         approved_origins = @($originValue.Split([char]','))
         rendered_manifest = $webManifestPath
         service_preflight = $servicePreflight

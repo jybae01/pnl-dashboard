@@ -276,11 +276,17 @@ simultaneously:
 
 - deterministic Revision A is the sole 100% active revision;
 - live Revision A edge equals `$ValidatedRevisionAEdgeImage`;
-- live Revision A runtime equals `$ValidatedRevisionARuntimeImage`;
+- live Revision A runtime either equals the requested immutable manifest, or is
+  the exact `linux/amd64` child of the requested immutable OCI index in the same
+  approved `pnl-runtime` repository;
 - Revision B runtime equals `$ValidatedRevisionARuntimeImage` exactly; and
 - `$FinalEdgeImage` is immutable and differs from the validated Revision A edge.
 
-Any missing value or edge/runtime drift stops the release.
+For an OCI index, capture the exact raw index JSON with a read-only registry or
+`docker buildx imagetools inspect <digest-reference> --raw` operation. The
+validator recomputes its digest and records both the requested index and the
+resolved child. Any missing relation, wrong platform/repository, or edge/runtime
+drift stops the release.
 
 ### 11. Create Revision B at zero traffic
 
@@ -298,15 +304,18 @@ Any missing value or edge/runtime drift stops the release.
   -ValidatedRevisionARuntimeImage $ValidatedRevisionARuntimeImage `
   -CapturedServiceJsonPath '<OFFLINE_VALIDATED_REVISION_A_SERVICE_JSON>' `
   -CapturedActiveRevisionJsonPath '<OFFLINE_VALIDATED_REVISION_A_JSON>' `
+  -RuntimeManifestJsonPath '<EXACT_RAW_RUNTIME_INDEX_JSON>' `
   -RevisionSuffix $RevisionBSuffix `
   -CandidateTag $RevisionBTag
 ```
 
-Review the explicit lineage result and zero-traffic plan, then omit both offline
-JSON inputs and add `-Execute -MutationApproval APPROVE_STAGING_CANDIDATE` only
-after approval. Execute mode recaptures live Revision A and repeats every edge,
-runtime, active-revision, Ready, origin, topology, provenance, and traffic check
-before creating Revision B.
+Review the explicit lineage result and zero-traffic plan, then omit the paired
+Cloud Run offline JSON inputs and add
+`-Execute -MutationApproval APPROVE_STAGING_CANDIDATE` only after approval. Keep
+`-RuntimeManifestJsonPath` when the requested runtime is an OCI index. Execute
+mode recaptures live Revision A and repeats every edge, runtime,
+active-revision, Ready, origin, topology, provenance, and traffic check before
+creating Revision B.
 
 ### 12. Smoke Revision B
 
@@ -408,8 +417,10 @@ Stop without traffic mutation when any of these occurs:
 - the origin pair is not exact;
 - Revision A/B identity or tags do not match the deterministic policy;
 - Revision B runtime is not exactly Revision A's validated runtime reference;
-- Revision B live edge/runtime lineage differs from the stored validated A
-  digests, or its final edge equals the frozen Revision A edge;
+- Revision B live edge lineage differs from the stored validated A digest, its
+  runtime is neither the requested direct manifest nor the verified
+  `linux/amd64` child of the requested OCI index, or its final edge equals the
+  frozen Revision A edge;
 - the rendered or live configuration drops a container, secret reference,
   cookie setting, volume, resource limit, concurrency, or timeout;
 - a candidate has nonzero traffic before promotion;

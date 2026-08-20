@@ -390,6 +390,10 @@ def test_staging_release_tooling_is_source_controlled_and_fail_closed():
     assert "FINAL_FRONTEND runtime image must exactly equal" in contract
     assert "ValidatedRevisionAEdgeImage" in release
     assert "Live Revision A edge digest does not match" in contract
+    assert "Assert-PnlRuntimeImageResolution" in contract
+    assert "application/vnd.oci.image.index.v1+json" in contract
+    assert "linux/amd64" in contract
+    assert "same exact approved repository" in contract
     assert "Revision B candidate creation requires deterministic Revision A" in release
     assert "Traffic percentage must be an integer JSON number" in contract
     assert "Expected exactly one explicit revision serving 100 percent" in contract
@@ -402,6 +406,10 @@ def test_staging_release_tooling_is_source_controlled_and_fail_closed():
     assert "captured-active-revision" in release
     assert "captured-active-resolved-baseline" in release
     assert "active_image_source" in release
+    assert "RuntimeManifestJsonPath" in release
+    assert "revision_a_runtime_authority" in release
+    assert "requested_runtime_image" in contract
+    assert "resolved_runtime_image" in contract
     assert "metadata.namespace" in contract
     assert "Live staging service must contain exactly two containers" in release
     assert "capture_current_100_percent_revision_before_promotion" in release
@@ -424,6 +432,9 @@ def test_staging_release_tooling_is_source_controlled_and_fail_closed():
     assert "sb_secret_" in contract
     assert "Revision A candidate accepted a mutable runtime image input" in test_script
     assert "Revision B candidate accepted a mutable edge image input" in test_script
+    assert "OCI index accepted an unrelated child digest" in test_script
+    assert "OCI index accepted a child for the wrong platform" in test_script
+    assert "OCI runtime resolution accepted a missing parent-child relation" in test_script
     assert "authoritative active baseline" in runbook
     assert "STAGING_RELEASE_TOOLING_TESTS=PASS cloud_mutation=NONE" in test_script
 

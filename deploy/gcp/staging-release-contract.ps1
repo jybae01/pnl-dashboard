@@ -86,13 +86,131 @@ function Assert-PnlDigestImage {
         [Parameter(Mandatory)] [ValidateSet('edge', 'runtime')] [string] $Role
     )
 
-    $pattern = '^asia-southeast1-docker\.pkg\.dev/pnl-dashboard-staging/[a-z0-9._-]+/[a-z0-9._-]+@sha256:[0-9a-f]{64}$'
+    $expectedName = if ($Role -eq 'edge') { 'pnl-web' } else { 'pnl-runtime' }
+    $pattern = '^asia-southeast1-docker\.pkg\.dev/pnl-dashboard-staging/pnl-staging/' +
+        [regex]::Escape($expectedName) + '@sha256:[0-9a-f]{64}$'
     if ($Image -notmatch $pattern) {
-        throw "$Role image must be an exact staging Artifact Registry reference pinned by lowercase sha256 digest."
+        throw "$Role image must use the exact approved staging Artifact Registry repository and image name, pinned by lowercase sha256 digest."
     }
-    $expectedName = if ($Role -eq 'edge') { '/pnl-web@sha256:' } else { '/pnl-runtime@sha256:' }
-    if ($Image.IndexOf($expectedName, [StringComparison]::Ordinal) -lt 0) {
-        throw "$Role image uses the wrong repository image name."
+}
+
+function Assert-PnlRuntimeImageResolution {
+    param(
+        [Parameter(Mandatory)] [string] $RequestedImage,
+        [Parameter(Mandatory)] [string] $ObservedImage,
+        [AllowEmptyString()] [string] $RequestedManifestJson
+    )
+
+    Assert-PnlDigestImage -Image $RequestedImage -Role 'runtime'
+    Assert-PnlDigestImage -Image $ObservedImage -Role 'runtime'
+
+    $requestedSeparator = $RequestedImage.LastIndexOf('@')
+    $observedSeparator = $ObservedImage.LastIndexOf('@')
+    $requestedRepository = $RequestedImage.Substring(0, $requestedSeparator)
+    $observedRepository = $ObservedImage.Substring(0, $observedSeparator)
+    if (-not [string]::Equals($requestedRepository, $observedRepository, [StringComparison]::Ordinal)) {
+        throw 'Requested and observed runtime images must use the same exact approved repository.'
+    }
+
+    $requestedDigest = $RequestedImage.Substring($requestedSeparator + 1)
+    $observedDigest = $ObservedImage.Substring($observedSeparator + 1)
+    if ([string]::Equals($RequestedImage, $ObservedImage, [StringComparison]::Ordinal)) {
+        return [pscustomobject][ordered]@{
+            result = 'PASS'
+            resolution = 'DIRECT_MANIFEST'
+            requested_runtime_image = $RequestedImage
+            requested_runtime_digest = $requestedDigest
+            resolved_runtime_image = $ObservedImage
+            resolved_runtime_digest = $observedDigest
+            platform = $null
+            same_repository = $true
+            parent_child_confirmed = $false
+            provenance_valid = $true
+        }
+    }
+
+    if ([string]::IsNullOrWhiteSpace($RequestedManifestJson)) {
+        throw 'An exact raw OCI index manifest is required when Cloud Run resolves a different runtime digest.'
+    }
+    $manifestDigest = 'sha256:' + [Convert]::ToHexString(
+        [Security.Cryptography.SHA256]::HashData([Text.Encoding]::UTF8.GetBytes($RequestedManifestJson))
+    ).ToLowerInvariant()
+    if (-not [string]::Equals($manifestDigest, $requestedDigest, [StringComparison]::Ordinal)) {
+        throw 'The raw OCI index manifest digest does not equal the requested immutable runtime digest.'
+    }
+    try {
+        $manifest = $RequestedManifestJson | ConvertFrom-Json -Depth 100
+    }
+    catch {
+        throw 'The requested runtime manifest inspection is not valid JSON.'
+    }
+    $schemaVersion = Get-PnlRequiredJsonProperty `
+        -Object $manifest `
+        -Name 'schemaVersion' `
+        -FieldName 'runtime manifest schemaVersion'
+    if (
+        (($schemaVersion -isnot [int]) -and ($schemaVersion -isnot [long])) -or
+        [long]$schemaVersion -ne 2
+    ) {
+        throw 'The requested runtime manifest must use OCI schema version 2.'
+    }
+    $mediaType = [string](Get-PnlRequiredJsonProperty `
+        -Object $manifest `
+        -Name 'mediaType' `
+        -FieldName 'runtime manifest mediaType')
+    if ($mediaType -cne 'application/vnd.oci.image.index.v1+json') {
+        throw 'A differing Cloud Run runtime digest is valid only for an immutable OCI image index.'
+    }
+
+    $descriptors = @(Get-PnlRequiredJsonProperty `
+        -Object $manifest `
+        -Name 'manifests' `
+        -FieldName 'runtime manifest manifests')
+    $matchingChildren = @()
+    foreach ($descriptor in $descriptors) {
+        if ($null -eq $descriptor) {
+            continue
+        }
+        $digestProperty = $descriptor.PSObject.Properties['digest']
+        $mediaTypeProperty = $descriptor.PSObject.Properties['mediaType']
+        $platformProperty = $descriptor.PSObject.Properties['platform']
+        if (
+            $null -eq $digestProperty -or
+            $null -eq $mediaTypeProperty -or
+            $null -eq $platformProperty -or
+            $null -eq $platformProperty.Value
+        ) {
+            continue
+        }
+        $childMediaType = [string]$mediaTypeProperty.Value
+        $isManifest =
+            $childMediaType -ceq 'application/vnd.oci.image.manifest.v1+json' -or
+            $childMediaType -ceq 'application/vnd.docker.distribution.manifest.v2+json'
+        $platform = $platformProperty.Value
+        if (
+            $isManifest -and
+            [string]$digestProperty.Value -ceq $observedDigest -and
+            [string]$platform.os -ceq 'linux' -and
+            [string]$platform.architecture -ceq 'amd64'
+        ) {
+            $matchingChildren += $descriptor
+        }
+    }
+    if ($matchingChildren.Count -ne 1) {
+        throw 'The OCI index does not contain the exact observed Cloud Run digest as a unique linux/amd64 child manifest.'
+    }
+
+    return [pscustomobject][ordered]@{
+        result = 'PASS'
+        resolution = 'OCI_INDEX'
+        requested_runtime_image = $RequestedImage
+        requested_runtime_digest = $requestedDigest
+        resolved_runtime_image = $ObservedImage
+        resolved_runtime_digest = $observedDigest
+        platform = 'linux/amd64'
+        same_repository = $true
+        parent_child_confirmed = $true
+        provenance_valid = $true
     }
 }
 
@@ -345,7 +463,8 @@ function Assert-PnlRevisionBLineage {
         [Parameter(Mandatory)] [string] $ValidatedRevisionAEdgeImage,
         [Parameter(Mandatory)] [string] $ValidatedRevisionARuntimeImage,
         [AllowEmptyString()] [string] $ObservedRevisionAEdgeImage,
-        [AllowEmptyString()] [string] $ObservedRevisionARuntimeImage
+        [AllowEmptyString()] [string] $ObservedRevisionARuntimeImage,
+        [AllowEmptyString()] [string] $RequestedRuntimeManifestJson
     )
 
     Assert-PnlDigestImage -Image $FinalEdgeImage -Role 'edge'
@@ -369,10 +488,12 @@ function Assert-PnlRevisionBLineage {
         if (-not [string]::Equals($ObservedRevisionAEdgeImage, $ValidatedRevisionAEdgeImage, [StringComparison]::Ordinal)) {
             throw 'Live Revision A edge digest does not match the stored validated Revision A edge digest.'
         }
-        if (-not [string]::Equals($ObservedRevisionARuntimeImage, $ValidatedRevisionARuntimeImage, [StringComparison]::Ordinal)) {
-            throw 'Live Revision A runtime digest does not match the stored validated Revision A runtime digest.'
-        }
+        return Assert-PnlRuntimeImageResolution `
+            -RequestedImage $ValidatedRevisionARuntimeImage `
+            -ObservedImage $ObservedRevisionARuntimeImage `
+            -RequestedManifestJson $RequestedRuntimeManifestJson
     }
+    return $null
 }
 
 function ConvertTo-PnlGcloudExecutionArguments {
