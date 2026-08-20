@@ -7,10 +7,11 @@ from pathlib import Path
 import tempfile
 import unittest
 
-from openpyxl import load_workbook
+from openpyxl import Workbook, load_workbook
 
 from forecast.analysis_export import build_comparison_audit_workbook
 from forecast.comparison import GenericComparisonEngine, PeriodOption
+from forecast.evidence_traceability import write_sales_evidence
 
 try:
     from tests.test_golden_analysis_adapter import _build_workbook, _meta
@@ -29,6 +30,59 @@ def _row_with_value(ws, column: str, value: object) -> int:
 
 
 class EvidenceWorkbookTraceabilityTests(unittest.TestCase):
+    def test_legacy_stored_freight_trace_requires_v11_recalculation(self):
+        workbook = Workbook()
+        sheet = workbook.active
+        sheet.title = "판매효과_근거"
+        totals = {
+            "quantity_effect": 0.0,
+            "mix_effect": 0.0,
+            "displayed_sales_price_effect": 0.0,
+            "sales_price_effect": -10.0,
+            "sales_fx_effect": 0.0,
+            "transport_effect": -10.0,
+            "tariff_effect": 0.0,
+        }
+        write_sales_evidence(
+            sheet,
+            {"period": {"label": "2026-07"}, "sales_analysis": {
+                "totals": totals,
+                "freight_trace_rows": [{
+                    "period": "2026-07",
+                    "base_freight_ex_tariff": 100.0,
+                    "comparison_freight_ex_tariff": 110.0,
+                    "base_pcs_quantity": 10.0,
+                    "comparison_pcs_quantity": 10.0,
+                    "base_length_quantity": 0.0,
+                    "comparison_length_quantity": 0.0,
+                    "freight_denominator_policy": "DIRECT_AMOUNT_NO_DENOMINATOR",
+                    "freight_effect": -10.0,
+                }],
+            }},
+            [{
+                "product_group": "SW",
+                "baseline_quantity": 10.0,
+                "comparison_quantity": 10.0,
+                "baseline_amount": 100.0,
+                "comparison_amount": 100.0,
+                "baseline_gross_margin_rate": 0.5,
+                "quantity_effect": 0.0,
+                "pure_price_effect": 0.0,
+                "sales_fx_effect": 0.0,
+            }],
+            totals,
+            1_450.0,
+            1_500.0,
+        )
+
+        self.assertIn("v1.1 운반비 재계산 필요", sheet["AJ5"].value)
+        self.assertIn('SEARCH("재계산 필요",AJ5)', sheet["BO5"].value)
+        self.assertFalse(any(
+            cell.value == "DIRECT_AMOUNT_NO_DENOMINATOR"
+            for row in sheet.iter_rows()
+            for cell in row
+        ))
+
     def test_real_golden_adapter_trace_reaches_formula_workbook_without_source_mutation(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -119,20 +173,27 @@ class EvidenceWorkbookTraceabilityTests(unittest.TestCase):
             f"=B{price_row - 2}+B{freight_row}",
         )
         self.assertEqual(sales[f"E{freight_row}"].value, "Price에 1회 포함")
-        self.assertEqual(sales["BE5"].value, "DIRECT_AMOUNT_NO_DENOMINATOR")
-        self.assertTrue(sales.column_dimensions["BE"].hidden)
-        self.assertTrue(sales["BF5"].value.startswith("=IF("))
-        self.assertIn("적용 불가", sales["BF5"].value)
-        self.assertEqual(sales["BJ5"].value, "=BH5+BI5")
-        self.assertEqual(sales["BK5"].value, "=BJ5")
-        self.assertTrue(sales["BL5"].value.startswith("=IF("))
+        self.assertEqual(sales["BC5"].value, "45m/PCS")
+        self.assertEqual(sales["BD5"].value, "=BA5/45")
+        self.assertEqual(sales["BE5"].value, "=BB5/45")
+        self.assertEqual(sales["BF5"].value, "=AU5+AW5+AY5+BD5")
+        self.assertEqual(sales["BG5"].value, "=AV5+AX5+AZ5+BE5")
+        self.assertEqual(sales["BJ5"].value, "=(BH5-BI5)*BG5")
+        self.assertIsInstance(sales["BK5"].value, (int, float))
+        self.assertEqual(sales["BL5"].value, "=AO5-AP5")
+        self.assertTrue(sales["BO5"].value.startswith("=IF("))
+        self.assertFalse(any(
+            cell.value == "DIRECT_AMOUNT_NO_DENOMINATOR"
+            for row in sales.iter_rows()
+            for cell in row
+        ))
         self.assertEqual(sales["E4"].value, "원천 항목")
         self.assertEqual(sales["B4"].value, "수량 Pool")
         self.assertEqual(sales["AM4"].value, "기준 운반비(관세 포함)")
         self.assertEqual(sales["AN4"].value, "비교 운반비(관세 포함)")
         self.assertEqual(sales["AS4"].value, "기준 운반비(관세 제외)")
         self.assertEqual(sales["AT4"].value, "비교 운반비(관세 제외)")
-        self.assertIn("배부 기준 원천이 없어", sales["AI2"].value)
+        self.assertIn("FS 판매길이÷45", sales["AI2"].value)
         self.assertTrue(sales.column_dimensions["E"].hidden)
         self.assertGreaterEqual(float(sales.column_dimensions["B"].width), 18)
         self.assertGreaterEqual(float(sales.column_dimensions["C"].width), 18)

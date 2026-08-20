@@ -6,6 +6,9 @@ from .configuration import AnalysisConfig
 from .schema import AnalysisScenario, ProductRecord
 
 
+FREIGHT_LENGTH_METERS_PER_PCS = 45.0
+
+
 @dataclass
 class SalesEffects:
     quantity: float = 0.0
@@ -16,8 +19,9 @@ class SalesEffects:
     transport_effect: float = 0.0
     base_transport_ex_tariff: float = 0.0
     comparison_transport_ex_tariff: float = 0.0
-    # Deprecated payload aliases retained for V1 compatibility.  Transport
-    # is no longer decomposed without a product/unit allocation source.
+    # Deprecated payload aliases retained for V1 compatibility. Freight is a
+    # single monthly equivalent-shipment pool; no product-level freight amount
+    # allocation is introduced.
     transport_quantity: float = 0.0
     transport_unit: float = 0.0
     tariff: float = 0.0
@@ -98,6 +102,45 @@ def _expense_by_month(scenario: AnalysisScenario, config: AnalysisConfig) -> dic
 
 def _activities(scenario: AnalysisScenario):
     return {row.year_month: row for row in scenario.activities}
+
+
+def _freight_quantity(
+    products: dict[tuple[str, str], ProductRecord],
+    month: str,
+    product_group: str,
+    unit_basis: str,
+) -> tuple[float, str]:
+    row = products.get((month, product_group))
+    if row is None:
+        return 0.0, ""
+    if row.unit_basis.upper() != unit_basis:
+        raise ValueError(
+            f"{month} 고객배송 운반비: {product_group} 판매수량 단위가 "
+            f"{unit_basis}가 아닙니다."
+        )
+    quantity = row.sales_length if unit_basis == "LENGTH" else row.sales_qty
+    return float(quantity), str(row.sales_quantity_source or "")
+
+
+def _freight_unit_cost(
+    freight: float,
+    denominator: float,
+    *,
+    month: str,
+    side: str,
+) -> float:
+    if denominator < 0:
+        raise ValueError(
+            f"{month} 고객배송 운반비: {side} 총 환산 판매수량이 음수입니다."
+        )
+    if denominator == 0:
+        if freight == 0:
+            return 0.0
+        raise ValueError(
+            f"{month} 고객배송 운반비: {side} 운반비가 존재하지만 "
+            "총 환산 판매수량이 0입니다."
+        )
+    return freight / denominator
 
 
 def calculate_sales_effects(
@@ -303,36 +346,58 @@ def calculate_sales_effects(
         tariff1 = a1.tariff_input if a1 else 0.0
         c0 = base_transport.get(month, 0.0) - (tariff0 if a0 and a0.tariff_in_transport else 0.0)
         c1 = comp_transport.get(month, 0.0) - (tariff1 if a1 and a1.tariff_in_transport else 0.0)
-        base_pcs_rows = [
-            row for (year_month, _code), row in left.items()
-            if year_month == month and row.unit_basis.upper() == "PCS"
-        ]
-        comparison_pcs_rows = [
-            row for (year_month, _code), row in right.items()
-            if year_month == month and row.unit_basis.upper() == "PCS"
-        ]
-        base_length_rows = [
-            row for (year_month, _code), row in left.items()
-            if year_month == month and row.unit_basis.upper() == "LENGTH"
-        ]
-        comparison_length_rows = [
-            row for (year_month, _code), row in right.items()
-            if year_month == month and row.unit_basis.upper() == "LENGTH"
-        ]
+        base_sw, base_sw_source = _freight_quantity(left, month, "SW", "PCS")
+        comparison_sw, comparison_sw_source = _freight_quantity(
+            right, month, "SW", "PCS"
+        )
+        base_bw, base_bw_source = _freight_quantity(left, month, "BW", "PCS")
+        comparison_bw, comparison_bw_source = _freight_quantity(
+            right, month, "BW", "PCS"
+        )
+        base_lc, base_lc_source = _freight_quantity(left, month, "LC", "PCS")
+        comparison_lc, comparison_lc_source = _freight_quantity(
+            right, month, "LC", "PCS"
+        )
+        base_fs_length, base_fs_source = _freight_quantity(
+            left, month, "FS", "LENGTH"
+        )
+        comparison_fs_length, comparison_fs_source = _freight_quantity(
+            right, month, "FS", "LENGTH"
+        )
+        base_fs_converted = base_fs_length / FREIGHT_LENGTH_METERS_PER_PCS
+        comparison_fs_converted = (
+            comparison_fs_length / FREIGHT_LENGTH_METERS_PER_PCS
+        )
+        base_denominator = base_sw + base_bw + base_lc + base_fs_converted
+        comparison_denominator = (
+            comparison_sw + comparison_bw + comparison_lc + comparison_fs_converted
+        )
+        base_unit_freight = _freight_unit_cost(
+            c0, base_denominator, month=month, side="기준"
+        )
+        comparison_unit_freight = _freight_unit_cost(
+            c1, comparison_denominator, month=month, side="비교"
+        )
+        freight_effect = (
+            (base_unit_freight - comparison_unit_freight)
+            * comparison_denominator
+        )
 
-        def quantity_sources(rows: list[ProductRecord]) -> str:
-            return " | ".join(sorted({
-                row.sales_quantity_source for row in rows if row.sales_quantity_source
-            }))
+        def quantity_sources(*items: tuple[str, str]) -> str:
+            return " | ".join(
+                f"{group}: {source}" for group, source in items if source
+            )
 
         result.base_transport_ex_tariff += c0
         result.comparison_transport_ex_tariff += c1
-        result.transport_effect += c0 - c1
+        result.transport_effect += freight_effect
         result.tariff += tariff0 - tariff1
         result.freight_details.append({
             "period": month,
             "business_source": "판매비 고객배송 운반비 / 관세 입력",
-            "canonical_fields": "transport_effect / tariff",
+            "canonical_fields": (
+                "transport_effect / tariff / sales_qty / sales_length"
+            ),
             "base_freight_including_tariff": base_transport.get(month, 0.0),
             "comparison_freight_including_tariff": comp_transport.get(month, 0.0),
             "base_tariff": tariff0,
@@ -341,24 +406,45 @@ def calculate_sales_effects(
             "comparison_tariff_in_transport": bool(a1 and a1.tariff_in_transport),
             "base_freight_ex_tariff": c0,
             "comparison_freight_ex_tariff": c1,
-            # The transport account is monthly and has no authoritative
-            # product/pool allocation.  Expose both raw quantity pools for
-            # audit, but never combine PCS and LENGTH or invent a Freight/unit
-            # denominator.  V1 therefore assigns the whole direct amount
-            # difference to the non-quantity component below.
-            "base_pcs_quantity": sum(row.sales_basis for row in base_pcs_rows),
-            "comparison_pcs_quantity": sum(row.sales_basis for row in comparison_pcs_rows),
-            "base_length_quantity": sum(row.sales_basis for row in base_length_rows),
-            "comparison_length_quantity": sum(row.sales_basis for row in comparison_length_rows),
-            "base_quantity_source_reference": " | ".join(filter(None, (
-                quantity_sources(base_pcs_rows), quantity_sources(base_length_rows),
-            ))),
-            "comparison_quantity_source_reference": " | ".join(filter(None, (
-                quantity_sources(comparison_pcs_rows),
-                quantity_sources(comparison_length_rows),
-            ))),
-            "freight_denominator_policy": "DIRECT_AMOUNT_NO_DENOMINATOR",
-            "freight_effect": c0 - c1,
+            "base_sw_pcs": base_sw,
+            "comparison_sw_pcs": comparison_sw,
+            "base_bw_pcs": base_bw,
+            "comparison_bw_pcs": comparison_bw,
+            "base_lc_pcs": base_lc,
+            "comparison_lc_pcs": comparison_lc,
+            "base_fs_length": base_fs_length,
+            "comparison_fs_length": comparison_fs_length,
+            "freight_conversion_basis": "45m/PCS",
+            "freight_length_meters_per_pcs": FREIGHT_LENGTH_METERS_PER_PCS,
+            "base_fs_converted_pcs": base_fs_converted,
+            "comparison_fs_converted_pcs": comparison_fs_converted,
+            "base_equivalent_shipment_quantity": base_denominator,
+            "comparison_equivalent_shipment_quantity": comparison_denominator,
+            "base_freight_unit_cost": base_unit_freight,
+            "comparison_freight_unit_cost": comparison_unit_freight,
+            # Compatibility aggregates retained for stored-result readers.
+            "base_pcs_quantity": base_sw + base_bw + base_lc,
+            "comparison_pcs_quantity": comparison_sw + comparison_bw + comparison_lc,
+            "base_length_quantity": base_fs_length,
+            "comparison_length_quantity": comparison_fs_length,
+            "base_quantity_source_reference": quantity_sources(
+                ("SW", base_sw_source),
+                ("BW", base_bw_source),
+                ("LC", base_lc_source),
+                ("FS", base_fs_source),
+            ),
+            "comparison_quantity_source_reference": quantity_sources(
+                ("SW", comparison_sw_source),
+                ("BW", comparison_bw_source),
+                ("LC", comparison_lc_source),
+                ("FS", comparison_fs_source),
+            ),
+            "freight_denominator_policy": "EQUIVALENT_SHIPMENT_PCS_45M",
+            "freight_effect_formula": (
+                "(base_freight_unit_cost - comparison_freight_unit_cost) "
+                "* comparison_equivalent_shipment_quantity"
+            ),
+            "freight_effect": freight_effect,
             "tariff_effect": tariff0 - tariff1,
             "base_source_reference": " | ".join(filter(None, (
                 base_transport_row.amount_source if base_transport_row else "",

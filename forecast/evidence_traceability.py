@@ -124,7 +124,7 @@ def write_sales_evidence(
     if not freight_trace:
         freight_trace = [{
             "period": str((result.get("period") or {}).get("label") or "선택기간"),
-            "business_source": "고객배송 운반비 / 관세",
+            "business_source": "이전 분석 결과 — v1.1 운반비 재계산 필요",
             "base_source_reference": "Stored Result (tariff components unavailable)",
             "comparison_source_reference": "Stored Result (tariff components unavailable)",
             "base_freight_including_tariff": _number(totals.get("baseline_transport_ex_tariff")),
@@ -135,10 +135,36 @@ def write_sales_evidence(
             "comparison_tariff_in_transport": False,
             "base_freight_ex_tariff": _number(totals.get("baseline_transport_ex_tariff")),
             "comparison_freight_ex_tariff": _number(totals.get("comparison_transport_ex_tariff")),
+            "freight_conversion_basis": "45m/PCS",
+            "freight_length_meters_per_pcs": 45.0,
             "freight_effect": _number(totals.get("transport_effect")),
             "tariff_effect": _number(totals.get("tariff_effect")),
             "validation_status": "TRACE_UNAVAILABLE_LEGACY" if legacy_trace else "STORED_RESULT",
         }]
+    else:
+        required_v11_freight_fields = {
+            "base_sw_pcs", "comparison_sw_pcs", "base_bw_pcs",
+            "comparison_bw_pcs", "base_lc_pcs", "comparison_lc_pcs",
+            "base_fs_length", "comparison_fs_length",
+            "base_equivalent_shipment_quantity",
+            "comparison_equivalent_shipment_quantity",
+            "base_freight_unit_cost", "comparison_freight_unit_cost",
+        }
+        normalized_freight_trace: list[dict[str, Any]] = []
+        for source in freight_trace:
+            item = dict(source)
+            if not required_v11_freight_fields.issubset(item):
+                item["business_source"] = (
+                    "이전 분석 결과 — v1.1 운반비 재계산 필요"
+                )
+                item["base_quantity_source_reference"] = (
+                    "v1.1 월별 제품군 판매수량 trace 없음"
+                )
+                item["comparison_quantity_source_reference"] = (
+                    "v1.1 월별 제품군 판매수량 trace 없음"
+                )
+            normalized_freight_trace.append(item)
+        freight_trace = normalized_freight_trace
 
     headers = [
         "분석월", "Pool", "제품군", "단위", "Business Source", "Canonical field",
@@ -190,59 +216,54 @@ def write_sales_evidence(
 
     freight_start_col = 35  # AI: explicitly keep Freight at the right edge.
     _headers(ws, 4, [
-        "분석월", "Business Source", "Base Source", "Comparison Source", "Base Freight(incl Tariff)",
-        "Comparison Freight(incl Tariff)", "Base Tariff", "Comparison Tariff", "Base Tariff 포함?",
-        "Comparison Tariff 포함?", "Base Freight(ex Tariff)", "Comparison Freight(ex Tariff)",
-        "Freight Adjustment 수식", "Freight Engine", "Tariff 수식", "Tariff Engine", "Validation",
-        "Base PCS 판매수량", "Comparison PCS 판매수량", "Base LENGTH(m) 판매수량",
-        "Comparison LENGTH(m) 판매수량", "수량 Source Reference", "Freight denominator 정책",
-        "Base Freight/unit 수식", "Comparison Freight/unit 수식", "Freight Quantity Component 수식",
-        "Freight Unit/Direct Component 수식", "Freight Adjustment 재구성", "Price 반영 Freight",
-        "Trace Validation",
+        "분석월", "원천 항목", "기준 운반비 Source", "비교 운반비 Source",
+        "기준 운반비(관세 포함)", "비교 운반비(관세 포함)", "기준 관세", "비교 관세",
+        "기준 관세 포함 여부", "비교 관세 포함 여부", "기준 운반비(관세 제외)",
+        "비교 운반비(관세 제외)", "기준 SW 판매수량(PCS)", "비교 SW 판매수량(PCS)",
+        "기준 BW 판매수량(PCS)", "비교 BW 판매수량(PCS)", "기준 LC 판매수량(PCS)",
+        "비교 LC 판매수량(PCS)", "기준 FS 판매길이(m)", "비교 FS 판매길이(m)",
+        "환산기준", "기준 FS 환산수량(PCS)", "비교 FS 환산수량(PCS)",
+        "기준 총 환산 판매수량", "비교 총 환산 판매수량", "기준 운반비 원단위",
+        "비교 운반비 원단위", "월별 운반비 Effect 수식", "운반비 Effect Engine",
+        "관세 Effect 수식", "관세 Effect Engine", "수량 Source Reference", "계산 검증",
     ], freight_start_col)
     freight_start = 5
     for index, item in enumerate(freight_trace):
         r = freight_start + index
-        denominator_policy = str(
-            item.get("freight_denominator_policy") or "DIRECT_AMOUNT_NO_DENOMINATOR"
-        )
         values = [
             item.get("period"), item.get("business_source"), item.get("base_source_reference"),
             item.get("comparison_source_reference"), _number(item.get("base_freight_including_tariff")),
             _number(item.get("comparison_freight_including_tariff")), _number(item.get("base_tariff")),
             _number(item.get("comparison_tariff")), bool(item.get("base_tariff_in_transport")),
-            bool(item.get("comparison_tariff_in_transport")), None, None, None,
-            _number(item.get("freight_effect")), None, _number(item.get("tariff_effect")), None,
-            _number(item.get("base_pcs_quantity")),
-            _number(item.get("comparison_pcs_quantity")),
-            _number(item.get("base_length_quantity")),
-            _number(item.get("comparison_length_quantity")),
+            bool(item.get("comparison_tariff_in_transport")), None, None,
+            _number(item.get("base_sw_pcs")), _number(item.get("comparison_sw_pcs")),
+            _number(item.get("base_bw_pcs")), _number(item.get("comparison_bw_pcs")),
+            _number(item.get("base_lc_pcs")), _number(item.get("comparison_lc_pcs")),
+            _number(item.get("base_fs_length", item.get("base_length_quantity"))),
+            _number(item.get("comparison_fs_length", item.get("comparison_length_quantity"))),
+            item.get("freight_conversion_basis") or "45m/PCS", None, None, None, None,
+            None, None, None, _number(item.get("freight_effect")), None,
+            _number(item.get("tariff_effect")),
             "Base: " + str(item.get("base_quantity_source_reference") or "")
             + " / Comparison: " + str(item.get("comparison_quantity_source_reference") or ""),
-            denominator_policy,
-            None, None, None, None, None, None, None,
+            None,
         ]
         for offset, value in enumerate(values):
             ws.cell(r, freight_start_col + offset, value)
         ws.cell(r, 45, f"=AM{r}-AO{r}*AQ{r}").fill = _FORMULA_FILL
         ws.cell(r, 46, f"=AN{r}-AP{r}*AR{r}").fill = _FORMULA_FILL
-        ws.cell(r, 47, f"=AS{r}-AT{r}").fill = _FORMULA_FILL
-        ws.cell(r, 49, f"=AO{r}-AP{r}").fill = _FORMULA_FILL
-        ws.cell(r, 51, f'=IF(MAX(ABS(AU{r}-AV{r}),ABS(AW{r}-AX{r}))<=1,"PASS","FAIL")').fill = _CHECK_FILL
-        # There is no authoritative allocation of the monthly freight account
-        # to either PCS or LENGTH products.  Keep both raw pools visible and
-        # formula-prove that V1 uses the direct account difference exactly once
-        # without unitising or cross-unit aggregation.
-        ws.cell(r, 58, f'=IF(BE{r}="APPLICABLE",IFERROR(AS{r}/AZ{r},0),"적용 불가")').fill = _FORMULA_FILL
-        ws.cell(r, 59, f'=IF(BE{r}="APPLICABLE",IFERROR(AT{r}/BA{r},0),"적용 불가")').fill = _FORMULA_FILL
-        ws.cell(r, 60, "=0").fill = _FORMULA_FILL
-        ws.cell(r, 61, f"=AS{r}-AT{r}").fill = _FORMULA_FILL
-        ws.cell(r, 62, f"=BH{r}+BI{r}").fill = _FORMULA_FILL
-        ws.cell(r, 63, f"=BJ{r}").fill = _FORMULA_FILL
+        ws.cell(r, 56, f"=BA{r}/45").fill = _FORMULA_FILL
+        ws.cell(r, 57, f"=BB{r}/45").fill = _FORMULA_FILL
+        ws.cell(r, 58, f"=AU{r}+AW{r}+AY{r}+BD{r}").fill = _FORMULA_FILL
+        ws.cell(r, 59, f"=AV{r}+AX{r}+AZ{r}+BE{r}").fill = _FORMULA_FILL
+        ws.cell(r, 60, f"=IF(BF{r}=0,0,AS{r}/BF{r})").fill = _FORMULA_FILL
+        ws.cell(r, 61, f"=IF(BG{r}=0,0,AT{r}/BG{r})").fill = _FORMULA_FILL
+        ws.cell(r, 62, f"=(BH{r}-BI{r})*BG{r}").fill = _FORMULA_FILL
+        ws.cell(r, 64, f"=AO{r}-AP{r}").fill = _FORMULA_FILL
         ws.cell(
             r,
-            64,
-            f'=IF(AND(BE{r}="DIRECT_AMOUNT_NO_DENOMINATOR",BH{r}=0,ABS(BJ{r}-AU{r})<=1,ABS(BK{r}-AV{r})<=1),"PASS","FAIL")',
+            67,
+            f'=IF(ISNUMBER(SEARCH("재계산 필요",AJ{r})),"FAIL",IF(MAX(ABS(BJ{r}-BK{r}),ABS(BL{r}-BM{r}),ABS(BD{r}-BA{r}/45),ABS(BE{r}-BB{r}/45))<=1,"PASS","FAIL"))',
         ).fill = _CHECK_FILL
     freight_end = freight_start + len(freight_trace) - 1
 
@@ -322,10 +343,10 @@ def write_sales_evidence(
         ("sales_quantity", f"=SUM(M{pool_start}:M{pool_end})+{new_business_quantity_formula}", totals.get("quantity_effect"), "제조제품 Pool + 신사업 매출증가 효과"),
         ("sales_mix", f"=SUM(P{pool_start}:P{pool_end})", totals.get("mix_effect"), "제품군 간 Mix만"),
         ("displayed_sales_price", f"=SUM(AC{detail_start}:AC{detail_end})+{new_business_price_formula}", totals.get("displayed_sales_price_effect", totals.get("pure_price_effect")), "제조제품 Price + 신사업 GP율 변화효과"),
-        ("freight_adjustment", f"=SUM(BK{freight_start}:BK{freight_end})", totals.get("transport_effect"), "Price에 1회 포함"),
+        ("freight_adjustment", f"=SUM(BJ{freight_start}:BJ{freight_end})", totals.get("transport_effect"), "Price에 1회 포함"),
         ("sales_price", f"=B{summary_start + 2}+B{summary_start + 3}", totals.get("sales_price_effect"), "Displayed Price + Freight"),
         ("sales_fx", f"=SUM(AE{detail_start}:AE{detail_end})", totals.get("sales_fx_effect"), "Price와 symmetric 분리"),
-        ("tariff", f"=SUM(AW{freight_start}:AW{freight_end})", totals.get("tariff_effect"), "Price/Freight와 분리"),
+        ("tariff", f"=SUM(BL{freight_start}:BL{freight_end})", totals.get("tariff_effect"), "Price/Freight와 분리"),
         ("new_business_revenue_effect", f"={new_business_quantity_formula}", totals.get("new_business_revenue_effect"), "Quantity에 1회 포함"),
         ("new_business_gp_rate_effect", f"={new_business_price_formula}", totals.get("new_business_gp_rate_effect"), "Price에 1회 포함"),
     ]
@@ -342,9 +363,9 @@ def write_sales_evidence(
     ws.cell(validation_start, 1, "Freight double count")
     ws.cell(validation_start, 2, f'=IF(AND(B{summary_start + 4}=B{summary_start + 2}+B{summary_start + 3},COUNTIF(A{summary_start}:A{summary_start + 6},"freight_adjustment")=1),"PASS","FAIL")').fill = _CHECK_FILL
     ws.cell(validation_start + 1, 1, "Tariff separate")
-    ws.cell(validation_start + 1, 2, f'=IF(AND(B{summary_start + 6}=SUM(AW{freight_start}:AW{freight_end}),B{summary_start + 4}=B{summary_start + 2}+B{summary_start + 3}),"PASS","FAIL")').fill = _CHECK_FILL
-    ws.cell(validation_start + 2, 1, "Freight unit denominator / PCS+LENGTH policy")
-    ws.cell(validation_start + 2, 2, f'=IF(AND(COUNTIF(BE{freight_start}:BE{freight_end},"DIRECT_AMOUNT_NO_DENOMINATOR")=ROWS(BE{freight_start}:BE{freight_end}),SUM(BH{freight_start}:BH{freight_end})=0,COUNTIF(BL{freight_start}:BL{freight_end},"PASS")=ROWS(BL{freight_start}:BL{freight_end})),"PASS","FAIL")').fill = _CHECK_FILL
+    ws.cell(validation_start + 1, 2, f'=IF(AND(B{summary_start + 6}=SUM(BL{freight_start}:BL{freight_end}),B{summary_start + 4}=B{summary_start + 2}+B{summary_start + 3}),"PASS","FAIL")').fill = _CHECK_FILL
+    ws.cell(validation_start + 2, 1, "Freight equivalent-shipment denominator")
+    ws.cell(validation_start + 2, 2, f'=IF(AND(COUNTIF(BC{freight_start}:BC{freight_end},"45m/PCS")=ROWS(BC{freight_start}:BC{freight_end}),COUNTIF(BO{freight_start}:BO{freight_end},"PASS")=ROWS(BO{freight_start}:BO{freight_end})),"PASS","FAIL")').fill = _CHECK_FILL
     ws.cell(validation_start + 3, 1, "신사업 GP 항등식")
     ws.cell(
         validation_start + 3,

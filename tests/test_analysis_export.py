@@ -254,8 +254,13 @@ def test_build_comparison_audit_workbook(monkeypatch, tmp_path):
     assert workbook["판매효과_근거"]["AM5"].value == 30_000_000.0
     assert workbook["판매효과_근거"]["AN5"].value == 40_000_000.0
     assert workbook["판매효과_근거"]["AS5"].value == "=AM5-AO5*AQ5"
-    assert workbook["판매효과_근거"]["AU5"].value == "=AS5-AT5"
-    assert workbook["판매효과_근거"]["AV5"].value == -10_000_000.0
+    assert workbook["판매효과_근거"]["BC5"].value == "45m/PCS"
+    assert workbook["판매효과_근거"]["BD5"].value == "=BA5/45"
+    assert workbook["판매효과_근거"]["BF5"].value == "=AU5+AW5+AY5+BD5"
+    assert workbook["판매효과_근거"]["BJ5"].value == "=(BH5-BI5)*BG5"
+    assert workbook["판매효과_근거"]["BK5"].value == -10_000_000.0
+    assert workbook["판매효과_근거"]["BO5"].value.startswith("=IF(")
+    assert "재계산 필요" in workbook["판매효과_근거"]["AJ5"].value
     assert workbook["원천셀_추적"].max_row > 4
     trace_cells = {
         cell.value

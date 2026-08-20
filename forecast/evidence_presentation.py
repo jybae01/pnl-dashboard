@@ -124,7 +124,7 @@ _KOREAN_LABELS = {
     "Inventory realization multiplier used": "재고실현율 계산 반영 여부",
     "Freight double count": "운반비 중복계상 없음",
     "Tariff separate": "관세 별도 유지",
-    "Freight unit denominator / PCS+LENGTH policy": "운반비 배부기준 / PCS·LENGTH 분리",
+    "Freight equivalent-shipment denominator": "운반비 환산 판매수량 검증",
     "RM / RM FX double count": "원부재료 / 환율효과 중복 없음",
     "JPY Source valid": "JPY 원천 유효",
     "Sales quantity source valid": "판매수량 원천 유효",
@@ -288,10 +288,11 @@ def _polish_sales(ws, cells: dict[str, Any]) -> None:
     )
     ws.merge_cells("A2:AG2")
     ws["AI2"] = (
-        "제품/수량별 운반비 배부 기준 원천이 없어 운반비 원단위는 산출하지 않습니다. "
-        "비관세 고객 운반비의 직접 차이는 확정 정책에 따라 판매단가 효과에 한 번만 반영합니다."
+        "월별 단일 고객배송 운반비 Pool을 SW·BW·LC 판매 PCS와 FS 판매길이÷45의 "
+        "총 환산 판매수량으로 원단위화합니다. (기준 원단위-비교 원단위)×비교 총 환산 "
+        "판매수량을 판매단가 효과에 한 번만 반영합니다."
     )
-    ws.merge_cells("AI2:BL2")
+    ws.merge_cells("AI2:BO2")
     _set_widths(ws, {
         "A": 12, "B": 18, "C": 18, "D": 13, "E": 22, "F": 18,
         "G": 22, "H": 22, "I": 14, "J": 14, "K": 18, "L": 18,
@@ -301,13 +302,13 @@ def _polish_sales(ws, cells: dict[str, Any]) -> None:
         "AE": 18, "AF": 18, "AG": 12, "AI": 11, "AJ": 22, "AK": 22,
         "AL": 22, "AM": 18, "AN": 18, "AO": 16, "AP": 16, "AQ": 12,
         "AR": 12, "AS": 18, "AT": 18, "AU": 18, "AV": 18, "AW": 18,
-        "AX": 18, "AY": 12, "AZ": 15, "BA": 15, "BB": 15, "BC": 15,
-        "BD": 26, "BE": 18, "BF": 16, "BG": 16, "BH": 18, "BI": 18,
-        "BJ": 18, "BK": 18, "BL": 12,
+        "AX": 18, "AY": 18, "AZ": 18, "BA": 18, "BB": 18, "BC": 14,
+        "BD": 18, "BE": 18, "BF": 20, "BG": 20, "BH": 18, "BI": 18,
+        "BJ": 22, "BK": 18, "BL": 18, "BM": 18, "BN": 28, "BO": 12,
     })
     _hide_columns(ws, (
         "E", "F", "G", "H", "AD", "AF", "AG", "AK", "AL", "AM", "AN",
-        "AQ", "AR", "AV", "AX", "AY", "BD", "BE", "BL",
+        "AQ", "AR", "BO",
     ))
     _format_rows(ws, cells.get("detail_range"), {
         9: QUANTITY_FORMAT, 10: QUANTITY_FORMAT, 11: ACCOUNTING_FORMAT,
@@ -325,10 +326,11 @@ def _polish_sales(ws, cells: dict[str, Any]) -> None:
         16: ACCOUNTING_FORMAT, 17: ACCOUNTING_FORMAT,
     })
     _format_rows(ws, cells.get("freight_range"), {
-        **{column: ACCOUNTING_FORMAT for column in range(39, 50)},
-        **{column: QUANTITY_FORMAT for column in range(52, 56)},
-        58: UNIT_COST_FORMAT, 59: UNIT_COST_FORMAT,
-        **{column: ACCOUNTING_FORMAT for column in range(60, 64)},
+        **{column: ACCOUNTING_FORMAT for column in range(39, 47)},
+        **{column: QUANTITY_FORMAT for column in range(47, 60)},
+        60: UNIT_COST_FORMAT, 61: UNIT_COST_FORMAT,
+        62: ACCOUNTING_FORMAT, 63: ACCOUNTING_FORMAT,
+        64: ACCOUNTING_FORMAT, 65: ACCOUNTING_FORMAT,
     })
     _format_rows(ws, cells.get("summary_range"), {2: ACCOUNTING_FORMAT, 3: ACCOUNTING_FORMAT})
     ws.freeze_panes = "A5"

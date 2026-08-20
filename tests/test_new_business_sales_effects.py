@@ -9,6 +9,7 @@ from forecast.analysis.configuration import AnalysisConfig
 from forecast.analysis.sales_effects import calculate_sales_effects
 from forecast.analysis.schema import AnalysisScenario, ProductRecord, ScenarioMeta
 from forecast.evidence_traceability import write_sales_evidence
+from forecast.sales_comparison import calculate_sales_effect_rows
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -46,12 +47,14 @@ def _manufactured_rows(*, comparison: bool) -> list[ProductRecord]:
     ]
 
 
-def _new_business(*, comparison: bool, base_revenue: float = 100.0) -> ProductRecord:
+def _new_business(
+    *, comparison: bool, base_revenue: float = 100.0, quantity: float | None = None
+) -> ProductRecord:
     return ProductRecord(
         "2026-07",
         "NEW_BUSINESS_SALES",
         "신사업",
-        sales_qty=999 if comparison else 1,
+        sales_qty=(999 if comparison else 1) if quantity is None else quantity,
         sales_amount=200.0 if comparison else base_revenue,
         product_cogs=140.0 if comparison else 80.0,
         sales_fx=9_999.0 if comparison else 1.0,
@@ -96,6 +99,88 @@ def test_new_business_base_revenue_zero_fails_closed():
             _scenario("base", [_new_business(comparison=False, base_revenue=0.0)]),
             _scenario("comparison", [_new_business(comparison=True)]),
             CONFIG,
+        )
+
+
+@pytest.mark.parametrize(
+    ("base_quantity", "comparison_quantity"),
+    ((0.0, 0.0), (1.0, 999.0), (999.0, 1.0)),
+)
+def test_new_business_quantity_never_changes_revenue_gp_rate_effects(
+    base_quantity: float,
+    comparison_quantity: float,
+):
+    result = calculate_sales_effects(
+        _scenario("base", [_new_business(comparison=False, quantity=base_quantity)]),
+        _scenario(
+            "comparison",
+            [_new_business(comparison=True, quantity=comparison_quantity)],
+        ),
+        CONFIG,
+    )
+
+    assert result.new_business_revenue_effect == pytest.approx(20.0)
+    assert result.new_business_gp_rate_effect == pytest.approx(20.0)
+    assert result.quantity == pytest.approx(20.0)
+    assert result.displayed_price == pytest.approx(20.0)
+    assert result.price == pytest.approx(20.0)
+    assert result.mix == 0.0
+    assert result.sales_fx == 0.0
+
+
+def test_compatibility_sales_path_uses_new_business_revenue_and_cogs_at_zero_quantity():
+    row = {
+        "product_group": "신사업",
+        "baseline_quantity": 0.0,
+        "comparison_quantity": 0.0,
+        "baseline_amount": 100.0,
+        "comparison_amount": 200.0,
+        "baseline_cogs": 80.0,
+        "comparison_cogs": 140.0,
+        "baseline_gross_margin_rate": 0.0,
+        "comparison_gross_margin_rate": 0.0,
+    }
+
+    result = calculate_sales_effect_rows([row], 1_450.0, 1_500.0)[0]
+
+    assert result.quantity_effect == pytest.approx(20.0)
+    assert result.pure_price_effect == pytest.approx(20.0)
+    assert result.sales_fx_effect == 0.0
+    assert result.total_sales_effect == pytest.approx(40.0)
+
+
+def test_compatibility_sales_path_fails_closed_without_new_business_cogs():
+    with pytest.raises(ValueError, match="매출원가가 필요"):
+        calculate_sales_effect_rows(
+            [{
+                "product_group": "신사업",
+                "baseline_quantity": 0.0,
+                "comparison_quantity": 0.0,
+                "baseline_amount": 100.0,
+                "comparison_amount": 200.0,
+            }],
+            1_450.0,
+            1_500.0,
+        )
+
+
+@pytest.mark.parametrize("missing_cogs", (None, "", " "))
+def test_compatibility_sales_path_fails_closed_for_blank_new_business_cogs(
+    missing_cogs,
+):
+    with pytest.raises(ValueError, match="유효한.*매출원가"):
+        calculate_sales_effect_rows(
+            [{
+                "product_group": "신사업",
+                "baseline_quantity": 0.0,
+                "comparison_quantity": 0.0,
+                "baseline_amount": 100.0,
+                "comparison_amount": 200.0,
+                "baseline_cogs": missing_cogs,
+                "comparison_cogs": 140.0,
+            }],
+            1_450.0,
+            1_500.0,
         )
 
 

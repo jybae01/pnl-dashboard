@@ -170,9 +170,9 @@ def _write_raw_formula_audit(
     add_cells("판매효과_근거", sales_cells.get("pool_range"),
               (10, 11, 12, 13, 15, 16, 18), expected)
     add_cells("판매효과_근거", sales_cells.get("freight_range"),
-              (45, 46, 47, 49, 51, 58, 59, 60, 61, 62, 63, 64), expected)
+              (45, 46, 56, 57, 58, 59, 60, 61, 62, 64, 67), expected)
     add_cells("판매효과_근거", sales_cells.get("freight_range"),
-              (39, 40, 41, 42, 52, 53, 54, 55), raw)
+              (39, 40, 41, 42, 47, 48, 49, 50, 51, 52, 53, 54), raw)
     add_cells("판매효과_근거", sales_cells.get("new_business_range"),
               (12, 13, 14, 15, 16, 18, 20, 21, 22), expected)
     add_cells("판매효과_근거", sales_cells.get("new_business_range"),
@@ -1103,7 +1103,7 @@ def _write_formula_catalog(ws) -> None:
         ("판매", "Mix효과", "Pool별 Comparison 총수량×Σ((Comparison Mix-Base Mix)×Base GP/unit)", "제품군 내부 SKU 선합산", "forecast/analysis/sales_effects.py"),
         ("판매", "순수 단가효과", "비교수량×(비교외화단가-기준외화단가)×(기준FX+비교FX)÷2", "환율효과와 합계가 원화 단가효과에 일치", "forecast/sales_comparison.py"),
         ("판매", "매출환율효과", "비교수량×(비교FX-기준FX)×(기준외화단가+비교외화단가)÷2", "KRW/USD", "forecast/sales_comparison.py"),
-        ("판매", "고객배송 운반비 효과", "기준 관세제외 운반비-비교 관세제외 운반비", "판매단가 효과에 1회 포함; 판관비 Bridge 0", "forecast/analysis/sales_effects.py"),
+        ("판매", "고객배송 운반비 효과", "월별 (기준 운반비 원단위-비교 운반비 원단위)×비교 총 환산 판매수량", "SW/BW/LC=PCS, FS=판매길이÷45; 판매단가 효과에 1회 포함; 판관비 Bridge 0", "forecast/analysis/sales_effects.py"),
         ("원부재료", "분해 원칙", "부직포 단가(환율 제외)+부직포 엔화+부직포 제외 원재료", "MCM·수율/사용량 독립효과 금지", "forecast/analysis/material_effects.py"),
         ("생산", "조업도 기준", "SAP 수불부 생산입고", "MES는 정합성 확인 보조", "분석 설정"),
         ("제조경비", "외주가공비 수량", "일반 외주가공 대상 수량", "MCM 관련 수량 제외", "분석 설정"),
@@ -1351,8 +1351,12 @@ def _write_stored_source_provenance(ws, result: dict[str, Any]) -> None:
         ):
             add_raw("FREIGHT", item, side, "freight_including_tariff", value_key=f"{prefix}_freight_including_tariff", source_key=source_key, unit="KRW", product="ALL")
             add_raw("FREIGHT", item, side, "tariff", value_key=f"{prefix}_tariff", source_key=source_key, unit="KRW", product="ALL")
-            add_raw("FREIGHT", item, side, "sales_quantity_pcs", value_key=f"{prefix}_pcs_quantity", source_key=f"{prefix}_quantity_source_reference", unit="PCS", product="PCS_POOL")
-            add_raw("FREIGHT", item, side, "sales_quantity_length", value_key=f"{prefix}_length_quantity", source_key=f"{prefix}_quantity_source_reference", unit="LENGTH(m)", product="LENGTH_POOL")
+            for group in ("sw", "bw", "lc"):
+                add_raw("FREIGHT", item, side, f"{group}_sales_qty", value_key=f"{prefix}_{group}_pcs", source_key=f"{prefix}_quantity_source_reference", unit="PCS", product=group.upper())
+            add_raw("FREIGHT", item, side, "fs_sales_length", value_key=f"{prefix}_fs_length", source_key=f"{prefix}_quantity_source_reference", unit="LENGTH(m)", product="FS")
+            add_raw("FREIGHT", item, side, "fs_converted_pcs", value_key=f"{prefix}_fs_converted_pcs", source_key=f"{prefix}_quantity_source_reference", unit="PCS", product="FS")
+            add_raw("FREIGHT", item, side, "equivalent_shipment_quantity", value_key=f"{prefix}_equivalent_shipment_quantity", source_key=f"{prefix}_quantity_source_reference", unit="PCS", product="TOTAL")
+            add_raw("FREIGHT", item, side, "freight_unit_cost", value_key=f"{prefix}_freight_unit_cost", source_key=source_key, unit="KRW/PCS", product="TOTAL")
     for item in sales.get("new_business_trace_rows") or []:
         item = dict(item)
         for side, prefix, source_key in (
