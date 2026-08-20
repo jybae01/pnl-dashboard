@@ -12,6 +12,7 @@ from openpyxl import Workbook, load_workbook
 from forecast.analysis_export import build_comparison_audit_workbook
 from forecast.comparison import GenericComparisonEngine, PeriodOption
 from forecast.evidence_traceability import write_sales_evidence
+from forecast.evidence_presentation import add_user_evidence_sheets
 
 try:
     from tests.test_golden_analysis_adapter import _build_workbook, _meta
@@ -29,7 +30,329 @@ def _row_with_value(ws, column: str, value: object) -> int:
     )
 
 
+def _build_three_month_sentinel_workbook(path: Path, *, comparison: bool) -> None:
+    _build_workbook(path, comparison=comparison)
+    workbook = load_workbook(path)
+    sheet = workbook["Data"]
+    ratio_rows = {273, 274, 275, 345, 346, 347, 788, 789, 790, 791, 792, 956, 957}
+    for column, factor in zip(("K", "L", "M"), (1.01, 2.02, 3.03), strict=True):
+        for row in range(1, sheet.max_row + 1):
+            value = sheet[f"E{row}"].value
+            if isinstance(value, (int, float)) and not isinstance(value, bool):
+                sheet[f"{column}{row}"] = value if row in ratio_rows else value * factor
+        month = {"K": 7, "L": 8, "M": 9}[column]
+        sentinel = {7: 101.0, 8: 202.0, 9: 303.0}[month]
+        revenue = sentinel * (110.0 if comparison else 100.0)
+        cogs = sentinel * (55.0 if comparison else 60.0)
+        sheet[f"{column}1594"] = sentinel * (1_100.0 if comparison else 1_000.0)
+        sheet[f"{column}113"] = 0.0
+        sheet[f"{column}114"] = revenue
+        sheet[f"{column}1733"] = revenue
+        sheet[f"{column}1734"] = cogs
+        sheet[f"{column}9"] = 12.0 + month / 100.0
+    workbook.save(path)
+
+
 class EvidenceWorkbookTraceabilityTests(unittest.TestCase):
+    def test_user_freight_evidence_keeps_fs_length_and_shows_45m_conversion(self):
+        workbook = Workbook()
+        workbook.remove(workbook.active)
+        result = {
+            "baseline": {"name": "기준", "year": 2026},
+            "comparison": {"name": "비교", "year": 2026},
+            "period": {"label": "2026-05", "months": [5]},
+            "effects": [
+                {"code": "sales_price", "profit_effect": -202.0},
+                {"code": "tariff", "profit_effect": 0.0},
+            ],
+            "operating_profit_delta": -202.0,
+            "effects_total": -202.0,
+            "residual": 0.0,
+            "sales_analysis": {
+                "totals": {
+                    "sales_price_effect": -202.0,
+                    "transport_effect": -202.0,
+                    "tariff_effect": 0.0,
+                },
+                "monthly_effects": [{
+                    "period": "2026-05", "sales_price_effect": -202.0,
+                    "freight_effect": -202.0, "tariff_effect": 0.0,
+                }],
+                "freight_trace_rows": [{
+                    "period": "2026-05",
+                    "base_freight_ex_tariff": 101.0,
+                    "comparison_freight_ex_tariff": 404.0,
+                    "base_sw_pcs": 100.0,
+                    "comparison_sw_pcs": 200.0,
+                    "base_bw_pcs": 0.0,
+                    "comparison_bw_pcs": 0.0,
+                    "base_lc_pcs": 0.0,
+                    "comparison_lc_pcs": 0.0,
+                    "base_fs_length": 45.0,
+                    "comparison_fs_length": 90.0,
+                    "freight_conversion_basis": "45m/PCS",
+                    "base_fs_converted_pcs": 1.0,
+                    "comparison_fs_converted_pcs": 2.0,
+                    "base_equivalent_shipment_quantity": 101.0,
+                    "comparison_equivalent_shipment_quantity": 202.0,
+                    "base_freight_unit_cost": 1.0,
+                    "comparison_freight_unit_cost": 2.0,
+                    "freight_effect": -202.0,
+                    "tariff_effect": 0.0,
+                    "freight_denominator_policy": "DIRECT_AMOUNT_NO_DENOMINATOR",
+                    "base_source_reference": "Data!I1168",
+                    "comparison_source_reference": "Data!I1168",
+                    "base_quantity_source_reference": "FS: Data!I1720",
+                    "comparison_quantity_source_reference": "FS: Data!I1720",
+                }],
+            },
+        }
+        add_user_evidence_sheets(workbook, result)
+
+        sheet = workbook["판매효과"]
+        fs_length = _row_with_value(sheet, "B", "FS 판매길이")
+        fs_converted = _row_with_value(sheet, "B", "FS 환산 판매수량")
+        freight_effect = _row_with_value(sheet, "B", "운반비 Effect")
+        self.assertEqual(sheet[f"C{fs_length}"].value, 45.0)
+        self.assertEqual(sheet[f"D{fs_length}"].value, 90.0)
+        self.assertEqual(sheet[f"C{fs_converted}"].value, 1.0)
+        self.assertEqual(sheet[f"D{fs_converted}"].value, 2.0)
+        self.assertIn("45m = 1 환산 PCS", sheet[f"G{fs_length + 1}"].value)
+        self.assertEqual(sheet[f"F{freight_effect}"].value, -202.0)
+        self.assertIn("별도 가산하지 않음", sheet[f"C{_row_with_value(sheet, 'A', '운반비')}"].value)
+        self.assertFalse(any(
+            cell.value == "DIRECT_AMOUNT_NO_DENOMINATOR"
+            for name in workbook.sheetnames
+            for row in workbook[name].iter_rows()
+            for cell in row
+        ))
+
+    def test_three_month_engine_trace_preserves_sentinels_and_reconciles(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            base_path = root / "base.xlsx"
+            comparison_path = root / "comparison.xlsx"
+            _build_three_month_sentinel_workbook(base_path, comparison=False)
+            _build_three_month_sentinel_workbook(comparison_path, comparison=True)
+            base_meta = _meta("base")
+            comparison_meta = _meta("comparison")
+            base_meta.regional_sales_monthly = {"7": 101_000, "8": 202_000, "9": 303_000}
+            comparison_meta.regional_sales_monthly = {
+                "7": 202_000, "8": 404_000, "9": 606_000,
+            }
+            for meta in (base_meta, comparison_meta):
+                meta.tariff_adjustment_monthly = {}
+                meta.tariff_applicable_rate = 0.85
+                meta.tariff_rate = 0.10
+            result = GenericComparisonEngine(
+                ROOT / "config" / "model_mapping.json"
+            ).compare(
+                base_meta,
+                base_path,
+                comparison_meta,
+                comparison_path,
+                PeriodOption("R2026_07_09", "2026-07 ~ 2026-09", (7, 8, 9), "사용자정의"),
+                baseline_sales_fx=1_000,
+                comparison_sales_fx=1_100,
+            )
+            workbook_payload = build_comparison_audit_workbook(
+                result=asdict(result),
+                sales_rows=result.sales_analysis["rows"],
+                sales_totals=result.sales_analysis["totals"],
+                baseline_fx=1_000,
+                comparison_fx=1_100,
+                mapping_path=ROOT / "config" / "model_mapping.json",
+            )
+
+        expected_periods = {"2026-07", "2026-08", "2026-09"}
+        effects = {row["code"]: float(row["profit_effect"]) for row in result.effects}
+        monthly_sales = result.sales_analysis["monthly_effects"]
+        self.assertEqual({row["period"] for row in monthly_sales}, expected_periods)
+        for monthly_key, effect_code in (
+            ("quantity_effect", "sales_quantity"),
+            ("mix_effect", "sales_mix"),
+            ("sales_price_effect", "sales_price"),
+            ("sales_fx_effect", "sales_fx"),
+            ("tariff_effect", "tariff"),
+        ):
+            self.assertAlmostEqual(
+                sum(float(row[monthly_key]) for row in monthly_sales),
+                effects[effect_code],
+            )
+            self.assertEqual(
+                len({float(row[monthly_key]) for row in monthly_sales}),
+                3,
+                f"{monthly_key} latest-month duplication",
+            )
+
+        freight = result.sales_analysis["freight_trace_rows"]
+        self.assertEqual({row["period"] for row in freight}, expected_periods)
+        self.assertEqual([row["base_source_reference"].split("Data!")[1][0] for row in freight], ["K", "L", "M"])
+        self.assertEqual({row["base_tariff_applicable_rate"] for row in freight}, {0.85})
+        self.assertEqual({row["base_tariff_rate"] for row in freight}, {0.10})
+        self.assertEqual({row["base_tariff_effective_rate"] for row in freight}, {0.085})
+        self.assertAlmostEqual(
+            sum(float(row["freight_effect"]) for row in freight),
+            float(result.sales_analysis["totals"]["transport_effect"]),
+        )
+        self.assertEqual(
+            len({float(row["base_equivalent_shipment_quantity"]) for row in freight}),
+            3,
+        )
+        self.assertEqual(len({row["tariff_effect"] for row in freight}), 3)
+
+        new_business = result.sales_analysis["new_business_trace_rows"]
+        self.assertEqual({row["period"] for row in new_business}, expected_periods)
+        self.assertTrue(all(row["base_quantity"] == row["comparison_quantity"] == 0 for row in new_business))
+        self.assertTrue(all(row["base_revenue"] and row["base_cogs"] for row in new_business))
+        self.assertTrue(all(row["mix_effect"] == row["sales_fx_effect"] == 0 for row in new_business))
+        self.assertAlmostEqual(
+            sum(float(row["revenue_effect"]) for row in new_business),
+            float(result.sales_analysis["totals"]["new_business_revenue_effect"]),
+        )
+        self.assertAlmostEqual(
+            sum(float(row["gp_rate_effect"]) for row in new_business),
+            float(result.sales_analysis["totals"]["new_business_gp_rate_effect"]),
+        )
+
+        material_rows = result.material_analysis["trace_rows"]
+        self.assertEqual({row["period"] for row in material_rows}, expected_periods)
+        self.assertAlmostEqual(
+            sum(float(row["total_effect"]) for row in material_rows),
+            effects["material_total"],
+        )
+        self.assertEqual(len({
+            sum(
+                float(row["total_effect"])
+                for row in material_rows if row["period"] == period
+            )
+            for period in expected_periods
+        }), 3)
+        manufacturing_rows = result.manufacturing_analysis["trace_rows"]
+        self.assertEqual({row["month"] for row in manufacturing_rows}, expected_periods)
+        self.assertAlmostEqual(
+            sum(float(row["final_profit_effect"]) for row in manufacturing_rows),
+            effects["manufacturing_realized"],
+        )
+        first_manufacturing_account = manufacturing_rows[0]["account"]
+        self.assertEqual(len({
+            float(row["baseline_amount"])
+            for row in manufacturing_rows if row["account"] == first_manufacturing_account
+        }), 3)
+
+        sga_rows = result.sga_monthly_trace
+        self.assertEqual({row["period"] for row in sga_rows}, expected_periods)
+        commission = [row for row in sga_rows if row["account"] == "브랜드사용료"]
+        self.assertEqual(len(commission), 3)
+        self.assertEqual(len({row["base_amount"] for row in commission}), 3)
+        self.assertEqual(
+            [row["base_source_reference"].split("Data!")[1][0] for row in commission],
+            ["K", "L", "M"],
+        )
+        self.assertAlmostEqual(
+            sum(float(row["profit_effect"]) for row in sga_rows),
+            effects["sga_variable"] + effects["sga_fixed"],
+        )
+        self.assertAlmostEqual(
+            sum(
+                float(row["profit_effect"])
+                for row in result.sga_accounts
+                if row["classification"] not in {"transport", "tariff"}
+            ),
+            effects["sga_variable"] + effects["sga_fixed"],
+        )
+
+        inventory_rows = result.inventory_analysis["selected_monthly_details"]
+        self.assertEqual({row["period"] for row in inventory_rows}, expected_periods)
+        self.assertAlmostEqual(
+            sum(float(row["inventory_timing_effect"]) for row in inventory_rows),
+            effects["inventory_timing"],
+        )
+        self.assertEqual(
+            len({float(row["inventory_timing_effect"]) for row in inventory_rows}),
+            3,
+        )
+
+        workbook = load_workbook(BytesIO(workbook_payload), data_only=False)
+        self.assertEqual(
+            workbook.sheetnames[:10],
+            [
+                "분석요약", "판매효과", "상품원가산출", "원재료", "제조경비",
+                "판관비", "Inventory Timing", "2026-07 상세", "2026-08 상세",
+                "2026-09 상세",
+            ],
+        )
+        self.assertEqual(workbook.sheetnames[-1], "Source Detail")
+        sales_sheet = workbook["판매효과"]
+        tariff_policy_rows = [
+            row for row in range(1, sales_sheet.max_row + 1)
+            if sales_sheet[f"B{row}"].value == "적용 비율"
+        ]
+        self.assertEqual(len(tariff_policy_rows), 3)
+        self.assertTrue(all(
+            sales_sheet[f"C{row}"].value == sales_sheet[f"D{row}"].value == 0.85
+            for row in tariff_policy_rows
+        ))
+        self.assertTrue(all(
+            sales_sheet[f"C{row}"].number_format.startswith("0.00%")
+            for row in tariff_policy_rows
+        ))
+        new_business_quantity_rows = [
+            row for row in range(1, sales_sheet.max_row + 1)
+            if sales_sheet[f"B{row}"].value == "수량"
+        ]
+        self.assertEqual(len(new_business_quantity_rows), 3)
+        self.assertTrue(all(
+            sales_sheet[f"C{row}"].value == sales_sheet[f"D{row}"].value == 0
+            for row in new_business_quantity_rows
+        ))
+        fs_raw_rows = [
+            row for row in range(1, sales_sheet.max_row + 1)
+            if sales_sheet[f"B{row}"].value == "FS 판매길이"
+        ]
+        fs_converted_rows = [
+            row for row in range(1, sales_sheet.max_row + 1)
+            if sales_sheet[f"B{row}"].value == "FS 환산 판매수량"
+        ]
+        self.assertEqual(len(fs_raw_rows), len(fs_converted_rows), 3)
+        for raw_row, converted_row in zip(fs_raw_rows, fs_converted_rows, strict=True):
+            self.assertAlmostEqual(
+                float(sales_sheet[f"C{raw_row}"].value) / 45.0,
+                float(sales_sheet[f"C{converted_row}"].value),
+            )
+            self.assertIn("#,##0.00", sales_sheet[f"C{raw_row}"].number_format)
+        sga_sheet = workbook["판관비"]
+        sga_sentinel_rows = [
+            row for row in range(1, sga_sheet.max_row + 1)
+            if sga_sheet[f"C{row}"].value == "판매_브랜드사용료"
+        ]
+        self.assertEqual(len(sga_sentinel_rows), 3)
+        self.assertEqual(
+            len({sga_sheet[f"D{row}"].value for row in sga_sentinel_rows}),
+            3,
+        )
+        required_sections = {
+            "판매효과", "운반비", "관세", "원재료", "제조경비", "판관비",
+            "Inventory Timing", "상품원가", "신사업",
+        }
+        for month in ("2026-07", "2026-08", "2026-09"):
+            detail = workbook[f"{month} 상세"]
+            self.assertEqual(
+                {
+                    detail[f"A{row}"].value
+                    for row in range(1, detail.max_row + 1)
+                    if detail[f"A{row}"].value in required_sections
+                },
+                required_sections,
+            )
+            self.assertIsNotNone(detail.freeze_panes)
+        self.assertTrue(all(
+            cell.alignment.wrap_text
+            for sheet_name in workbook.sheetnames[:10]
+            for row in workbook[sheet_name].iter_rows()
+            for cell in row
+            if cell.value is not None
+        ))
     def test_legacy_stored_freight_trace_requires_v11_recalculation(self):
         workbook = Workbook()
         sheet = workbook.active
@@ -144,12 +467,37 @@ class EvidenceWorkbookTraceabilityTests(unittest.TestCase):
         ))
         workbook = load_workbook(BytesIO(payload), data_only=False)
         self.assertEqual(
-            workbook.sheetnames[:6],
+            workbook.sheetnames[:8],
             [
-                "README", "판매효과_근거", "원부재료_근거", "제조경비_근거",
-                "재고원가반영시차_근거", "상품원가검증",
+                "분석요약", "판매효과", "상품원가산출", "원재료", "제조경비",
+                "판관비", "Inventory Timing", "2026-01 상세",
             ],
         )
+        self.assertEqual(workbook.sheetnames[-1], "Source Detail")
+        self.assertTrue({
+            "README", "판매효과_근거", "원부재료_근거", "제조경비_근거",
+            "재고원가반영시차_근거", "상품원가검증",
+        } <= set(workbook.sheetnames))
+        for sheet_name in workbook.sheetnames[:8]:
+            self.assertIsNotNone(workbook[sheet_name].freeze_panes)
+        source_detail = workbook["Source Detail"]
+        self.assertEqual(
+            [source_detail.cell(4, column).value for column in range(1, 17)],
+            [
+                "Period", "Domain", "Side", "Product/Pool", "Account",
+                "Canonical Field", "Mapping Key", "Source Reference",
+                "Source Row/Cell", "Raw Value", "Normalized Value",
+                "Engine Classification", "Reason Code", "Mapping Version",
+                "Mapping Hash", "Notes",
+            ],
+        )
+        user_sheet_names = workbook.sheetnames[:8]
+        self.assertFalse(any(
+            cell.value in {"DIRECT_AMOUNT_NO_DENOMINATOR", "MANUAL_OVERRIDE", "ACTUAL_YTD_DEFAULT"}
+            for sheet_name in user_sheet_names
+            for row in workbook[sheet_name].iter_rows()
+            for cell in row
+        ))
 
         sales = workbook["판매효과_근거"]
         self.assertIn("Data!E", sales["G5"].value)

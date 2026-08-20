@@ -101,6 +101,16 @@ def test_evidence_formula_trace_manual_zero_reason_and_source_sha(tmp_path):
     assert sheet["N4"].value == "=Data!K1289"
     assert "forecast-merchandise-v1.1.0" in sheet["AC2"].value
     assert sheet["Q2"].value == sheet["AB2"].value == "PASS"
+    assert sheet["A1"].value == "제품군"
+    assert sheet["K1"].value == "직접 지정 최종 상품원가"
+    assert sheet["N1"].value == "Engine 최종 적용 상품원가"
+    assert sheet["AE2"].value == "실적누계 상품원가율 적용"
+    assert sheet["AE3"].value == "최종 상품원가 직접 지정"
+    assert "조정 delta가 아니라 최종 적용 상품원가" in sheet["AF3"].value
+    assert sheet.column_dimensions["C"].hidden
+    assert sheet.column_dimensions["D"].hidden
+    assert sheet.column_dimensions["AC"].hidden
+    assert not sheet.sheet_view.showGridLines
     generated.close()
 
 

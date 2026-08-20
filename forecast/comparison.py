@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any
@@ -55,6 +56,7 @@ class ComparisonResult:
     mcm_transition: dict[str, Any] | None = None
     manufacturing_accounts: list[dict[str, Any]] = field(default_factory=list)
     sga_accounts: list[dict[str, Any]] = field(default_factory=list)
+    sga_monthly_trace: list[dict[str, Any]] = field(default_factory=list)
     material_analysis: dict[str, Any] = field(default_factory=dict)
     manufacturing_analysis: dict[str, Any] = field(default_factory=dict)
     inventory_analysis: dict[str, Any] = field(default_factory=dict)
@@ -195,6 +197,7 @@ class GenericComparisonEngine:
         sales_cogs_basis_analysis: dict[str, Any] = {}
         sales_cogs_scope_analysis: dict[str, Any] = {}
         core_cogs_overlap_analysis: dict[str, Any] = {}
+        sga_monthly_trace: list[dict[str, Any]] = []
         if baseline.get("adapted") is not None and target.get("adapted") is not None:
             full_base_scenario = baseline["adapted"].scenario
             full_comparison_scenario = target["adapted"].scenario
@@ -227,6 +230,11 @@ class GenericComparisonEngine:
             )
             calculated_analysis_sga = calculate_sga_effects(
                 base_scenario, comparison_scenario, self.analysis_config
+            )
+            sga_monthly_trace = self._sga_monthly_trace(
+                base_scenario,
+                comparison_scenario,
+                calculated_analysis_sga.details,
             )
             calculated_core_overlap = calculate_core_manufactured_cogs_overlap(
                 core_cogs_overlap_source(
@@ -296,6 +304,9 @@ class GenericComparisonEngine:
             )
             sales_analysis["new_business_trace_rows"] = list(
                 calculated_analysis_sales.new_business_details
+            )
+            sales_analysis["monthly_effects"] = list(
+                calculated_analysis_sales.monthly_effects
             )
             effects = [
                 {
@@ -583,6 +594,7 @@ class GenericComparisonEngine:
             mcm_transition=None,
             manufacturing_accounts=manufacturing_accounts,
             sga_accounts=sga_accounts,
+            sga_monthly_trace=sga_monthly_trace,
             material_analysis=material_analysis,
             manufacturing_analysis=manufacturing_analysis,
             inventory_analysis=inventory_analysis,
@@ -729,6 +741,109 @@ class GenericComparisonEngine:
             "bridge_position": "관세효과",
             "source_validation_status": "DIRECT_INPUT",
         })
+        return output
+
+    @staticmethod
+    def _sga_monthly_trace(
+        baseline_scenario: Any,
+        comparison_scenario: Any,
+        authoritative_details: list[dict[str, Any]],
+    ) -> list[dict[str, Any]]:
+        """Attach source provenance to the authoritative monthly SG&A details.
+
+        ``calculate_sga_effects`` remains the sole owner of classification and
+        profit-effect values.  This adapter only joins the normalized source
+        records that fed those results; it does not recalculate an SG&A effect.
+        """
+
+        def indexed(scenario: Any) -> dict[tuple[str, str], list[Any]]:
+            output: dict[tuple[str, str], list[Any]] = {}
+            for record in scenario.sga_expenses:
+                output.setdefault((str(record.year_month), str(record.account)), []).append(
+                    record
+                )
+            return output
+
+        def source_rows(records: list[Any]) -> list[int]:
+            rows: set[int] = set()
+            for record in records:
+                match = re.search(r"(\d+)$", str(record.amount_source or ""))
+                if match:
+                    rows.add(int(match.group(1)))
+            return sorted(rows)
+
+        def sections(records: list[Any]) -> list[str]:
+            return sorted({
+                str(record.business_source).split(" / ", 1)[0].strip()
+                for record in records
+                if str(record.business_source or "").strip()
+            })
+
+        def raw_accounts(records: list[Any], fallback: str) -> list[str]:
+            values = {
+                str(record.business_source).split(" / ", 1)[-1].strip()
+                for record in records
+                if str(record.business_source or "").strip()
+            }
+            return sorted(values or {fallback.split("_", 1)[-1]})
+
+        baseline = indexed(baseline_scenario)
+        comparison = indexed(comparison_scenario)
+        output: list[dict[str, Any]] = []
+        for source in authoritative_details:
+            detail = dict(source)
+            period = str(detail.get("month") or detail.get("period") or "")
+            account = str(detail.get("account") or "")
+            left = baseline.get((period, account), [])
+            right = comparison.get((period, account), [])
+            records = [*left, *right]
+            row_numbers = source_rows(records)
+            section_values = sections(records)
+            account_values = raw_accounts(records, account)
+            base_references = [
+                str(record.amount_source)
+                for record in left
+                if str(record.amount_source or "")
+            ]
+            comparison_references = [
+                str(record.amount_source)
+                for record in right
+                if str(record.amount_source or "")
+            ]
+            if len(section_values) == 1 and len(account_values) == 1:
+                prefix = "판매" if section_values[0] == "판매비" else "일반"
+                display_account = f"{prefix}_{account_values[0]}"
+            else:
+                display_account = account
+            output.append({
+                "period": period,
+                "row": row_numbers[0] if len(row_numbers) == 1 else ", ".join(
+                    str(value) for value in row_numbers
+                ),
+                "account": account,
+                "display_account": display_account,
+                "section": " / ".join(section_values),
+                "base_amount": detail.get("baseline_amount"),
+                "baseline_amount": detail.get("baseline_amount"),
+                "comparison_amount": detail.get("comparison_amount"),
+                "profit_effect": detail.get("profit_effect"),
+                "classification": detail.get("classification"),
+                "bridge_position": detail.get("bridge_position"),
+                "base_source_reference": " | ".join(base_references),
+                "comparison_source_reference": " | ".join(comparison_references),
+                "source_reference": (
+                    f"Base: {' | '.join(base_references)} / "
+                    f"Comparison: {' | '.join(comparison_references)}"
+                ),
+                "source_validation_status": (
+                    "SOURCE_MAPPED"
+                    if records and all(
+                        record.source_validation_status in {"PASS", "SOURCE_MAPPED"}
+                        for record in records
+                    )
+                    else "UNVALIDATED"
+                ),
+            })
         return output
 
     @staticmethod

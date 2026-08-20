@@ -24,7 +24,7 @@ from .evidence_traceability import (
     write_sales_evidence,
     write_sga_evidence,
 )
-from .evidence_presentation import polish_evidence_workbook
+from .evidence_presentation import add_user_evidence_sheets, polish_evidence_workbook
 
 
 MIME_XLSX = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
@@ -1423,6 +1423,274 @@ def _write_stored_source_provenance(ws, result: dict[str, Any]) -> None:
     ws.freeze_panes = f"A{raw_header + 1}"
 
 
+def _write_source_detail(ws, result: dict[str, Any]) -> None:
+    """Consolidate technical trace fields without changing engine values."""
+    header_row = _write_title(
+        ws,
+        "Source Detail",
+        "사용자 Sheet의 수치가 참조한 Engine trace와 기술 provenance입니다. 내부 코드와 원천 위치는 이 Sheet에서만 확인합니다.",
+    )
+    headers = [
+        "Period", "Domain", "Side", "Product/Pool", "Account",
+        "Canonical Field", "Mapping Key", "Source Reference", "Source Row/Cell",
+        "Raw Value", "Normalized Value", "Engine Classification", "Reason Code",
+        "Mapping Version", "Mapping Hash", "Notes",
+    ]
+    _write_headers(ws, header_row, headers)
+    provenance = result.get("evidence_provenance")
+    if not isinstance(provenance, dict):
+        provenance = {}
+    mapping_version = provenance.get("mapping_version")
+    mapping_hash = provenance.get("mapping_hash")
+
+    def add(
+        *,
+        period: Any,
+        domain: str,
+        side: str,
+        field: str,
+        value: Any,
+        source_reference: Any = None,
+        product: Any = None,
+        account: Any = None,
+        mapping_key: Any = None,
+        classification: Any = None,
+        reason: Any = None,
+        raw_value: Any = None,
+        notes: Any = None,
+    ) -> None:
+        if value is None and raw_value is None and source_reference in (None, ""):
+            return
+        ws.append([
+            period,
+            domain,
+            side,
+            product,
+            account,
+            field,
+            mapping_key,
+            source_reference,
+            source_reference,
+            value if raw_value is None else raw_value,
+            value,
+            classification,
+            reason,
+            mapping_version,
+            mapping_hash,
+            notes,
+        ])
+        row = ws.max_row
+        for column in (10, 11):
+            cell = ws.cell(row, column)
+            if isinstance(cell.value, (int, float)):
+                field_lower = field.lower()
+                if "rate" in field_lower or "ratio" in field_lower:
+                    cell.number_format = "0.0%"
+                elif any(token in field_lower for token in ("quantity", "length", "output")):
+                    cell.number_format = "#,##0.00"
+                else:
+                    cell.number_format = '#,##0;[Red](#,##0);-'
+
+    sales = dict(result.get("sales_analysis") or {})
+    for item in sales.get("trace_rows") or []:
+        item = dict(item)
+        for side, prefix in (("BASE", "base"), ("COMPARISON", "comparison")):
+            source_reference = item.get(f"{prefix}_source_reference")
+            for field in ("quantity", "revenue", "cogs", "fx"):
+                add(
+                    period=item.get("period"), domain="SALES", side=side,
+                    product=item.get("product_group") or item.get("pool"),
+                    field=f"sales_{field}", value=item.get(f"{prefix}_{field}"),
+                    source_reference=source_reference,
+                    mapping_key=item.get("canonical_fields"),
+                    classification=item.get("validation_status"),
+                )
+        add(
+            period=item.get("period"), domain="SALES", side="EFFECT",
+            product=item.get("product_group") or item.get("pool"),
+            field="price_effect", value=item.get("price_effect"),
+            classification="ENGINE_RESULT", notes="authoritative child effect",
+        )
+        add(
+            period=item.get("period"), domain="SALES", side="EFFECT",
+            product=item.get("product_group") or item.get("pool"),
+            field="sales_fx_effect", value=item.get("sales_fx_effect"),
+            classification="ENGINE_RESULT", notes="authoritative child effect",
+        )
+
+    for item in sales.get("freight_trace_rows") or []:
+        item = dict(item)
+        for side, prefix in (("BASE", "base"), ("COMPARISON", "comparison")):
+            source_reference = item.get(f"{prefix}_source_reference")
+            quantity_reference = item.get(f"{prefix}_quantity_source_reference")
+            for field in (
+                "freight_including_tariff", "tariff", "freight_ex_tariff",
+                "sw_pcs", "bw_pcs", "lc_pcs", "fs_length", "fs_converted_pcs",
+                "equivalent_shipment_quantity", "freight_unit_cost",
+                "tariff_regional_sales", "tariff_applicable_rate", "tariff_rate",
+                "tariff_effective_rate",
+            ):
+                add(
+                    period=item.get("period"), domain="FREIGHT_TARIFF", side=side,
+                    product="FS" if field.startswith("fs_") else "TOTAL",
+                    field=field, value=item.get(f"{prefix}_{field}"),
+                    source_reference=(quantity_reference if any(
+                        token in field for token in ("pcs", "length", "quantity")
+                    ) else source_reference),
+                    mapping_key=item.get("canonical_fields"),
+                    classification=item.get("validation_status"),
+                    reason=item.get("freight_denominator_policy"),
+                    notes=item.get(f"{prefix}_tariff_calculation_source"),
+                )
+        for field in ("freight_effect", "tariff_effect"):
+            add(
+                period=item.get("period"), domain="FREIGHT_TARIFF", side="EFFECT",
+                product="TOTAL", field=field, value=item.get(field),
+                classification="ENGINE_RESULT", reason=item.get("freight_denominator_policy"),
+                notes=item.get("freight_effect_formula") if field == "freight_effect" else None,
+            )
+
+    for item in sales.get("new_business_trace_rows") or []:
+        item = dict(item)
+        for side, prefix in (("BASE", "base"), ("COMPARISON", "comparison")):
+            for field in ("revenue", "cogs", "gp", "gp_rate"):
+                add(
+                    period=item.get("period"), domain="NEW_BUSINESS", side=side,
+                    product="신사업", field=field, value=item.get(f"{prefix}_{field}"),
+                    source_reference=item.get(f"{prefix}_source_reference"),
+                    mapping_key=item.get("canonical_fields"),
+                    classification=item.get("validation_status"),
+                )
+        for field in ("revenue_effect", "gp_rate_effect", "mix_effect", "sales_fx_effect"):
+            add(
+                period=item.get("period"), domain="NEW_BUSINESS", side="EFFECT",
+                product="신사업", field=field, value=item.get(field),
+                classification="ENGINE_RESULT", notes=item.get("analysis_method"),
+            )
+
+    material = dict(result.get("material_analysis") or {})
+    for domain, rows in (
+        ("RAW_MATERIAL", material.get("trace_rows") or []),
+        ("NONWOVEN", material.get("nonwoven_trace_rows") or []),
+    ):
+        for source in rows:
+            item = dict(source)
+            for side, prefix in (("BASE", "base"), ("COMPARISON", "comparison")):
+                for field in ("cost", "output", "unit_cost", "jpy_fx"):
+                    add(
+                        period=item.get("period"), domain=domain, side=side,
+                        product=item.get("product_group") or "FS",
+                        field=field, value=item.get(f"{prefix}_{field}"),
+                        source_reference=item.get(f"{prefix}_source_reference"),
+                        mapping_key=item.get("canonical_fields"),
+                        classification=item.get("source_validation_status"),
+                        reason=item.get("validation_status"),
+                    )
+            for field in (
+                "total_effect", "nonwoven_total", "nonwoven_price_ex_fx", "nonwoven_jpy"
+            ):
+                add(
+                    period=item.get("period"), domain=domain, side="EFFECT",
+                    product=item.get("product_group") or "FS", field=field,
+                    value=item.get(field), classification="ENGINE_RESULT",
+                    reason=item.get("validation_status"),
+                )
+
+    manufacturing = dict(result.get("manufacturing_analysis") or {})
+    for source in manufacturing.get("trace_rows") or []:
+        item = dict(source)
+        for side, value_key, source_key in (
+            ("BASE", "baseline_amount", "base_amount_source"),
+            ("COMPARISON", "comparison_amount", "comparison_amount_source"),
+        ):
+            add(
+                period=item.get("month"), domain="MANUFACTURING", side=side,
+                account=item.get("account"), field="manufacturing_cost",
+                value=item.get(value_key), source_reference=item.get(source_key),
+                mapping_key=item.get("canonical_fields"),
+                classification=item.get("classification"),
+                reason=item.get("calculation_status"),
+            )
+        for field in ("activity_effect", "unit_effect", "fixed_effect", "final_profit_effect"):
+            add(
+                period=item.get("month"), domain="MANUFACTURING", side="EFFECT",
+                account=item.get("account"), field=field, value=item.get(field),
+                classification=item.get("classification"), reason=item.get("calculation_status"),
+            )
+
+    for source in result.get("sga_monthly_trace") or []:
+        item = dict(source)
+        for side, value_key, source_key in (
+            ("BASE", "base_amount", "base_source_reference"),
+            ("COMPARISON", "comparison_amount", "comparison_source_reference"),
+        ):
+            add(
+                period=item.get("period"), domain="SGA", side=side,
+                account=item.get("display_account") or item.get("account"),
+                field="sga_amount", value=item.get(value_key),
+                source_reference=item.get(source_key), mapping_key=item.get("row"),
+                classification=item.get("classification"),
+                notes=item.get("bridge_position"),
+            )
+        add(
+            period=item.get("period"), domain="SGA", side="EFFECT",
+            account=item.get("display_account") or item.get("account"),
+            field="profit_effect", value=item.get("profit_effect"),
+            classification=item.get("classification"), notes=item.get("bridge_position"),
+        )
+
+    inventory = dict(result.get("inventory_analysis") or {})
+    for source in inventory.get("source_details") or []:
+        item = dict(source)
+        add(
+            period=item.get("period"), domain="INVENTORY_TIMING",
+            side=str(item.get("side") or ""), field=str(item.get("canonical_field") or "source"),
+            value=item.get("value"), source_reference=item.get("source_reference"),
+            classification=item.get("validation_status"), notes=item.get("business_source"),
+        )
+    for source in (
+        inventory.get("selected_monthly_details") or inventory.get("monthly_details") or []
+    ):
+        item = dict(source)
+        add(
+            period=item.get("period"), domain="INVENTORY_TIMING", side="EFFECT",
+            field="inventory_timing_effect", value=item.get("inventory_timing_effect"),
+            source_reference=item.get("source_reference"), classification="ENGINE_RESULT",
+            notes="공식 additive Effect",
+        )
+
+    scope = dict(result.get("sales_cogs_scope_analysis") or {})
+    for source in scope.get("source_rows") or []:
+        item = dict(source)
+        for side, prefix in (("BASE", "base"), ("COMPARISON", "comparison")):
+            add(
+                period=item.get("period"), domain="MERCHANDISE_COGS", side=side,
+                product=item.get("product_group"), field="merchandise_cogs",
+                value=item.get(f"{prefix}_merchandise_cogs"),
+                source_reference=item.get(f"{prefix}_source_reference"),
+                classification=item.get("classification"),
+                notes="Comparison Result가 보유한 월별 authoritative 범위",
+            )
+
+    for item in result.get("effects") or []:
+        item = dict(item)
+        add(
+            period=(result.get("period") or {}).get("label"), domain="BRIDGE",
+            side="EFFECT", field=str(item.get("code") or "effect"),
+            value=item.get("profit_effect"), classification="OFFICIAL_ADDITIVE_EFFECT",
+            notes=item.get("factor") or item.get("label"),
+        )
+
+    _style_data_sheet(ws, header_row)
+    ws.freeze_panes = f"A{header_row + 1}"
+    ws.sheet_view.showGridLines = False
+    ws.sheet_properties.pageSetUpPr.fitToPage = True
+    ws.page_setup.orientation = "landscape"
+    ws.page_setup.fitToWidth = 1
+    ws.page_setup.fitToHeight = 0
+    ws.print_title_rows = f"1:{header_row}"
+
+
 def build_comparison_audit_workbook(
     *,
     result: dict[str, Any],
@@ -1441,6 +1709,7 @@ def build_comparison_audit_workbook(
     workbook.calculation.forceFullCalc = True
     workbook.calculation.calcMode = "auto"
 
+    user_sheet_names = add_user_evidence_sheets(workbook, result)
     _write_readme(workbook.create_sheet("README"), result, baseline_fx, comparison_fx)
     sales_cells = write_sales_evidence(
         workbook.create_sheet("판매효과_근거"),
@@ -1553,8 +1822,11 @@ def build_comparison_audit_workbook(
         inventory_cells=inventory_cells,
         bridge_cells=final_bridge_cells,
     )
+    _write_source_detail(workbook.create_sheet("Source Detail"), result)
 
     required = {
+        "분석요약", "판매효과", "상품원가산출", "원재료", "제조경비",
+        "판관비", "Inventory Timing", "Source Detail",
         "README", "판매효과_근거", "원부재료_근거", "제조경비_근거",
         "재고원가반영시차_근거", "상품원가검증", "최종Bridge_검증", "Residual_RCA",
         "Sales_COGS_Basis", "Sales_COGS_Scope",
@@ -1564,6 +1836,10 @@ def build_comparison_audit_workbook(
     missing = required.difference(workbook.sheetnames)
     if missing:
         raise ValueError(f"검증 엑셀 필수 시트 누락: {sorted(missing)}")
+    if workbook.sheetnames[:len(user_sheet_names)] != user_sheet_names:
+        raise ValueError("사용자 Evidence 시트 순서가 올바르지 않습니다.")
+    if workbook.sheetnames[-1] != "Source Detail":
+        raise ValueError("Source Detail은 마지막 시트여야 합니다.")
     if not any(
         isinstance(cell.value, str) and cell.value.startswith("=")
         for row in workbook["판매효과_근거"].iter_rows()

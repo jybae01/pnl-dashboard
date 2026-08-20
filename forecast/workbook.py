@@ -1099,7 +1099,10 @@ class GoldenWorkbook:
 
         root = ET.Element(Q("worksheet"))
         views = ET.SubElement(root, Q("sheetViews"))
-        view = ET.SubElement(views, Q("sheetView"), {"workbookViewId": "0"})
+        view = ET.SubElement(
+            views, Q("sheetView"),
+            {"workbookViewId": "0", "showGridLines": "0"},
+        )
         ET.SubElement(
             view,
             Q("pane"),
@@ -1114,29 +1117,38 @@ class GoldenWorkbook:
             16, 14, 22, 18, 14, 20, 20, 16, 12, 20,
             18, 22, 22, 22, 14, 42, 14, 14, 14, 14,
             14, 14, 14, 14, 14, 14, 14, 14, 70, 24,
+            24, 58,
         )
+        technical_columns = {3, 4, *range(17, 31)}
         for index, width in enumerate(widths, start=1):
+            attributes = {
+                "min": str(index), "max": str(index),
+                "width": str(width), "customWidth": "1",
+            }
+            if index in technical_columns:
+                attributes.update({"hidden": "1", "outlineLevel": "1"})
             ET.SubElement(
                 columns, Q("col"),
-                {"min": str(index), "max": str(index), "width": str(width), "customWidth": "1"},
+                attributes,
             )
         sheet_data = ET.SubElement(root, Q("sheetData"))
         header = ET.SubElement(sheet_data, Q("row"), {"r": "1"})
         headers = (
-            "Product", "Specification", "Mode", "Calculation Source",
-            "Actual Cutoff", "Actual YTD Revenue", "Actual YTD COGS",
-            "Actual YTD Rate", "Forecast Month", "Forecast Revenue",
-            "Manual COGS", "Actual YTD Derived COGS", "Applied COGS Formula",
-            "Engine Applied COGS", "Formula Match", "Manual Reason",
+            "제품군", "규격", "Internal Mode", "Internal Calculation Source",
+            "적용 실적 기준월", "실적누계 상품매출액", "실적누계 상품원가",
+            "적용 상품원가율", "Forecast 월", "Forecast 상품매출액",
+            "직접 지정 최종 상품원가", "기본 산출 상품원가", "적용 상품원가 수식",
+            "Engine 최종 적용 상품원가", "정합성", "직접 지정 사유",
             "Cutoff Valid", "Actual-only Numerator", "Actual-only Denominator",
             "Zero Denominator Check", "Missing Source Check", "No Self-reference",
             "Scope Valid", "Mode Valid", "Manual Conflict Free",
             "Manual Reason Valid", "No Hardcoded COGS", "Golden Source PASS",
             "Source / Canonical / Mapping Provenance", "Target Output",
+            "적용 기준", "사용자 설명",
         )
         for index, value in enumerate(headers, start=1):
             GoldenWorkbook._append_inline_cell(header, f"{col_name(index)}1", value)
-        ET.SubElement(root, Q("autoFilter"), {"ref": "A1:AD1"})
+        ET.SubElement(root, Q("autoFilter"), {"ref": "A1:AF1"})
         return sheet_path, root
 
     def _append_merchandise_cogs_evidence(
@@ -1201,6 +1213,16 @@ class GoldenWorkbook:
                 "AB": "PASS" if item.get("golden_source_valid") else "CHECK",
                 "AC": provenance,
                 "AD": item["total_forecast_cogs_source_reference"],
+                "AE": (
+                    "최종 상품원가 직접 지정"
+                    if item["mode"] == "MANUAL_OVERRIDE"
+                    else "실적누계 상품원가율 적용"
+                ),
+                "AF": (
+                    "입력 금액은 조정 delta가 아니라 최종 적용 상품원가입니다."
+                    if item["mode"] == "MANUAL_OVERRIDE"
+                    else "Forecast 상품매출액 × 실적누계 상품원가율"
+                ),
             }
             for column, value in values.items():
                 self._append_inline_cell(row, f"{column}{row_number}", value)
@@ -1260,7 +1282,7 @@ class GoldenWorkbook:
         auto_filter = root.find(Q("autoFilter"))
         if auto_filter is None:
             auto_filter = ET.SubElement(root, Q("autoFilter"))
-        auto_filter.attrib["ref"] = f"A1:AD{next_row - 1}"
+        auto_filter.attrib["ref"] = f"A1:AF{next_row - 1}"
         entries[sheet_path] = serialize_xml(root)
 
     def save(self, destination: str | Path) -> Path:

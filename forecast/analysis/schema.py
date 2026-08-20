@@ -109,6 +109,11 @@ class ActivityRecord:
     inventory_realization_rate: float | None = None
     tariff_input: float = 0.0
     tariff_in_transport: bool = True
+    tariff_regional_sales: float | None = None
+    tariff_applicable_rate: float | None = None
+    tariff_rate: float | None = None
+    tariff_effective_rate: float | None = None
+    tariff_calculation_source: str = ""
     labor_front_ratio: float | None = None
     outsourcing_front_ratio: float | None = None
     other_expense_front_ratio: float | None = None

@@ -131,6 +131,14 @@ class ComparisonAnalysisBridgeTests(unittest.TestCase):
         ]
         self.assertEqual(len(detail_tariffs), 1)
         self.assertEqual(detail_tariffs[0]["profit_effect"], -100.0)
+        freight = result.sales_analysis["freight_trace_rows"][0]
+        self.assertIsNone(freight["base_tariff_regional_sales"])
+        self.assertIsNone(freight["comparison_tariff_applicable_rate"])
+        self.assertIsNone(freight["comparison_tariff_rate"])
+        self.assertEqual(
+            freight["comparison_tariff_calculation_source"],
+            "Scenario metadata.tariff_adjustment_monthly",
+        )
 
     def test_tariff_embedded_in_forecast_transport_is_subtracted_and_added_once(self):
         with tempfile.TemporaryDirectory() as directory:

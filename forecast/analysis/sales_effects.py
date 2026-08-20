@@ -32,6 +32,7 @@ class SalesEffects:
     pool_details: list[dict[str, float | str]] = field(default_factory=list)
     freight_details: list[dict[str, float | str | bool]] = field(default_factory=list)
     new_business_details: list[dict[str, float | str]] = field(default_factory=list)
+    monthly_effects: list[dict[str, float | str]] = field(default_factory=list)
 
     @property
     def total(self) -> float:
@@ -152,6 +153,22 @@ def calculate_sales_effects(
     left = _product_map(base)
     right = _product_map(comparison)
     months = sorted(set(base.months) & set(comparison.months))
+    monthly_effects: dict[str, dict[str, float | str]] = {
+        month: {
+            "period": month,
+            "quantity_effect": 0.0,
+            "mix_effect": 0.0,
+            "displayed_price_effect": 0.0,
+            "freight_effect": 0.0,
+            "sales_price_effect": 0.0,
+            "sales_fx_effect": 0.0,
+            "tariff_effect": 0.0,
+            "new_business_revenue_effect": 0.0,
+            "new_business_gp_rate_effect": 0.0,
+            "total_sales_effect": 0.0,
+        }
+        for month in months
+    }
 
     for month in months:
         codes = sorted({code for ym, code in left if ym == month} | {code for ym, code in right if ym == month})
@@ -195,11 +212,17 @@ def calculate_sales_effects(
             result.new_business_gp_rate_effect += gp_rate_effect
             result.quantity += revenue_effect
             result.displayed_price += gp_rate_effect
+            monthly_effects[month]["quantity_effect"] += revenue_effect
+            monthly_effects[month]["displayed_price_effect"] += gp_rate_effect
+            monthly_effects[month]["new_business_revenue_effect"] += revenue_effect
+            monthly_effects[month]["new_business_gp_rate_effect"] += gp_rate_effect
             result.new_business_details.append({
                 "period": month,
                 "product_group": "신사업",
                 "business_source": "신사업 매출액·매출원가",
                 "canonical_fields": "sales_amount / product_cogs",
+                "base_quantity": float(lrow.sales_basis) if lrow else 0.0,
+                "comparison_quantity": float(rrow.sales_basis) if rrow else 0.0,
                 "base_revenue": base_revenue,
                 "comparison_revenue": comparison_revenue,
                 "base_cogs": base_cogs,
@@ -262,6 +285,8 @@ def calculate_sales_effects(
                 result.sales_fx += q1 * (fx1 - fx0) * (p0_foreign + p1_foreign) / 2
                 price_effect = q1 * (p1_foreign - p0_foreign) * (fx0 + fx1) / 2
                 fx_effect = q1 * (fx1 - fx0) * (p0_foreign + p1_foreign) / 2
+                monthly_effects[month]["displayed_price_effect"] += price_effect
+                monthly_effects[month]["sales_fx_effect"] += fx_effect
                 product_group = (rrow or lrow).product_group if (rrow or lrow) else ""
                 detail_rows.append({
                     "period": month,
@@ -312,8 +337,12 @@ def calculate_sales_effects(
                 if q1 and not q0:
                     result.issues.append(f"{month} {rrow.product_code}: 기준 판매수량이 없어 신규 제품 가격효과가 비교단가 기준으로 계산됨")
 
-            result.quantity += (comp_total - base_total) * base_weighted_margin
-            result.mix += comp_total * mix_component
+            quantity_effect = (comp_total - base_total) * base_weighted_margin
+            mix_effect = comp_total * mix_component
+            result.quantity += quantity_effect
+            result.mix += mix_effect
+            monthly_effects[month]["quantity_effect"] += quantity_effect
+            monthly_effects[month]["mix_effect"] += mix_effect
             result.details.extend(detail_rows)
             result.pool_details.append({
                 "period": month,
@@ -392,6 +421,8 @@ def calculate_sales_effects(
         result.comparison_transport_ex_tariff += c1
         result.transport_effect += freight_effect
         result.tariff += tariff0 - tariff1
+        monthly_effects[month]["freight_effect"] = freight_effect
+        monthly_effects[month]["tariff_effect"] = tariff0 - tariff1
         result.freight_details.append({
             "period": month,
             "business_source": "판매비 고객배송 운반비 / 관세 입력",
@@ -446,6 +477,16 @@ def calculate_sales_effects(
             ),
             "freight_effect": freight_effect,
             "tariff_effect": tariff0 - tariff1,
+            "base_tariff_regional_sales": a0.tariff_regional_sales if a0 else None,
+            "comparison_tariff_regional_sales": a1.tariff_regional_sales if a1 else None,
+            "base_tariff_applicable_rate": a0.tariff_applicable_rate if a0 else None,
+            "comparison_tariff_applicable_rate": a1.tariff_applicable_rate if a1 else None,
+            "base_tariff_rate": a0.tariff_rate if a0 else None,
+            "comparison_tariff_rate": a1.tariff_rate if a1 else None,
+            "base_tariff_effective_rate": a0.tariff_effective_rate if a0 else None,
+            "comparison_tariff_effective_rate": a1.tariff_effective_rate if a1 else None,
+            "base_tariff_calculation_source": a0.tariff_calculation_source if a0 else "",
+            "comparison_tariff_calculation_source": a1.tariff_calculation_source if a1 else "",
             "base_source_reference": " | ".join(filter(None, (
                 base_transport_row.amount_source if base_transport_row else "",
                 a0.tariff_input_source if a0 else "",
@@ -467,4 +508,16 @@ def calculate_sales_effects(
     result.transport_quantity = 0.0
     result.transport_unit = result.transport_effect
     result.price = result.displayed_price + result.transport_effect
+    for month in months:
+        row = monthly_effects[month]
+        row["sales_price_effect"] = (
+            float(row["displayed_price_effect"]) + float(row["freight_effect"])
+        )
+        row["total_sales_effect"] = sum(
+            float(row[key])
+            for key in (
+                "quantity_effect", "mix_effect", "sales_price_effect", "sales_fx_effect"
+            )
+        )
+        result.monthly_effects.append(row)
     return result

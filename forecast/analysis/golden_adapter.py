@@ -525,6 +525,27 @@ class GoldenAnalysisAdapter:
         for month in months:
             column = self.MONTH_COLUMNS[month]
             year_month = f"{int(meta.year):04d}-{month:02d}"
+            tariff_adjustments = getattr(meta, "tariff_adjustment_monthly", {}) or {}
+            tariff_uses_direct_adjustment = bool(tariff_adjustments)
+            tariff_regional_sales = (
+                None
+                if tariff_uses_direct_adjustment
+                else self._number(
+                    (getattr(meta, "regional_sales_monthly", {}) or {}).get(
+                        str(month), 0.0
+                    )
+                )
+            )
+            tariff_applicable_rate = (
+                None
+                if tariff_uses_direct_adjustment
+                else self._number(getattr(meta, "tariff_applicable_rate", 0.10))
+            )
+            tariff_rate = (
+                None
+                if tariff_uses_direct_adjustment
+                else self._number(getattr(meta, "tariff_rate", 0.13))
+            )
             month_products = self._material_products(
                 workbook, int(meta.year), month, sales_fx=sales_fx
             )
@@ -614,6 +635,22 @@ class GoldenAnalysisAdapter:
                 manufacturing_input_cost=manufacturing_input,
                 tariff_input=self._monthly_tariff(meta, month),
                 tariff_in_transport=bool(getattr(meta, "tariff_in_workbook", False)),
+                tariff_regional_sales=tariff_regional_sales,
+                tariff_applicable_rate=tariff_applicable_rate,
+                tariff_rate=tariff_rate,
+                tariff_effective_rate=(
+                    tariff_applicable_rate * tariff_rate
+                    if tariff_applicable_rate is not None and tariff_rate is not None
+                    else None
+                ),
+                tariff_calculation_source=(
+                    "Scenario metadata.tariff_adjustment_monthly"
+                    if tariff_uses_direct_adjustment
+                    else (
+                        "Scenario metadata.regional_sales_monthly × "
+                        "tariff_applicable_rate × tariff_rate"
+                    )
+                ),
                 front_activity_source=self._source_reference(
                     column, [int(row) for row in manufacturing["front_activity_rows"]]
                 ),
@@ -626,7 +663,14 @@ class GoldenAnalysisAdapter:
                 tariff_input_source=(
                     "Golden workbook transport account (tariff included)"
                     if getattr(meta, "tariff_in_workbook", False)
-                    else "Scenario metadata.tariff_adjustment_monthly"
+                    else (
+                        "Scenario metadata.tariff_adjustment_monthly"
+                        if tariff_uses_direct_adjustment
+                        else (
+                            "Scenario metadata.regional_sales_monthly × "
+                            "tariff_applicable_rate × tariff_rate"
+                        )
+                    )
                 ),
                 source_validation_status="SOURCE_MAPPED",
             ))

@@ -56,6 +56,7 @@ class InventoryTimingEffects:
         "재고·원가 반영시차 영향은 확인되나 현재 Source만으로 단일 원인을 특정하기 어려움"
     )
     monthly_details: list[dict[str, Any]] = field(default_factory=list)
+    selected_monthly_details: list[dict[str, Any]] = field(default_factory=list)
     opening_inventory_units: list[dict[str, Any]] = field(default_factory=list)
     source_details: list[dict[str, Any]] = field(default_factory=list)
     core_overlap_details: list[dict[str, Any]] = field(default_factory=list)
@@ -272,7 +273,8 @@ def calculate_inventory_timing_effects(
         str(row.get("period")): row
         for row in (core_cogs_overlap.monthly_details if core_cogs_overlap else [])
     }
-    for month in history_months:
+
+    def monthly_detail(month: str) -> dict[str, Any]:
         manufactured_effect = left[month].manufactured_cogs - right[month].manufactured_cogs
         current_effect = (
             left[month].current_manufacturing_cost
@@ -287,7 +289,7 @@ def calculate_inventory_timing_effects(
             overlap_by_month.get(month, {}).get("mix_overlap_effect")
         )
         timing = gross_timing - overlap
-        result.monthly_details.append({
+        return {
             "period": month,
             "base_manufactured_cogs": left[month].manufactured_cogs,
             "comparison_manufactured_cogs": right[month].manufactured_cogs,
@@ -310,7 +312,10 @@ def calculate_inventory_timing_effects(
                 f"{right[month].semi_finished_goods_cogs_source}, "
                 f"{right[month].current_manufacturing_cost_source}"
             ),
-        })
+        }
+
+    result.selected_monthly_details = [monthly_detail(month) for month in selected]
+    result.monthly_details = [monthly_detail(month) for month in history_months]
 
     result.materiality_status, latest_material = _materiality(
         result.inventory_timing_effect, operating_profit_delta, config
