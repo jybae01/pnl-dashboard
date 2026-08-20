@@ -71,6 +71,8 @@ $originPair = "$canonical,$statusUrl"
 $head = '37d3db2354d8eedb7fa410c06fca7b48c495bc1f'
 $otherHead = '47d3db2354d8eedb7fa410c06fca7b48c495bc1f'
 $samePrefixOtherHead = '37d3db2354d80000000000000000000000000000'
+$validatedRevisionAHead = '30d270a71359cbe33981ed51d9e7fc36fb7c7522'
+$revisionBHead = '6328ee436a2487b54633cc70298dfde4e03bfdb9'
 $project = 'pnl-dashboard-staging'
 $projectNumber = '498160536475'
 $region = 'asia-southeast1'
@@ -96,6 +98,8 @@ $mutableEdgeTag = 'asia-southeast1-docker.pkg.dev/pnl-dashboard-staging/pnl-stag
 $mutableRuntimeTag = 'asia-southeast1-docker.pkg.dev/pnl-dashboard-staging/pnl-staging/pnl-runtime:analysis-v31-4ad67ad'
 $backendIdentity = Get-PnlStagingReleaseIdentity -Stage BACKEND_FIRST -GitHead $head -Service $service
 $frontendIdentity = Get-PnlStagingReleaseIdentity -Stage FINAL_FRONTEND -GitHead $head -Service $service
+$explicitBackendIdentity = Get-PnlStagingReleaseIdentity -Stage BACKEND_FIRST -GitHead $validatedRevisionAHead -Service $service
+$explicitFrontendIdentity = Get-PnlStagingReleaseIdentity -Stage FINAL_FRONTEND -GitHead $revisionBHead -Service $service
 
 Assert-PnlStagingTarget -ProjectId $project -ProjectNumber $projectNumber -Region $region -Service $service
 foreach ($invalidTarget in @(
@@ -449,6 +453,51 @@ function New-TestActiveRevisionDescription {
     } | ConvertTo-Json -Depth 20 | ConvertFrom-Json -Depth 20)
 }
 
+function Invoke-TestRevisionBCandidate {
+    param(
+        [Parameter(Mandatory)] [string] $CandidateGitHead,
+        [Parameter(Mandatory)] [string] $ServiceJsonPath,
+        [Parameter(Mandatory)] [string] $ActiveRevisionJsonPath,
+        [Parameter(Mandatory)] [string] $OutputDirectory,
+        [Parameter(Mandatory)] [string] $GcloudPath,
+        [AllowEmptyString()] [string] $ExplicitRevisionA,
+        [string] $ValidatedAEdgeImage = $frozenEdge,
+        [string] $ValidatedARuntimeImage = $runtimeA
+    )
+
+    $candidateIdentity = Get-PnlStagingReleaseIdentity `
+        -Stage FINAL_FRONTEND `
+        -GitHead $CandidateGitHead `
+        -Service $service
+    $candidateParameters = @{
+        Operation = 'CANDIDATE'
+        ProjectId = $project
+        ProjectNumber = $projectNumber
+        Region = $region
+        Service = $service
+        Stage = 'FINAL_FRONTEND'
+        GitHead = $CandidateGitHead
+        ApprovedOrigins = $originPair
+        SupabaseUrl = $supabaseUrl
+        WorkerControllerUrl = $controllerUrl
+        FinalEdgeImage = $finalEdge
+        RuntimeImage = $runtimeA
+        ValidatedRevisionAEdgeImage = $ValidatedAEdgeImage
+        ValidatedRevisionARuntimeImage = $ValidatedARuntimeImage
+        CapturedServiceJsonPath = $ServiceJsonPath
+        CapturedActiveRevisionJsonPath = $ActiveRevisionJsonPath
+        RevisionSuffix = $candidateIdentity.revision_suffix
+        CandidateTag = $candidateIdentity.candidate_tag
+        GcloudPath = $GcloudPath
+        OutputDirectory = $OutputDirectory
+    }
+    if (-not [string]::IsNullOrWhiteSpace($ExplicitRevisionA)) {
+        $candidateParameters.ValidatedRevisionA = $ExplicitRevisionA
+    }
+    & (Join-Path $PSScriptRoot 'staging-release.ps1') @candidateParameters | Out-Null
+    return Get-Content -Raw -LiteralPath (Join-Path $OutputDirectory 'candidate-final-frontend.json') | ConvertFrom-Json
+}
+
 $legacyActiveRevision = 'pnl-web-legacy-active'
 $legacyTemplateFixture = New-TestServiceDescription `
     -ObservedEdgeImage $finalEdge `
@@ -610,6 +659,56 @@ try {
             -ObservedEdgeImage $frozenEdge `
             -ObservedRuntimeImage $mutableRuntimeTag `
             -ActiveRevision $backendIdentity.revision_name) | ConvertTo-Json -Depth 100),
+        [Text.UTF8Encoding]::new($false)
+    )
+    $explicitRevisionAServicePath = Join-Path $testRoot 'explicit-revision-a-service.json'
+    $explicitRevisionAActiveRevisionPath = Join-Path $testRoot 'explicit-revision-a-active-revision.json'
+    $explicitRevisionAEdgeMismatchPath = Join-Path $testRoot 'explicit-revision-a-edge-mismatch.json'
+    $explicitRevisionARuntimeMismatchPath = Join-Path $testRoot 'explicit-revision-a-runtime-mismatch.json'
+    [IO.File]::WriteAllText(
+        $explicitRevisionAServicePath,
+        ((New-TestServiceDescription `
+            -ObservedEdgeImage $frozenEdge `
+            -ObservedRuntimeImage $runtimeA `
+            -ActiveRevision $explicitBackendIdentity.revision_name) | ConvertTo-Json -Depth 100),
+        [Text.UTF8Encoding]::new($false)
+    )
+    [IO.File]::WriteAllText(
+        $explicitRevisionAActiveRevisionPath,
+        ((New-TestActiveRevisionDescription `
+            -Revision $explicitBackendIdentity.revision_name `
+            -ResolvedEdgeImage $frozenEdge `
+            -ResolvedRuntimeImage $runtimeA) | ConvertTo-Json -Depth 100),
+        [Text.UTF8Encoding]::new($false)
+    )
+    [IO.File]::WriteAllText(
+        $explicitRevisionAEdgeMismatchPath,
+        ((New-TestActiveRevisionDescription `
+            -Revision $explicitBackendIdentity.revision_name `
+            -ResolvedEdgeImage $finalEdge `
+            -ResolvedRuntimeImage $runtimeA) | ConvertTo-Json -Depth 100),
+        [Text.UTF8Encoding]::new($false)
+    )
+    [IO.File]::WriteAllText(
+        $explicitRevisionARuntimeMismatchPath,
+        ((New-TestActiveRevisionDescription `
+            -Revision $explicitBackendIdentity.revision_name `
+            -ResolvedEdgeImage $frozenEdge `
+            -ResolvedRuntimeImage $runtimeB) | ConvertTo-Json -Depth 100),
+        [Text.UTF8Encoding]::new($false)
+    )
+    $explicitRevisionANotActiveService = New-TestServiceDescription `
+        -ObservedEdgeImage $frozenEdge `
+        -ObservedRuntimeImage $runtimeA `
+        -ActiveRevision $backendIdentity.revision_name
+    $explicitRevisionANotActiveService.status.traffic = @(
+        [pscustomobject]@{ revisionName = $backendIdentity.revision_name; percent = 100 },
+        [pscustomobject]@{ revisionName = $explicitBackendIdentity.revision_name; tag = $explicitBackendIdentity.candidate_tag }
+    )
+    $explicitRevisionANotActiveServicePath = Join-Path $testRoot 'explicit-revision-a-not-active-service.json'
+    [IO.File]::WriteAllText(
+        $explicitRevisionANotActiveServicePath,
+        ($explicitRevisionANotActiveService | ConvertTo-Json -Depth 100),
         [Text.UTF8Encoding]::new($false)
     )
     $baselineMismatchPath = Join-Path $testRoot 'revision-a-baseline-mismatch.json'
@@ -864,14 +963,84 @@ try {
         -OutputDirectory $finalOutput | Out-Null
     $finalPlan = Get-Content -Raw -LiteralPath (Join-Path $finalOutput 'candidate-final-frontend.json') | ConvertFrom-Json
     Assert-Equal -Actual $finalPlan.runtime_image -Expected $runtimeA -Message 'Final candidate runtime changed.'
+    Assert-Equal -Actual $finalPlan.validated_revision_a -Expected $backendIdentity.revision_name -Message 'Final candidate did not preserve the existing same-HEAD Revision A fallback.'
     Assert-Equal -Actual $finalPlan.validated_revision_a_runtime_image -Expected $runtimeA -Message 'Final candidate lost the validated Revision A runtime.'
     Assert-Equal -Actual $finalPlan.validated_revision_a_edge_image -Expected $frozenEdge -Message 'Final candidate lost the validated Revision A edge.'
     Assert-Equal -Actual $finalPlan.revision_a_edge_lineage -Expected 'validated' -Message 'Final candidate did not report validated edge lineage.'
     Assert-Equal -Actual $finalPlan.service_preflight.evaluated -Expected $true -Message 'Offline Revision B preflight was not evaluated.'
     Assert-Equal -Actual $finalPlan.service_preflight.result.active_revision -Expected $backendIdentity.revision_name -Message 'Revision B preflight did not require active Revision A.'
+    Assert-Equal -Actual $finalPlan.rollback_target -Expected $backendIdentity.revision_name -Message 'Final candidate same-HEAD rollback target changed.'
     Assert-Equal -Actual $finalPlan.revision_a_runtime_authority.resolution -Expected 'DIRECT_MANIFEST' -Message 'Direct Revision A runtime authority was not recorded.'
     Assert-True -Condition (@($finalPlan.gcloud.arguments) -contains "--image=$finalEdge") -Message 'Final candidate omitted final edge digest.'
     Write-Output 'REVISION_B_DRY_RUN=PASS traffic=0 runtime_lineage=PASS edge_lineage=PASS cloud_mutation=NONE'
+
+    $explicitFinalOutput = Join-Path $testRoot 'final-explicit-revision-a'
+    $explicitFinalPlan = Invoke-TestRevisionBCandidate `
+        -CandidateGitHead $revisionBHead `
+        -ExplicitRevisionA $explicitBackendIdentity.revision_name `
+        -ServiceJsonPath $explicitRevisionAServicePath `
+        -ActiveRevisionJsonPath $explicitRevisionAActiveRevisionPath `
+        -GcloudPath $mustNotRunGcloud `
+        -OutputDirectory $explicitFinalOutput
+    Assert-Equal -Actual $explicitFinalPlan.source_commit -Expected $revisionBHead -Message 'Explicit Revision A changed the Revision B source identity.'
+    Assert-Equal -Actual $explicitFinalPlan.revision_name -Expected $explicitFrontendIdentity.revision_name -Message 'Explicit Revision A changed the deterministic Revision B name.'
+    Assert-Equal -Actual $explicitFinalPlan.validated_revision_a -Expected $explicitBackendIdentity.revision_name -Message 'Final candidate lost the explicit validated Revision A.'
+    Assert-Equal -Actual $explicitFinalPlan.service_preflight.result.contract_valid -Expected $true -Message 'Explicit validated Revision A did not retain the service preservation contract.'
+    Assert-Equal -Actual $explicitFinalPlan.service_preflight.result.active_revision -Expected $explicitBackendIdentity.revision_name -Message 'Explicit validated Revision A was not required to be the active revision.'
+    Assert-Equal -Actual $explicitFinalPlan.service_preflight.result.active_revision_ready -Expected $true -Message 'Explicit validated Revision A did not prove Ready=True.'
+    Assert-Equal -Actual $explicitFinalPlan.service_preflight.result.traffic_percent -Expected ([long]100) -Message 'Explicit validated Revision A did not prove 100-percent traffic.'
+    Assert-Equal -Actual $explicitFinalPlan.service_preflight.result.observed_edge_image -Expected $frozenEdge -Message 'Explicit validated Revision A did not retain frozen-edge lineage.'
+    Assert-Equal -Actual $explicitFinalPlan.revision_a_runtime_authority.resolution -Expected 'DIRECT_MANIFEST' -Message 'Explicit validated Revision A did not retain runtime lineage authority.'
+    Assert-Equal -Actual $explicitFinalPlan.rollback_target -Expected $explicitBackendIdentity.revision_name -Message 'Revision B rollback target did not use the explicit validated Revision A.'
+
+    Assert-Throws -Action {
+        Invoke-TestRevisionBCandidate `
+            -CandidateGitHead $revisionBHead `
+            -ExplicitRevisionA $explicitBackendIdentity.revision_name `
+            -ServiceJsonPath $explicitRevisionAServicePath `
+            -ActiveRevisionJsonPath $revisionBActiveRevisionPath `
+            -GcloudPath $mustNotRunGcloud `
+            -OutputDirectory (Join-Path $testRoot 'reject-explicit-a-does-not-exist')
+    } -Message 'Revision B accepted an explicit Revision A that could not be resolved by the exact active-revision evidence.'
+    Assert-Throws -Action {
+        Invoke-TestRevisionBCandidate `
+            -CandidateGitHead $revisionBHead `
+            -ExplicitRevisionA $explicitBackendIdentity.revision_name `
+            -ServiceJsonPath $explicitRevisionANotActiveServicePath `
+            -ActiveRevisionJsonPath $revisionBActiveRevisionPath `
+            -GcloudPath $mustNotRunGcloud `
+            -OutputDirectory (Join-Path $testRoot 'reject-explicit-a-not-active')
+    } -Message 'Revision B accepted an explicit Revision A that was not the sole 100-percent active revision.'
+    foreach ($wrongRevisionA in @(
+        $explicitFrontendIdentity.revision_name,
+        "wrong-service-pnlbe-$validatedRevisionAHead"
+    )) {
+        Assert-Throws -Action {
+            Invoke-TestRevisionBCandidate `
+                -CandidateGitHead $revisionBHead `
+                -ExplicitRevisionA $wrongRevisionA `
+                -ServiceJsonPath $explicitRevisionAServicePath `
+                -ActiveRevisionJsonPath $explicitRevisionAActiveRevisionPath `
+                -GcloudPath $mustNotRunGcloud `
+                -OutputDirectory (Join-Path $testRoot ('reject-explicit-a-shape-' + [Guid]::NewGuid().ToString('N')))
+        } -Message "Revision B accepted an explicit Revision A with the wrong service or revision type: $wrongRevisionA"
+    }
+    foreach ($lineageMismatch in @(
+        @('edge', $explicitRevisionAEdgeMismatchPath),
+        @('runtime', $explicitRevisionARuntimeMismatchPath)
+    )) {
+        Assert-Throws -Action {
+            Invoke-TestRevisionBCandidate `
+                -CandidateGitHead $revisionBHead `
+                -ExplicitRevisionA $explicitBackendIdentity.revision_name `
+                -ServiceJsonPath $explicitRevisionAServicePath `
+                -ActiveRevisionJsonPath $lineageMismatch[1] `
+                -GcloudPath $mustNotRunGcloud `
+                -OutputDirectory (Join-Path $testRoot "reject-explicit-a-$($lineageMismatch[0])-lineage")
+        } -Message "Revision B accepted an explicit Revision A with mismatched $($lineageMismatch[0]) lineage."
+    }
+    Assert-True -Condition (-not (Test-Path -LiteralPath $gcloudInvocationMarker)) -Message 'Explicit Revision A focused tests attempted a Cloud mutation.'
+    Write-Output 'REVISION_B_EXPLICIT_A_DRY_RUN=PASS traffic=0 runtime_lineage=PASS edge_lineage=PASS cloud_mutation=NONE'
 
     $runtimeIndexPath = Join-Path $testRoot 'runtime-index.json'
     [IO.File]::WriteAllText($runtimeIndexPath, $runtimeIndexJson, [Text.UTF8Encoding]::new($false))

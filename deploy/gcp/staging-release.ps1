@@ -18,6 +18,7 @@ param(
     [string] $FrozenEdgeImage,
     [string] $FinalEdgeImage,
     [string] $RuntimeImage,
+    [string] $ValidatedRevisionA,
     [string] $ValidatedRevisionAEdgeImage,
     [string] $ValidatedRevisionARuntimeImage,
     [string] $RevisionSuffix,
@@ -302,7 +303,7 @@ function Assert-LiveServicePreservationContract {
         [Parameter(Mandatory)] [ValidateSet('BACKEND_FIRST', 'FINAL_FRONTEND')] [string] $CandidateStage,
         [Parameter(Mandatory)] [string] $CandidateEdgeImage,
         [Parameter(Mandatory)] [string] $CandidateRuntimeImage,
-        [Parameter(Mandatory)] [string] $CandidateGitHead,
+        [AllowEmptyString()] [string] $ExpectedRevisionA,
         [AllowEmptyString()] [string] $ValidatedAEdgeImage,
         [AllowEmptyString()] [string] $ValidatedARuntimeImage,
         [AllowEmptyString()] [string] $RequestedRuntimeManifestJson
@@ -339,11 +340,11 @@ function Assert-LiveServicePreservationContract {
     else {
         Assert-PnlDigestImage -Image ([string]$edge.image) -Role 'edge'
         Assert-PnlDigestImage -Image ([string]$bff.image) -Role 'runtime'
-        $expectedRevisionA = (
-            Get-PnlStagingReleaseIdentity -Stage 'BACKEND_FIRST' -GitHead $CandidateGitHead -Service $Service
-        ).revision_name
-        if (-not [string]::Equals($activeRevision, $expectedRevisionA, [StringComparison]::Ordinal)) {
-            throw 'Revision B candidate creation requires deterministic Revision A to be the current 100-percent revision.'
+        if ([string]::IsNullOrWhiteSpace($ExpectedRevisionA)) {
+            throw 'Revision B candidate creation requires a validated Revision A target.'
+        }
+        if (-not [string]::Equals($activeRevision, $ExpectedRevisionA, [StringComparison]::Ordinal)) {
+            throw 'Revision B candidate creation requires deterministic Revision A, explicitly validated or same-HEAD derived, to be the current 100-percent revision.'
         }
         $runtimeAuthority = Assert-PnlRevisionBLineage `
             -FinalEdgeImage $CandidateEdgeImage `
@@ -569,6 +570,7 @@ function Assert-LiveServicePreservationContract {
         active_image_source = [string]$activeBaseline.source
         observed_edge_image = $observedEdgeImage
         observed_runtime_image = $observedRuntimeImage
+        validated_revision_a = if ($CandidateStage -eq 'FINAL_FRONTEND') { $ExpectedRevisionA } else { $null }
         validated_revision_a_edge_image = if ($CandidateStage -eq 'FINAL_FRONTEND') { $ValidatedAEdgeImage } else { $null }
         validated_revision_a_runtime_image = if ($CandidateStage -eq 'FINAL_FRONTEND') { $ValidatedARuntimeImage } else { $null }
         revision_a_runtime_authority = if ($CandidateStage -eq 'FINAL_FRONTEND') { $runtimeAuthority } else { $null }
@@ -650,6 +652,25 @@ function Assert-StageAndHead {
     return Get-PnlStagingReleaseIdentity -Stage $Stage -GitHead $GitHead -Service $Service
 }
 
+function Resolve-ValidatedRevisionATarget {
+    param(
+        [Parameter(Mandatory)] [string] $CandidateGitHead,
+        [AllowEmptyString()] [string] $ExplicitRevision
+    )
+
+    if ([string]::IsNullOrWhiteSpace($ExplicitRevision)) {
+        return (
+            Get-PnlStagingReleaseIdentity -Stage 'BACKEND_FIRST' -GitHead $CandidateGitHead -Service $Service
+        ).revision_name
+    }
+    $validatedTarget = Assert-PnlExplicitRevisionTarget -Revision $ExplicitRevision -Service $Service
+    $backendFirstPattern = '^' + [regex]::Escape($Service) + '-pnlbe-[0-9a-f]{40}$'
+    if ($validatedTarget -cnotmatch $backendFirstPattern) {
+        throw 'ValidatedRevisionA must be an exact backend-first revision of the staging service.'
+    }
+    return $validatedTarget
+}
+
 $describeArguments = @(
     'run', 'services', 'describe', $Service,
     "--project=$ProjectId",
@@ -660,6 +681,7 @@ $describeArguments = @(
 
 if ($Operation -eq 'CANDIDATE') {
     $identity = Assert-StageAndHead
+    $validatedRevisionATarget = $null
     $requestedRuntimeManifestJson = ''
     $resolvedRuntimeManifestPath = $null
     if (-not [string]::IsNullOrWhiteSpace($RuntimeManifestJsonPath)) {
@@ -704,6 +726,7 @@ if ($Operation -eq 'CANDIDATE') {
             -ExpectedGitHead $GitHead
         if (
             -not [string]::IsNullOrWhiteSpace($FinalEdgeImage) -or
+            -not [string]::IsNullOrWhiteSpace($ValidatedRevisionA) -or
             -not [string]::IsNullOrWhiteSpace($ValidatedRevisionAEdgeImage) -or
             -not [string]::IsNullOrWhiteSpace($ValidatedRevisionARuntimeImage)
         ) {
@@ -716,6 +739,9 @@ if ($Operation -eq 'CANDIDATE') {
         Assert-RequiredText -Name 'FinalEdgeImage' -Value $FinalEdgeImage
         Assert-RequiredText -Name 'ValidatedRevisionAEdgeImage' -Value $ValidatedRevisionAEdgeImage
         Assert-RequiredText -Name 'ValidatedRevisionARuntimeImage' -Value $ValidatedRevisionARuntimeImage
+        $validatedRevisionATarget = Resolve-ValidatedRevisionATarget `
+            -CandidateGitHead $GitHead `
+            -ExplicitRevision $ValidatedRevisionA
         if (-not [string]::IsNullOrWhiteSpace($PreReleaseStatePath)) {
             throw 'FINAL_FRONTEND candidate creation does not accept a pre-release rollback state path.'
         }
@@ -821,7 +847,7 @@ if ($Operation -eq 'CANDIDATE') {
             -CandidateStage $Stage `
             -CandidateEdgeImage $edgeImage `
             -CandidateRuntimeImage $RuntimeImage `
-            -CandidateGitHead $GitHead `
+            -ExpectedRevisionA $validatedRevisionATarget `
             -ValidatedAEdgeImage $ValidatedRevisionAEdgeImage `
             -ValidatedARuntimeImage $ValidatedRevisionARuntimeImage `
             -RequestedRuntimeManifestJson $requestedRuntimeManifestJson
@@ -847,7 +873,7 @@ if ($Operation -eq 'CANDIDATE') {
             -CandidateStage $Stage `
             -CandidateEdgeImage $edgeImage `
             -CandidateRuntimeImage $RuntimeImage `
-            -CandidateGitHead $GitHead `
+            -ExpectedRevisionA $validatedRevisionATarget `
             -ValidatedAEdgeImage $ValidatedRevisionAEdgeImage `
             -ValidatedARuntimeImage $ValidatedRevisionARuntimeImage `
             -RequestedRuntimeManifestJson $requestedRuntimeManifestJson
@@ -876,7 +902,7 @@ if ($Operation -eq 'CANDIDATE') {
         $preReleaseBaseline.active_revision
     }
     else {
-        (Get-PnlStagingReleaseIdentity -Stage 'BACKEND_FIRST' -GitHead $GitHead -Service $Service).revision_name
+        $validatedRevisionATarget
     }
     $plan = [ordered]@{
         schema = 'pnl-staging-release-plan-v1'
@@ -896,6 +922,7 @@ if ($Operation -eq 'CANDIDATE') {
         production_traffic_percent = 0
         edge_image = $edgeImage
         runtime_image = $RuntimeImage
+        validated_revision_a = if ($Stage -eq 'FINAL_FRONTEND') { $validatedRevisionATarget } else { $null }
         validated_revision_a_edge_image = if ($Stage -eq 'FINAL_FRONTEND') { $ValidatedRevisionAEdgeImage } else { $null }
         validated_revision_a_runtime_image = if ($Stage -eq 'FINAL_FRONTEND') { $ValidatedRevisionARuntimeImage } else { $null }
         revision_a_edge_lineage = if ($Stage -eq 'FINAL_FRONTEND') { 'validated' } else { 'not-applicable' }
