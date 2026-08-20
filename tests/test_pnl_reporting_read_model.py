@@ -189,6 +189,16 @@ def _report(through: int = 6, *, plan_overrides=None, actual_overrides=None):
     )
 
 
+def _revenue_overrides(monthly_values):
+    return {
+        (SHEET_MONTHLY_PNL, key, str(month)): (
+            monthly_values[month - 1] if key == "rev_product" else 0
+        )
+        for key in ("rev_product", "rev_semi", "rev_merch", "rev_other", "rev_rebate")
+        for month in range(1, 13)
+    }
+
+
 def _row(rows, key: str):
     return next(row for row in rows if row.key == key)
 
@@ -229,8 +239,10 @@ def test_display_formatting_matches_frozen_rules():
     assert format_number(-0.0) == "0"
     assert format_number(12_000) == "12,000"
     assert format_number(500, signed=True) == "+500"
-    assert format_rate(80.666) == "80.67%"
-    assert format_percentage_point(-1.874) == "-1.87%p"
+    assert format_rate(26.543) == "26.5%"
+    assert format_rate(6.84) == "6.8%"
+    assert format_rate(64) == "64.0%"
+    assert format_percentage_point(-1.874) == "-1.9%p"
 
 
 def test_reporting_state_gap_matrix_and_ready_pair():
@@ -318,6 +330,26 @@ def test_kpis_have_exact_order_latest_amount_ytd_definitions_and_tones():
     assert (adjusted.amount, adjusted.ytd_plan, adjusted.ytd_actual, adjusted.tone) == (45, 240, 270, "favorable")
 
 
+def test_progress_and_achievement_use_distinct_authoritative_denominators():
+    plan = _revenue_overrides([100] * 12)
+    actual = _revenue_overrides([100, 100, 100, 100, 50, 50, 100, 100, 100, 100, 100, 100])
+
+    june = _report(6, plan_overrides=plan, actual_overrides=actual).kpis[0]
+    assert (june.annual_plan, june.ytd_plan, june.ytd_actual) == (1200, 600, 500)
+    assert june.progress == pytest.approx(500 / 1200 * 100)
+    assert june.progress_text == "41.7%"
+    assert june.achievement == pytest.approx(500 / 600 * 100)
+    assert june.achievement_text == "83.3%"
+    assert june.progress != june.achievement
+
+    december = _report(12, plan_overrides=plan, actual_overrides=actual).kpis[0]
+    assert (december.annual_plan, december.ytd_plan, december.ytd_actual) == (1200, 1200, 1100)
+    assert december.progress == pytest.approx(1100 / 1200 * 100)
+    assert december.progress_text == "91.7%"
+    assert december.achievement == pytest.approx(1100 / 1200 * 100)
+    assert december.achievement_text == "91.7%"
+
+
 def test_kpi_zero_denominators_are_null_and_zero_delta_is_neutral():
     zero_plan_revenue = {
         (SHEET_MONTHLY_PNL, key, str(month)): 0
@@ -377,6 +409,16 @@ def test_trend_is_twelve_months_percentage_points_and_zero_is_available():
 
 def test_monthly_data_table_has_exact_eight_rows_and_future_dash_metadata():
     report = _report(6)
+    assert [row.key for row in report.monthly_data_rows] == [
+        "revenue_plan",
+        "revenue_actual",
+        "operating_plan",
+        "operating_actual",
+        "operating_margin",
+        "adjusted_plan",
+        "adjusted_actual",
+        "adjusted_margin",
+    ]
     assert [row.label for row in report.monthly_data_rows] == [
         "매출액 계획",
         "매출액 실적",
@@ -393,6 +435,10 @@ def test_monthly_data_table_has_exact_eight_rows_and_future_dash_metadata():
     assert report.monthly_data_rows[1].cells[6].value is None
     assert report.monthly_data_rows[1].cells[6].text == "—"
     assert report.monthly_data_rows[4].cells[0].text == "27.1%"
+    assert report.monthly_data_rows[6].cells[0].value == 45
+    assert report.monthly_data_rows[6].cells[6].text == "—"
+    assert report.monthly_data_rows[7].cells[0].value == pytest.approx(45 / 140 * 100)
+    assert report.monthly_data_rows[7].cells[0].text == "32.1%"
 
 
 def test_pnl_registry_order_comparisons_ytd_rate_rows_and_ranges():
@@ -417,6 +463,10 @@ def test_pnl_registry_order_comparisons_ytd_rate_rows_and_ranges():
     assert ratio.plan == pytest.approx(70 / 130 * 100)
     assert ratio.actual == pytest.approx(70 / 140 * 100)
     assert ratio.variance_rate == pytest.approx(ratio.actual - ratio.plan)
+    assert ratio.cells[0].value == pytest.approx(70 / 130 * 100)
+    assert ratio.cells[0].text == "53.8%"
+    assert ratio.cells[1].text == "50.0%"
+    assert ratio.cells[2].text == "-3.8%p"
     assert ratio.cells[2].text.endswith("%p") and ratio.cells[3].text.endswith("%p")
     with pytest.raises(ValueError):
         custom_range_key(7, 6)

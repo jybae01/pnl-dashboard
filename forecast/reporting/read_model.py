@@ -752,7 +752,7 @@ def _build_table_rows(
     *,
     product: bool = False,
     custom_cell_count: int = 4,
-    rate_decimals: int = 2,
+    rate_decimals: int = 1,
 ) -> tuple[TableRowReadModel, ...]:
     child_keys = {definition.parent_key for definition in definitions if isinstance(definition, RowDefinition) and definition.parent_key}
     result: list[TableRowReadModel] = []
@@ -884,7 +884,7 @@ def _value_cell(
     is_percentage_point: bool = False,
     signed: bool = False,
     emphasis: str = "normal",
-    rate_decimals: int = 2,
+    rate_decimals: int = 1,
 ) -> DisplayCell:
     if is_percentage_point:
         text = format_percentage_point(value, signed=signed, decimals=rate_decimals)

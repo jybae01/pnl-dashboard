@@ -23,6 +23,16 @@ function cell(text: string, tone: PnlDisplayCell['tone'] = 'neutral', emphasis: 
   return { value: null, text, tone, emphasis };
 }
 
+function reportingText(text: string): string {
+  const rate = text.match(/^([+-]?\d+(?:\.\d+)?)(%p?)$/);
+  return rate ? `${Number(rate[1]).toFixed(1)}${rate[2]}` : text;
+}
+
+function percentageText(text: string): string {
+  const value = Number(text.replaceAll(',', ''));
+  return Number.isFinite(value) ? `${value.toFixed(1)}%` : text;
+}
+
 function statementRow(
   key: string,
   label: string,
@@ -40,12 +50,12 @@ function statementRow(
     collapsible: options.collapsible,
     compareByPeriod: Object.fromEntries(PERIOD_KEYS.map((periodKey) => [
       periodKey,
-      values.slice(0, 8).map((value, index) => cell(value, [2, 3, 6, 7].includes(index) ? 'favorable' : 'neutral')),
+      values.slice(0, 8).map((value, index) => cell(reportingText(value), [2, 3, 6, 7].includes(index) ? 'favorable' : 'neutral')),
     ])),
-    actualOnly: [...ACTUAL_MONTH_VALUES, '1,173'].map((value) => cell(value)),
+    actualOnly: [...ACTUAL_MONTH_VALUES, '1,173'].map((value) => cell(unit === '%' ? percentageText(value) : value)),
     customByRange: Object.fromEntries(RANGE_KEYS.map((rangeKey) => [
       rangeKey,
-      values.slice(0, 4).map((value) => cell(value)),
+      values.slice(0, 4).map((value) => cell(reportingText(value))),
     ])),
   };
 }
@@ -172,23 +182,24 @@ const actualMonthlyRowTones = new Set<PnlMonthlyDataRow['tone']>([
 ]);
 const marginMonthlyRowTones = new Set<PnlMonthlyDataRow['tone']>(['operating-margin', 'adjusted-margin']);
 const monthlyDataRows: PnlMonthlyDataRow[] = [
-  ['매출액 계획', 'revenue-plan'],
-  ['매출액 실적', 'revenue-actual'],
-  ['영업이익 계획', 'operating-plan'],
-  ['영업이익 실적', 'operating-actual'],
-  ['영업이익률', 'operating-margin'],
-  ['조정 영업이익 계획', 'adjusted-plan'],
-  ['조정 영업이익 실적', 'adjusted-actual'],
-  ['조정 영업이익률', 'adjusted-margin'],
-].map(([label, tone], rowIndex) => {
+  ['revenue_plan', '매출액 계획', 'revenue-plan'],
+  ['revenue_actual', '매출액 실적', 'revenue-actual'],
+  ['operating_plan', '영업이익 계획', 'operating-plan'],
+  ['operating_actual', '영업이익 실적', 'operating-actual'],
+  ['operating_margin', '영업이익률', 'operating-margin'],
+  ['adjusted_plan', '조정 영업이익 계획', 'adjusted-plan'],
+  ['adjusted_actual', '조정 영업이익 실적', 'adjusted-actual'],
+  ['adjusted_margin', '조정 영업이익률', 'adjusted-margin'],
+].map(([key, label, tone], rowIndex) => {
   const rowTone = tone as PnlMonthlyDataRow['tone'];
   return {
-    key: `monthly_${rowIndex}`,
+    key,
     label,
     tone: rowTone,
     cells: Array.from({ length: 12 }, (_, monthIndex) => {
       if (actualMonthlyRowTones.has(rowTone) && monthIndex === 4) return cell(marginMonthlyRowTones.has(rowTone) ? '—' : '0');
-      return cell(`${100 + rowIndex * 10 + monthIndex}`);
+      const value = 100 + rowIndex * 10 + monthIndex;
+      return cell(marginMonthlyRowTones.has(rowTone) ? `${value.toFixed(1)}%` : String(value));
     }),
   };
 });

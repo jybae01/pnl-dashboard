@@ -36,7 +36,7 @@ def format_monetary(
 def format_rate(
     value: NullableNumber,
     *,
-    decimals: int = 2,
+    decimals: int = 1,
     signed: bool = False,
     null_text: str = NULL_TEXT,
 ) -> str:
@@ -48,7 +48,7 @@ def format_rate(
 def format_percentage_point(
     value: NullableNumber,
     *,
-    decimals: int = 2,
+    decimals: int = 1,
     signed: bool = True,
     null_text: str = NULL_TEXT,
 ) -> str:

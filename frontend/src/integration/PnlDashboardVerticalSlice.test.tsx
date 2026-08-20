@@ -74,6 +74,8 @@ describe('P&L Status exact visual skeleton port', () => {
     expect(kpis).toHaveLength(3);
     expect(kpis.map((node) => node.getAttribute('data-kpi-key'))).toEqual(['revenue', 'operating_profit', 'adjusted_operating_profit']);
     expect(kpis.map((node) => node.querySelector('.pnl-report__kpi-label')?.textContent)).toEqual(['매출액', '영업이익', '조정 영업이익']);
+    expect(kpis.every((node) => node.querySelector('.pnl-report__kpi-unit')?.textContent === '백만원')).toBe(true);
+    expect(kpis[0]).toHaveTextContent('진도율 61.8% | 계획 대비 달성률 104.5%');
 
     const trends = document.querySelector('.pnl-report__trends');
     expect(trends?.children).toHaveLength(2);
@@ -135,6 +137,14 @@ describe('P&L Status exact visual skeleton port', () => {
     expect([...profit.querySelectorAll('[data-tone]')].map((row) => row.getAttribute('data-tone'))).toEqual([
       'revenue-plan', 'revenue-actual', 'operating-plan', 'operating-actual', 'operating-margin', 'adjusted-plan', 'adjusted-actual', 'adjusted-margin',
     ]);
+    expect([...profit.querySelectorAll('[data-row-key]')].map((row) => row.getAttribute('data-row-key'))).toEqual([
+      'revenue_plan', 'revenue_actual', 'operating_plan', 'operating_actual', 'operating_margin', 'adjusted_plan', 'adjusted_actual', 'adjusted_margin',
+    ]);
+    expect([...profit.querySelectorAll('[data-row-key] td:first-child')].map((cell) => cell.textContent)).toEqual([
+      '매출액 계획', '매출액 실적', '영업이익 계획', '영업이익 실적', '영업이익률', '조정 영업이익 계획', '조정 영업이익 실적', '조정 영업이익률',
+    ]);
+    expect(profit.querySelector('tr[data-tone="operating-margin"] td:nth-child(2)')).toHaveTextContent('140.0%');
+    expect(profit.querySelector('tr[data-tone="adjusted-margin"] td:nth-child(2)')).toHaveTextContent('170.0%');
     const revenueActualCells = [...profit.querySelectorAll('tr[data-tone="revenue-actual"] td')].map((cell) => cell.textContent);
     expect(revenueActualCells[5]).toBe('0');
     expect(revenueActualCells.slice(7)).toEqual(['—', '—', '—', '—', '—', '—']);
@@ -200,6 +210,9 @@ describe('P&L Status exact visual skeleton port', () => {
     expect(pnl.querySelector('table')).toHaveAttribute('data-column-count', '10');
     expect(within(pnl).getByText('월 선택:')).toBeInTheDocument();
     expect(within(pnl).getByRole('button', { name: '6월(당월)' })).toBeInTheDocument();
+    expect([...pnl.querySelectorAll('tr[data-row-key="cogs_ratio"] td')].map((cell) => cell.textContent)).toEqual([
+      '매출원가율', '%', '80.7%', '78.8%', '-1.9%p', '-1.9%p', '80.6%', '79.7%', '-0.9%p', '-0.9%p',
+    ]);
     fireEvent.click(within(pnl).getByRole('button', { name: '실적만 보기' }));
     expect(pnl.querySelector('table')).toHaveAttribute('data-column-count', '9');
     expect(within(pnl).queryByText('월 선택:')).not.toBeInTheDocument();
@@ -207,7 +220,10 @@ describe('P&L Status exact visual skeleton port', () => {
     expect(pnl.querySelector('table')).toHaveAttribute('data-column-count', '6');
 
     fireEvent.click(screen.getAllByRole('tab')[1]);
-    expect(screen.getByTestId('cogs-table-shell').querySelector('table')).toHaveAttribute('data-column-count', '15');
+    const cogs = screen.getByTestId('cogs-table-shell');
+    expect(cogs.querySelector('table')).toHaveAttribute('data-column-count', '15');
+    expect(cogs.querySelector('.pnl-report__table-toolbar > .pnl-report__table-unit--toolbar')).toHaveTextContent('(단위: 백만원, %)');
+    expect(cogs.querySelector('.pnl-report__table-wrap > .pnl-report__table-unit')).not.toBeInTheDocument();
 
     fireEvent.click(screen.getAllByRole('tab')[2]);
     const sga = screen.getByTestId('sga-table-shell');
@@ -338,7 +354,7 @@ describe('P&L Status exact visual skeleton port', () => {
     expect(table?.querySelector('thead tr:first-child th:first-child')).toHaveStyle('width: 270px');
     expect([...table!.querySelectorAll<HTMLTableCellElement>('thead tr:first-child th')].map((cell) => cell.colSpan)).toEqual([1, 4, 4]);
     expect(admin?.querySelectorAll('td')).toHaveLength(9);
-    expect(cellTexts(admin!)).toEqual(['일반관리비 소계', '60', '55', '-5', '-8.33%', '360', '340', '-20', '-5.56%']);
+    expect(cellTexts(admin!)).toEqual(['일반관리비 소계', '60', '55', '-5', '-8.3%', '360', '340', '-20', '-5.6%']);
     expect(sga.querySelector('.pnl-report__table-unit')).toHaveTextContent('(단위: 백만원, %)');
 
     expect(within(sga).getByText('12월 당월 실적 비교')).toBeInTheDocument();
@@ -361,7 +377,7 @@ describe('P&L Status exact visual skeleton port', () => {
     expect(table).toHaveStyle('width: 760px');
     expect(table?.querySelector('thead th:first-child')).toHaveStyle('width: 284px');
     expect(table?.querySelectorAll('thead th')).toHaveLength(5);
-    expect(cellTexts(rowByKey('admin')!)).toEqual(['일반관리비 소계', '60', '55', '-5', '-8.33%']);
+    expect(cellTexts(rowByKey('admin')!)).toEqual(['일반관리비 소계', '60', '55', '-5', '-8.3%']);
   });
 
   it('preserves regular product units and omits inapplicable NEW_BUSINESS quantity metadata and rows', async () => {
@@ -377,6 +393,7 @@ describe('P&L Status exact visual skeleton port', () => {
       ['FS', 'm', 'LENGTH'],
       ['신사업', null, null],
     ]);
+    expect(product.querySelector('tr[data-row-key="SW_asp"] .pnl-report__unit-cell')).toHaveTextContent('원');
     fireEvent.click(within(selector).getByRole('button', { name: '신사업' }));
     expect(product.querySelector('.pnl-report__table-unit')).toHaveTextContent('(단위: 백만원, 원, %)');
     expect(product.querySelector('.pnl-report__table-unit')).not.toHaveTextContent(/PCS|null|undefined|N\/A/);
@@ -527,6 +544,7 @@ describe('P&L Status exact visual skeleton port', () => {
     expect(css).toContain('gap: 16px');
     expect(css).toContain('min-height: 118px');
     expect(css).toContain('padding: 16px 20px');
+    expect(css).toMatch(/\.pnl-report__trends\s*\{[^}]*gap: 16px/s);
     expect(css).toContain('gap: 14px');
     expect(css).toContain('padding: 14px 18px');
     expect(css).toContain('padding: 18px 20px 36px');
@@ -539,6 +557,10 @@ describe('P&L Status exact visual skeleton port', () => {
     expect(css).toMatch(/pnl-report__filter-item \{ gap: 7px; \}/);
     expect(css).toMatch(/pnl-report__filter-label \{[^}]*font-size: 13px/);
     expect(css).toMatch(/pnl-report__financial-table th \{ position: sticky; top: 0; z-index: 10;/);
+    const cogsShareRule = css.match(/pnl-report__financial-table\[data-table-kind="cogs"\] tbody td:nth-child\(2n\+3\) \{([^}]*)\}/)?.[1] ?? '';
+    expect(cogsShareRule).toContain('color: #475569');
+    expect(cogsShareRule).not.toContain('font-size');
+    expect(css).toMatch(/pnl-report__table-unit--toolbar \{[^}]*margin: 0 0 0 auto;[^}]*white-space: normal;/);
     expect(css).not.toMatch(/pnl-report__trends[^}]*grid-template-columns/s);
   });
 });

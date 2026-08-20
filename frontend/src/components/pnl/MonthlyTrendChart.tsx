@@ -123,7 +123,7 @@ export function MonthlyTrendChart({ data, dataRows }: MonthlyTrendChartProps) {
       {profitMode === 'DATA_TABLE' ? <div className="pnl-report__chart-scroll">
         <table className="pnl-report__financial-table pnl-report__monthly-table" data-column-count={data.length + 1}>
           <thead><tr><th>손익 지표</th>{data.map((slot) => <th key={slot.periodKey}>{slot.label}</th>)}</tr></thead>
-          <tbody>{dataRows.map((row) => <tr key={row.key} data-tone={row.tone}><td>{row.label}</td>{data.map((slot, index) => <td className="pnl-report__tabular" key={slot.periodKey}>{row.cells[index]?.text ?? '—'}</td>)}</tr>)}</tbody>
+          <tbody>{dataRows.map((row) => <tr key={row.key} data-row-key={row.key} data-tone={row.tone}><td>{row.label}</td>{data.map((slot, index) => <td className="pnl-report__tabular" key={slot.periodKey}>{row.cells[index]?.text ?? '—'}</td>)}</tr>)}</tbody>
         </table>
       </div> : <div className="pnl-report__chart-scroll">
         <svg className="pnl-report__trend-svg" viewBox="0 0 920 275" role="img" aria-label="월별 영업이익 계획 실적 막대와 실적 이익률 복합 차트">
