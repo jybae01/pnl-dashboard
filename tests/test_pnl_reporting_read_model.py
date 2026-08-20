@@ -32,6 +32,7 @@ from forecast.reporting.formulas import (
     variance_rate,
 )
 from forecast.reporting.formatting import (
+    format_monetary,
     format_number,
     format_percentage_point,
     format_rate,
@@ -214,12 +215,15 @@ def test_formula_register_and_hard_null_zero_contract():
     assert ratio_percent(None, 10) is None
     assert variance_rate(0, 10) == -100
     assert variance_rate(10, 0) is None
-    assert asp(1, 2) == 500_000
+    assert asp(100_000_000, 400) == 250_000
     assert asp(1, 0) is None
     assert asp(None, 10) is None
 
 
 def test_display_formatting_matches_frozen_rules():
+    assert format_monetary(1_000_000) == "1"
+    assert format_monetary(100_000_000) == "100"
+    assert format_monetary(0) == "0"
     assert format_number(None) == "—"
     assert format_number(0) == "0"
     assert format_number(-0.0) == "0"
@@ -303,7 +307,7 @@ def test_kpis_have_exact_order_latest_amount_ytd_definitions_and_tones():
     ]
     assert [kpi.key for kpi in report.kpis] == ["revenue", "operating_profit", "adjusted_operating_profit"]
     revenue, op, adjusted = report.kpis
-    assert (revenue.amount, revenue.amount_text) == (140, "140")
+    assert (revenue.amount, revenue.amount_text) == (140, "0")
     assert (revenue.annual_plan, revenue.ytd_plan, revenue.ytd_actual) == (1560, 780, 840)
     assert revenue.progress == pytest.approx(840 / 1560 * 100)
     assert revenue.achievement == pytest.approx(840 / 780 * 100)
@@ -385,7 +389,7 @@ def test_monthly_data_table_has_exact_eight_rows_and_future_dash_metadata():
     ]
     assert all(len(row.cells) == 12 for row in report.monthly_data_rows)
     assert report.monthly_data_rows[0].cells[11].value == 130
-    assert report.monthly_data_rows[1].cells[5].text == "140"
+    assert report.monthly_data_rows[1].cells[5].text == "0"
     assert report.monthly_data_rows[1].cells[6].value is None
     assert report.monthly_data_rows[1].cells[6].text == "—"
     assert report.monthly_data_rows[4].cells[0].text == "27.1%"
@@ -525,9 +529,9 @@ def test_product_groups_have_exact_rows_units_and_no_fake_new_business_quantity(
 def test_product_asp_and_zero_volume_contract():
     report = _report(6)
     sw_asp = _row(_segment(report, "SW").rows, "asp")
-    assert sw_asp.comparison_by_period["2026-01"].plan == 100_000
-    assert sw_asp.comparison_by_period["2026-01"].actual == 110_000
-    assert sw_asp.ytd.actual == 110_000
+    assert sw_asp.comparison_by_period["2026-01"].plan == pytest.approx(0.1)
+    assert sw_asp.comparison_by_period["2026-01"].actual == pytest.approx(0.11)
+    assert sw_asp.ytd.actual == pytest.approx(0.11)
     sw_ratio = _row(_segment(report, "SW").rows, "cogs_ratio")
     assert sw_ratio.comparison_by_period["2026-01"].cells[1].text == "54.5%"
 
@@ -536,6 +540,56 @@ def test_product_asp_and_zero_volume_contract():
     sw_asp = _row(_segment(report, "SW").rows, "asp")
     assert sw_asp.comparison_by_period["2026-01"].actual is None
     assert sw_asp.comparison_by_period["2026-01"].cells[1].text == "—"
+
+
+def test_raw_won_presentation_scales_only_monetary_values():
+    actual_overrides = {
+        (SHEET_MONTHLY_PNL, key, "1"): 0
+        for key in PLAN_PNL
+    }
+    actual_overrides.update({
+        (SHEET_MONTHLY_PNL, "rev_product", "1"): 100_000_000,
+        **{(SHEET_MANUFACTURING_COGS, key, "1"): 0 for key in ACTUAL_COGS},
+        (SHEET_MANUFACTURING_COGS, "mfg_material", "1"): 1_000_000,
+        **{(SHEET_SGA, key, "1"): 0 for key in SGA_VALUES},
+        (SHEET_SGA, "admin_labor", "1"): 1_000_000,
+        (SHEET_PRODUCT_PNL, "SW", "revenue", "1"): 100_000_000,
+        (SHEET_PRODUCT_PNL, "SW", "volume", "1"): 400,
+        (SHEET_PRODUCT_PNL, "SW", "cogs", "1"): 40_000_000,
+        (SHEET_PRODUCT_PNL, "SW", "sga", "1"): 10_000_000,
+        (SHEET_PRODUCT_PNL, "FS", "volume", "1"): 1_234,
+    })
+    report = _report(1, actual_overrides=actual_overrides)
+
+    revenue = _row(report.pnl_rows, "revenue").comparison_by_period["2026-01"]
+    assert revenue.actual == 100_000_000
+    assert revenue.cells[1].text == "100"
+    assert report.kpis[0].amount == 100_000_000
+    assert report.kpis[0].amount_text == "100"
+    assert report.monthly_trends[0].actual_revenue == 100_000_000
+    assert report.monthly_trends[0].actual_revenue_text == "100"
+    assert _row(report.monthly_data_rows, "revenue_actual").cells[0].text == "100"
+
+    material = _row(report.cogs_rows, "mfg_material")
+    assert material.months[0].amount == 1_000_000
+    assert material.months[0].amount_text == "1"
+    admin_labor = _row(report.sga_rows, "admin_labor").comparison_by_period["2026-01"]
+    assert admin_labor.actual == 1_000_000
+    assert admin_labor.cells[1].text == "1"
+
+    sw_rows = _segment(report, "SW").rows
+    sw_revenue = _row(sw_rows, "revenue").comparison_by_period["2026-01"]
+    sw_volume = _row(sw_rows, "volume").comparison_by_period["2026-01"]
+    sw_asp = _row(sw_rows, "asp").comparison_by_period["2026-01"]
+    sw_cogs_ratio = _row(sw_rows, "cogs_ratio").comparison_by_period["2026-01"]
+    assert (sw_revenue.actual, sw_revenue.cells[1].text) == (100_000_000, "100")
+    assert (sw_volume.actual, sw_volume.cells[1].text) == (400, "400")
+    assert (sw_asp.actual, sw_asp.cells[1].text) == (250_000, "250,000")
+    assert sw_cogs_ratio.cells[1].text == "40.0%"
+
+    fs_volume = _row(_segment(report, "FS").rows, "volume").comparison_by_period["2026-01"]
+    assert (fs_volume.actual, fs_volume.cells[1].text) == (1_234, "1,234")
+    assert _row(report.pnl_rows, "sales_volume").comparison_by_period["2026-01"].actual is None
 
 
 def test_production_read_model_layer_has_no_forbidden_dependencies():

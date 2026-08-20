@@ -137,7 +137,7 @@ def operating_profit(gross_profit_value: NullableNumber, sga: NullableNumber) ->
     return gross_profit_value - sga
 
 
-def asp(revenue_millions: NullableNumber, volume: NullableNumber) -> float | None:
-    if revenue_millions is None or volume is None or volume == 0:
+def asp(revenue: NullableNumber, volume: NullableNumber) -> float | None:
+    if revenue is None or volume is None or volume == 0:
         return None
-    return revenue_millions * 1_000_000 / volume
+    return revenue / volume

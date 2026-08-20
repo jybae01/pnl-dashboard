@@ -86,6 +86,8 @@ describe('P&L Status exact visual skeleton port', () => {
     expect(profitChart).toHaveAttribute('viewBox', '0 0 920 275');
     expect([...revenueChart.querySelectorAll('[data-axis-label="month"]')].map((node) => node.textContent)).toEqual(months);
     expect([...profitChart.querySelectorAll('[data-axis-label="month"]')].map((node) => node.textContent)).toEqual(months);
+    expect([...revenueChart.querySelectorAll('[data-axis-label="amount"]')].map((node) => node.textContent)).toEqual(['0', '5,000', '11,000', '16,000']);
+    expect([...profitChart.querySelectorAll('[data-axis-label="amount"]')].map((node) => node.textContent)).toEqual(['0', '500', '1,000', '1,600']);
   });
 
   it('renders annual PLAN, available ACTUAL only, fixed grouped slots, and a margin line ending at June', async () => {
@@ -230,6 +232,13 @@ describe('P&L Status exact visual skeleton port', () => {
     const rendered = await renderReady(undefined, report);
 
     const pnl = screen.getByTestId('pnl-table-shell');
+    expect(within(pnl).getByText(`${actualThroughMonth}월 당월 실적 비교`)).toBeInTheDocument();
+    expect(within(pnl).getByRole('button', { name: `${actualThroughMonth}월(당월)` })).toBeInTheDocument();
+    if (actualThroughMonth === 12) {
+      fireEvent.click(within(pnl).getByRole('button', { name: '6월' }));
+      expect(within(pnl).getByText('6월 실적 비교')).toBeInTheDocument();
+      expect(within(pnl).queryByText('6월 당월 실적 비교')).not.toBeInTheDocument();
+    }
     fireEvent.click(within(pnl).getByRole('button', { name: '실적만 보기' }));
     expect(pnl.querySelector('table')).toHaveAttribute('data-column-count', String(actualThroughMonth + 3));
     expect(pnl.querySelector('tr[data-row-key="revenue"]')?.querySelectorAll('td')).toHaveLength(actualThroughMonth + 3);
@@ -244,18 +253,34 @@ describe('P&L Status exact visual skeleton port', () => {
     const cogs = screen.getByTestId('cogs-table-shell');
     expect(cogs.querySelector('table')).toHaveAttribute('data-column-count', String(actualThroughMonth * 2 + 3));
     expect(cogs.querySelector('tr[data-row-key="mfg_material"]')?.querySelectorAll('td')).toHaveLength(actualThroughMonth * 2 + 3);
+    expect(within(cogs).getByText(`${actualThroughMonth}월`)).toBeInTheDocument();
+    if (actualThroughMonth < 12) expect(within(cogs).queryByText(`${actualThroughMonth + 1}월`)).not.toBeInTheDocument();
     if (actualThroughMonth === 12) {
       for (const month of ['7월', '8월', '9월', '10월', '11월', '12월']) expect(within(cogs).getByText(month)).toBeInTheDocument();
     }
 
     fireEvent.click(screen.getAllByRole('tab')[2]);
     const sga = screen.getByTestId('sga-table-shell');
+    expect(within(sga).getByText(`${actualThroughMonth}월 당월 실적 비교`)).toBeInTheDocument();
+    expect(within(sga).getByRole('button', { name: `${actualThroughMonth}월(당월)` })).toBeInTheDocument();
+    if (actualThroughMonth === 12) {
+      fireEvent.click(within(sga).getByRole('button', { name: '6월' }));
+      expect(within(sga).getByText('6월 실적 비교')).toBeInTheDocument();
+      expect(within(sga).queryByText('6월 당월 실적 비교')).not.toBeInTheDocument();
+    }
     fireEvent.click(within(sga).getByRole('button', { name: '실적만 보기' }));
     expect(sga.querySelector('table')).toHaveAttribute('data-column-count', String(actualThroughMonth + 3));
     expect(sga.querySelector('tr[data-row-key="admin"]')?.querySelectorAll('td')).toHaveLength(actualThroughMonth + 3);
 
     fireEvent.click(screen.getAllByRole('tab')[3]);
     const product = screen.getByTestId('product-table-shell');
+    expect(within(product).getByText(`${actualThroughMonth}월 당월 실적 비교`)).toBeInTheDocument();
+    expect(within(product).getByRole('button', { name: `${actualThroughMonth}월(당월)` })).toBeInTheDocument();
+    if (actualThroughMonth === 12) {
+      fireEvent.click(within(product).getByRole('button', { name: '6월' }));
+      expect(within(product).getByText('6월 실적 비교')).toBeInTheDocument();
+      expect(within(product).queryByText('6월 당월 실적 비교')).not.toBeInTheDocument();
+    }
     fireEvent.click(within(product).getByRole('button', { name: '실적만 보기' }));
     expect(product.querySelector('table')).toHaveAttribute('data-column-count', String(actualThroughMonth + 3));
     expect(product.querySelector('tr[data-row-key="SW_revenue"]')?.querySelectorAll('td')).toHaveLength(actualThroughMonth + 3);

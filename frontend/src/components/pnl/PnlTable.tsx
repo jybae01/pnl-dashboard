@@ -17,6 +17,7 @@ export function PnlTable({ rows, periods, actualPeriodKeys, initialPeriodKey, de
   const [rangeKey, setRangeKey] = useState(defaultCustomRangeKey);
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
   const selectedLabel = periods.find((period) => period.key === periodKey)?.label ?? periodKey;
+  const isLatestActualPeriod = periodKey === initialPeriodKey;
   const visibleRows = rows.filter((row) => !row.parentKey || !collapsed[row.parentKey]);
   const actualOnlyWidth = Math.max(860, 359 + actualPeriodKeys.length * 82);
   const tableWidth = mode === 'PLAN_ACTUAL_COMPARE' ? '1150px' : mode === 'ACTUAL_ONLY' ? `${actualOnlyWidth}px` : '760px';
@@ -32,8 +33,8 @@ export function PnlTable({ rows, periods, actualPeriodKeys, initialPeriodKey, de
       <table className="pnl-report__financial-table" style={{ width: tableWidth }} data-table-kind="pnl" data-mode={mode} data-column-count={columnCount}>
         <thead>
           {mode === 'PLAN_ACTUAL_COMPARE' && <>
-            <tr><th rowSpan={2} style={{ width: 220 }}>계정과목</th><th rowSpan={2} style={{ width: 50 }}>단위</th><th colSpan={4} style={{ width: 440 }}>{selectedLabel === '6월' ? '당월 실적 비교 (6월)' : `${selectedLabel} 실적 비교`}</th><th colSpan={4} className="pnl-report__cumulative" style={{ width: 440 }}>누계 실적 비교 (1월 ~ {selectedLabel})</th></tr>
-            <tr><th style={{ width: 110 }}>{selectedLabel === '6월' ? '당월 계획' : `${selectedLabel} 계획`}</th><th style={{ width: 110 }}>{selectedLabel === '6월' ? '당월 실적' : `${selectedLabel} 실적`}</th><th style={{ width: 105 }}>차이</th><th style={{ width: 115 }}>증감률</th><th className="pnl-report__cumulative" style={{ width: 110 }}>누계 계획</th><th className="pnl-report__cumulative" style={{ width: 110 }}>누계 실적</th><th className="pnl-report__cumulative" style={{ width: 105 }}>누계 차이</th><th className="pnl-report__cumulative" style={{ width: 115 }}>증감률</th></tr>
+            <tr><th rowSpan={2} style={{ width: 220 }}>계정과목</th><th rowSpan={2} style={{ width: 50 }}>단위</th><th colSpan={4} style={{ width: 440 }}>{`${selectedLabel}${isLatestActualPeriod ? ' 당월' : ''} 실적 비교`}</th><th colSpan={4} className="pnl-report__cumulative" style={{ width: 440 }}>누계 실적 비교 (1월 ~ {selectedLabel})</th></tr>
+            <tr><th style={{ width: 110 }}>{isLatestActualPeriod ? '당월 계획' : `${selectedLabel} 계획`}</th><th style={{ width: 110 }}>{isLatestActualPeriod ? '당월 실적' : `${selectedLabel} 실적`}</th><th style={{ width: 105 }}>차이</th><th style={{ width: 115 }}>증감률</th><th className="pnl-report__cumulative" style={{ width: 110 }}>누계 계획</th><th className="pnl-report__cumulative" style={{ width: 110 }}>누계 실적</th><th className="pnl-report__cumulative" style={{ width: 105 }}>누계 차이</th><th className="pnl-report__cumulative" style={{ width: 115 }}>증감률</th></tr>
           </>}
           {mode === 'ACTUAL_ONLY' && <tr><th style={{ width: 210 }}>계정과목</th><th style={{ width: 54 }}>단위</th>{actualPeriodKeys.map((key) => <th key={key} style={{ width: 82 }}>{periods.find((period) => period.key === key)?.label ?? key}</th>)}<th className="pnl-report__cumulative" style={{ width: 95 }}>누계 실적</th></tr>}
           {mode === 'CUSTOM_PERIOD_COMPARE' && <tr><th style={{ width: 230 }}>계정과목</th><th style={{ width: 54 }}>단위</th><th style={{ width: 125 }}>기간 계획 누계</th><th style={{ width: 125 }}>기간 실적 누계</th><th style={{ width: 110 }}>누계 차이</th><th style={{ width: 116 }}>누계 증감률</th></tr>}

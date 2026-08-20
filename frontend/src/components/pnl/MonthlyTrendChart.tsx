@@ -15,6 +15,7 @@ const RIGHT = 40;
 const BAR_WIDTH = 18;
 const BAR_GAP = 4;
 const GROUP_WIDTH = BAR_WIDTH * 2 + BAR_GAP;
+const WON_PER_MILLION = 1_000_000;
 
 function hasGeometryValue(value: number | null | undefined): value is number {
   return typeof value === 'number' && Number.isFinite(value);
@@ -33,10 +34,10 @@ function barGeometry(value: number, maximum: number, tierBottom: number, tierHei
 export function MonthlyTrendChart({ data, dataRows }: MonthlyTrendChartProps) {
   const [profitMode, setProfitMode] = useState<ProfitMode>('OP_PROFIT');
   const columnWidth = (SVG_WIDTH - LEFT - RIGHT) / Math.max(data.length, 1);
-  const revenueMaximum = Math.max(maxGeometryValue(data.flatMap((slot) => [slot.planRevenue, slot.actualRevenue])), 12500) * 1.22;
+  const revenueMaximum = Math.max(maxGeometryValue(data.flatMap((slot) => [slot.planRevenue, slot.actualRevenue])), 12500 * WON_PER_MILLION) * 1.22;
   const profitMaximum = Math.max(maxGeometryValue(data.flatMap((slot) => profitMode === 'ADJ_OP_PROFIT'
     ? [slot.planAdjustedOperatingProfit, slot.actualAdjustedOperatingProfit]
-    : [slot.planOperatingProfit, slot.actualOperatingProfit])), profitMode === 'ADJ_OP_PROFIT' ? 1430 : 1250) * 1.25;
+    : [slot.planOperatingProfit, slot.actualOperatingProfit])), (profitMode === 'ADJ_OP_PROFIT' ? 1430 : 1250) * WON_PER_MILLION) * 1.25;
 
   const revenueTop = 24;
   const revenueHeight = 135;
@@ -78,8 +79,8 @@ export function MonthlyTrendChart({ data, dataRows }: MonthlyTrendChartProps) {
           </defs>
           {[0, .33, .66, 1].map((ratio) => {
             const y = revenueTop + revenueHeight * (1 - ratio);
-            const label = Math.round((revenueMaximum * ratio) / 1000) * 1000;
-            return <g key={ratio}><line x1={LEFT} y1={y} x2={SVG_WIDTH - RIGHT} y2={y} stroke="#f1f5f9" strokeWidth="1" /><text x={LEFT - 8} y={y + 3.5} textAnchor="end" fontSize="11" fill="#94a3b8">{label.toLocaleString()}</text></g>;
+            const label = Math.round((revenueMaximum * ratio) / WON_PER_MILLION / 1000) * 1000;
+            return <g key={ratio}><line x1={LEFT} y1={y} x2={SVG_WIDTH - RIGHT} y2={y} stroke="#f1f5f9" strokeWidth="1" /><text data-axis-label="amount" x={LEFT - 8} y={y + 3.5} textAnchor="end" fontSize="11" fill="#94a3b8">{label.toLocaleString()}</text></g>;
           })}
           <line x1={LEFT} y1={revenueBottom} x2={SVG_WIDTH - RIGHT} y2={revenueBottom} stroke="#cbd5e1" strokeWidth="1" />
           {data.map((slot, index) => {
@@ -138,8 +139,8 @@ export function MonthlyTrendChart({ data, dataRows }: MonthlyTrendChartProps) {
           </g>)}
           {[0, .33, .66, 1].map((ratio) => {
             const y = profitTop + profitHeight * (1 - ratio);
-            const label = Math.round((profitMaximum * ratio) / 100) * 100;
-            return <g key={ratio}><line x1={LEFT} y1={y} x2={SVG_WIDTH - RIGHT} y2={y} stroke="#f1f5f9" strokeWidth="1" /><text x={LEFT - 8} y={y + 3.5} textAnchor="end" fontSize="11" fill="#94a3b8">{label.toLocaleString()}</text></g>;
+            const label = Math.round((profitMaximum * ratio) / WON_PER_MILLION / 100) * 100;
+            return <g key={ratio}><line x1={LEFT} y1={y} x2={SVG_WIDTH - RIGHT} y2={y} stroke="#f1f5f9" strokeWidth="1" /><text data-axis-label="amount" x={LEFT - 8} y={y + 3.5} textAnchor="end" fontSize="11" fill="#94a3b8">{label.toLocaleString()}</text></g>;
           })}
           <line x1={LEFT} y1={profitBottom} x2={SVG_WIDTH - RIGHT} y2={profitBottom} stroke="#cbd5e1" strokeWidth="1" />
           {data.map((slot, index) => {

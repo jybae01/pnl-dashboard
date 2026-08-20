@@ -12,6 +12,7 @@ import type {
 } from '../types/pnlReporting';
 
 const RANGE = '1월:6월';
+const WON_PER_MILLION = 1_000_000;
 const PERIOD_KEYS = Array.from({ length: 12 }, (_, index) => `2026-${String(index + 1).padStart(2, '0')}`);
 const RANGE_KEYS = Array.from({ length: 12 }, (_, startIndex) => (
   Array.from({ length: 12 - startIndex }, (_, offset) => `${startIndex + 1}월:${startIndex + offset + 1}월`)
@@ -131,30 +132,33 @@ const monthlyTrends: PnlMonthlyTrendSlot[] = Array.from({ length: 12 }, (_, inde
   const month = index + 1;
   const actualAvailable = true;
   const zeroActual = month === 5;
-  const actualRevenue = zeroActual ? 0 : 10950 + index * 310;
-  const actualOperatingProfit = zeroActual ? 0 : 810 + index * 88;
+  const actualRevenueMillions = zeroActual ? 0 : 10950 + index * 310;
+  const actualRevenue = actualRevenueMillions * WON_PER_MILLION;
+  const actualOperatingProfitMillions = zeroActual ? 0 : 810 + index * 88;
+  const actualOperatingProfit = actualOperatingProfitMillions * WON_PER_MILLION;
   const actualOperatingMargin = zeroActual ? null : 7.4 + index * .52;
-  const actualAdjustedOperatingProfit = zeroActual ? 0 : 940 + index * 86;
+  const actualAdjustedOperatingProfitMillions = zeroActual ? 0 : 940 + index * 86;
+  const actualAdjustedOperatingProfit = actualAdjustedOperatingProfitMillions * WON_PER_MILLION;
   const actualAdjustedOperatingMargin = zeroActual ? null : 8.6 + index * .48;
   return {
     periodKey: `2026-${String(month).padStart(2, '0')}`,
     label: `${month}월`,
     actualAvailable,
-    planRevenue: 10800 + index * 240,
+    planRevenue: (10800 + index * 240) * WON_PER_MILLION,
     actualRevenue,
     planRevenueText: String(10800 + index * 240),
-    actualRevenueText: actualRevenue === null ? null : String(actualRevenue),
-    planOperatingProfit: 780 + index * 30,
+    actualRevenueText: String(actualRevenueMillions),
+    planOperatingProfit: (780 + index * 30) * WON_PER_MILLION,
     actualOperatingProfit,
     actualOperatingMargin,
     planOperatingProfitText: String(780 + index * 30),
-    actualOperatingProfitText: actualOperatingProfit === null ? null : String(actualOperatingProfit),
+    actualOperatingProfitText: String(actualOperatingProfitMillions),
     actualOperatingMarginText: actualOperatingMargin === null ? null : `${actualOperatingMargin.toFixed(1)}%`,
-    planAdjustedOperatingProfit: 890 + index * 42,
+    planAdjustedOperatingProfit: (890 + index * 42) * WON_PER_MILLION,
     actualAdjustedOperatingProfit,
     actualAdjustedOperatingMargin,
     planAdjustedOperatingProfitText: String(890 + index * 42),
-    actualAdjustedOperatingProfitText: actualAdjustedOperatingProfit === null ? null : String(actualAdjustedOperatingProfit),
+    actualAdjustedOperatingProfitText: String(actualAdjustedOperatingProfitMillions),
     actualAdjustedOperatingMarginText: actualAdjustedOperatingMargin === null ? null : `${actualAdjustedOperatingMargin.toFixed(1)}%`,
   };
 });
@@ -200,9 +204,9 @@ const fullYearFixture: PnlReportingReadModel = {
   actualPeriodKeys: Array.from({ length: 12 }, (_, index) => `2026-${String(index + 1).padStart(2, '0')}`),
   defaultCustomRangeKey: RANGE,
   kpis: [
-    { key: 'revenue', label: '매출액', amount: 7420, amountText: '7,420', unitText: '백만원', annualPlan: 12000, ytdPlan: 7100, ytdActual: 7420, progress: 61.8, progressText: '61.8%', achievement: 104.5, achievementText: '104.5%', tone: 'favorable' },
-    { key: 'operating_profit', label: '영업이익', amount: 1090, amountText: '1,090', unitText: '백만원', annualPlan: 1873, ytdPlan: 900, ytdActual: 1090, progress: 58.2, progressText: '58.2%', achievement: 121.1, achievementText: '121.1%', tone: 'favorable' },
-    { key: 'adjusted_operating_profit', label: '조정 영업이익', amount: 1140, amountText: '1,140', unitText: '백만원', annualPlan: 1887, ytdPlan: 960, ytdActual: 1140, progress: 60.4, progressText: '60.4%', achievement: 118.7, achievementText: '118.7%', tone: 'favorable' },
+    { key: 'revenue', label: '매출액', amount: 7420 * WON_PER_MILLION, amountText: '7,420', unitText: '백만원', annualPlan: 12000 * WON_PER_MILLION, ytdPlan: 7100 * WON_PER_MILLION, ytdActual: 7420 * WON_PER_MILLION, progress: 61.8, progressText: '61.8%', achievement: 104.5, achievementText: '104.5%', tone: 'favorable' },
+    { key: 'operating_profit', label: '영업이익', amount: 1090 * WON_PER_MILLION, amountText: '1,090', unitText: '백만원', annualPlan: 1873 * WON_PER_MILLION, ytdPlan: 900 * WON_PER_MILLION, ytdActual: 1090 * WON_PER_MILLION, progress: 58.2, progressText: '58.2%', achievement: 121.1, achievementText: '121.1%', tone: 'favorable' },
+    { key: 'adjusted_operating_profit', label: '조정 영업이익', amount: 1140 * WON_PER_MILLION, amountText: '1,140', unitText: '백만원', annualPlan: 1887 * WON_PER_MILLION, ytdPlan: 960 * WON_PER_MILLION, ytdActual: 1140 * WON_PER_MILLION, progress: 60.4, progressText: '60.4%', achievement: 118.7, achievementText: '118.7%', tone: 'favorable' },
   ],
   monthlyTrends,
   monthlyDataRows,

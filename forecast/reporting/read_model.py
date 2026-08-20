@@ -8,10 +8,11 @@ from typing import Callable, Mapping, Sequence, TypeAlias
 
 from .formatting import (
     NULL_TEXT,
+    format_monetary,
     format_number,
     format_percentage_point,
     format_rate,
-    optional_number_text,
+    optional_monetary_text,
     optional_rate_text,
 )
 from .formulas import (
@@ -759,6 +760,7 @@ def _build_table_rows(
         plan_series = plan_rows[definition.key]
         actual_series = actual_rows[definition.key]
         is_rate = definition.unit == "%"
+        is_monetary = definition.unit == "백만원"
 
         def aggregate_value(rows: Mapping[str, Series], series: Series, start: int, end: int) -> NullableNumber:
             if product:
@@ -771,6 +773,7 @@ def _build_table_rows(
             aggregate_value(plan_rows, plan_series, 1, through),
             aggregate_value(actual_rows, actual_series, 1, through),
             is_rate=is_rate,
+            is_monetary=is_monetary,
             emphasis="strong" if definition.kind in {"header", "total"} else "normal",
             rate_decimals=rate_decimals,
         )
@@ -781,6 +784,7 @@ def _build_table_rows(
                 plan_series[month - 1],
                 actual_series[month - 1] if month <= through else None,
                 is_rate=is_rate,
+                is_monetary=is_monetary,
                 emphasis="strong" if definition.kind in {"header", "total"} else "normal",
                 rate_decimals=rate_decimals,
             )
@@ -795,6 +799,7 @@ def _build_table_rows(
             _value_cell(
                 value,
                 is_rate=is_rate,
+                is_monetary=is_monetary,
                 emphasis="strong" if definition.kind in {"header", "total"} else "normal",
                 rate_decimals=rate_decimals,
             )
@@ -814,6 +819,7 @@ def _build_table_rows(
                     plan_value,
                     actual_value,
                     is_rate=is_rate,
+                    is_monetary=is_monetary,
                     emphasis="strong" if definition.kind in {"header", "total"} else "normal",
                     rate_decimals=rate_decimals,
                 )
@@ -847,6 +853,7 @@ def _comparison(
     actual: NullableNumber,
     *,
     is_rate: bool,
+    is_monetary: bool,
     emphasis: str,
     rate_decimals: int,
 ) -> ComparisonReadModel:
@@ -861,9 +868,9 @@ def _comparison(
         )
     else:
         cells = (
-            _value_cell(plan, emphasis=emphasis),
-            _value_cell(actual, emphasis=emphasis),
-            _value_cell(delta, signed=True, emphasis=emphasis),
+            _value_cell(plan, is_monetary=is_monetary, emphasis=emphasis),
+            _value_cell(actual, is_monetary=is_monetary, emphasis=emphasis),
+            _value_cell(delta, is_monetary=is_monetary, signed=True, emphasis=emphasis),
             _value_cell(rate, is_rate=True, signed=True, emphasis=emphasis, rate_decimals=rate_decimals),
         )
     return ComparisonReadModel(plan, actual, delta, rate, is_rate, cells)
@@ -873,6 +880,7 @@ def _value_cell(
     value: NullableNumber,
     *,
     is_rate: bool = False,
+    is_monetary: bool = False,
     is_percentage_point: bool = False,
     signed: bool = False,
     emphasis: str = "normal",
@@ -882,6 +890,8 @@ def _value_cell(
         text = format_percentage_point(value, signed=signed, decimals=rate_decimals)
     elif is_rate:
         text = format_rate(value, signed=signed, decimals=rate_decimals)
+    elif is_monetary:
+        text = format_monetary(value, signed=signed)
     else:
         text = format_number(value, signed=signed)
     return DisplayCell(value=value, text=text, emphasis=emphasis)
@@ -908,7 +918,7 @@ def _build_kpis(
                 key=key,
                 label=definition.label,
                 amount=amount,
-                amount_text=optional_number_text(amount),
+                amount_text=optional_monetary_text(amount),
                 unit_text="백만원",
                 annual_plan=annual_plan,
                 ytd_plan=ytd_plan,
@@ -953,19 +963,19 @@ def _build_trends(
                 actual_revenue_available=available,
                 plan_revenue=plan["revenue"][index],
                 actual_revenue=actual_revenue,
-                plan_revenue_text=optional_number_text(plan["revenue"][index]),
-                actual_revenue_text=optional_number_text(actual_revenue),
+                plan_revenue_text=optional_monetary_text(plan["revenue"][index]),
+                actual_revenue_text=optional_monetary_text(actual_revenue),
                 plan_operating_profit=plan["operating_profit"][index],
                 actual_operating_profit=actual_op,
                 actual_operating_margin=actual_op_margin,
-                plan_operating_profit_text=optional_number_text(plan["operating_profit"][index]),
-                actual_operating_profit_text=optional_number_text(actual_op),
+                plan_operating_profit_text=optional_monetary_text(plan["operating_profit"][index]),
+                actual_operating_profit_text=optional_monetary_text(actual_op),
                 actual_operating_margin_text=optional_rate_text(actual_op_margin),
                 plan_adjusted_operating_profit=plan["adjusted_operating_profit"][index],
                 actual_adjusted_operating_profit=actual_adjusted,
                 actual_adjusted_operating_margin=actual_adjusted_margin,
-                plan_adjusted_operating_profit_text=optional_number_text(plan["adjusted_operating_profit"][index]),
-                actual_adjusted_operating_profit_text=optional_number_text(actual_adjusted),
+                plan_adjusted_operating_profit_text=optional_monetary_text(plan["adjusted_operating_profit"][index]),
+                actual_adjusted_operating_profit_text=optional_monetary_text(actual_adjusted),
                 actual_adjusted_operating_margin_text=optional_rate_text(actual_adjusted_margin),
             )
         )
@@ -995,7 +1005,7 @@ def _build_monthly_data_rows(
                 text=(
                     format_rate(values[index] if not actual_only or index < through else None, decimals=1)
                     if rate
-                    else format_number(values[index] if not actual_only or index < through else None)
+                    else format_monetary(values[index] if not actual_only or index < through else None)
                 ),
             )
             for index in range(12)
@@ -1020,7 +1030,7 @@ def _build_cogs_rows(
             available = month <= through
             amount = series[month - 1] if available else None
             share = ratio_percent(amount, actual_revenue[month - 1]) if available else None
-            amount_text = format_number(amount)
+            amount_text = format_monetary(amount)
             share_text = format_rate(share, decimals=1)
             months.append(
                 CogsMonthReadModel(
@@ -1040,7 +1050,7 @@ def _build_cogs_rows(
         ytd = CogsYtdReadModel(
             through_month=through,
             amount=ytd_amount,
-            amount_text=format_number(ytd_amount),
+            amount_text=format_monetary(ytd_amount),
             revenue_share=ytd_share,
             revenue_share_text=format_rate(ytd_share, decimals=1),
         )

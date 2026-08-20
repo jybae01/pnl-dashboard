@@ -4,6 +4,7 @@ from .formulas import NullableNumber
 
 
 NULL_TEXT = "—"
+WON_PER_MILLION = 1_000_000
 
 
 def format_number(
@@ -18,6 +19,18 @@ def format_number(
     normalized = 0 if value == 0 else value
     prefix = "+" if signed and normalized > 0 else ""
     return f"{prefix}{normalized:,.{decimals}f}"
+
+
+def format_monetary(
+    value: NullableNumber,
+    *,
+    decimals: int = 0,
+    signed: bool = False,
+    null_text: str = NULL_TEXT,
+) -> str:
+    if value is None:
+        return null_text
+    return format_number(value / WON_PER_MILLION, decimals=decimals, signed=signed, null_text=null_text)
 
 
 def format_rate(
@@ -48,6 +61,12 @@ def optional_number_text(value: NullableNumber, *, decimals: int = 0) -> str | N
     if value is None:
         return None
     return format_number(value, decimals=decimals)
+
+
+def optional_monetary_text(value: NullableNumber, *, decimals: int = 0) -> str | None:
+    if value is None:
+        return None
+    return format_monetary(value, decimals=decimals)
 
 
 def optional_rate_text(value: NullableNumber, *, decimals: int = 1) -> str | None:
