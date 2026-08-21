@@ -223,9 +223,13 @@ export function hasForecastAdjustmentInput(
     'ufMbrCogsRate', 'ixCogsRate',
     'ufMbrTransportRate', 'ixTransportRate', 'ixPackLiters', 'ixPackCost',
     'planNaSaSales', 'naSaSales', 'tariffApplicableRate', 'tariffRate',
-    'rawMaterialBasis', 'rawMaterialDirect', 'rawMaterialAdjustment', 'rawMaterialReason', 'refundRate',
+    'rawMaterialBasis', 'rawMaterialReason', 'refundRate',
   ];
-  return fields.some((field) => value[field] !== defaults[field]);
+  const rawMaterialAmountField: keyof ForecastAdvancedFormState = value.rawMaterialBasis === 'direct'
+    ? 'rawMaterialDirect'
+    : 'rawMaterialAdjustment';
+  return fields.some((field) => value[field] !== defaults[field])
+    || value[rawMaterialAmountField] !== defaults[rawMaterialAmountField];
 }
 
 export function findOutOfRangeForecastAdjustmentMonths(

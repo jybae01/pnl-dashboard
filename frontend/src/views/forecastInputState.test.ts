@@ -286,4 +286,17 @@ describe('forecast direct-input adapter', () => {
     august.rawMaterialAdjustment = '-250';
     expect(findOutOfRangeForecastAdjustmentMonths([9, 10], { 7: july, 8: august }, metadata)).toEqual([7, 8]);
   });
+
+  it('ignores a stale inactive raw-material amount when detecting out-of-range adjustments', () => {
+    const modelBasis = createForecastMonthFormState(7, metadata);
+    modelBasis.rawMaterialDirect = '7000000000';
+    expect(hasForecastAdjustmentInput(modelBasis, metadata)).toBe(false);
+
+    const directBasis = createForecastMonthFormState(8, metadata);
+    directBasis.rawMaterialBasis = 'direct';
+    directBasis.rawMaterialDirect = '7000000000';
+    directBasis.rawMaterialAdjustment = '-250';
+    expect(hasForecastAdjustmentInput(directBasis, metadata)).toBe(true);
+    expect(findOutOfRangeForecastAdjustmentMonths([9], { 7: modelBasis, 8: directBasis }, metadata)).toEqual([8]);
+  });
 });
