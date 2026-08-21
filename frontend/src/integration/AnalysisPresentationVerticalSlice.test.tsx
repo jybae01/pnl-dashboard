@@ -567,6 +567,30 @@ describe('analysis presentation vertical slice', () => {
     );
   });
 
+  it('accepts monthly FX identity without inventing scalar presentation values', async () => {
+    const monthly = presentationFixture();
+    monthly.identity.baseline_sales_fx = null;
+    monthly.identity.comparison_sales_fx = null;
+    monthly.identity.baseline_sales_fx_monthly = {
+      '2026-01': 1480, '2026-02': 1480,
+    };
+    monthly.identity.comparison_sales_fx_monthly = {
+      '2026-01': 1385, '2026-02': 1417,
+    };
+    monthly.identity.start_month = 1;
+    monthly.identity.end_month = 2;
+    vi.stubGlobal('fetch', vi.fn((input: RequestInfo | URL) => (
+      String(input).endsWith('/api/viewer/analysis-results')
+        ? json(viewerResults([TEST_RESULT, '월별 환율 분석']))
+        : json(monthly)
+    )));
+
+    render(<CoreAnalysisView role="viewer" />);
+
+    expect(await screen.findByTestId('analysis-presentation')).toBeInTheDocument();
+    expect(screen.getByText(/1월–2월/)).toBeInTheDocument();
+  });
+
   it('shows safe Viewer empty and list-error states without management actions', async () => {
     vi.stubGlobal('fetch', vi.fn(() => json(viewerResults())));
     const empty = render(<CoreAnalysisView role="viewer" />);

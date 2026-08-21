@@ -1,10 +1,11 @@
 from __future__ import annotations
 
 import json
+import math
 import re
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import Any, Mapping
 
 from .storage import ModelMeta
 from .workbook import GoldenWorkbook
@@ -124,8 +125,10 @@ class GenericComparisonEngine:
         comparison_path: str | Path,
         period: PeriodOption,
         *,
-        baseline_sales_fx: float = 1480.0,
-        comparison_sales_fx: float = 1480.0,
+        baseline_sales_fx: float | None = 1480.0,
+        comparison_sales_fx: float | None = 1480.0,
+        baseline_sales_fx_monthly: Mapping[str, float] | None = None,
+        comparison_sales_fx_monthly: Mapping[str, float] | None = None,
     ) -> ComparisonResult:
         common = set(self.common_months(baseline_meta, comparison_meta))
         if not period.months or not set(period.months).issubset(common):
@@ -134,13 +137,31 @@ class GenericComparisonEngine:
             month for month in sorted(common) if month <= max(period.months)
         )[-3:]
         analysis_months = tuple(sorted(set(period.months) | set(rolling_history)))
+        baseline_fx_input = self._validated_sales_fx_input(
+            baseline_meta.year, period.months, baseline_sales_fx,
+            baseline_sales_fx_monthly, "baseline_sales_fx_monthly",
+        )
+        comparison_fx_input = self._validated_sales_fx_input(
+            comparison_meta.year, period.months, comparison_sales_fx,
+            comparison_sales_fx_monthly, "comparison_sales_fx_monthly",
+        )
+        monthly_contract = isinstance(baseline_fx_input, Mapping)
+        if monthly_contract != isinstance(comparison_fx_input, Mapping):
+            raise ValueError("baseline and comparison sales FX contracts must use the same mode")
+        baseline_kwargs: dict[str, Any] = {
+            "sales_fx": baseline_fx_input, "analysis_months": analysis_months,
+        }
+        comparison_kwargs: dict[str, Any] = {
+            "sales_fx": comparison_fx_input, "analysis_months": analysis_months,
+        }
+        if monthly_contract:
+            baseline_kwargs["sales_fx_source_field"] = "baseline_sales_fx_monthly"
+            comparison_kwargs["sales_fx_source_field"] = "comparison_sales_fx_monthly"
         baseline = self._extract(
-            GoldenWorkbook(baseline_path), baseline_meta, period.months,
-            sales_fx=baseline_sales_fx, analysis_months=analysis_months,
+            GoldenWorkbook(baseline_path), baseline_meta, period.months, **baseline_kwargs,
         )
         target = self._extract(
-            GoldenWorkbook(comparison_path), comparison_meta, period.months,
-            sales_fx=comparison_sales_fx, analysis_months=analysis_months,
+            GoldenWorkbook(comparison_path), comparison_meta, period.months, **comparison_kwargs,
         )
 
         pnl = self._rows(self.mapping["pnl_labels"], baseline["pnl"], target["pnl"])
@@ -170,12 +191,16 @@ class GenericComparisonEngine:
                 "comparison_cogs": right["cogs"],
                 "comparison_gross_margin_rate": right["gross_margin_rate"],
             })
+        legacy_baseline_fx = float(baseline_fx_input) if not monthly_contract else 1.0
+        legacy_comparison_fx = float(comparison_fx_input) if not monthly_contract else 1.0
         calculated_sales = calculate_sales_effect_rows(
-            sales_groups, baseline_sales_fx, comparison_sales_fx
+            sales_groups, legacy_baseline_fx, legacy_comparison_fx
         )
         sales_analysis = {
-            "baseline_fx_krw_per_usd": float(baseline_sales_fx),
-            "comparison_fx_krw_per_usd": float(comparison_sales_fx),
+            "baseline_fx_krw_per_usd": legacy_baseline_fx if not monthly_contract else None,
+            "comparison_fx_krw_per_usd": legacy_comparison_fx if not monthly_contract else None,
+            "baseline_sales_fx_monthly": dict(baseline_fx_input) if monthly_contract else None,
+            "comparison_sales_fx_monthly": dict(comparison_fx_input) if monthly_contract else None,
             "rows": [row.to_dict() for row in calculated_sales],
             "totals": sales_effect_totals(calculated_sales),
         }
@@ -209,8 +234,31 @@ class GenericComparisonEngine:
             calculated_analysis_sales = calculate_sales_effects(
                 base_scenario, comparison_scenario, self.analysis_config
             )
+            effects_by_group: dict[str, dict[str, float]] = {}
+            for detail in calculated_analysis_sales.details:
+                group = str(detail.get("product_group") or "")
+                values = effects_by_group.setdefault(
+                    group, {"price": 0.0, "sales_fx": 0.0}
+                )
+                values["price"] += float(detail.get("price_effect") or 0.0)
+                values["sales_fx"] += float(detail.get("sales_fx_effect") or 0.0)
             for row in sales_analysis["rows"]:
-                if str(row.get("product_group") or "").strip() != "신사업":
+                group = str(row.get("product_group") or "").strip()
+                if group != "신사업":
+                    group_effects = effects_by_group.get(
+                        group, {"price": 0.0, "sales_fx": 0.0}
+                    )
+                    row.update({
+                        "pure_price_effect": group_effects["price"],
+                        "sales_fx_effect": group_effects["sales_fx"],
+                        "pure_price_delta_usd": (
+                            None if monthly_contract else row.get("pure_price_delta_usd")
+                        ),
+                        "total_sales_effect": (
+                            float(row.get("quantity_effect") or 0.0)
+                            + group_effects["price"] + group_effects["sales_fx"]
+                        ),
+                    })
                     continue
                 row.update({
                     "quantity_effect": calculated_analysis_sales.new_business_revenue_effect,
@@ -1088,8 +1136,9 @@ class GenericComparisonEngine:
         meta: ModelMeta,
         months: tuple[int, ...],
         *,
-        sales_fx: float = 1.0,
+        sales_fx: float | Mapping[str, float] = 1.0,
         analysis_months: tuple[int, ...] | None = None,
+        sales_fx_source_field: str = "sales_fx",
     ) -> dict[str, Any]:
         def total(row: int) -> float:
             return sum(float(workbook.value(f"{self.MONTH_COLUMNS[month]}{row}") or 0) for month in months)
@@ -1131,7 +1180,8 @@ class GenericComparisonEngine:
         if hasattr(workbook, "cells"):
             try:
                 adapted = self.analysis_adapter.build(
-                    workbook, meta, analysis_months or months, sales_fx=sales_fx
+                    workbook, meta, analysis_months or months, sales_fx=sales_fx,
+                    sales_fx_source_field=sales_fx_source_field,
                 )
             except (KeyError, ValueError) as exc:
                 # A legacy or partially uploaded workbook can still be
@@ -1196,3 +1246,30 @@ class GenericComparisonEngine:
                 "adapted": adapted,
                 "sales_cogs_scope_source": sales_cogs_scope_source,
                 "analysis_adapter_error": analysis_adapter_error}
+
+    @staticmethod
+    def _validated_sales_fx_input(
+        year: int,
+        months: tuple[int, ...],
+        scalar: float | None,
+        monthly: Mapping[str, float] | None,
+        field_name: str,
+    ) -> float | Mapping[str, float]:
+        if monthly is None:
+            if scalar is None or not math.isfinite(float(scalar)) or float(scalar) <= 0:
+                raise ValueError("scalar sales FX must be a positive finite number")
+            return float(scalar)
+        if scalar is not None:
+            raise ValueError("scalar and monthly sales FX contracts must not be mixed")
+        required = {f"{year:04d}-{month:02d}" for month in months}
+        if set(monthly) != required:
+            raise ValueError(f"{field_name} must exactly match the selected period")
+        normalized: dict[str, float] = {}
+        for key, value in monthly.items():
+            if isinstance(value, bool) or not isinstance(value, (int, float)):
+                raise ValueError(f"{field_name} values must be numeric")
+            number = float(value)
+            if not math.isfinite(number) or number <= 0:
+                raise ValueError(f"{field_name} values must be positive finite numbers")
+            normalized[key] = number
+        return normalized

@@ -27,13 +27,18 @@ def _pnl_map(result: dict[str, Any]) -> dict[str, dict[str, Any]]:
     return {str(row.get("code")): row for row in result.get("pnl", [])}
 
 
-def _sales_view(result: dict[str, Any], baseline_fx: float, comparison_fx: float) -> dict[str, Any]:
+def _sales_view(result: dict[str, Any], baseline_fx: float | None, comparison_fx: float | None) -> dict[str, Any]:
     analysis = result.get("sales_analysis") or {}
     if analysis and "rows" in analysis and "totals" in analysis:
         calculated = list(analysis["rows"])
         totals = dict(analysis.get("totals") or {})
-        baseline_fx = _number(analysis.get("baseline_fx_krw_per_usd"))
-        comparison_fx = _number(analysis.get("comparison_fx_krw_per_usd"))
+        baseline_monthly = analysis.get("baseline_sales_fx_monthly")
+        comparison_monthly = analysis.get("comparison_sales_fx_monthly")
+        if isinstance(baseline_monthly, dict) and isinstance(comparison_monthly, dict):
+            baseline_fx = comparison_fx = None
+        else:
+            baseline_fx = _number(analysis.get("baseline_fx_krw_per_usd"))
+            comparison_fx = _number(analysis.get("comparison_fx_krw_per_usd"))
     else:
         # Backward compatibility for comparison results stored before
         # sales_analysis became part of the deterministic Result schema.
@@ -95,6 +100,14 @@ def _sales_view(result: dict[str, Any], baseline_fx: float, comparison_fx: float
     return {
         "baseline_fx_krw_per_usd": baseline_fx,
         "comparison_fx_krw_per_usd": comparison_fx,
+        "baseline_sales_fx_monthly": (
+            dict(analysis.get("baseline_sales_fx_monthly"))
+            if isinstance(analysis.get("baseline_sales_fx_monthly"), dict) else None
+        ),
+        "comparison_sales_fx_monthly": (
+            dict(analysis.get("comparison_sales_fx_monthly"))
+            if isinstance(analysis.get("comparison_sales_fx_monthly"), dict) else None
+        ),
         "rows": rows,
         "totals": totals,
     }

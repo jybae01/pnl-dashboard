@@ -33,6 +33,8 @@ def test_migration_order_is_phase1_then_queue_then_publication():
         "202608190001_pnl_reporting_persistence_slice_b.sql",
         "202608190002_pnl_reporting_viewer_read_slice_c.sql",
         "202608190003_pnl_reporting_viewer_year_bootstrap.sql",
+        "202608210001_forecast_tariff_metadata_finalize_v11.sql",
+        "202608210002_analysis_monthly_fx_idempotent_v11.sql",
     ]
 
 

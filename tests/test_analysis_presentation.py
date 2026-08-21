@@ -216,6 +216,27 @@ def test_mapper_uses_exact_canonical_effects_and_identity_without_plugging():
     assert response.identity.comparison_sales_fx == 1450.0
 
 
+def test_mapper_exposes_monthly_fx_without_fabricating_scalar_average():
+    row = presentation_row()
+    request = row["analysis_request"]
+    request.pop("baseline_sales_fx")
+    request.pop("comparison_sales_fx")
+    request["baseline_sales_fx_monthly"] = {"2026-01": 1480.0, "2026-02": 1480.0}
+    request["comparison_sales_fx_monthly"] = {"2026-01": 1385.0, "2026-02": 1417.0}
+    sales = row["result_payload"]["comparison_result"]["sales_analysis"]
+    sales["baseline_fx_krw_per_usd"] = None
+    sales["comparison_fx_krw_per_usd"] = None
+    sales["baseline_sales_fx_monthly"] = request["baseline_sales_fx_monthly"]
+    sales["comparison_sales_fx_monthly"] = request["comparison_sales_fx_monthly"]
+
+    response = build_analysis_presentation(RESULT_ID, row, PROVENANCE, ("1",))
+
+    assert response.identity.baseline_sales_fx is None
+    assert response.identity.comparison_sales_fx is None
+    assert response.identity.baseline_sales_fx_monthly == request["baseline_sales_fx_monthly"]
+    assert response.identity.comparison_sales_fx_monthly == request["comparison_sales_fx_monthly"]
+
+
 def test_customer_freight_is_once_tariff_separate_and_material_policy_is_preserved():
     response = build_analysis_presentation(RESULT_ID, presentation_row(), PROVENANCE, ("1",))
     by_code = {effect.code: effect for effect in response.effects}

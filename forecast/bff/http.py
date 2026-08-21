@@ -64,9 +64,11 @@ class SubmitBody(BaseModel):
     comparison_model_id: StrictStr
     start_month: StrictInt
     end_month: StrictInt
-    baseline_sales_fx: StrictFloat | StrictInt
-    comparison_sales_fx: StrictFloat | StrictInt
     idempotency_key: StrictStr
+    baseline_sales_fx: StrictFloat | StrictInt | None = None
+    comparison_sales_fx: StrictFloat | StrictInt | None = None
+    baseline_sales_fx_monthly: dict[StrictStr, StrictFloat | StrictInt] | None = None
+    comparison_sales_fx_monthly: dict[StrictStr, StrictFloat | StrictInt] | None = None
 
 
 class ModelPublicationBody(BaseModel):

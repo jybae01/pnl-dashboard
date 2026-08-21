@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import math
+import re
 import uuid
 from typing import Any, Mapping, Sequence
 
@@ -216,8 +217,24 @@ def build_analysis_presentation(
     end_month = _integer(request.get("end_month"))
     if not 1 <= start_month <= end_month <= 12:
         raise _integrity()
-    baseline_fx = _positive(request.get("baseline_sales_fx"))
-    comparison_fx = _positive(request.get("comparison_sales_fx"))
+    monthly_contract = (
+        request.get("baseline_sales_fx_monthly") is not None
+        or request.get("comparison_sales_fx_monthly") is not None
+    )
+    if monthly_contract:
+        baseline_fx = comparison_fx = None
+        baseline_fx_monthly = _positive_fx_mapping(
+            request.get("baseline_sales_fx_monthly"), start_month, end_month
+        )
+        comparison_fx_monthly = _positive_fx_mapping(
+            request.get("comparison_sales_fx_monthly"), start_month, end_month
+        )
+        if set(baseline_fx_monthly) != set(comparison_fx_monthly):
+            raise _integrity()
+    else:
+        baseline_fx = _positive(request.get("baseline_sales_fx"))
+        comparison_fx = _positive(request.get("comparison_sales_fx"))
+        baseline_fx_monthly = comparison_fx_monthly = None
     period = _mapping(result.get("period"))
     months = period.get("months")
     if not isinstance(months, (list, tuple)) or tuple(_integer(value) for value in months) != tuple(
@@ -247,7 +264,18 @@ def build_analysis_presentation(
     sales = _mapping(result.get("sales_analysis"))
     sales_totals = _mapping(sales.get("totals"))
     sales_rows = _sequence_of_mappings(sales.get("rows"))
-    if not _close(_positive(sales.get("baseline_fx_krw_per_usd")), baseline_fx) or not _close(
+    if monthly_contract:
+        if sales.get("baseline_fx_krw_per_usd") is not None or sales.get("comparison_fx_krw_per_usd") is not None:
+            raise _integrity()
+        sales_baseline_monthly = _positive_fx_mapping(
+            sales.get("baseline_sales_fx_monthly"), start_month, end_month
+        )
+        sales_comparison_monthly = _positive_fx_mapping(
+            sales.get("comparison_sales_fx_monthly"), start_month, end_month
+        )
+        if sales_baseline_monthly != baseline_fx_monthly or sales_comparison_monthly != comparison_fx_monthly:
+            raise _integrity()
+    elif not _close(_positive(sales.get("baseline_fx_krw_per_usd")), baseline_fx) or not _close(
         _positive(sales.get("comparison_fx_krw_per_usd")), comparison_fx
     ):
         raise _integrity()
@@ -309,6 +337,8 @@ def build_analysis_presentation(
         end_month=end_month,
         baseline_sales_fx=baseline_fx,
         comparison_sales_fx=comparison_fx,
+        baseline_sales_fx_monthly=baseline_fx_monthly,
+        comparison_sales_fx_monthly=comparison_fx_monthly,
         result_schema_version=values["result_schema_version"],
         completed_at=values["completed_at"],
         is_published=values["is_published"],
@@ -780,6 +810,24 @@ def _positive(value: Any) -> float:
     if number <= 0:
         raise _integrity()
     return number
+
+
+def _positive_fx_mapping(value: Any, start_month: int, end_month: int) -> Mapping[str, float]:
+    source = _mapping(value)
+    required_months = set(range(start_month, end_month + 1))
+    output: dict[str, float] = {}
+    years: set[str] = set()
+    months: set[int] = set()
+    for key, raw in source.items():
+        match = re.fullmatch(r"([0-9]{4})-(0[1-9]|1[0-2])", str(key))
+        if match is None:
+            raise _integrity()
+        years.add(match.group(1))
+        months.add(int(match.group(2)))
+        output[str(key)] = _positive(raw)
+    if len(years) != 1 or months != required_months or len(output) != len(required_months):
+        raise _integrity()
+    return output
 
 
 def _number(value: Any) -> float:

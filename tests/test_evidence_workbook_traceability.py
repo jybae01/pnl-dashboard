@@ -144,30 +144,77 @@ class EvidenceWorkbookTraceabilityTests(unittest.TestCase):
                 meta.tariff_adjustment_monthly = {}
                 meta.tariff_applicable_rate = 0.85
                 meta.tariff_rate = 0.10
-            result = GenericComparisonEngine(
-                ROOT / "config" / "model_mapping.json"
-            ).compare(
+            engine = GenericComparisonEngine(ROOT / "config" / "model_mapping.json")
+            result = engine.compare(
                 base_meta,
                 base_path,
                 comparison_meta,
                 comparison_path,
                 PeriodOption("R2026_07_09", "2026-07 ~ 2026-09", (7, 8, 9), "사용자정의"),
-                baseline_sales_fx=1_000,
-                comparison_sales_fx=1_100,
+                baseline_sales_fx=None,
+                comparison_sales_fx=None,
+                baseline_sales_fx_monthly={
+                    "2026-07": 1_480.0, "2026-08": 1_480.0, "2026-09": 1_480.0,
+                },
+                comparison_sales_fx_monthly={
+                    "2026-07": 1_380.0, "2026-08": 1_420.0, "2026-09": 1_500.0,
+                },
+            )
+            invariant_reference = engine.compare(
+                base_meta, base_path, comparison_meta, comparison_path,
+                PeriodOption("R2026_07_09", "2026-07 ~ 2026-09", (7, 8, 9), "사용자정의"),
+                baseline_sales_fx=None, comparison_sales_fx=None,
+                baseline_sales_fx_monthly={
+                    "2026-07": 1_480.0, "2026-08": 1_480.0, "2026-09": 1_480.0,
+                },
+                comparison_sales_fx_monthly={
+                    "2026-07": 1_490.0, "2026-08": 1_490.0, "2026-09": 1_490.0,
+                },
             )
             workbook_payload = build_comparison_audit_workbook(
                 result=asdict(result),
                 sales_rows=result.sales_analysis["rows"],
                 sales_totals=result.sales_analysis["totals"],
-                baseline_fx=1_000,
-                comparison_fx=1_100,
+                baseline_fx=None,
+                comparison_fx=None,
                 mapping_path=ROOT / "config" / "model_mapping.json",
             )
 
         expected_periods = {"2026-07", "2026-08", "2026-09"}
         effects = {row["code"]: float(row["profit_effect"]) for row in result.effects}
+        reference_effects = {
+            row["code"]: float(row["profit_effect"])
+            for row in invariant_reference.effects
+        }
+        for invariant_code in (
+            "sales_quantity", "sales_mix", "tariff", "material_total",
+            "manufacturing_realized", "inventory_timing", "sga_variable", "sga_fixed",
+        ):
+            self.assertAlmostEqual(effects[invariant_code], reference_effects[invariant_code])
+        self.assertAlmostEqual(
+            result.sales_analysis["totals"]["new_business_revenue_effect"],
+            invariant_reference.sales_analysis["totals"]["new_business_revenue_effect"],
+        )
+        self.assertAlmostEqual(
+            result.sales_analysis["totals"]["new_business_gp_rate_effect"],
+            invariant_reference.sales_analysis["totals"]["new_business_gp_rate_effect"],
+        )
+        self.assertAlmostEqual(result.effects_total + result.residual, result.operating_profit_delta)
         monthly_sales = result.sales_analysis["monthly_effects"]
         self.assertEqual({row["period"] for row in monthly_sales}, expected_periods)
+        self.assertTrue(all(
+            row["pure_price_delta_usd"] is None
+            for row in result.sales_analysis["rows"]
+            if row["product_group"] != "신사업"
+        ))
+        self.assertEqual(
+            [row["baseline_sales_fx"] for row in monthly_sales],
+            [1_480.0, 1_480.0, 1_480.0],
+        )
+        self.assertEqual(
+            [row["comparison_sales_fx"] for row in monthly_sales],
+            [1_380.0, 1_420.0, 1_500.0],
+        )
         for monthly_key, effect_code in (
             ("quantity_effect", "sales_quantity"),
             ("mix_effect", "sales_mix"),
@@ -200,6 +247,21 @@ class EvidenceWorkbookTraceabilityTests(unittest.TestCase):
             3,
         )
         self.assertEqual(len({row["tariff_effect"] for row in freight}), 3)
+
+        user_sales = load_workbook(BytesIO(workbook_payload), data_only=False)["판매효과"]
+        monthly_header = _row_with_value(user_sales, "A", "월")
+        self.assertEqual(
+            [user_sales.cell(monthly_header, column).value for column in range(1, 6)],
+            ["월", "기준환율", "비교환율", "Quantity 효과", "Mix 효과"],
+        )
+        self.assertEqual(
+            [user_sales.cell(monthly_header + offset, 2).value for offset in range(1, 4)],
+            [1_480.0, 1_480.0, 1_480.0],
+        )
+        self.assertEqual(
+            [user_sales.cell(monthly_header + offset, 3).value for offset in range(1, 4)],
+            [1_380.0, 1_420.0, 1_500.0],
+        )
 
         new_business = result.sales_analysis["new_business_trace_rows"]
         self.assertEqual({row["period"] for row in new_business}, expected_periods)
@@ -346,6 +408,23 @@ class EvidenceWorkbookTraceabilityTests(unittest.TestCase):
                 required_sections,
             )
             self.assertIsNotNone(detail.freeze_panes)
+        source_detail = workbook["Source Detail"]
+        fx_rows = [
+            row for row in range(1, source_detail.max_row + 1)
+            if source_detail.cell(row, 2).value == "SALES"
+            and source_detail.cell(row, 6).value == "sales_fx"
+        ]
+        self.assertEqual(
+            {source_detail.cell(row, 1).value for row in fx_rows}, expected_periods
+        )
+        self.assertEqual(
+            {source_detail.cell(row, 3).value for row in fx_rows},
+            {"BASE", "COMPARISON"},
+        )
+        self.assertTrue(all(
+            "Analysis request input:" in str(source_detail.cell(row, 8).value)
+            for row in fx_rows
+        ))
         self.assertTrue(all(
             cell.alignment.wrap_text
             for sheet_name in workbook.sheetnames[:10]
@@ -353,6 +432,40 @@ class EvidenceWorkbookTraceabilityTests(unittest.TestCase):
             for cell in row
             if cell.value is not None
         ))
+
+    def test_explicit_same_monthly_fx_matches_legacy_scalar_results(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            base_path = root / "base.xlsx"
+            comparison_path = root / "comparison.xlsx"
+            _build_three_month_sentinel_workbook(base_path, comparison=False)
+            _build_three_month_sentinel_workbook(comparison_path, comparison=True)
+            engine = GenericComparisonEngine(ROOT / "config" / "model_mapping.json")
+            period = PeriodOption(
+                "R2026_07_09", "2026-07 ~ 2026-09", (7, 8, 9), "사용자정의"
+            )
+            scalar = engine.compare(
+                _meta("base"), base_path, _meta("comparison"), comparison_path,
+                period, baseline_sales_fx=1_480.0, comparison_sales_fx=1_490.0,
+            )
+            monthly = engine.compare(
+                _meta("base"), base_path, _meta("comparison"), comparison_path,
+                period, baseline_sales_fx=None, comparison_sales_fx=None,
+                baseline_sales_fx_monthly={
+                    "2026-07": 1_480.0, "2026-08": 1_480.0, "2026-09": 1_480.0,
+                },
+                comparison_sales_fx_monthly={
+                    "2026-07": 1_490.0, "2026-08": 1_490.0, "2026-09": 1_490.0,
+                },
+            )
+
+        scalar_effects = {row["code"]: row["profit_effect"] for row in scalar.effects}
+        monthly_effects = {row["code"]: row["profit_effect"] for row in monthly.effects}
+        self.assertEqual(monthly_effects, scalar_effects)
+        self.assertEqual(monthly.operating_profit_delta, scalar.operating_profit_delta)
+        self.assertEqual(monthly.effects_total, scalar.effects_total)
+        self.assertEqual(monthly.residual, scalar.residual)
+
     def test_legacy_stored_freight_trace_requires_v11_recalculation(self):
         workbook = Workbook()
         sheet = workbook.active

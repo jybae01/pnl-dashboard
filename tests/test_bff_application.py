@@ -42,8 +42,12 @@ def request(**overrides):
         "comparison_model_id": COMPARISON_ID,
         "start_month": 1,
         "end_month": 6,
-        "baseline_sales_fx": 1480.0,
-        "comparison_sales_fx": 1500.0,
+        "baseline_sales_fx_monthly": {
+            f"2026-{month:02d}": 1480.0 for month in range(1, 7)
+        },
+        "comparison_sales_fx_monthly": {
+            f"2026-{month:02d}": 1500.0 for month in range(1, 7)
+        },
         "idempotency_key": "analysis-2026-01",
     }
     values.update(overrides)
@@ -68,12 +72,13 @@ class InMemoryGateway:
 
     def submit_analysis(self, **values):
         key = (values["idempotency_actor"], values["idempotency_key"])
-        fingerprint = tuple(
-            values[name]
-            for name in (
-                "baseline_model_id", "comparison_model_id", "start_month", "end_month",
-                "baseline_sales_fx", "comparison_sales_fx", "provenance", "max_attempts",
-            )
+        fingerprint = (
+            values["baseline_model_id"], values["comparison_model_id"],
+            values["start_month"], values["end_month"],
+            values["baseline_sales_fx"], values["comparison_sales_fx"],
+            tuple(sorted((values["baseline_sales_fx_monthly"] or {}).items())),
+            tuple(sorted((values["comparison_sales_fx_monthly"] or {}).items())),
+            values["provenance"], values["max_attempts"],
         )
         with self._lock:
             existing = self.jobs.get(key)
@@ -153,7 +158,9 @@ def test_same_key_different_payload_is_explicit_conflict():
     service.submit(admin.session_id, request())
 
     with pytest.raises(BffError) as caught:
-        service.submit(admin.session_id, request(end_month=7))
+        changed = dict(request().comparison_sales_fx_monthly or {})
+        changed["2026-03"] = 1501.0
+        service.submit(admin.session_id, request(comparison_sales_fx_monthly=changed))
     assert caught.value.code is ApiErrorCode.IDEMPOTENCY_CONFLICT
 
 
@@ -208,6 +215,25 @@ def test_submit_validation_rejects_invalid_contract(field, value):
 
     with pytest.raises(BffError) as caught:
         service.submit(admin.session_id, request(**{field: value}))
+    assert caught.value.code is ApiErrorCode.VALIDATION_ERROR
+
+
+def test_legacy_scalar_single_month_is_preserved_but_multi_month_is_rejected():
+    sessions, admin, _viewer = make_sessions()
+    gateway = InMemoryGateway()
+    service = AnalysisSubmissionService(sessions, gateway, PROVENANCE)
+    single = request(
+        start_month=1, end_month=1,
+        baseline_sales_fx_monthly=None, comparison_sales_fx_monthly=None,
+        baseline_sales_fx=1480.0, comparison_sales_fx=1500.0,
+    )
+    assert service.submit(admin.session_id, single).job_id == JOB_ID
+    with pytest.raises(BffError) as caught:
+        service.submit(admin.session_id, request(
+            baseline_sales_fx_monthly=None, comparison_sales_fx_monthly=None,
+            baseline_sales_fx=1480.0, comparison_sales_fx=1500.0,
+            idempotency_key="legacy-multi",
+        ))
     assert caught.value.code is ApiErrorCode.VALIDATION_ERROR
 
 

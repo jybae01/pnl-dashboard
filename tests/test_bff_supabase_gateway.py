@@ -93,6 +93,8 @@ def test_submit_uses_narrow_idempotent_rpc_and_no_created_by_fabrication():
         end_month=6,
         baseline_sales_fx=1480,
         comparison_sales_fx=1500,
+        baseline_sales_fx_monthly=None,
+        comparison_sales_fx_monthly=None,
         idempotency_actor="actor",
         idempotency_key="key",
         provenance=provenance,
@@ -173,9 +175,35 @@ def test_idempotency_conflict_is_mapped_without_raw_database_error():
         gateway.submit_analysis(
             baseline_model_id="base", comparison_model_id="comparison",
             start_month=1, end_month=6, baseline_sales_fx=1480,
-            comparison_sales_fx=1500, idempotency_actor="actor",
+            comparison_sales_fx=1500, baseline_sales_fx_monthly=None,
+            comparison_sales_fx_monthly=None, idempotency_actor="actor",
             idempotency_key="key", provenance=provenance, max_attempts=3,
         )
+
+
+def test_monthly_fx_submission_uses_versioned_rpc_and_exact_maps():
+    client = FakeClient()
+    client.responses["create_durable_calculation_job_idempotent_v11"] = [{
+        "job_id": "job-1", "status": "pending", "idempotency_replayed": False,
+    }]
+    gateway = SupabaseBffApplicationGateway(client)
+    provenance = ResultProvenance("engine", "mapping", "a" * 64, "1")
+    baseline = {"2026-07": 1480.0, "2026-08": 1480.0, "2026-09": 1480.0}
+    comparison = {"2026-07": 1380.0, "2026-08": 1420.0, "2026-09": 1500.0}
+
+    gateway.submit_analysis(
+        baseline_model_id="base", comparison_model_id="comparison",
+        start_month=7, end_month=9, baseline_sales_fx=None,
+        comparison_sales_fx=None, baseline_sales_fx_monthly=baseline,
+        comparison_sales_fx_monthly=comparison, idempotency_actor="actor",
+        idempotency_key="key", provenance=provenance, max_attempts=3,
+    )
+
+    name, params = client.calls[0]
+    assert name == "create_durable_calculation_job_idempotent_v11"
+    assert params["p_baseline_sales_fx_monthly"] == baseline
+    assert params["p_comparison_sales_fx_monthly"] == comparison
+    assert "p_baseline_sales_fx" not in params and "p_comparison_sales_fx" not in params
 
 
 def test_by_id_reads_use_distinct_admin_and_viewer_rpcs():

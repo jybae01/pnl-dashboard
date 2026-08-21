@@ -968,7 +968,7 @@ def _user_sales_sheet(workbook: Any, result: Any, months: list[str]) -> Any:
     ]
     row = _user_write_table(ws, row, ["항목", "Effect", "설명"], summary_rows)
     row += 1
-    row = _user_section(ws, row, "월별 판매효과", 10)
+    row = _user_section(ws, row, "월별 판매효과", 12)
     monthly = _user_list(_user_get(sales, "monthly_effects", ()))
     monthly_rows: list[list[Any]] = []
     for month in months:
@@ -978,6 +978,8 @@ def _user_sales_sheet(workbook: Any, result: Any, months: list[str]) -> Any:
         for item in matched:
             monthly_rows.append([
                 month,
+                _user_get(item, "baseline_sales_fx"),
+                _user_get(item, "comparison_sales_fx"),
                 _user_get(item, "quantity_effect"),
                 _user_get(item, "mix_effect"),
                 _user_get(item, "sales_price_effect", _user_get(item, "displayed_price_effect")),
@@ -991,7 +993,7 @@ def _user_sales_sheet(workbook: Any, result: Any, months: list[str]) -> Any:
     row = _user_write_table(
         ws,
         row,
-        ["월", "Quantity 효과", "Mix 효과", "Price 효과", "Sales FX 효과", "운반비 child", "신사업 매출증가 child", "신사업 GP율 변화 child", "관세 효과", "월별 판매효과 합계"],
+        ["월", "기준환율", "비교환율", "Quantity 효과", "Mix 효과", "Price 효과", "Sales FX 효과", "운반비 child", "신사업 매출증가 child", "신사업 GP율 변화 child", "관세 효과", "월별 판매효과 합계"],
         monthly_rows,
     )
     row += 1

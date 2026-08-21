@@ -56,8 +56,10 @@ class BffApplicationGateway(Protocol):
         comparison_model_id: str,
         start_month: int,
         end_month: int,
-        baseline_sales_fx: float,
-        comparison_sales_fx: float,
+        baseline_sales_fx: float | None,
+        comparison_sales_fx: float | None,
+        baseline_sales_fx_monthly: Mapping[str, float] | None,
+        comparison_sales_fx_monthly: Mapping[str, float] | None,
         idempotency_actor: str,
         idempotency_key: str,
         provenance: ResultProvenance,
@@ -152,23 +154,26 @@ class SupabaseBffApplicationGateway:
         comparison_model_id: str,
         start_month: int,
         end_month: int,
-        baseline_sales_fx: float,
-        comparison_sales_fx: float,
+        baseline_sales_fx: float | None,
+        comparison_sales_fx: float | None,
+        baseline_sales_fx_monthly: Mapping[str, float] | None,
+        comparison_sales_fx_monthly: Mapping[str, float] | None,
         idempotency_actor: str,
         idempotency_key: str,
         provenance: ResultProvenance,
         max_attempts: int,
     ) -> SubmissionRecord:
         try:
-            row = _first(self._client.rpc(
-                "create_durable_calculation_job_idempotent",
-                {
+            monthly = baseline_sales_fx_monthly is not None or comparison_sales_fx_monthly is not None
+            rpc_name = (
+                "create_durable_calculation_job_idempotent_v11"
+                if monthly else "create_durable_calculation_job_idempotent"
+            )
+            params = {
                     "p_baseline_model_id": baseline_model_id,
                     "p_comparison_model_id": comparison_model_id,
                     "p_start_month": start_month,
                     "p_end_month": end_month,
-                    "p_baseline_sales_fx": baseline_sales_fx,
-                    "p_comparison_sales_fx": comparison_sales_fx,
                     "p_idempotency_actor": idempotency_actor,
                     "p_idempotency_key": idempotency_key,
                     "p_engine_version": provenance.engine_version,
@@ -176,8 +181,14 @@ class SupabaseBffApplicationGateway:
                     "p_mapping_hash": provenance.mapping_hash,
                     "p_result_schema_version": provenance.result_schema_version,
                     "p_max_attempts": max_attempts,
-                },
-            ).execute())
+            }
+            if monthly:
+                params["p_baseline_sales_fx_monthly"] = dict(baseline_sales_fx_monthly or {})
+                params["p_comparison_sales_fx_monthly"] = dict(comparison_sales_fx_monthly or {})
+            else:
+                params["p_baseline_sales_fx"] = baseline_sales_fx
+                params["p_comparison_sales_fx"] = comparison_sales_fx
+            row = _first(self._client.rpc(rpc_name, params).execute())
         except Exception as exc:
             self._raise_mapped(exc)
         if row is None:

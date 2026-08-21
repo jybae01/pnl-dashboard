@@ -186,9 +186,11 @@ class AnalysisSubmitRequest:
     comparison_model_id: str
     start_month: int
     end_month: int
-    baseline_sales_fx: float
-    comparison_sales_fx: float
     idempotency_key: str
+    baseline_sales_fx: float | None = None
+    comparison_sales_fx: float | None = None
+    baseline_sales_fx_monthly: Mapping[str, float] | None = None
+    comparison_sales_fx_monthly: Mapping[str, float] | None = None
 
 
 @dataclass(frozen=True)
@@ -281,8 +283,10 @@ class AnalysisPresentationIdentityResponse:
     comparison_model_name: str
     start_month: int
     end_month: int
-    baseline_sales_fx: float
-    comparison_sales_fx: float
+    baseline_sales_fx: float | None
+    comparison_sales_fx: float | None
+    baseline_sales_fx_monthly: Mapping[str, float] | None
+    comparison_sales_fx_monthly: Mapping[str, float] | None
     result_schema_version: str
     completed_at: str
     is_published: bool

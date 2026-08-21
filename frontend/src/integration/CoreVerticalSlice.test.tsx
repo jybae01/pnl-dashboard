@@ -29,6 +29,13 @@ function viewerResults(...ids: string[]) {
   };
 }
 
+async function fillMonthlyFx(key: string, baseline: string, comparison: string) {
+  const baselineInput = await screen.findByLabelText(`${key} 기준 매출환율 (KRW/USD)`);
+  const comparisonInput = screen.getByLabelText(`${key} 비교 매출환율 (KRW/USD)`);
+  fireEvent.change(baselineInput, { target: { value: baseline } });
+  fireEvent.change(comparisonInput, { target: { value: comparison } });
+}
+
 afterEach(() => vi.unstubAllGlobals());
 
 describe('React core vertical slice', () => {
@@ -50,9 +57,18 @@ describe('React core vertical slice', () => {
       '비교 모형',
       '시작 월',
       '종료 월',
-      '기준 매출환율 (KRW/USD)',
-      '비교 매출환율 (KRW/USD)',
     ]);
+    expect(screen.getByLabelText('월별 매출환율 입력')).toBeInTheDocument();
+    expect(within(condition).getByRole('button', { name: '분석 실행' })).toBeDisabled();
+    fireEvent.change(screen.getByLabelText('종료 월'), { target: { value: '1' } });
+    await fillMonthlyFx('2026-01', '1480', '1490');
+    expect(within(condition).getByRole('button', { name: '분석 실행' })).toBeEnabled();
+    const comparisonFx = screen.getByLabelText('2026-01 비교 매출환율 (KRW/USD)');
+    fireEvent.change(comparisonFx, { target: { value: '0' } });
+    expect(within(condition).getByRole('button', { name: '분석 실행' })).toBeDisabled();
+    fireEvent.change(comparisonFx, { target: { value: '-1' } });
+    expect(within(condition).getByRole('button', { name: '분석 실행' })).toBeDisabled();
+    fireEvent.change(comparisonFx, { target: { value: '1490' } });
     expect(within(condition).getByRole('button', { name: '분석 실행' })).toBeEnabled();
     expect(within(condition).getByRole('button', { name: '새 분석' })).toBeEnabled();
   });
@@ -92,6 +108,8 @@ describe('React core vertical slice', () => {
     expect(await screen.findByRole('heading', { name: '손익 모형 데이터 관리' })).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: '손익분석 결과' }));
     expect(await screen.findByText('분석 조건 설정')).toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText('종료 월'), { target: { value: '1' } });
+    await fillMonthlyFx('2026-01', '1480', '1490');
     fireEvent.click(screen.getByRole('button', { name: '분석 실행' }));
     expect(await screen.findByTestId('stored-result', {}, { timeout: 3500 })).toHaveTextContent('영업이익 증감');
     const condition = screen.getByTestId('analysis-condition-card');
@@ -105,11 +123,15 @@ describe('React core vertical slice', () => {
     expect(submitCall).toBeDefined();
     if (!submitCall) throw new Error('submit request was not observed');
     const submitInit = submitCall[1] as RequestInit;
-    expect(JSON.parse(String(submitInit.body)).idempotency_key).toMatch(/^[0-9a-f-]{36}$/);
+    const submitted = JSON.parse(String(submitInit.body));
+    expect(submitted.idempotency_key).toMatch(/^[0-9a-f-]{36}$/);
+    expect(submitted.baseline_sales_fx_monthly).toEqual({ '2026-01': 1480 });
+    expect(submitted.comparison_sales_fx_monthly).toEqual({ '2026-01': 1490 });
+    expect(submitted.baseline_sales_fx).toBeUndefined();
     expect((submitInit.headers as Headers).get('X-CSRF-Token')).toBe('test-csrf');
   }, 5000);
 
-  it('keeps month and FX editing text-backed, then sends numeric DTO values at submit', async () => {
+  it('preserves overlapping monthly FX values and sends exact YYYY-MM maps', async () => {
     window.sessionStorage.removeItem('pnl.active-analysis-job-id');
     const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const path = String(input);
@@ -120,7 +142,7 @@ describe('React core vertical slice', () => {
       if (path.endsWith('/api/analyses')) return json({ job_id: JOB, status: 'PENDING', execution_state: 'QUEUED', idempotency_replayed: false, dto_version: '1' });
       if (path.endsWith(`/api/jobs/${JOB}`)) return json({
         job_id: JOB, status: 'PENDING', baseline_model_id: BASE, comparison_model_id: COMP,
-        start_month: 8, end_month: 12, attempt: 1, max_attempts: 3,
+        start_month: 8, end_month: 10, attempt: 1, max_attempts: 3,
         created_at: '', heartbeat_at: null, completed_at: null, result_id: null,
         error_code: null, error_message: null, execution_state: 'QUEUED', dto_version: '1',
       });
@@ -131,28 +153,39 @@ describe('React core vertical slice', () => {
     expect(await screen.findByText('분석 조건 설정')).toBeInTheDocument();
 
     const start = screen.getByLabelText('시작 월') as HTMLInputElement;
-    const baselineFx = screen.getByLabelText('기준 매출환율 (KRW/USD)') as HTMLInputElement;
     expect(start).toHaveValue('01');
     expect(screen.getByLabelText('종료 월')).toHaveValue('12');
     expect(start.type).toBe('text');
     expect(start.inputMode).toBe('numeric');
-    expect(baselineFx.type).toBe('text');
-    expect(baselineFx.inputMode).toBe('decimal');
 
     fireEvent.focus(start);
     expect(start.selectionStart).toBe(0);
     expect(start.selectionEnd).toBe(start.value.length);
     fireEvent.change(start, { target: { value: '' } });
     expect(start).toHaveValue('');
-    fireEvent.change(start, { target: { value: '8' } });
-    expect(start).toHaveValue('8');
+    fireEvent.change(start, { target: { value: '7' } });
+    expect(start).toHaveValue('7');
     fireEvent.blur(start);
-    expect(start).toHaveValue('08');
+    expect(start).toHaveValue('07');
+    fireEvent.change(screen.getByLabelText('종료 월'), { target: { value: '9' } });
+    await fillMonthlyFx('2026-07', '1480', '1385');
+    await fillMonthlyFx('2026-08', '1480.25', '1402.5');
+    await fillMonthlyFx('2026-09', '1481', '1417');
+    const august = screen.getByLabelText('2026-08 기준 매출환율 (KRW/USD)') as HTMLInputElement;
+    expect(august.type).toBe('text');
+    expect(august.inputMode).toBe('decimal');
+    fireEvent.focus(august);
+    expect(august.selectionStart).toBe(0);
+    expect(august.selectionEnd).toBe(august.value.length);
 
-    fireEvent.change(baselineFx, { target: { value: '' } });
-    expect(baselineFx).toHaveValue('');
-    fireEvent.change(baselineFx, { target: { value: '1450.25' } });
-    fireEvent.change(screen.getByLabelText('비교 매출환율 (KRW/USD)'), { target: { value: '1450.5' } });
+    fireEvent.change(start, { target: { value: '8' } });
+    fireEvent.change(screen.getByLabelText('종료 월'), { target: { value: '10' } });
+    expect(await screen.findByLabelText('2026-10 기준 매출환율 (KRW/USD)')).toHaveValue('');
+    expect(screen.queryByLabelText('2026-07 기준 매출환율 (KRW/USD)')).not.toBeInTheDocument();
+    expect(screen.getByLabelText('2026-08 기준 매출환율 (KRW/USD)')).toHaveValue('1480.25');
+    expect(screen.getByLabelText('2026-09 비교 매출환율 (KRW/USD)')).toHaveValue('1417');
+    expect(screen.getByRole('button', { name: '분석 실행' })).toBeDisabled();
+    await fillMonthlyFx('2026-10', '1482', '1430');
     fireEvent.click(screen.getByRole('button', { name: '분석 실행' }));
 
     await waitFor(() => expect(fetchMock.mock.calls.some(([input]) => String(input).endsWith('/api/analyses'))).toBe(true));
@@ -160,10 +193,14 @@ describe('React core vertical slice', () => {
     if (!submitCall) throw new Error('submit request was not observed');
     const body = JSON.parse(String((submitCall[1] as RequestInit).body));
     expect(body.start_month).toBe(8);
-    expect(body.end_month).toBe(12);
-    expect(body.baseline_sales_fx).toBe(1450.25);
-    expect(body.comparison_sales_fx).toBe(1450.5);
-    expect(typeof body.baseline_sales_fx).toBe('number');
+    expect(body.end_month).toBe(10);
+    expect(body.baseline_sales_fx_monthly).toEqual({
+      '2026-08': 1480.25, '2026-09': 1481, '2026-10': 1482,
+    });
+    expect(body.comparison_sales_fx_monthly).toEqual({
+      '2026-08': 1402.5, '2026-09': 1417, '2026-10': 1430,
+    });
+    expect(body.baseline_sales_fx).toBeUndefined();
     window.sessionStorage.removeItem('pnl.active-analysis-job-id');
   });
 
@@ -208,6 +245,8 @@ describe('React core vertical slice', () => {
     }));
     render(<CoreAnalysisView role="admin" />);
     expect(await screen.findByText('분석 조건 설정')).toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText('종료 월'), { target: { value: '1' } });
+    await fillMonthlyFx('2026-01', '1480', '1490');
     const run = screen.getByRole('button', { name: '분석 실행' });
     fireEvent.click(run);
     expect(await screen.findByText('서버에 연결할 수 없습니다.')).toBeInTheDocument();

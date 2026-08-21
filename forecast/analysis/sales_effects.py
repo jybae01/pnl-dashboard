@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from typing import Any
 
 from .configuration import AnalysisConfig
 from .schema import AnalysisScenario, ProductRecord
@@ -153,7 +154,7 @@ def calculate_sales_effects(
     left = _product_map(base)
     right = _product_map(comparison)
     months = sorted(set(base.months) & set(comparison.months))
-    monthly_effects: dict[str, dict[str, float | str]] = {
+    monthly_effects: dict[str, dict[str, Any]] = {
         month: {
             "period": month,
             "quantity_effect": 0.0,
@@ -172,6 +173,22 @@ def calculate_sales_effects(
 
     for month in months:
         codes = sorted({code for ym, code in left if ym == month} | {code for ym, code in right if ym == month})
+        baseline_fx_values = {
+            float(row.sales_fx) for (ym, _code), row in left.items()
+            if ym == month and str(row.product_group).strip() != "신사업"
+        }
+        comparison_fx_values = {
+            float(row.sales_fx) for (ym, _code), row in right.items()
+            if ym == month and str(row.product_group).strip() != "신사업"
+        }
+        if baseline_fx_values or comparison_fx_values:
+            if len(baseline_fx_values) != 1 or len(comparison_fx_values) != 1:
+                raise ValueError(f"{month}: each side must use exactly one monthly sales FX value")
+            monthly_effects[month]["baseline_sales_fx"] = next(iter(baseline_fx_values))
+            monthly_effects[month]["comparison_sales_fx"] = next(iter(comparison_fx_values))
+        else:
+            monthly_effects[month]["baseline_sales_fx"] = None
+            monthly_effects[month]["comparison_sales_fx"] = None
         new_business_codes = [
             code
             for code in codes

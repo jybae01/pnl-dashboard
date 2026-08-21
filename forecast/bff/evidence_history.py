@@ -141,8 +141,17 @@ class EvidenceDeliveryService:
                     ApiErrorCode.EVIDENCE_GENERATION_FAILED,
                     "Evidence workbook generation failed",
                 )
-            baseline_fx = _positive_finite(sales.get("baseline_fx_krw_per_usd"))
-            comparison_fx = _positive_finite(sales.get("comparison_fx_krw_per_usd"))
+            monthly_baseline = sales.get("baseline_sales_fx_monthly")
+            monthly_comparison = sales.get("comparison_sales_fx_monthly")
+            if isinstance(monthly_baseline, Mapping) and isinstance(monthly_comparison, Mapping):
+                baseline_fx = comparison_fx = None
+                if not monthly_baseline or set(monthly_baseline) != set(monthly_comparison):
+                    raise _integrity_failure()
+                for value in (*monthly_baseline.values(), *monthly_comparison.values()):
+                    _positive_finite(value)
+            else:
+                baseline_fx = _positive_finite(sales.get("baseline_fx_krw_per_usd"))
+                comparison_fx = _positive_finite(sales.get("comparison_fx_krw_per_usd"))
             result["evidence_provenance"] = _escape_workbook_text({
                 "result_id": result_id,
                 "job_id": values["job_id"],

@@ -230,6 +230,8 @@ def build_fact_pack(
     pack["sales"] = {
         "baseline_sales_fx_krw_per_usd": sales_view.get("baseline_fx_krw_per_usd"),
         "comparison_sales_fx_krw_per_usd": sales_view.get("comparison_fx_krw_per_usd"),
+        "baseline_sales_fx_monthly": sales_view.get("baseline_sales_fx_monthly"),
+        "comparison_sales_fx_monthly": sales_view.get("comparison_sales_fx_monthly"),
         "quantity_effect_million_krw": _money_million(sales_view.get("totals", {}).get("quantity_effect")),
         "mix_effect_million_krw": _money_million(
             sales_view.get("totals", {}).get("mix_effect")

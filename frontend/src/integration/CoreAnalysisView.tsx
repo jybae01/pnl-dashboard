@@ -22,22 +22,19 @@ import {
 } from './EditableNumericInput';
 import '../styles/variance-analysis-shell.css';
 
-type FormState = Omit<SubmitRequest, 'idempotency_key' | 'start_month' | 'end_month' | 'baseline_sales_fx' | 'comparison_sales_fx'> & {
+type FormState = Omit<SubmitRequest, 'idempotency_key' | 'start_month' | 'end_month' | 'baseline_sales_fx' | 'comparison_sales_fx' | 'baseline_sales_fx_monthly' | 'comparison_sales_fx_monthly'> & {
   start_month: string;
   end_month: string;
-  baseline_sales_fx: string;
-  comparison_sales_fx: string;
 };
 
 type ParsedFormState = Omit<SubmitRequest, 'idempotency_key'>;
+type MonthlyFxInput = Record<string, { baseline: string; comparison: string }>;
 
 const INITIAL_FORM: FormState = {
   baseline_model_id: '',
   comparison_model_id: '',
   start_month: '01',
   end_month: '12',
-  baseline_sales_fx: '1450',
-  comparison_sales_fx: '1450',
 };
 
 const ACTIVE_JOB_STORAGE_KEY = 'pnl.active-analysis-job-id';
@@ -53,6 +50,7 @@ const EXECUTION_STATE_LABELS: Record<JobStatusDto['execution_state'], string> = 
 export function CoreAnalysisView({ role, modelRefreshKey = 0, initialResultId }: { role: Role; modelRefreshKey?: number; initialResultId?: string }) {
   const [models, setModels] = useState<AnalysisModelDto[]>([]);
   const [form, setForm] = useState<FormState>(INITIAL_FORM);
+  const [monthlyFx, setMonthlyFx] = useState<MonthlyFxInput>({});
   const [job, setJob] = useState<JobStatusDto | null>(null);
   const [result, setResult] = useState<AnalysisPresentationDto | null>(null);
   const [viewerState, setViewerState] = useState<ViewerState>('EMPTY');
@@ -247,23 +245,54 @@ export function CoreAnalysisView({ role, modelRefreshKey = 0, initialResultId }:
     setError(null);
   }, [role, initialResultId]);
 
-  const fingerprint = useMemo(() => JSON.stringify(form), [form]);
   const parsedStartMonth = parseMonthInput(form.start_month);
   const parsedEndMonth = parseMonthInput(form.end_month);
-  const parsedBaselineSalesFx = parseDecimalInput(form.baseline_sales_fx);
-  const parsedComparisonSalesFx = parseDecimalInput(form.comparison_sales_fx);
+  const baseModelObj = models.find((model) => model.model_id === form.baseline_model_id);
+  const compModelObj = models.find((model) => model.model_id === form.comparison_model_id);
+  const analysisYear = baseModelObj?.model_year;
+  const monthlyFxKeys = useMemo(() => (
+    analysisYear !== undefined
+    && parsedStartMonth !== null
+    && parsedEndMonth !== null
+    && parsedStartMonth <= parsedEndMonth
+      ? Array.from(
+        { length: parsedEndMonth - parsedStartMonth + 1 },
+        (_, index) => `${analysisYear}-${String(parsedStartMonth + index).padStart(2, '0')}`,
+      )
+      : []
+  ), [analysisYear, parsedStartMonth, parsedEndMonth]);
+
+  useEffect(() => {
+    setMonthlyFx((previous) => Object.fromEntries(
+      monthlyFxKeys.map((key) => [key, previous[key] ?? { baseline: '', comparison: '' }]),
+    ));
+  }, [monthlyFxKeys.join('|')]);
+
+  const fingerprint = useMemo(() => JSON.stringify({ form, monthlyFx }), [form, monthlyFx]);
+  const parsedBaselineSalesFxMonthly: Record<string, number> = {};
+  const parsedComparisonSalesFxMonthly: Record<string, number> = {};
+  let monthlyFxValid = monthlyFxKeys.length > 0;
+  for (const key of monthlyFxKeys) {
+    const baseline = parseDecimalInput(monthlyFx[key]?.baseline ?? '');
+    const comparison = parseDecimalInput(monthlyFx[key]?.comparison ?? '');
+    if (baseline === null || comparison === null || baseline <= 0 || comparison <= 0) {
+      monthlyFxValid = false;
+      continue;
+    }
+    parsedBaselineSalesFxMonthly[key] = baseline;
+    parsedComparisonSalesFxMonthly[key] = comparison;
+  }
   const parsedForm: ParsedFormState | null = parsedStartMonth !== null
     && parsedEndMonth !== null
     && parsedStartMonth <= parsedEndMonth
-    && parsedBaselineSalesFx !== null
-    && parsedComparisonSalesFx !== null
+    && monthlyFxValid
     ? {
       baseline_model_id: form.baseline_model_id,
       comparison_model_id: form.comparison_model_id,
       start_month: parsedStartMonth,
       end_month: parsedEndMonth,
-      baseline_sales_fx: parsedBaselineSalesFx,
-      comparison_sales_fx: parsedComparisonSalesFx,
+      baseline_sales_fx_monthly: parsedBaselineSalesFxMonthly,
+      comparison_sales_fx_monthly: parsedComparisonSalesFxMonthly,
     }
     : null;
   const formValid = Boolean(
@@ -369,8 +398,6 @@ export function CoreAnalysisView({ role, modelRefreshKey = 0, initialResultId }:
     );
   }
 
-  const baseModelObj = models.find((m) => m.model_id === form.baseline_model_id);
-  const compModelObj = models.find((m) => m.model_id === form.comparison_model_id);
   let analysisTypeLabel = '';
   if (baseModelObj && compModelObj) {
     if (baseModelObj.model_type === 'PLAN' && compModelObj.model_type === 'ACTUAL') {
@@ -415,8 +442,44 @@ export function CoreAnalysisView({ role, modelRefreshKey = 0, initialResultId }:
             onChange={(value) => setForm({ ...form, comparison_model_id: value })} />
           <NumberInput mode="month" label="시작 월" value={form.start_month} disabled={isSubmitting || isJobActive(job)} onChange={(value) => setForm({ ...form, start_month: value })} />
           <NumberInput mode="month" label="종료 월" value={form.end_month} disabled={isSubmitting || isJobActive(job)} onChange={(value) => setForm({ ...form, end_month: value })} />
-          <NumberInput mode="decimal" label="기준 매출환율 (KRW/USD)" value={form.baseline_sales_fx} disabled={isSubmitting || isJobActive(job)} onChange={(value) => setForm({ ...form, baseline_sales_fx: value })} />
-          <NumberInput mode="decimal" label="비교 매출환율 (KRW/USD)" value={form.comparison_sales_fx} disabled={isSubmitting || isJobActive(job)} onChange={(value) => setForm({ ...form, comparison_sales_fx: value })} />
+          <div className="variance-monthly-fx" aria-label="월별 매출환율 입력">
+            <div className="variance-monthly-fx__heading">
+              <strong>월별 매출환율 (KRW/USD)</strong>
+              <span>선택기간의 각 월 환율을 개별 입력합니다.</span>
+            </div>
+            <div className="variance-monthly-fx__table">
+              <div className="variance-monthly-fx__row is-header" aria-hidden="true">
+                <span>월</span><span>기준 매출환율</span><span>비교 매출환율</span>
+              </div>
+              {monthlyFxKeys.map((key) => (
+                <div className="variance-monthly-fx__row" key={key}>
+                  <span className="variance-monthly-fx__month">{key}</span>
+                  <EditableNumericInput
+                    className="filter-select"
+                    mode="decimal"
+                    value={monthlyFx[key]?.baseline ?? ''}
+                    disabled={isSubmitting || isJobActive(job)}
+                    aria-label={`${key} 기준 매출환율 (KRW/USD)`}
+                    onChange={(value) => setMonthlyFx((current) => ({
+                      ...current,
+                      [key]: { ...(current[key] ?? { baseline: '', comparison: '' }), baseline: value },
+                    }))}
+                  />
+                  <EditableNumericInput
+                    className="filter-select"
+                    mode="decimal"
+                    value={monthlyFx[key]?.comparison ?? ''}
+                    disabled={isSubmitting || isJobActive(job)}
+                    aria-label={`${key} 비교 매출환율 (KRW/USD)`}
+                    onChange={(value) => setMonthlyFx((current) => ({
+                      ...current,
+                      [key]: { ...(current[key] ?? { baseline: '', comparison: '' }), comparison: value },
+                    }))}
+                  />
+                </div>
+              ))}
+            </div>
+          </div>
           <div className="variance-control-actions">
             <button className="btn btn-primary variance-control-run" disabled={!formValid || isSubmitting || isJobActive(job)}>
               <Play size={14} fill="currentColor" />{isSubmitting ? '요청 중…' : '분석 실행'}

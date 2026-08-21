@@ -33,6 +33,7 @@ from .gateway import (
 
 
 IDEMPOTENCY_KEY_PATTERN = re.compile(r"^[A-Za-z0-9._:-]{1,128}$")
+MONTH_KEY_PATTERN = re.compile(r"^(?P<year>[0-9]{4})-(?P<month>0[1-9]|1[0-2])$")
 JOB_STATUSES = {"pending", "processing", "completed", "failed"}
 LOGGER = logging.getLogger(__name__)
 
@@ -84,9 +85,11 @@ class _ValidatedSubmit:
     comparison_model_id: str
     start_month: int
     end_month: int
-    baseline_sales_fx: float
-    comparison_sales_fx: float
     idempotency_key: str
+    baseline_sales_fx: float | None = None
+    comparison_sales_fx: float | None = None
+    baseline_sales_fx_monthly: Mapping[str, float] | None = None
+    comparison_sales_fx_monthly: Mapping[str, float] | None = None
 
 
 class AnalysisSubmissionService:
@@ -122,6 +125,8 @@ class AnalysisSubmissionService:
                 end_month=value.end_month,
                 baseline_sales_fx=value.baseline_sales_fx,
                 comparison_sales_fx=value.comparison_sales_fx,
+                baseline_sales_fx_monthly=value.baseline_sales_fx_monthly,
+                comparison_sales_fx_monthly=value.comparison_sales_fx_monthly,
                 idempotency_actor=principal.actor_id,
                 idempotency_key=value.idempotency_key,
                 provenance=self._provenance,
@@ -583,12 +588,46 @@ def _validate_submit(request: AnalysisSubmitRequest) -> _ValidatedSubmit:
         errors["end_month"] = "must be an integer from 1 through 12"
     if not errors and not 1 <= request.start_month <= request.end_month <= 12:
         errors["period"] = "must satisfy 1 <= start_month <= end_month <= 12"
-    baseline_fx = _positive_number(request.baseline_sales_fx, "baseline_sales_fx", errors)
-    comparison_fx = _positive_number(
-        request.comparison_sales_fx,
-        "comparison_sales_fx",
-        errors,
-    )
+    has_monthly = request.baseline_sales_fx_monthly is not None or request.comparison_sales_fx_monthly is not None
+    has_scalar = request.baseline_sales_fx is not None or request.comparison_sales_fx is not None
+    baseline_fx: float | None = None
+    comparison_fx: float | None = None
+    baseline_monthly: Mapping[str, float] | None = None
+    comparison_monthly: Mapping[str, float] | None = None
+    if has_monthly and has_scalar:
+        errors["sales_fx"] = "scalar and monthly FX contracts must not be mixed"
+    elif has_monthly:
+        baseline_monthly = _monthly_fx_map(
+            request.baseline_sales_fx_monthly,
+            "baseline_sales_fx_monthly",
+            request.start_month,
+            request.end_month,
+            errors,
+        )
+        comparison_monthly = _monthly_fx_map(
+            request.comparison_sales_fx_monthly,
+            "comparison_sales_fx_monthly",
+            request.start_month,
+            request.end_month,
+            errors,
+        )
+        if baseline_monthly is not None and comparison_monthly is not None:
+            if set(baseline_monthly) != set(comparison_monthly):
+                errors["sales_fx_monthly"] = "baseline and comparison month keys must match"
+    elif has_scalar:
+        if request.start_month != request.end_month:
+            errors["sales_fx_monthly"] = "monthly FX maps are required for multi-month analysis"
+        if request.baseline_sales_fx is None or request.comparison_sales_fx is None:
+            errors["sales_fx"] = "both scalar FX values are required"
+        else:
+            baseline_fx = _positive_number(request.baseline_sales_fx, "baseline_sales_fx", errors)
+            comparison_fx = _positive_number(
+                request.comparison_sales_fx,
+                "comparison_sales_fx",
+                errors,
+            )
+    else:
+        errors["sales_fx"] = "monthly FX maps are required"
     key = request.idempotency_key.strip() if isinstance(request.idempotency_key, str) else ""
     if not IDEMPOTENCY_KEY_PATTERN.fullmatch(key):
         errors["idempotency_key"] = "must be 1-128 characters: A-Z a-z 0-9 . _ : -"
@@ -605,8 +644,45 @@ def _validate_submit(request: AnalysisSubmitRequest) -> _ValidatedSubmit:
         end_month=request.end_month,
         baseline_sales_fx=baseline_fx,
         comparison_sales_fx=comparison_fx,
+        baseline_sales_fx_monthly=baseline_monthly,
+        comparison_sales_fx_monthly=comparison_monthly,
         idempotency_key=key,
     )
+
+
+def _monthly_fx_map(
+    value: Mapping[str, Any] | None,
+    field_name: str,
+    start_month: int,
+    end_month: int,
+    errors: dict[str, str],
+) -> Mapping[str, float] | None:
+    if not isinstance(value, Mapping):
+        errors[field_name] = "must be an object keyed by YYYY-MM"
+        return None
+    normalized: dict[str, float] = {}
+    years: set[str] = set()
+    months: set[int] = set()
+    for key, raw in value.items():
+        match = MONTH_KEY_PATTERN.fullmatch(key) if isinstance(key, str) else None
+        if match is None:
+            errors[field_name] = "keys must use YYYY-MM"
+            return None
+        years.add(match.group("year"))
+        months.add(int(match.group("month")))
+        if isinstance(raw, bool) or not isinstance(raw, (int, float)):
+            errors[field_name] = "values must be positive finite numbers"
+            return None
+        number = float(raw)
+        if not math.isfinite(number) or number <= 0:
+            errors[field_name] = "values must be positive finite numbers"
+            return None
+        normalized[key] = number
+    required_months = set(range(start_month, end_month + 1)) if 1 <= start_month <= end_month <= 12 else set()
+    if len(years) != 1 or months != required_months or len(normalized) != len(required_months):
+        errors[field_name] = "must contain exactly every selected YYYY-MM month"
+        return None
+    return normalized
 
 
 def _uuid(value: str, field_name: str) -> str:

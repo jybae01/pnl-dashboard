@@ -170,8 +170,10 @@ export interface SubmitRequest {
   comparison_model_id: string;
   start_month: number;
   end_month: number;
-  baseline_sales_fx: number;
-  comparison_sales_fx: number;
+  baseline_sales_fx?: number;
+  comparison_sales_fx?: number;
+  baseline_sales_fx_monthly?: Record<string, number>;
+  comparison_sales_fx_monthly?: Record<string, number>;
   idempotency_key: string;
 }
 
@@ -285,7 +287,9 @@ export interface AnalysisPresentationDto {
     baseline_model_id: string; comparison_model_id: string;
     baseline_model_name: string; comparison_model_name: string;
     start_month: number; end_month: number;
-    baseline_sales_fx: number; comparison_sales_fx: number;
+    baseline_sales_fx: number | null; comparison_sales_fx: number | null;
+    baseline_sales_fx_monthly?: Record<string, number> | null;
+    comparison_sales_fx_monthly?: Record<string, number> | null;
     result_schema_version: string; completed_at: string;
     is_published: boolean; is_default: boolean; published_at: string | null;
   };

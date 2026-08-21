@@ -284,7 +284,7 @@ def _write_raw_formula_audit(
     }
 
 
-def _write_readme(ws, result: dict[str, Any], baseline_fx: float, comparison_fx: float) -> None:
+def _write_readme(ws, result: dict[str, Any], baseline_fx: float | None, comparison_fx: float | None) -> None:
     _write_title(ws, "손익분석 검증 엑셀", "웹 손익분석에서 사용한 입력값, 원천 셀, 계산식과 결과를 추적하기 위한 파일입니다.")
     base = result.get("baseline", {})
     comp = result.get("comparison", {})
@@ -296,8 +296,8 @@ def _write_readme(ws, result: dict[str, Any], baseline_fx: float, comparison_fx:
         ("분석기간", period.get("label", "")),
         ("증감 정의", "비교 모형 - 기준 모형"),
         ("효과 부호", "손익 개선 + / 손익 악화 -"),
-        ("기준 매출환율", baseline_fx),
-        ("비교 매출환율", comparison_fx),
+        ("기준 매출환율", baseline_fx if baseline_fx is not None else "월별 환율 적용"),
+        ("비교 매출환율", comparison_fx if comparison_fx is not None else "월별 환율 적용"),
         ("영업이익 증감", result.get("operating_profit_delta", 0)),
         ("세부 효과 합계", result.get("effects_total", 0)),
         ("잔여차이", result.get("residual", 0)),
@@ -1696,8 +1696,8 @@ def build_comparison_audit_workbook(
     result: dict[str, Any],
     sales_rows: Iterable[Any],
     sales_totals: dict[str, float],
-    baseline_fx: float,
-    comparison_fx: float,
+    baseline_fx: float | None,
+    comparison_fx: float | None,
     baseline_path: str | Path | None = None,
     comparison_path: str | Path | None = None,
     mapping_path: str | Path,

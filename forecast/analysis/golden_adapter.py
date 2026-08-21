@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Mapping
 
 from .configuration import AnalysisConfig
 from .manufacturing_effects import calculate_manufacturing_effects
@@ -333,6 +333,7 @@ class GoldenAnalysisAdapter:
         month: int,
         *,
         sales_fx: float = 1.0,
+        sales_fx_source: str = "Analysis request.sales_fx",
     ) -> list[ProductRecord]:
         column = self.MONTH_COLUMNS[month]
         material = self.adapter["material"]
@@ -417,7 +418,7 @@ class GoldenAnalysisAdapter:
                     f"Data!{column}{int(term['input_length_row'])}"
                     for term in spec.get("nonwoven_input_terms", ())
                 ),
-                sales_fx_source="Analysis request.sales_fx",
+                sales_fx_source=sales_fx_source,
                 jpy_fx_source=f"Data!{column}{material['jpy_fx_row']}",
                 source_validation_status="SOURCE_MAPPED",
             ))
@@ -439,7 +440,7 @@ class GoldenAnalysisAdapter:
                     production_source=self._source_reference(
                         column, [int(row) for row in spec.get("mcm_rows", ())]
                     ),
-                    sales_fx_source="Analysis request.sales_fx",
+                    sales_fx_source=sales_fx_source,
                     jpy_fx_source=f"Data!{column}{material['jpy_fx_row']}",
                     source_validation_status="SOURCE_MAPPED",
                 ))
@@ -467,7 +468,7 @@ class GoldenAnalysisAdapter:
                 sales_quantity_source=f"Data!{column}{spec['quantity_row']}",
                 sales_amount_source=f"Data!{column}{spec['amount_row']}",
                 product_cogs_source=f"Data!{column}{spec['cogs_row']}",
-                sales_fx_source="Analysis request.sales_fx",
+                sales_fx_source=sales_fx_source,
                 jpy_fx_source=f"Data!{column}{material['jpy_fx_row']}",
                 source_validation_status="SOURCE_MAPPED",
             ))
@@ -479,7 +480,8 @@ class GoldenAnalysisAdapter:
         meta: Any,
         months: tuple[int, ...],
         *,
-        sales_fx: float = 1.0,
+        sales_fx: float | Mapping[str, float] = 1.0,
+        sales_fx_source_field: str = "sales_fx",
     ) -> AdaptedGoldenScenario:
         manufacturing_accounts = self.discover_manufacturing_accounts(workbook)
         sga_rows = self.discover_sga_rows(workbook)
@@ -525,6 +527,16 @@ class GoldenAnalysisAdapter:
         for month in months:
             column = self.MONTH_COLUMNS[month]
             year_month = f"{int(meta.year):04d}-{month:02d}"
+            if isinstance(sales_fx, Mapping):
+                month_sales_fx = float(sales_fx.get(year_month, 1.0))
+                month_sales_fx_source = (
+                    f"Analysis request input: {sales_fx_source_field}[{year_month}]"
+                    if year_month in sales_fx
+                    else "NOT_APPLICABLE_OUTSIDE_ANALYSIS_PERIOD"
+                )
+            else:
+                month_sales_fx = float(sales_fx)
+                month_sales_fx_source = f"Analysis request input: {sales_fx_source_field}"
             tariff_adjustments = getattr(meta, "tariff_adjustment_monthly", {}) or {}
             tariff_uses_direct_adjustment = bool(tariff_adjustments)
             tariff_regional_sales = (
@@ -547,7 +559,8 @@ class GoldenAnalysisAdapter:
                 else self._number(getattr(meta, "tariff_rate", 0.13))
             )
             month_products = self._material_products(
-                workbook, int(meta.year), month, sales_fx=sales_fx
+                workbook, int(meta.year), month, sales_fx=month_sales_fx,
+                sales_fx_source=month_sales_fx_source,
             )
             products.extend(month_products)
             for product_group in ("SW", "BW", "LC", "FS"):

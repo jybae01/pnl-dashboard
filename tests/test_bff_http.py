@@ -55,10 +55,13 @@ class Gateway:
         if not self.model_published:
             raise GatewayValidationError("analysis models must be published")
         key = (values["idempotency_actor"], values["idempotency_key"])
-        fingerprint = tuple(values[name] for name in (
-            "baseline_model_id", "comparison_model_id", "start_month", "end_month",
-            "baseline_sales_fx", "comparison_sales_fx",
-        ))
+        fingerprint = (
+            values["baseline_model_id"], values["comparison_model_id"],
+            values["start_month"], values["end_month"],
+            values["baseline_sales_fx"], values["comparison_sales_fx"],
+            tuple(sorted((values["baseline_sales_fx_monthly"] or {}).items())),
+            tuple(sorted((values["comparison_sales_fx_monthly"] or {}).items())),
+        )
         if key in self.requests:
             if self.requests[key] != fingerprint:
                 raise GatewayIdempotencyConflictError("collision")
@@ -358,7 +361,8 @@ def test_model_list_submit_idempotency_collision_and_unpublished_rejection():
     body = {
         "baseline_model_id": BASE, "comparison_model_id": COMP,
         "start_month": 1, "end_month": 6,
-        "baseline_sales_fx": 1480, "comparison_sales_fx": 1500,
+        "baseline_sales_fx_monthly": {f"2026-{month:02d}": 1480 for month in range(1, 7)},
+        "comparison_sales_fx_monthly": {f"2026-{month:02d}": 1500 for month in range(1, 7)},
         "idempotency_key": "logical-action-1",
     }
     assert fx.client.post("/api/analyses", json=body).status_code == 403
@@ -367,7 +371,8 @@ def test_model_list_submit_idempotency_collision_and_unpublished_rejection():
     replay = fx.client.post("/api/analyses", json=body, headers={"X-CSRF-Token": fx.csrf})
     assert first.status_code == replay.status_code == 200
     assert replay.json()["idempotency_replayed"] is True
-    conflict = fx.client.post("/api/analyses", json={**body, "end_month": 7}, headers={"X-CSRF-Token": fx.csrf})
+    changed = {**body["comparison_sales_fx_monthly"], "2026-03": 1501}
+    conflict = fx.client.post("/api/analyses", json={**body, "comparison_sales_fx_monthly": changed}, headers={"X-CSRF-Token": fx.csrf})
     assert conflict.status_code == 409 and conflict.json()["error"]["code"] == "IDEMPOTENCY_CONFLICT"
     fx.gateway.model_published = False
     denied = fx.client.post("/api/analyses", json={**body, "idempotency_key": "new"}, headers={"X-CSRF-Token": fx.csrf})

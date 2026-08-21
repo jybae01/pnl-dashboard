@@ -65,8 +65,8 @@ def write_sales_evidence(
     result: dict[str, Any],
     sales_rows: Iterable[Any],
     sales_totals: dict[str, float],
-    baseline_fx: float,
-    comparison_fx: float,
+    baseline_fx: float | None,
+    comparison_fx: float | None,
 ) -> dict[str, Any]:
     _title(
         ws,

@@ -2,11 +2,13 @@ from __future__ import annotations
 
 import json
 import hashlib
+import math
+import re
 import threading
 from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Callable, Protocol
+from typing import Any, Callable, Mapping, Protocol
 
 from .ai_analysis import build_fact_pack
 from .comparison import GenericComparisonEngine, PeriodOption
@@ -52,8 +54,10 @@ class InputIntegrityMismatchError(ValueError):
 class AnalysisRequest:
     baseline_model_id: str | None = None
     months: tuple[int, ...] = ()
-    baseline_sales_fx: float = 1480.0
-    comparison_sales_fx: float = 1480.0
+    baseline_sales_fx: float | None = 1480.0
+    comparison_sales_fx: float | None = 1480.0
+    baseline_sales_fx_monthly: Mapping[str, float] | None = None
+    comparison_sales_fx_monthly: Mapping[str, float] | None = None
 
     @classmethod
     def parse(cls, value: dict[str, Any] | None) -> "AnalysisRequest":
@@ -69,10 +73,30 @@ class AnalysisRequest:
             months = tuple(sorted(months))
             if months != tuple(range(months[0], months[-1] + 1)):
                 raise ValueError("analysis_request.months must be contiguous")
-        baseline_fx = float(payload.get("baseline_sales_fx", 1480.0))
-        comparison_fx = float(payload.get("comparison_sales_fx", 1480.0))
-        if baseline_fx <= 0 or comparison_fx <= 0:
-            raise ValueError("sales FX values must be positive")
+        monthly_present = (
+            "baseline_sales_fx_monthly" in payload
+            or "comparison_sales_fx_monthly" in payload
+        )
+        if monthly_present:
+            if "baseline_sales_fx" in payload or "comparison_sales_fx" in payload:
+                raise ValueError("scalar and monthly sales FX contracts must not be mixed")
+            baseline_monthly = _parse_monthly_fx(
+                payload.get("baseline_sales_fx_monthly"),
+                "baseline_sales_fx_monthly",
+            )
+            comparison_monthly = _parse_monthly_fx(
+                payload.get("comparison_sales_fx_monthly"),
+                "comparison_sales_fx_monthly",
+            )
+            if set(baseline_monthly) != set(comparison_monthly):
+                raise ValueError("baseline and comparison monthly sales FX keys must match")
+            baseline_fx = comparison_fx = None
+        else:
+            baseline_monthly = comparison_monthly = None
+            baseline_fx = float(payload.get("baseline_sales_fx", 1480.0))
+            comparison_fx = float(payload.get("comparison_sales_fx", 1480.0))
+            if not math.isfinite(baseline_fx) or not math.isfinite(comparison_fx) or baseline_fx <= 0 or comparison_fx <= 0:
+                raise ValueError("sales FX values must be positive finite numbers")
         # Legacy publish/make_default keys are intentionally accepted and
         # ignored.  A worker is a calculation capability, never a publication
         # authority; publication is a separate Admin action.
@@ -82,7 +106,35 @@ class AnalysisRequest:
             months=months,
             baseline_sales_fx=baseline_fx,
             comparison_sales_fx=comparison_fx,
+            baseline_sales_fx_monthly=baseline_monthly,
+            comparison_sales_fx_monthly=comparison_monthly,
         )
+
+    def validate_period(self, year: int, months: tuple[int, ...]) -> None:
+        if self.baseline_sales_fx_monthly is None or self.comparison_sales_fx_monthly is None:
+            return
+        required = {f"{year:04d}-{month:02d}" for month in months}
+        if set(self.baseline_sales_fx_monthly) != required or set(self.comparison_sales_fx_monthly) != required:
+            raise ValueError("monthly sales FX maps must exactly match the selected analysis period")
+
+
+MONTHLY_FX_KEY = re.compile(r"^[0-9]{4}-(0[1-9]|1[0-2])$")
+
+
+def _parse_monthly_fx(value: Any, field_name: str) -> Mapping[str, float]:
+    if not isinstance(value, Mapping) or not value:
+        raise ValueError(f"analysis_request.{field_name} must be a non-empty object")
+    output: dict[str, float] = {}
+    for key, raw in value.items():
+        if not isinstance(key, str) or MONTHLY_FX_KEY.fullmatch(key) is None:
+            raise ValueError(f"analysis_request.{field_name} keys must use YYYY-MM")
+        if isinstance(raw, bool) or not isinstance(raw, (int, float)):
+            raise ValueError(f"analysis_request.{field_name} values must be numeric")
+        number = float(raw)
+        if not math.isfinite(number) or number <= 0:
+            raise ValueError(f"analysis_request.{field_name} values must be positive finite numbers")
+        output[key] = number
+    return output
 
 
 class DeterministicComparisonExecutor:
@@ -184,6 +236,7 @@ class DeterministicComparisonExecutor:
         months = request.months or common
         if not months or not set(months).issubset(set(common)):
             raise ValueError("analysis months are not shared by baseline and comparison models")
+        request.validate_period(baseline_meta.year, tuple(months))
         period = PeriodOption(
             key=f"R{baseline_meta.year}_{months[0]:02d}_{months[-1]:02d}",
             label=(f"{months[0]}월" if len(months) == 1 else f"{months[0]}~{months[-1]}월"),
@@ -198,6 +251,8 @@ class DeterministicComparisonExecutor:
             period,
             baseline_sales_fx=request.baseline_sales_fx,
             comparison_sales_fx=request.comparison_sales_fx,
+            baseline_sales_fx_monthly=request.baseline_sales_fx_monthly,
+            comparison_sales_fx_monthly=request.comparison_sales_fx_monthly,
         )
         result = asdict(calculated)
         view = build_analysis_view(result)
@@ -212,6 +267,15 @@ class DeterministicComparisonExecutor:
             if len(months) == 1:
                 monthly_result = result
             else:
+                month_key = f"{baseline_meta.year:04d}-{month:02d}"
+                baseline_monthly = (
+                    {month_key: request.baseline_sales_fx_monthly[month_key]}
+                    if request.baseline_sales_fx_monthly is not None else None
+                )
+                comparison_monthly = (
+                    {month_key: request.comparison_sales_fx_monthly[month_key]}
+                    if request.comparison_sales_fx_monthly is not None else None
+                )
                 monthly_result = asdict(engine.compare(
                     baseline_meta,
                     baseline_path,
@@ -225,6 +289,8 @@ class DeterministicComparisonExecutor:
                     ),
                     baseline_sales_fx=request.baseline_sales_fx,
                     comparison_sales_fx=request.comparison_sales_fx,
+                    baseline_sales_fx_monthly=baseline_monthly,
+                    comparison_sales_fx_monthly=comparison_monthly,
                 ))
             monthly_results.append(monthly_result)
             if heartbeat:

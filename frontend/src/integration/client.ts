@@ -773,7 +773,7 @@ function validatePresentation(value: unknown): AnalysisPresentationDto {
     || !integerInRange(identity.start_month, 1, 12)
     || !integerInRange(identity.end_month, 1, 12)
     || Number(identity.start_month) > Number(identity.end_month)
-    || !positiveFinite(identity.baseline_sales_fx) || !positiveFinite(identity.comparison_sales_fx)
+    || !validPresentationFxContract(identity)
     || typeof identity.result_schema_version !== 'string'
     || typeof identity.completed_at !== 'string'
     || typeof identity.is_published !== 'boolean'
@@ -846,6 +846,24 @@ function optionalFinite(value: unknown): boolean {
 
 function positiveFinite(value: unknown): boolean {
   return finite(value) && value > 0;
+}
+
+function validPresentationFxContract(identity: Record<string, unknown>): boolean {
+  const baselineMonthly = identity.baseline_sales_fx_monthly;
+  const comparisonMonthly = identity.comparison_sales_fx_monthly;
+  const monthly = isRecord(baselineMonthly) || isRecord(comparisonMonthly);
+  if (monthly) {
+    if (!isRecord(baselineMonthly) || !isRecord(comparisonMonthly)
+      || identity.baseline_sales_fx !== null || identity.comparison_sales_fx !== null
+      || Object.keys(baselineMonthly).length === 0
+      || Object.keys(baselineMonthly).length !== Object.keys(comparisonMonthly).length) return false;
+    return Object.keys(baselineMonthly).every((key) => key in comparisonMonthly
+      && /^\d{4}-(0[1-9]|1[0-2])$/.test(key)
+      && positiveFinite(baselineMonthly[key]) && positiveFinite(comparisonMonthly[key]));
+  }
+  return positiveFinite(identity.baseline_sales_fx) && positiveFinite(identity.comparison_sales_fx)
+    && (baselineMonthly === undefined || baselineMonthly === null)
+    && (comparisonMonthly === undefined || comparisonMonthly === null);
 }
 
 function integerInRange(value: unknown, low: number, high: number): boolean {

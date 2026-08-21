@@ -43,6 +43,7 @@ $expected = [ordered]@{
     '202608190002_pnl_reporting_viewer_read_slice_c.sql' = '1bf546d0619070609540cea0ccf94dff83f3dec39b10a258d83e8092b42dbcbd'
     '202608190003_pnl_reporting_viewer_year_bootstrap.sql' = '5f2345163b66979efe7b8a10b9bac695e360ae9ed3bd2b243bb2530dc94bb4b1'
     '202608210001_forecast_tariff_metadata_finalize_v11.sql' = '07c18cbad778a7dbaabe44ffe4fcfc553230891c78fdbd056a72bd75a87b02af'
+    '202608210002_analysis_monthly_fx_idempotent_v11.sql' = 'cb8434fa0d99da8865359db8e4ed2679681af21be26d9ce2b48edf697380fde9'
 }
 
 $files = @(Get-ChildItem -LiteralPath $MigrationDirectory -File -Filter '*.sql' | Sort-Object Name)
