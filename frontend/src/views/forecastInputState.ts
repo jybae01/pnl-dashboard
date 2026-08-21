@@ -140,14 +140,14 @@ function advancedValues(metadata?: ForecastInputMetadataDto): ForecastAdvancedFo
     newBusinessGoodsCogsReason: '',
     ufMbrCogsRate: '0.85',
     ixCogsRate: '0.85',
-    ufMbrTransportRate: '0.05',
+    ufMbrTransportRate: '0.10',
     ixTransportRate: '0.05',
     ixPackLiters: '25',
     ixPackCost: '380',
     planNaSaSales: '0',
     naSaSales: '0',
-    tariffApplicableRate: '0.1',
-    tariffRate: '0.13',
+    tariffApplicableRate: '0.85',
+    tariffRate: '0.10',
     rawMaterialBasis: 'model',
     rawMaterialDirect: '',
     rawMaterialAdjustment: '0',
@@ -204,6 +204,42 @@ export function ensureForecastMonths(
   return changed ? next : current;
 }
 
+export function hasForecastAdjustmentInput(
+  value: ForecastMonthFormState | undefined,
+  metadata?: ForecastInputMetadataDto,
+): boolean {
+  if (!value) return false;
+  const defaults = createForecastMonthFormState(value.month, metadata);
+  const hasAdjustmentRows = [
+    ...Object.values(value.manufacturingAdjustments),
+    ...Object.values(value.sgaAdjustments),
+  ].some((entry) => (entry.amount.trim() !== '' && entry.amount.trim() !== '0') || entry.reason.trim() !== '');
+  if (hasAdjustmentRows) return true;
+
+  const fields: Array<keyof ForecastAdvancedFormState> = [
+    'disposalAdjustment', 'disposalReason',
+    'obsolescenceAdjustment', 'obsolescenceReason',
+    'newBusinessGoodsCogsMode', 'newBusinessGoodsCogs', 'newBusinessGoodsCogsReason',
+    'ufMbrCogsRate', 'ixCogsRate',
+    'ufMbrTransportRate', 'ixTransportRate', 'ixPackLiters', 'ixPackCost',
+    'planNaSaSales', 'naSaSales', 'tariffApplicableRate', 'tariffRate',
+    'rawMaterialBasis', 'rawMaterialDirect', 'rawMaterialAdjustment', 'rawMaterialReason', 'refundRate',
+  ];
+  return fields.some((field) => value[field] !== defaults[field]);
+}
+
+export function findOutOfRangeForecastAdjustmentMonths(
+  selectedMonths: readonly number[],
+  state: ForecastInputState,
+  metadata?: ForecastInputMetadataDto,
+): number[] {
+  const selected = new Set(selectedMonths);
+  return Object.keys(state)
+    .map(Number)
+    .filter((month) => Number.isInteger(month) && !selected.has(month) && hasForecastAdjustmentInput(state[month], metadata))
+    .sort((left, right) => left - right);
+}
+
 export function applyForecastExcelPreview(
   current: ForecastInputState,
   months: readonly number[],
@@ -241,11 +277,14 @@ export function applyForecastExcelPreview(
     replacement[row.month].production[key] = { quantity: String(row.quantity) };
   }
 
-  return Object.fromEntries(months.map((month) => [month, {
-    ...next[month],
-    sales: replacement[month].sales,
-    production: replacement[month].production,
-  }]));
+  return {
+    ...next,
+    ...Object.fromEntries(months.map((month) => [month, {
+      ...next[month],
+      sales: replacement[month].sales,
+      production: replacement[month].production,
+    }])),
+  };
 }
 
 type ParsedValue = { value: number } | { error: string };
@@ -381,14 +420,14 @@ export function adaptForecastInput(
     const scalarFields: Array<[keyof ForecastAdvancedFormState, string, { defaultValue: number; allowNegative?: boolean; max?: number; strictlyPositive?: boolean }]> = [
       ['ufMbrCogsRate', 'UF/MBR 매출원가 비율', { defaultValue: 0.85, max: 1 }],
       ['ixCogsRate', 'IX 매출원가 비율', { defaultValue: 0.85, max: 1 }],
-      ['ufMbrTransportRate', 'UF/MBR 운송비 비율', { defaultValue: 0.05, max: 1 }],
+      ['ufMbrTransportRate', 'UF/MBR 운송비 비율', { defaultValue: 0.10, max: 1 }],
       ['ixTransportRate', 'IX 운송비 비율', { defaultValue: 0.05, max: 1 }],
       ['ixPackLiters', 'IX 포장 기준량', { defaultValue: 25, strictlyPositive: true }],
       ['ixPackCost', 'IX 포장 단가', { defaultValue: 380 }],
       ['planNaSaSales', '기준 북미·남미 매출', { defaultValue: 0 }],
       ['naSaSales', '추정 북미·남미 매출', { defaultValue: 0 }],
-      ['tariffApplicableRate', '관세 적용 비율', { defaultValue: 0.1, max: 1 }],
-      ['tariffRate', '관세율', { defaultValue: 0.13, max: 1 }],
+      ['tariffApplicableRate', '관세 적용 비율', { defaultValue: 0.85, max: 1 }],
+      ['tariffRate', '관세율', { defaultValue: 0.10, max: 1 }],
       ['rawMaterialAdjustment', '원재료 조정액', { defaultValue: 0, allowNegative: true }],
       ['refundRate', '환급률', { defaultValue: 0.013, max: 1 }],
     ];
@@ -444,48 +483,4 @@ export function adaptForecastInput(
   }
 
   return { value: result, error: '' };
-}
-
-export interface ForecastBusinessHelperAdjustments {
-  tariffAdjustment: number;
-  ufMbrFreightAdjustment: number;
-  ixFreightAdjustment: number;
-  ixPackagingAdjustment: number;
-}
-
-export function calculateForecastBusinessHelperAdjustments(
-  monthState: ForecastMonthFormState,
-): ForecastBusinessHelperAdjustments {
-  const parseNum = (str: string | undefined, fallback: number) => {
-    const cleaned = (str ?? '').replace(/,/g, '').trim();
-    if (!cleaned) return fallback;
-    const n = Number(cleaned);
-    return Number.isFinite(n) ? n : fallback;
-  };
-
-  const planNaSaSales = parseNum(monthState.planNaSaSales, 0);
-  const naSaSales = parseNum(monthState.naSaSales, 0);
-  const tariffApplicableRate = parseNum(monthState.tariffApplicableRate, 0.1);
-  const tariffRate = parseNum(monthState.tariffRate, 0.13);
-  const tariffAdjustment = (naSaSales - planNaSaSales) * tariffApplicableRate * tariffRate;
-
-  const ufSalesAmount = parseNum(monthState.sales['UF_MBR']?.amount, 0);
-  const ufMbrTransportRate = parseNum(monthState.ufMbrTransportRate, 0.05);
-  const ufMbrFreightAdjustment = ufSalesAmount * ufMbrTransportRate;
-
-  const ixSalesAmount = parseNum(monthState.sales['IX']?.amount, 0);
-  const ixTransportRate = parseNum(monthState.ixTransportRate, 0.05);
-  const ixFreightAdjustment = ixSalesAmount * ixTransportRate;
-
-  const ixQuantity = parseNum(monthState.sales['IX']?.quantity, 0);
-  const ixPackLiters = parseNum(monthState.ixPackLiters, 25);
-  const ixPackCost = parseNum(monthState.ixPackCost, 380);
-  const ixPackagingAdjustment = ixPackLiters > 0 ? (ixQuantity / ixPackLiters) * ixPackCost : 0;
-
-  return {
-    tariffAdjustment,
-    ufMbrFreightAdjustment,
-    ixFreightAdjustment,
-    ixPackagingAdjustment,
-  };
 }

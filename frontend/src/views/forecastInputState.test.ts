@@ -3,9 +3,10 @@ import {
   adaptForecastInput,
   applyForecastExcelPreview,
   BUSINESS_PRODUCTION_ROWS,
-  calculateForecastBusinessHelperAdjustments,
   createForecastMonthFormState,
   ensureForecastMonths,
+  findOutOfRangeForecastAdjustmentMonths,
+  hasForecastAdjustmentInput,
   MCM_PRODUCTS,
   SALES_PRODUCTS,
 } from './forecastInputState';
@@ -199,6 +200,8 @@ describe('forecast direct-input adapter', () => {
     july.newBusinessGoodsCogsReason = '직접 반영 유지';
     july.naSaSales = '22';
     july.rawMaterialAdjustment = '11';
+    const august = createForecastMonthFormState(8, metadata);
+    august.sgaAdjustments['sga-selling'] = { amount: '88', reason: '범위 밖 보존' };
 
     const preview = {
       source_filename: 'forecast_input.xlsx', valid: true, blocking: false,
@@ -219,7 +222,7 @@ describe('forecast direct-input adapter', () => {
       issues: [], sales_summary: [{ unit: 'PCS' as const, row_count: 1, quantity_total: 123 }],
       production_summary: [{ unit: 'PCS' as const, row_count: 1, quantity_total: 1000 }], dto_version: '1' as const,
     };
-    const applied = applyForecastExcelPreview({ 7: july }, [7], preview, metadata);
+    const applied = applyForecastExcelPreview({ 7: july, 8: august }, [7], preview, metadata);
 
     expect(applied[7].sales.SW400).toEqual({ quantity: '123', amount: '456' });
     expect(applied[7].sales.SW440).toEqual({ quantity: '0', amount: '0' });
@@ -236,6 +239,7 @@ describe('forecast direct-input adapter', () => {
     expect(applied[7].newBusinessGoodsCogsReason).toBe('직접 반영 유지');
     expect(applied[7].naSaSales).toBe('22');
     expect(applied[7].rawMaterialAdjustment).toBe('11');
+    expect(applied[8].sgaAdjustments['sga-selling']).toEqual({ amount: '88', reason: '범위 밖 보존' });
   });
 
   it('requires explicit manual amount and reason while preserving zero override', () => {
@@ -255,69 +259,31 @@ describe('forecast direct-input adapter', () => {
     });
   });
 
-  it('calculates business helper adjustments accurately with explicit numbers', () => {
+  it('uses v1.1 policy metadata defaults without calculating effects in the frontend', () => {
     const month = createForecastMonthFormState(7);
-    month.sales.UF_MBR.amount = '200000000';
-    month.sales.IX.amount = '100000000';
-    month.sales.IX.quantity = '5000';
-    month.planNaSaSales = '500000000';
-    month.naSaSales = '800000000';
-    month.tariffApplicableRate = '0.2';
-    month.tariffRate = '0.15';
-    month.ufMbrTransportRate = '0.06';
-    month.ixTransportRate = '0.04';
-    month.ixPackLiters = '20';
-    month.ixPackCost = '400';
-
-    const result = calculateForecastBusinessHelperAdjustments(month);
-
-    expect(result.tariffAdjustment).toBe(9000000);
-    expect(result.ufMbrFreightAdjustment).toBe(12000000);
-    expect(result.ixFreightAdjustment).toBe(4000000);
-    expect(result.ixPackagingAdjustment).toBe(100000);
+    expect(month.ufMbrTransportRate).toBe('0.10');
+    expect(month.ixTransportRate).toBe('0.05');
+    expect(month.tariffApplicableRate).toBe('0.85');
+    expect(month.tariffRate).toBe('0.10');
   });
 
-  it('uses official contract defaults when scalar rate or cost strings are empty', () => {
-    const month = createForecastMonthFormState(7);
-    month.sales.UF_MBR.amount = '10000000';
-    month.sales.IX.amount = '20000000';
-    month.sales.IX.quantity = '250';
-    month.planNaSaSales = '1000000';
-    month.naSaSales = '2000000';
-    month.tariffApplicableRate = '';
-    month.tariffRate = '';
-    month.ufMbrTransportRate = '';
-    month.ixTransportRate = '';
-    month.ixPackLiters = '';
-    month.ixPackCost = '';
+  it('detects and preserves out-of-range cost inputs without treating plan values as adjustments', () => {
+    const july = createForecastMonthFormState(7, metadata);
+    july.sales.SW400.amount = '999';
+    expect(hasForecastAdjustmentInput(july, metadata)).toBe(false);
 
-    const result = calculateForecastBusinessHelperAdjustments(month);
-
-    expect(result.tariffAdjustment).toBeCloseTo(13000);
-    expect(result.ufMbrFreightAdjustment).toBe(500000);
-    expect(result.ixFreightAdjustment).toBe(1000000);
-    expect(result.ixPackagingAdjustment).toBe(3800);
+    july.manufacturingAdjustments['mfg-energy'] = { amount: '10', reason: '7월 유지' };
+    expect(hasForecastAdjustmentInput(july, metadata)).toBe(true);
+    const state = ensureForecastMonths({ 7: july }, [8, 9, 10], metadata);
+    expect(state[7].manufacturingAdjustments['mfg-energy']).toEqual({ amount: '10', reason: '7월 유지' });
+    expect(findOutOfRangeForecastAdjustmentMonths([8, 9, 10], state, metadata)).toEqual([7]);
   });
 
-  it('returns zero for packaging adjustment when ixPackLiters is zero', () => {
-    const month = createForecastMonthFormState(7);
-    month.sales.IX.quantity = '1000';
-    month.ixPackLiters = '0';
-    month.ixPackCost = '380';
-
-    const result = calculateForecastBusinessHelperAdjustments(month);
-    expect(result.ixPackagingAdjustment).toBe(0);
-  });
-
-  it('does not mutate the input month state', () => {
-    const month = createForecastMonthFormState(7);
-    month.sales.UF_MBR.amount = '123456';
-    month.sales.IX.amount = '789012';
-    month.sales.IX.quantity = '500';
-    const snapshot = JSON.stringify(month);
-
-    calculateForecastBusinessHelperAdjustments(month);
-
-    expect(JSON.stringify(month)).toBe(snapshot);
+  it('treats monthly tariff and raw-material inputs as cost attribution data', () => {
+    const july = createForecastMonthFormState(7, metadata);
+    july.planNaSaSales = '1000';
+    const august = createForecastMonthFormState(8, metadata);
+    august.rawMaterialAdjustment = '-250';
+    expect(findOutOfRangeForecastAdjustmentMonths([9, 10], { 7: july, 8: august }, metadata)).toEqual([7, 8]);
   });
 });
