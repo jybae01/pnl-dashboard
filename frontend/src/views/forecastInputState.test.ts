@@ -169,7 +169,7 @@ describe('forecast direct-input adapter', () => {
     expect(adapted.value?.[0].tariff_rate).toBe(0.14);
     expect(adapted.value?.[0].raw_material_basis).toBe('direct');
     expect(adapted.value?.[0].raw_material_direct).toBe(7000000000);
-    expect(adapted.value?.[0].raw_material_adjustment).toBe(-3456);
+    expect(adapted.value?.[0].raw_material_adjustment).toBe(0);
     expect(adapted.value?.[0].raw_material_reason).toBe('구매팀 입력');
     expect(adapted.value?.[0].refund_rate).toBe(0.02);
   });
@@ -298,5 +298,41 @@ describe('forecast direct-input adapter', () => {
     directBasis.rawMaterialAdjustment = '-250';
     expect(hasForecastAdjustmentInput(directBasis, metadata)).toBe(true);
     expect(findOutOfRangeForecastAdjustmentMonths([9], { 7: modelBasis, 8: directBasis }, metadata)).toEqual([8]);
+  });
+
+  it('ignores and does not serialize an invalid inactive raw-material amount', () => {
+    const directBasis = createForecastMonthFormState(7, metadata);
+    directBasis.rawMaterialBasis = 'direct';
+    directBasis.rawMaterialDirect = '7000000000';
+    directBasis.rawMaterialAdjustment = 'not-a-number';
+
+    const adapted = adaptForecastInput([7], { 7: directBasis }, metadata);
+    expect(adapted.error).toBe('');
+    expect(adapted.value?.[0]).toMatchObject({
+      raw_material_basis: 'direct',
+      raw_material_direct: 7000000000,
+      raw_material_adjustment: 0,
+    });
+
+    const modelBasis = createForecastMonthFormState(8, metadata);
+    modelBasis.rawMaterialDirect = 'not-a-number';
+    expect(adaptForecastInput([8], { 8: modelBasis }, metadata).error).toBe('');
+  });
+
+  it('treats numerically equivalent defaults and zero adjustments as unchanged', () => {
+    const july = createForecastMonthFormState(7, metadata);
+    july.manufacturingAdjustments['mfg-energy'] = { amount: '0.0', reason: '' };
+    july.sgaAdjustments['sga-selling'] = { amount: '-0', reason: '' };
+    july.disposalAdjustment = '0.00';
+    july.ixPackCost = '380.0';
+    july.tariffRate = '0.100';
+    july.refundRate = '0.0130';
+    july.rawMaterialAdjustment = '00';
+
+    expect(hasForecastAdjustmentInput(july, metadata)).toBe(false);
+    expect(findOutOfRangeForecastAdjustmentMonths([8], { 7: july }, metadata)).toEqual([]);
+
+    july.manufacturingAdjustments['mfg-energy'].amount = 'not-a-number';
+    expect(hasForecastAdjustmentInput(july, metadata)).toBe(true);
   });
 });

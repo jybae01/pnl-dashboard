@@ -21,8 +21,11 @@ import {
   ensureForecastMonths,
   findOutOfRangeForecastAdjustmentMonths,
   hasForecastAdjustmentInput,
+  hasForecastAdjustmentValue,
+  isForecastAdvancedFieldNonDefault,
   MCM_PRODUCTS,
   SALES_PRODUCTS,
+  type ForecastAdvancedScalarField,
   type ForecastInputSection,
   type ForecastInputState,
   type ForecastMonthFormState,
@@ -90,7 +93,7 @@ export function withLegacySgaAggregateEntry(
   row: { amount: string; reason: string },
 ): SgaRegisteredEntry[] {
   if (entries.some((entry) => entry.adjustmentKey === adjustmentKey)) return entries;
-  const registered = (row.amount.trim() !== '' && row.amount.trim() !== '0') || row.reason.trim() !== '';
+  const registered = hasForecastAdjustmentValue(row);
   return registered
     ? [...entries, {
         id: `existing:${adjustmentKey}`,
@@ -454,7 +457,7 @@ export const ForecastGenerationView: React.FC<ForecastGenerationViewProps> = ({
     if (firstMonth === undefined) return;
     const adjustmentRegistered = (month: number, section: 'manufacturingAdjustments' | 'sgaAdjustments', key: string) => {
       const entry = inputs[month]?.[section][key];
-      return Boolean(entry && ((entry.amount.trim() !== '' && entry.amount.trim() !== '0') || entry.reason.trim() !== ''));
+      return Boolean(entry && hasForecastAdjustmentValue(entry));
     };
     setManufacturingInputMonths((current) => {
       const next = { ...current };
@@ -488,28 +491,34 @@ export const ForecastGenerationView: React.FC<ForecastGenerationViewProps> = ({
         const input = inputs[month];
         const amount = String(input?.[row.amountField] ?? '0');
         const reason = String(input?.[row.reasonField] ?? '');
-        if ((amount.trim() === '' || amount.trim() === '0') && reason.trim() === '') {
+        if (!hasForecastAdjustmentValue({ amount, reason })) {
           next[row.key] = firstMonth;
           changed = true;
         }
       });
       return changed ? next : current;
     });
-    const sectionMonth = (current: number, fields: Array<keyof ForecastMonthFormState>) => {
+    const sectionMonth = (current: number, fields: ForecastAdvancedScalarField[]) => {
       if (months.includes(current)) return current;
       const input = inputs[current];
       if (!input) return firstMonth;
       const defaults = createForecastMonthFormState(current, inputMetadata ?? undefined);
-      return fields.some((field) => input[field] !== defaults[field]) ? current : firstMonth;
+      return fields.some((field) => isForecastAdvancedFieldNonDefault(input, defaults, field)) ? current : firstMonth;
     };
     setTariffInputMonth((current) => sectionMonth(current, ['planNaSaSales', 'naSaSales', 'tariffApplicableRate', 'tariffRate']));
     setNewBusinessInputMonth((current) => sectionMonth(current, [
       'newBusinessGoodsCogsMode', 'newBusinessGoodsCogs', 'newBusinessGoodsCogsReason',
       'ufMbrCogsRate', 'ixCogsRate', 'ufMbrTransportRate', 'ixTransportRate', 'ixPackLiters', 'ixPackCost',
     ]));
-    setRawMaterialInputMonth((current) => sectionMonth(current, [
-      'rawMaterialBasis', 'rawMaterialDirect', 'rawMaterialAdjustment', 'rawMaterialReason', 'refundRate',
-    ]));
+    setRawMaterialInputMonth((current) => {
+      const basis = inputs[current]?.rawMaterialBasis ?? 'model';
+      return sectionMonth(current, [
+        'rawMaterialBasis',
+        basis === 'direct' ? 'rawMaterialDirect' : 'rawMaterialAdjustment',
+        'rawMaterialReason',
+        'refundRate',
+      ]);
+    });
   }, [months, inputs, inputMetadata, sgaRegisteredEntriesByMonth]);
 
   useEffect(() => {
@@ -650,7 +659,7 @@ export const ForecastGenerationView: React.FC<ForecastGenerationViewProps> = ({
     const candidateEntries = editingSgaEntryId
       ? baseEntries.map((entry) => entry.id === editingSgaEntryId ? nextEntry : entry)
       : [...baseEntries, nextEntry];
-    const nextEntryIsRegistered = (nextEntry.amount.trim() !== '' && nextEntry.amount.trim() !== '0') || nextEntry.reason.trim() !== '';
+    const nextEntryIsRegistered = hasForecastAdjustmentValue(nextEntry);
     const nextEntries = nextEntryIsRegistered
       ? candidateEntries
       : candidateEntries.filter((entry) => entry.id !== nextEntry.id);
@@ -1064,7 +1073,7 @@ export const ForecastGenerationView: React.FC<ForecastGenerationViewProps> = ({
     const month = Number(monthKey);
     return (inputMetadata?.manufacturing ?? []).flatMap((item) => {
       const entry = input.manufacturingAdjustments[item.adjustment_key];
-      const registered = entry && ((entry.amount.trim() !== '' && entry.amount.trim() !== '0') || entry.reason.trim() !== '');
+      const registered = entry && hasForecastAdjustmentValue(entry);
       return registered ? [{ ...item, month, entry, selectionKey: `${month}:${item.adjustment_key}` }] : [];
     });
   }), [inputs, inputMetadata?.manufacturing]);
@@ -1076,7 +1085,7 @@ export const ForecastGenerationView: React.FC<ForecastGenerationViewProps> = ({
       const localKeys = new Set(localEntries.map((entry) => entry.adjustmentKey));
       const fallbackEntries: SgaRegisteredEntry[] = (inputMetadata?.sga ?? []).flatMap((item) => {
         const row = input.sgaAdjustments[item.adjustment_key];
-        const registered = row && ((row.amount.trim() !== '' && row.amount.trim() !== '0') || row.reason.trim() !== '');
+        const registered = row && hasForecastAdjustmentValue(row);
         return registered && !localKeys.has(item.adjustment_key) ? [{
           id: `existing:${item.adjustment_key}`,
           adjustmentKey: item.adjustment_key,
@@ -1113,7 +1122,7 @@ export const ForecastGenerationView: React.FC<ForecastGenerationViewProps> = ({
     return COGS_ADJUSTMENT_ROWS.flatMap((row) => {
       const amount = String(input[row.amountField]);
       const reason = String(input[row.reasonField]);
-      const registered = (amount.trim() !== '' && amount.trim() !== '0') || reason.trim() !== '';
+      const registered = hasForecastAdjustmentValue({ amount, reason });
       return registered ? [{ ...row, month, amount, reason, selectionKey: `${month}:${row.key}` }] : [];
     });
   }), [inputs]);
@@ -1463,7 +1472,7 @@ export const ForecastGenerationView: React.FC<ForecastGenerationViewProps> = ({
                       const baselineDisplay = formatKrwAmount(baseline);
                       const adjNum = Number(row.amount.replace(/,/g, '').trim()) || 0;
                       const expectedDisplay = baseline === undefined ? '—' : formatKrwAmount(calculateAdjustmentExpectedAmount(baseline, row.amount));
-                      const hasAdjustment = (row.amount.trim() !== '' && row.amount.trim() !== '0') || row.reason.trim() !== '';
+                      const hasAdjustment = hasForecastAdjustmentValue(row);
                       const isEditing = editingMfgKey === item.adjustment_key && editingMfgMonth === rowMonth;
 
                       return (
@@ -1585,7 +1594,7 @@ export const ForecastGenerationView: React.FC<ForecastGenerationViewProps> = ({
                           : row;
                         const adjNum = parseAdjustmentAmount(accountAggregate.amount);
                         const expectedDisplay = baseline === undefined ? '—' : formatKrwAmount(calculateAdjustmentExpectedAmount(baseline, accountAggregate.amount));
-                        const hasAdjustment = (accountAggregate.amount.trim() !== '' && accountAggregate.amount.trim() !== '0') || accountAggregate.reason.trim() !== '';
+                        const hasAdjustment = hasForecastAdjustmentValue(accountAggregate);
                         const isEditing = editingSgaKey === item.adjustment_key && editingSgaMonth === rowMonth;
                         const editedEntryAmount = editingSgaEntryId === `existing:${item.adjustment_key}`
                           ? adjNum
@@ -1825,7 +1834,7 @@ export const ForecastGenerationView: React.FC<ForecastGenerationViewProps> = ({
                       const amount = String(rowInput[item.amountField]);
                       const reason = String(rowInput[item.reasonField]);
                       const numericAmount = Number(amount.replace(/,/g, '').trim()) || 0;
-                      const hasAdjustment = (amount.trim() !== '' && amount.trim() !== '0') || reason.trim() !== '';
+                      const hasAdjustment = hasForecastAdjustmentValue({ amount, reason });
                       const isEditing = editingCogsKey === item.key && editingCogsMonth === rowMonth;
                       return <React.Fragment key={item.key}>
                         <tr>

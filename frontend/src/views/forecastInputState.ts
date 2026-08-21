@@ -88,6 +88,11 @@ export interface ForecastAdvancedFormState {
   refundRate: string;
 }
 
+export type ForecastAdvancedScalarField = Exclude<
+  keyof ForecastAdvancedFormState,
+  'manufacturingAdjustments' | 'sgaAdjustments'
+>;
+
 interface SalesFormValue {
   quantity: string;
   amount: string;
@@ -204,6 +209,53 @@ export function ensureForecastMonths(
   return changed ? next : current;
 }
 
+const NUMERIC_ADVANCED_FIELDS = new Set<ForecastAdvancedScalarField>([
+  'disposalAdjustment',
+  'obsolescenceAdjustment',
+  'ufMbrCogsRate',
+  'ixCogsRate',
+  'ufMbrTransportRate',
+  'ixTransportRate',
+  'ixPackLiters',
+  'ixPackCost',
+  'planNaSaSales',
+  'naSaSales',
+  'tariffApplicableRate',
+  'tariffRate',
+  'rawMaterialDirect',
+  'rawMaterialAdjustment',
+  'refundRate',
+]);
+
+function numericInputMatchesDefault(value: string, defaultValue: string): boolean {
+  const trimmed = value.trim();
+  if (trimmed === '') return true;
+
+  const trimmedDefault = defaultValue.trim();
+  if (trimmedDefault === '') return false;
+
+  const parsed = Number(trimmed);
+  const parsedDefault = Number(trimmedDefault);
+  return Number.isFinite(parsed) && Number.isFinite(parsedDefault) && parsed === parsedDefault;
+}
+
+export function hasForecastAdjustmentValue(value: ForecastAdjustmentFormValue): boolean {
+  return !numericInputMatchesDefault(value.amount, '0') || value.reason.trim() !== '';
+}
+
+export function isForecastAdvancedFieldNonDefault(
+  value: ForecastAdvancedFormState,
+  defaults: ForecastAdvancedFormState,
+  field: ForecastAdvancedScalarField,
+): boolean {
+  const current = value[field];
+  const baseline = defaults[field];
+  if (NUMERIC_ADVANCED_FIELDS.has(field)) {
+    return !numericInputMatchesDefault(String(current), String(baseline));
+  }
+  return current !== baseline;
+}
+
 export function hasForecastAdjustmentInput(
   value: ForecastMonthFormState | undefined,
   metadata?: ForecastInputMetadataDto,
@@ -213,10 +265,10 @@ export function hasForecastAdjustmentInput(
   const hasAdjustmentRows = [
     ...Object.values(value.manufacturingAdjustments),
     ...Object.values(value.sgaAdjustments),
-  ].some((entry) => (entry.amount.trim() !== '' && entry.amount.trim() !== '0') || entry.reason.trim() !== '');
+  ].some(hasForecastAdjustmentValue);
   if (hasAdjustmentRows) return true;
 
-  const fields: Array<keyof ForecastAdvancedFormState> = [
+  const fields: ForecastAdvancedScalarField[] = [
     'disposalAdjustment', 'disposalReason',
     'obsolescenceAdjustment', 'obsolescenceReason',
     'newBusinessGoodsCogsMode', 'newBusinessGoodsCogs', 'newBusinessGoodsCogsReason',
@@ -225,11 +277,11 @@ export function hasForecastAdjustmentInput(
     'planNaSaSales', 'naSaSales', 'tariffApplicableRate', 'tariffRate',
     'rawMaterialBasis', 'rawMaterialReason', 'refundRate',
   ];
-  const rawMaterialAmountField: keyof ForecastAdvancedFormState = value.rawMaterialBasis === 'direct'
+  const rawMaterialAmountField: ForecastAdvancedScalarField = value.rawMaterialBasis === 'direct'
     ? 'rawMaterialDirect'
     : 'rawMaterialAdjustment';
-  return fields.some((field) => value[field] !== defaults[field])
-    || value[rawMaterialAmountField] !== defaults[rawMaterialAmountField];
+  fields.push(rawMaterialAmountField);
+  return fields.some((field) => isForecastAdvancedFieldNonDefault(value, defaults, field));
 }
 
 export function findOutOfRangeForecastAdjustmentMonths(
@@ -432,7 +484,6 @@ export function adaptForecastInput(
       ['naSaSales', '추정 북미·남미 매출', { defaultValue: 0 }],
       ['tariffApplicableRate', '관세 적용 비율', { defaultValue: 0.85, max: 1 }],
       ['tariffRate', '관세율', { defaultValue: 0.10, max: 1 }],
-      ['rawMaterialAdjustment', '원재료 조정액', { defaultValue: 0, allowNegative: true }],
       ['refundRate', '환급률', { defaultValue: 0.013, max: 1 }],
     ];
     const parsedScalars = scalarFields.map(([field, label, options]) => [field, parseNumber(form[field] as string, label, options)] as const);
@@ -444,10 +495,15 @@ export function adaptForecastInput(
     };
 
     let rawMaterialDirect: number | null = null;
+    let rawMaterialAdjustment = 0;
     if (form.rawMaterialBasis === 'direct') {
       const parsedDirect = parseRequiredNumber(form.rawMaterialDirect, '원재료 직접 입력액');
       if ('error' in parsedDirect) return { value: null, error: `${month}월 ${parsedDirect.error}` };
       rawMaterialDirect = parsedDirect.value;
+    } else {
+      const parsedAdjustment = parseNumber(form.rawMaterialAdjustment, '원재료 조정액', { defaultValue: 0, allowNegative: true });
+      if ('error' in parsedAdjustment) return { value: null, error: `${month}월 ${parsedAdjustment.error}` };
+      rawMaterialAdjustment = parsedAdjustment.value;
     }
     const rawReason = parseReason(form.rawMaterialReason, '원재료 사유');
     if ('error' in rawReason) return { value: null, error: `${month}월 ${rawReason.error}` };
@@ -480,7 +536,7 @@ export function adaptForecastInput(
       tariff_rate: scalar('tariffRate'),
       raw_material_basis: form.rawMaterialBasis,
       raw_material_direct: rawMaterialDirect,
-      raw_material_adjustment: scalar('rawMaterialAdjustment'),
+      raw_material_adjustment: rawMaterialAdjustment,
       raw_material_reason: rawReason.value,
       refund_rate: scalar('refundRate'),
     });

@@ -1051,6 +1051,39 @@ describe('Forecast React vertical slice', () => {
     expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 
+  it('does not preserve an out-of-range month for numerically equivalent defaults', async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(response(modelPayload()))
+      .mockResolvedValueOnce(response(metadataPayload()));
+    vi.stubGlobal('fetch', fetchMock);
+    render(<ForecastGenerationView />);
+    await screen.findByRole('heading', { name: '추정 산출' });
+    fireEvent.change(screen.getByLabelText('종료 월'), { target: { value: '9' } });
+    await waitForForecastReady();
+    fireEvent.click(screen.getByText(/비용 및 원가 조정/));
+    fireEvent.change(screen.getByRole('combobox', { name: '비용 및 원가 조정 적용월' }), { target: { value: '8' } });
+    fireEvent.click(screen.getByRole('button', { name: '8월 전력비 조정' }));
+    fireEvent.change(screen.getByLabelText('8월 전력비 제조경비 조정액'), { target: { value: '0.0' } });
+    fireEvent.click(within(screen.getByLabelText('8월 전력비 제조경비 조정액').closest('.forecast-workflow__inline-drawer') as HTMLElement).getByRole('button', { name: '등록' }));
+    expect(screen.queryByText(/제조경비 조정 내역 \(1건\)/)).not.toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText('8월 IX 포장 단가'), { target: { value: '380.0' } });
+    fireEvent.click(screen.getByRole('radio', { name: '구매비 예상 금액' }));
+    fireEvent.change(screen.getByLabelText('8월 원재료 직접 입력액'), { target: { value: '7000000000' } });
+    fireEvent.click(screen.getByRole('radio', { name: '모형 산출값' }));
+
+    fireEvent.change(screen.getByLabelText('시작 월'), { target: { value: '9' } });
+    fireEvent.change(screen.getByLabelText('종료 월'), { target: { value: '10' } });
+    await waitFor(() => expect(screen.getByRole('button', { name: '모형 적용' })).not.toBeDisabled());
+    fireEvent.click(screen.getByRole('button', { name: '모형 적용' }));
+
+    await waitFor(() => expect(screen.getByRole('combobox', { name: '비용 및 원가 조정 적용월' })).toHaveValue('9'));
+    expect(screen.getByRole('combobox', { name: '전력비 제조경비 적용월' })).toHaveValue('9');
+    expect(screen.getByRole('combobox', { name: '신사업 상품원가 및 포장 적용월' })).toHaveValue('9');
+    expect(screen.getByRole('combobox', { name: '원재료 관세 환급 적용월' })).toHaveValue('9');
+    expect(screen.queryByText(/Forecast 기간 밖 비용·원가 조정이 보존/)).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '추정 모형 생성' })).not.toBeDisabled();
+  });
+
   it('binds every SGA row to an explicit applicable month and renders authoritative section labels', async () => {
     const fetchMock = vi.fn()
       .mockResolvedValueOnce(response(modelPayload()))
