@@ -248,6 +248,17 @@ class FakePresentation:
     def viewer_read(self, _session, result_id):
         return {"identity": {"result_id": result_id}, "scope": "viewer", "dto_version": "1"}
 
+    def list_viewer(self, _session):
+        return {
+            "results": [{
+                "result_id": RESULT,
+                "label": "2026 계획 대비 12월 실적 · 12월",
+                "completed_at": "2026-08-11T00:01:00Z",
+                "published_at": "2026-08-11T00:02:00Z",
+            }],
+            "dto_version": "1",
+        }
+
 
 class FakeWorkerControl:
     def __init__(self):
@@ -405,6 +416,22 @@ def test_presentation_http_routes_keep_admin_and_viewer_capabilities_separate():
     assert viewer.client.get(f"/api/admin/results/{RESULT}/presentation").status_code == 403
     visible = viewer.client.get(f"/api/viewer/results/{RESULT}/presentation")
     assert visible.status_code == 200 and visible.json()["scope"] == "viewer"
+
+
+def test_viewer_analysis_result_list_is_minimal_no_store_and_not_admin_history():
+    anonymous = make_fixture()
+    assert anonymous.client.get("/api/viewer/analysis-results").status_code == 401
+
+    viewer = make_fixture(); viewer.login("viewer-code")
+    response = viewer.client.get("/api/viewer/analysis-results")
+    assert response.status_code == 200
+    assert response.headers["cache-control"] == "private, no-store"
+    assert set(response.json()) == {"results", "dto_version"}
+    assert set(response.json()["results"][0]) == {
+        "result_id", "label", "completed_at", "published_at",
+    }
+    assert viewer.client.get("/api/admin/calculation-history").status_code == 403
+    assert viewer.client.get(f"/api/viewer/results/{RESULT}/presentation").status_code == 200
 
 
 def test_production_requires_secure_cookie_and_shared_rate_limiter():

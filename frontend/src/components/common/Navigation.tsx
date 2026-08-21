@@ -19,7 +19,7 @@ export const Navigation: React.FC<NavigationProps> = ({
           onClick={() => onTabChange('pnl_status')}
         >
           <LayoutDashboard size={14} />
-          1. 손익 현황
+          손익현황
           <span className="nav-tab-badge">KPI & Trend</span>
         </button>
 
@@ -28,7 +28,7 @@ export const Navigation: React.FC<NavigationProps> = ({
           onClick={() => onTabChange('forecast_generation')}
         >
           <Calculator size={14} />
-          2. 추정 산출
+          추정 산출
           <span className="nav-tab-badge" style={{ backgroundColor: '#f5f3ff', color: '#7c3aed', borderColor: '#ddd6fe' }}>Forecast</span>
         </button>
 
@@ -37,7 +37,7 @@ export const Navigation: React.FC<NavigationProps> = ({
           onClick={() => onTabChange('variance_analysis')}
         >
           <GitCompare size={14} />
-          3. 손익 분석
+          손익 분석
           <span className="nav-tab-badge">Waterfall & Effect</span>
         </button>
 
@@ -46,7 +46,7 @@ export const Navigation: React.FC<NavigationProps> = ({
           onClick={() => onTabChange('data_management')}
         >
           <Database size={14} />
-          4. 데이터 관리
+          데이터 관리
           <span className="nav-tab-badge">Model & Calc</span>
         </button>
       </div>

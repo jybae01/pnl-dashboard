@@ -1,5 +1,5 @@
 import React, { FormEvent, useEffect, useMemo, useRef, useState } from 'react';
-import { Play, RefreshCw, Search } from 'lucide-react';
+import { Play, RefreshCw } from 'lucide-react';
 import { EmptyState } from '../components/common/EmptyState';
 import { LoadingSpinner } from '../components/common/LoadingSpinner';
 import { bffClient } from './client';
@@ -10,6 +10,7 @@ import {
   JobStatusDto,
   Role,
   SubmitRequest,
+  ViewerAnalysisResultOptionDto,
   ViewerState,
 } from './types';
 import { AnalysisPresentationPanel } from './AnalysisPresentationPanel';
@@ -57,8 +58,12 @@ export function CoreAnalysisView({ role, modelRefreshKey = 0, initialResultId }:
   const [viewerState, setViewerState] = useState<ViewerState>('EMPTY');
   const [error, setError] = useState<string | null>(null);
   const [resultId, setResultId] = useState('');
+  const [viewerOptions, setViewerOptions] = useState<ViewerAnalysisResultOptionDto[]>([]);
+  const [viewerListState, setViewerListState] = useState<'LOADING' | 'READY' | 'EMPTY' | 'ERROR'>('LOADING');
+  const [viewerListError, setViewerListError] = useState<string | null>(null);
   const logicalRequest = useRef<{ fingerprint: string; key: string } | null>(null);
   const viewerRequestSequence = useRef(0);
+  const viewerListRequestSequence = useRef(0);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   useEffect(() => {
@@ -129,6 +134,43 @@ export function CoreAnalysisView({ role, modelRefreshKey = 0, initialResultId }:
   }, [role, modelRefreshKey, initialResultId]);
 
   useEffect(() => {
+    if (role !== 'viewer') return;
+    const requestSequence = ++viewerListRequestSequence.current;
+    setJob(null);
+    setResult(null);
+    setResultId('');
+    setViewerOptions([]);
+    setViewerState('EMPTY');
+    setError(null);
+    setViewerListState('LOADING');
+    setViewerListError(null);
+
+    bffClient.viewerAnalysisResults().then((rows) => {
+      if (requestSequence !== viewerListRequestSequence.current) return;
+      setViewerOptions(rows);
+      if (rows.length === 0) {
+        setViewerListState('EMPTY');
+        setViewerState('EMPTY');
+        return;
+      }
+      setViewerListState('READY');
+      void loadViewerResult(rows[0].result_id);
+    }).catch((value) => {
+      if (requestSequence !== viewerListRequestSequence.current) return;
+      setViewerOptions([]);
+      setViewerListState('ERROR');
+      setViewerListError(safeMessage(value));
+    });
+
+    return () => {
+      if (viewerListRequestSequence.current === requestSequence) {
+        viewerListRequestSequence.current += 1;
+      }
+      viewerRequestSequence.current += 1;
+    };
+  }, [role]);
+
+  useEffect(() => {
     if (initialResultId || !job || !['PENDING', 'PROCESSING'].includes(job.status)) return;
     let active = true;
     let timeoutId: number | undefined;
@@ -197,13 +239,13 @@ export function CoreAnalysisView({ role, modelRefreshKey = 0, initialResultId }:
   }, [initialResultId, job?.status, job?.result_id]);
 
   useEffect(() => {
-    if (initialResultId) return;
+    if (role !== 'admin' || initialResultId) return;
     setJob(null);
     setResult(null);
     setResultId('');
     setViewerState('EMPTY');
     setError(null);
-  }, [initialResultId]);
+  }, [role, initialResultId]);
 
   const fingerprint = useMemo(() => JSON.stringify(form), [form]);
   const parsedStartMonth = parseMonthInput(form.start_month);
@@ -264,18 +306,18 @@ export function CoreAnalysisView({ role, modelRefreshKey = 0, initialResultId }:
     }
   }
 
-  async function readViewerResult(event: FormEvent) {
-    event.preventDefault();
+  async function loadViewerResult(nextResultId: string) {
     const requestSequence = ++viewerRequestSequence.current;
+    setResultId(nextResultId);
     setResult(null); // never keep a stale published Result while revalidating
     setError(null);
-    if (!resultId.trim()) {
+    if (!nextResultId) {
       setViewerState('EMPTY');
       return;
     }
     setViewerState('LOADING');
     try {
-      const stored = await bffClient.viewerPresentation(resultId.trim());
+      const stored = await bffClient.viewerPresentation(nextResultId);
       if (requestSequence !== viewerRequestSequence.current) return;
       setResult(stored);
       setViewerState('READY');
@@ -295,20 +337,34 @@ export function CoreAnalysisView({ role, modelRefreshKey = 0, initialResultId }:
   if (role === 'viewer') {
     return (
       <section className="variance-analysis-page">
-        <form onSubmit={readViewerResult} className="variance-query-card" data-testid="analysis-condition-card">
+        <div className="variance-query-card" data-testid="analysis-condition-card">
           <div className="variance-query-card__heading">
             <strong>공개 분석 결과 조회</strong>
-            <span>게시된 Result ID로 손익 변동 요인과 근거를 확인합니다.</span>
+            <span>공개 완료된 손익 변동 요인과 근거를 확인합니다.</span>
           </div>
           <label className="variance-result-query">
-            <span className="filter-label">공개 결과 ID</span>
-            <input aria-label="Result ID" className="filter-select" value={resultId}
-              onChange={(event) => setResultId(event.target.value)} placeholder="Result ID를 입력하세요" />
+            <span className="filter-label">분석 결과 선택</span>
+            <select
+              aria-label="분석 결과 선택"
+              className="filter-select"
+              value={resultId}
+              disabled={viewerListState !== 'READY'}
+              onChange={(event) => void loadViewerResult(event.target.value)}
+            >
+              {viewerListState === 'LOADING' && <option value="">목록을 불러오는 중…</option>}
+              {viewerListState === 'EMPTY' && <option value="">조회 가능한 결과 없음</option>}
+              {viewerListState === 'ERROR' && <option value="">목록 조회 실패</option>}
+              {viewerOptions.map((option) => (
+                <option key={option.result_id} value={option.result_id}>{option.label}</option>
+              ))}
+            </select>
           </label>
-          <button className="btn btn-primary"><Search size={14} />조회</button>
-        </form>
-        <ResultState state={viewerState} error={error} result={result} role={role}
-          onUnavailable={() => { setResult(null); setViewerState('EMPTY'); setError(null); }} />
+        </div>
+        {viewerListState === 'LOADING' && <div className="variance-state-card"><LoadingSpinner message="공개 분석 결과 목록을 불러오는 중입니다…" /></div>}
+        {viewerListState === 'ERROR' && <StateMessage kind="error" title="분석 결과 목록을 불러오지 못했습니다." description={viewerListError || '잠시 후 다시 시도하거나 관리자에게 문의하세요.'} />}
+        {viewerListState === 'EMPTY' && <ResultState state="EMPTY" error={null} result={null} role={role} />}
+        {viewerListState === 'READY' && <ResultState state={viewerState} error={error} result={result} role={role}
+          onUnavailable={() => { setResult(null); setViewerState('EMPTY'); setError(null); }} />}
       </section>
     );
   }
@@ -429,7 +485,7 @@ function ResultState({ state, error, result, role, onUnavailable }: {
   if (state === 'FORBIDDEN') return <StateMessage kind="forbidden" title="이 분석 결과를 볼 권한이 없습니다." description="현재 계정의 Viewer/Admin 권한을 확인해 주세요." />;
   if (state === 'INVALID_PAYLOAD') return <StateMessage kind="integrity" title="분석 결과의 무결성을 확인할 수 없습니다." description={error || '서버가 제공한 결과 계약이 올바르지 않습니다.'} />;
   if (state === 'EMPTY' || !result) return <div className="variance-state-card" data-testid="viewer-empty"><EmptyState
-    title={role === 'viewer' ? '아직 공개된 분석 결과가 없습니다.' : '아직 생성된 분석 결과가 없습니다.'}
+    title={role === 'viewer' ? '조회 가능한 공개 분석 결과가 없습니다.' : '아직 생성된 분석 결과가 없습니다.'}
     description={role === 'viewer' ? '비교할 수 있는 분석 결과가 공개되면 이 화면에서 확인할 수 있습니다.' : '분석 조건을 선택하고 실행하면 결과가 이 화면에 표시됩니다.'}
   /></div>;
   return <div data-testid="stored-result">

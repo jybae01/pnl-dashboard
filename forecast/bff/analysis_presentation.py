@@ -17,6 +17,8 @@ from .dto import (
     AnalysisPresentationResponse,
     AnalysisProductGroupResponse,
     AnalysisResidualResponse,
+    ViewerAnalysisResultListResponse,
+    ViewerAnalysisResultOptionResponse,
 )
 from .errors import ApiErrorCode, BffError
 from .gateway import BffApplicationGateway, GatewayTransientError
@@ -151,6 +153,43 @@ class AnalysisPresentationService:
         if not available:
             raise BffError(ApiErrorCode.RESULT_NOT_AVAILABLE, "Result not available")
         return response
+
+    def list_viewer(self, session_id: str) -> ViewerAnalysisResultListResponse:
+        self._sessions.require_viewer(session_id)
+        try:
+            rows = self._gateway.list_viewer_analysis_presentations(
+                supported_result_schema_versions=self._supported_versions,
+            )
+        except GatewayTransientError as exc:
+            raise _transient() from exc
+
+        results: list[ViewerAnalysisResultOptionResponse] = []
+        for row in rows:
+            result_id = _integrity_uuid(row.get("result_id"))
+            presentation = build_analysis_presentation(
+                result_id,
+                row,
+                self._provenance,
+                self._supported_versions,
+            )
+            identity = presentation.identity
+            if not identity.is_published or identity.published_at is None:
+                raise _integrity()
+            period = (
+                f"{identity.start_month}월"
+                if identity.start_month == identity.end_month
+                else f"{identity.start_month}–{identity.end_month}월"
+            )
+            results.append(ViewerAnalysisResultOptionResponse(
+                result_id=identity.result_id,
+                label=(
+                    f"{identity.baseline_model_name} 대비 "
+                    f"{identity.comparison_model_name} · {period}"
+                ),
+                completed_at=identity.completed_at,
+                published_at=identity.published_at,
+            ))
+        return ViewerAnalysisResultListResponse(results=tuple(results))
 
 
 def build_analysis_presentation(

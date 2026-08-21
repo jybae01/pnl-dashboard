@@ -10,10 +10,24 @@ import {
   mapAnalysisPresentation,
 } from './analysisPresentation';
 
+const OTHER_RESULT = '55555555-5555-4555-8555-555555555555';
+
 function json(body: unknown, status = 200) {
   return Promise.resolve(new Response(JSON.stringify(body), {
     status, headers: { 'Content-Type': 'application/json' },
   }));
+}
+
+function viewerResults(...entries: Array<[string, string]>) {
+  return {
+    results: entries.map(([result_id, label], index) => ({
+      result_id,
+      label,
+      completed_at: `2026-08-${12 - index}T00:00:00Z`,
+      published_at: `2026-08-${12 - index}T00:01:00Z`,
+    })),
+    dto_version: '1',
+  };
 }
 
 afterEach(() => vi.unstubAllGlobals());
@@ -46,6 +60,12 @@ describe('analysis presentation vertical slice', () => {
     expect(screen.queryByText(/MCM.*Effect/i)).not.toBeInTheDocument();
     expect(screen.getAllByRole('button', { name: '분석 근거 엑셀 내려받기' })).toHaveLength(1);
     expect(screen.getAllByText(/백만원/).length).toBeGreaterThan(0);
+    fireEvent.click(screen.getByRole('button', { name: '판가 상세 펼치기' }));
+    expect(screen.getByText('운반비 효과')).toBeInTheDocument();
+    expect(screen.queryByText('고객배송 운반비')).not.toBeInTheDocument();
+    const price = value.effects.find((effect) => effect.code === 'sales_price');
+    expect(price?.code).toBe('sales_price');
+    expect(price?.drilldown.rows[0].label).toBe('고객배송 운반비');
   });
 
   it('maps canonical order and labels without deriving totals', () => {
@@ -450,29 +470,31 @@ describe('analysis presentation vertical slice', () => {
   it('rejects an identity mismatch without correcting the payload or showing Evidence', async () => {
     const malformed = presentationFixture();
     malformed.kpis.effects_total += 1;
-    vi.stubGlobal('fetch', vi.fn(() => json(malformed)));
+    vi.stubGlobal('fetch', vi.fn((input: RequestInfo | URL) => String(input).endsWith('/api/viewer/analysis-results')
+      ? json(viewerResults([TEST_RESULT, '최신 공개 분석']))
+      : json(malformed)));
     render(<CoreAnalysisView role="viewer" />);
-    fireEvent.change(screen.getByLabelText('Result ID'), { target: { value: TEST_RESULT } });
-    fireEvent.click(screen.getByRole('button', { name: '조회' }));
     expect(await screen.findByText('서버 응답 형식이 올바르지 않습니다.')).toBeInTheDocument();
     expect(screen.queryByTestId('analysis-presentation')).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: '분석 근거 엑셀 내려받기' })).not.toBeInTheDocument();
   });
 
   it('clears READY presentation and Evidence together when Viewer availability changes', async () => {
-    let reads = 0;
-    vi.stubGlobal('fetch', vi.fn(() => {
-      reads += 1;
-      return reads === 1
-        ? json(presentationFixture())
-        : json({ error: { code: 'RESULT_NOT_AVAILABLE', message: 'Result not available' } }, 404);
+    vi.stubGlobal('fetch', vi.fn((input: RequestInfo | URL) => {
+      const path = String(input);
+      if (path.endsWith('/api/viewer/analysis-results')) {
+        return json(viewerResults([TEST_RESULT, '최신 공개 분석'], [OTHER_RESULT, '이전 공개 분석']));
+      }
+      if (path.endsWith(`/api/viewer/results/${TEST_RESULT}/presentation`)) return json(presentationFixture());
+      if (path.endsWith(`/api/viewer/results/${OTHER_RESULT}/presentation`)) {
+        return json({ error: { code: 'RESULT_NOT_AVAILABLE', message: 'Result not available' } }, 404);
+      }
+      throw new Error(`unexpected request ${path}`);
     }));
     render(<CoreAnalysisView role="viewer" />);
-    fireEvent.change(screen.getByLabelText('Result ID'), { target: { value: TEST_RESULT } });
-    fireEvent.click(screen.getByRole('button', { name: '조회' }));
     expect(await screen.findByTestId('analysis-presentation')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: '분석 근거 엑셀 내려받기' })).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: '조회' }));
+    fireEvent.change(screen.getByLabelText('분석 결과 선택'), { target: { value: OTHER_RESULT } });
     await waitFor(() => expect(screen.queryByTestId('analysis-presentation')).not.toBeInTheDocument());
     expect(screen.queryByRole('button', { name: '분석 근거 엑셀 내려받기' })).not.toBeInTheDocument();
     expect(screen.getByTestId('viewer-empty')).toBeInTheDocument();
@@ -481,25 +503,82 @@ describe('analysis presentation vertical slice', () => {
   it('does not let an older Viewer response overwrite the latest Result', async () => {
     let resolveFirst!: (response: Response) => void;
     const first = new Promise<Response>((resolve) => { resolveFirst = resolve; });
-    let calls = 0;
-    vi.stubGlobal('fetch', vi.fn(() => {
-      calls += 1;
-      if (calls === 1) return first;
-      const current = presentationFixture();
-      current.identity.baseline_model_name = 'Latest Base';
-      return json(current);
+    vi.stubGlobal('fetch', vi.fn((input: RequestInfo | URL) => {
+      const path = String(input);
+      if (path.endsWith('/api/viewer/analysis-results')) {
+        return json(viewerResults([OTHER_RESULT, '이전 공개 분석'], [TEST_RESULT, '최신 공개 분석']));
+      }
+      if (path.endsWith(`/api/viewer/results/${OTHER_RESULT}/presentation`)) return first;
+      if (path.endsWith(`/api/viewer/results/${TEST_RESULT}/presentation`)) {
+        const current = presentationFixture();
+        current.identity.baseline_model_name = 'Latest Base';
+        return json(current);
+      }
+      throw new Error(`unexpected request ${path}`);
     }));
     render(<CoreAnalysisView role="viewer" />);
-    const input = screen.getByLabelText('Result ID');
-    fireEvent.change(input, { target: { value: '55555555-5555-4555-8555-555555555555' } });
-    fireEvent.click(screen.getByRole('button', { name: '조회' }));
-    fireEvent.change(input, { target: { value: TEST_RESULT } });
-    fireEvent.click(screen.getByRole('button', { name: '조회' }));
+    const select = screen.getByLabelText('분석 결과 선택');
+    await waitFor(() => expect(select).toBeEnabled());
+    fireEvent.change(select, { target: { value: TEST_RESULT } });
     expect(await screen.findByText(/Latest Base/)).toBeInTheDocument();
     const old = presentationFixture();
+    old.identity.result_id = OTHER_RESULT;
     old.identity.baseline_model_name = 'Old Base';
     resolveFirst(new Response(JSON.stringify(old), { status: 200, headers: { 'Content-Type': 'application/json' } }));
     await waitFor(() => expect(screen.queryByText(/Old Base/)).not.toBeInTheDocument());
     expect(screen.getByText(/Latest Base/)).toBeInTheDocument();
+  });
+
+  it('auto-selects the backend-ordered latest result and keeps Viewer controls read-only', async () => {
+    const fetchMock = vi.fn((input: RequestInfo | URL) => {
+      const path = String(input);
+      if (path.endsWith('/api/viewer/analysis-results')) {
+        return json(viewerResults([TEST_RESULT, '2026 계획 대비 12월 실적'], [OTHER_RESULT, '2026 계획 대비 11월 실적']));
+      }
+      if (path.endsWith(`/api/viewer/results/${TEST_RESULT}/presentation`)) return json(presentationFixture());
+      if (path.endsWith(`/api/viewer/results/${OTHER_RESULT}/presentation`)) {
+        const previous = presentationFixture();
+        previous.identity.result_id = OTHER_RESULT;
+        previous.identity.comparison_model_name = 'November Actual';
+        return json(previous);
+      }
+      throw new Error(`unexpected request ${path}`);
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    render(<CoreAnalysisView role="viewer" />);
+    expect(await screen.findByTestId('analysis-presentation')).toBeInTheDocument();
+    const select = screen.getByLabelText('분석 결과 선택');
+    expect(select).toHaveValue(TEST_RESULT);
+    expect(screen.getByRole('option', { name: '2026 계획 대비 12월 실적' })).toBeInTheDocument();
+    expect(screen.queryByLabelText('Result ID')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: '조회' })).not.toBeInTheDocument();
+    for (const control of ['분석 실행', '삭제', '공개', '공개 해제']) {
+      expect(screen.queryByRole('button', { name: control })).not.toBeInTheDocument();
+    }
+    expect(screen.getByTestId('analysis-waterfall-card')).toBeInTheDocument();
+    expect(screen.getByTestId('analysis-detail-section')).toBeInTheDocument();
+    expect(screen.getAllByText('기여율').length).toBeGreaterThan(0);
+    expect(screen.getByRole('button', { name: '분석 근거 엑셀 내려받기' })).toBeInTheDocument();
+    fireEvent.change(select, { target: { value: OTHER_RESULT } });
+    expect(await screen.findByText(/November Actual/)).toBeInTheDocument();
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.stringContaining(`/api/viewer/results/${OTHER_RESULT}/presentation`),
+      expect.objectContaining({ credentials: 'include' }),
+    );
+  });
+
+  it('shows safe Viewer empty and list-error states without management actions', async () => {
+    vi.stubGlobal('fetch', vi.fn(() => json(viewerResults())));
+    const empty = render(<CoreAnalysisView role="viewer" />);
+    expect(await screen.findByText('조회 가능한 공개 분석 결과가 없습니다.')).toBeInTheDocument();
+    expect(screen.getByLabelText('분석 결과 선택')).toBeDisabled();
+    expect(screen.queryByRole('button', { name: '분석 실행' })).not.toBeInTheDocument();
+    empty.unmount();
+
+    vi.unstubAllGlobals();
+    vi.stubGlobal('fetch', vi.fn(() => json({ error: { code: 'TRANSIENT_SYSTEM_ERROR', message: 'temporary' } }, 503)));
+    render(<CoreAnalysisView role="viewer" />);
+    expect(await screen.findByText('분석 결과 목록을 불러오지 못했습니다.')).toBeInTheDocument();
+    expect(screen.queryByTestId('analysis-presentation')).not.toBeInTheDocument();
   });
 });

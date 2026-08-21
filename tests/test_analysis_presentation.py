@@ -344,6 +344,7 @@ class Gateway:
     def __init__(self):
         self.row = presentation_row()
         self.available = True
+        self.list_rows = []
 
     def get_admin_analysis_presentation(self, *_args, **_kwargs):
         return self.row
@@ -353,6 +354,9 @@ class Gateway:
 
     def validate_result_availability(self, *_args, **_kwargs):
         return self.available
+
+    def list_viewer_analysis_presentations(self, **_kwargs):
+        return self.list_rows
 
 
 def test_admin_unpublished_preview_and_viewer_stale_revalidation_are_separate():
@@ -374,6 +378,42 @@ def test_admin_unpublished_preview_and_viewer_stale_revalidation_are_separate():
     with pytest.raises(BffError) as forbidden:
         service.admin_read(viewer, RESULT_ID)
     assert forbidden.value.code == ApiErrorCode.FORBIDDEN
+
+
+def test_viewer_list_keeps_gateway_order_and_returns_only_minimal_display_fields():
+    sessions = AccessCodeSessionService(
+        viewer_code="viewer", admin_code="admin", actor_namespace_secret="secret" * 8
+    )
+    viewer = sessions.login("viewer").session_id
+    gateway = Gateway()
+    older = presentation_row()
+    older["is_published"] = True
+    older["published_at"] = "2026-08-11T01:01:00+00:00"
+    latest = presentation_row()
+    latest_id = "55555555-5555-4555-8555-555555555555"
+    latest["result_id"] = latest_id
+    latest["baseline_model_name"] = "2026 계획"
+    latest["comparison_model_name"] = "12월 실적"
+    latest["analysis_request"]["start_month"] = 12
+    latest["analysis_request"]["end_month"] = 12
+    latest["result_payload"]["comparison_result"]["period"] = {
+        "key": "R2026_12_12", "label": "12월", "months": [12],
+    }
+    latest["is_published"] = True
+    latest["published_at"] = "2026-08-12T01:01:00+00:00"
+    gateway.list_rows = [latest, older]
+    service = AnalysisPresentationService(
+        sessions, gateway, PROVENANCE, supported_result_schema_versions=("1",)
+    )
+
+    response = service.list_viewer(viewer)
+
+    assert [item.result_id for item in response.results] == [latest_id, RESULT_ID]
+    assert response.results[0].label == "2026 계획 대비 12월 실적 · 12월"
+    assert response.results[0].published_at == "2026-08-12T01:01:00+00:00"
+    assert set(response.results[0].__dict__) == {
+        "result_id", "label", "completed_at", "published_at",
+    }
 
 
 def test_viewer_malformed_stored_payload_is_safe_invalid_payload_not_empty():

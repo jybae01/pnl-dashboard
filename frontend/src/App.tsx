@@ -139,7 +139,7 @@ export function App() {
           ref={route === 'pnl' ? activeTabRef : undefined}
         >
           <LayoutDashboard size={14} aria-hidden="true" />
-          <span>1. 손익 현황</span>
+          <span>손익현황</span>
           <span className="nav-tab-badge">KPI & Trend</span>
         </button>
         {session.role === 'admin' && (
@@ -150,7 +150,7 @@ export function App() {
             ref={route === 'forecast' ? activeTabRef : undefined}
           >
             <Calculator size={14} aria-hidden="true" />
-            <span>2. 추정 산출</span>
+            <span>추정 산출</span>
             <span className="nav-tab-badge" style={{ backgroundColor: '#f5f3ff', color: '#7c3aed', borderColor: '#ddd6fe' }}>Forecast</span>
           </button>
         )}
@@ -161,7 +161,7 @@ export function App() {
           ref={route === 'variance' ? activeTabRef : undefined}
         >
           <GitCompare size={14} aria-hidden="true" />
-          <span>3. 손익 분석</span>
+          <span>손익 분석</span>
           <span className="nav-tab-badge">Waterfall &amp; Effect</span>
         </button>
         {session.role === 'admin' && (
@@ -172,7 +172,7 @@ export function App() {
             ref={route === 'management' ? activeTabRef : undefined}
           >
             <Database size={14} aria-hidden="true" />
-            <span>4. 데이터 관리</span>
+            <span>데이터 관리</span>
             <span className="nav-tab-badge">Model & Calc</span>
           </button>
         )}
@@ -184,7 +184,7 @@ export function App() {
             ref={route === 'operations' ? activeTabRef : undefined}
           >
             <Sliders size={14} aria-hidden="true" />
-            <span>5. 운영 관리</span>
+            <span>운영 관리</span>
             <span className="nav-tab-badge">Operations</span>
           </button>
         )}

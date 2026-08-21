@@ -114,6 +114,10 @@ const effectOrder = new Map<PresentationEffectCode, number>(
   CANONICAL_EFFECT_ORDER.map((code, index) => [code, index]),
 );
 
+const DRILLDOWN_UI_LABELS: Readonly<Record<string, string>> = {
+  'sales_price:customer_delivery_transport': '운반비 효과',
+};
+
 /**
  * Presentation-only contribution metric confirmed by the source mockup:
  * signed effect / signed operating-profit delta. It does not change bridge amounts.
@@ -139,6 +143,13 @@ export function mapEffect(
     uiCategoryLabel: EFFECT_CATEGORY_LABELS[effect.category],
     contributionRate: calculateContributionRate(effect.profit_effect, operatingProfitDelta),
     costSubtotals: null,
+    drilldown: {
+      ...effect.drilldown,
+      rows: effect.drilldown.rows.map((row) => ({
+        ...row,
+        label: DRILLDOWN_UI_LABELS[row.row_id] ?? row.label,
+      })),
+    },
   };
 }
 

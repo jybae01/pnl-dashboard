@@ -98,6 +98,10 @@ class BffApplicationGateway(Protocol):
         self, result_id: str, *, supported_result_schema_versions: Sequence[str]
     ) -> Mapping[str, Any] | None: ...
 
+    def list_viewer_analysis_presentations(
+        self, *, supported_result_schema_versions: Sequence[str]
+    ) -> list[Mapping[str, Any]]: ...
+
     def get_viewer_pnl_dashboard(
         self, *, supported_result_schema_versions: Sequence[str]
     ) -> Mapping[str, Any] | None: ...
@@ -266,6 +270,43 @@ class SupabaseBffApplicationGateway:
             "p_result_id": result_id,
             "p_supported_result_schema_versions": list(supported_result_schema_versions),
         })
+
+    def list_viewer_analysis_presentations(
+        self, *, supported_result_schema_versions: Sequence[str]
+    ) -> list[Mapping[str, Any]]:
+        """Return Viewer-safe presentation rows in the established Result order.
+
+        The candidate query reads only published Result identifiers.  Each row
+        then passes through the existing Viewer presentation RPC, which applies
+        the authoritative publication, completed-Job, Model, mapping, schema,
+        and provenance predicate.  No Admin history payload crosses this path.
+        """
+
+        try:
+            value = _data(
+                self._client.table("calculation_results")
+                .select("id")
+                .eq("is_published", True)
+                .order("created_at", desc=True)
+                .order("id", desc=True)
+                .execute()
+            )
+        except Exception as exc:
+            raise GatewayTransientError("viewer analysis result candidate lookup failed") from exc
+        if not isinstance(value, list):
+            raise GatewayTransientError("viewer analysis result candidate lookup returned an invalid shape")
+
+        rows: list[Mapping[str, Any]] = []
+        for candidate in value:
+            if not isinstance(candidate, Mapping) or not candidate.get("id"):
+                raise GatewayTransientError("viewer analysis result candidate lookup returned an invalid row")
+            row = self.get_viewer_analysis_presentation(
+                str(candidate["id"]),
+                supported_result_schema_versions=supported_result_schema_versions,
+            )
+            if row is not None:
+                rows.append(row)
+        return rows
 
     def get_viewer_pnl_dashboard(
         self, *, supported_result_schema_versions: Sequence[str]

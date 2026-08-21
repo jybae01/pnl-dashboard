@@ -80,6 +80,7 @@ describe('confirmed Streamlit login UX adapter', () => {
       if (String(input).endsWith('/api/session') && !init?.method) {
         return response({ authenticated: true, role: 'viewer', expires_at: '2026-08-12T00:00:00Z', dto_version: '1' }, 200);
       }
+      if (String(input).endsWith('/api/viewer/analysis-results')) return response({ results: [], dto_version: '1' }, 200);
       if (String(input).endsWith('/api/session/logout')) return response({ authenticated: false }, 200);
       throw new Error('unexpected request');
     });
@@ -126,15 +127,20 @@ describe('confirmed Streamlit login UX adapter', () => {
     vi.stubGlobal('fetch', vi.fn((input: RequestInfo | URL) => {
       const path = String(input);
       if (path.endsWith('/api/session')) return response({ authenticated: true, role: 'viewer', expires_at: '2026-08-12T00:00:00Z', dto_version: '1' }, 200);
-      if (path.endsWith('/api/models')) return response({ models: [], dto_version: '1' }, 200);
+      if (path.endsWith('/api/viewer/analysis-results')) return response({ results: [], dto_version: '1' }, 200);
       throw new Error(`unexpected request ${path}`);
     }));
     render(<App />);
     const viewerNav = await screen.findByRole('navigation', { name: '주요 화면' });
     expect(within(viewerNav).getAllByRole('button')).toHaveLength(2);
-    expect(within(viewerNav).getByRole('button', { name: /3\. 손익 분석/ })).toHaveAttribute('aria-current', 'page');
+    expect(Array.from(viewerNav.querySelectorAll('.nav-tab-btn')).map((button) => button.querySelector('span')?.textContent)).toEqual([
+      '손익현황', '손익 분석',
+    ]);
+    expect(within(viewerNav).getByRole('button', { name: /손익 분석/ })).toHaveAttribute('aria-current', 'page');
+    expect(within(viewerNav).getByRole('button', { name: /손익현황/ })).toBeInTheDocument();
+    expect(within(viewerNav).queryByText(/^\d+\./)).not.toBeInTheDocument();
     expect(screen.getByLabelText('현재 권한: VIEWER')).toHaveTextContent('VIEWER');
-    expect(screen.queryByRole('button', { name: /5\. 운영 관리/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /운영 관리/ })).not.toBeInTheDocument();
 
     cleanup();
     window.location.hash = '#management';
@@ -149,7 +155,14 @@ describe('confirmed Streamlit login UX adapter', () => {
     render(<App />);
     const adminNav = await screen.findByRole('navigation', { name: '주요 화면' });
     expect(within(adminNav).getAllByRole('button')).toHaveLength(5);
-    expect(within(adminNav).getByRole('button', { name: /4\. 데이터 관리/ })).toHaveAttribute('aria-current', 'page');
+    expect(Array.from(adminNav.querySelectorAll('.nav-tab-btn')).map((button) => button.querySelector('span')?.textContent)).toEqual([
+      '손익현황', '추정 산출', '손익 분석', '데이터 관리', '운영 관리',
+    ]);
+    expect(within(adminNav).getByRole('button', { name: /데이터 관리/ })).toHaveAttribute('aria-current', 'page');
+    for (const label of ['손익현황', '추정 산출', '손익 분석', '데이터 관리', '운영 관리']) {
+      expect(within(adminNav).getByRole('button', { name: new RegExp(label) })).toBeInTheDocument();
+    }
+    expect(within(adminNav).queryByText(/^\d+\./)).not.toBeInTheDocument();
     expect(screen.getByLabelText('현재 권한: ADMIN')).toHaveTextContent('ADMIN');
     expect(screen.getByRole('button', { name: '로그아웃' })).toHaveAttribute('title', '로그아웃');
   });
@@ -176,7 +189,7 @@ describe('confirmed Streamlit login UX adapter', () => {
       throw new Error(`unexpected request ${path}`);
     }));
     render(<App />);
-    expect(await screen.findByRole('button', { name: /4\. 데이터 관리/, current: 'page' })).toBeInTheDocument();
+    expect(await screen.findByRole('button', { name: /데이터 관리/, current: 'page' })).toBeInTheDocument();
     await waitFor(() => expect(scrollBy).toHaveBeenCalledWith({ left: 200, top: 0, behavior: 'auto' }));
     delete (HTMLElement.prototype as unknown as Record<string, unknown>).scrollBy;
   });

@@ -258,6 +258,20 @@ class ViewerResultResponse:
 
 
 @dataclass(frozen=True)
+class ViewerAnalysisResultOptionResponse:
+    result_id: str
+    label: str
+    completed_at: str
+    published_at: str
+
+
+@dataclass(frozen=True)
+class ViewerAnalysisResultListResponse:
+    results: tuple[ViewerAnalysisResultOptionResponse, ...]
+    dto_version: str = "1"
+
+
+@dataclass(frozen=True)
 class AnalysisPresentationIdentityResponse:
     result_id: str
     job_id: str

@@ -170,6 +170,7 @@ describe('admin operations vertical slice', () => {
     window.location.hash = '#operations';
     vi.stubGlobal('fetch', vi.fn((input: RequestInfo | URL) => {
       if (String(input).endsWith('/api/session')) return json({ authenticated: true, role: 'viewer', expires_at: '2026-08-12T00:00:00Z', dto_version: '1' });
+      if (String(input).endsWith('/api/viewer/analysis-results')) return json({ results: [], dto_version: '1' });
       throw new Error(`unexpected request ${String(input)}`);
     }));
     render(<App />);

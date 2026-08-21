@@ -224,6 +224,13 @@ export interface StoredResultDto {
   dto_version: '1';
 }
 
+export interface ViewerAnalysisResultOptionDto {
+  result_id: string;
+  label: string;
+  completed_at: string;
+  published_at: string;
+}
+
 export type PresentationEffectCode =
   | 'sales_quantity' | 'sales_mix' | 'sales_price' | 'sales_fx' | 'material_total'
   | 'manufacturing_realized' | 'inventory_timing' | 'sga_variable' | 'sga_fixed' | 'tariff';

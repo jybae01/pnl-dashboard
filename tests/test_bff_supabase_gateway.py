@@ -40,6 +40,44 @@ class FakeClient:
         return RpcCall(self.responses.get(name), self.errors.get(name))
 
 
+class ViewerListCall:
+    def __init__(self, client):
+        self.client = client
+
+    def select(self, columns):
+        self.client.filters.append(("select", columns))
+        return self
+
+    def eq(self, column, value):
+        self.client.filters.append(("eq", column, value))
+        return self
+
+    def order(self, column, *, desc=False):
+        self.client.filters.append(("order", column, desc))
+        return self
+
+    def execute(self):
+        return Response(self.client.candidates)
+
+
+class ViewerListClient(FakeClient):
+    def __init__(self, candidates, presentations):
+        super().__init__()
+        self.candidates = candidates
+        self.presentations = presentations
+        self.filters = []
+
+    def table(self, name):
+        assert name == "calculation_results"
+        return ViewerListCall(self)
+
+    def rpc(self, name, params):
+        self.calls.append((name, params))
+        if name == "get_calculation_result_presentation_viewer_by_id":
+            return RpcCall(self.presentations.get(params["p_result_id"], []))
+        return super().rpc(name, params)
+
+
 def test_submit_uses_narrow_idempotent_rpc_and_no_created_by_fabrication():
     client = FakeClient()
     client.responses["create_durable_calculation_job_idempotent"] = [{
@@ -172,6 +210,39 @@ def test_by_id_reads_use_distinct_admin_and_viewer_rpcs():
         "get_bounded_evidence_viewer",
         "list_calculation_history_admin",
     ]
+
+
+def test_viewer_analysis_list_uses_published_candidates_and_strict_viewer_rpc_order():
+    latest = "55555555-5555-4555-8555-555555555555"
+    older = "44444444-4444-4444-8444-444444444444"
+    unpublished = "66666666-6666-4666-8666-666666666666"
+    failed = "77777777-7777-4777-8777-777777777777"
+    draft = "88888888-8888-4888-8888-888888888888"
+    client = ViewerListClient(
+        [{"id": latest}, {"id": older}, {"id": unpublished}, {"id": failed}, {"id": draft}],
+        {
+            latest: [{"result_id": latest}],
+            older: [{"result_id": older}],
+            unpublished: [],
+            failed: [],
+            draft: [],
+        },
+    )
+    gateway = SupabaseBffApplicationGateway(client)
+
+    rows = gateway.list_viewer_analysis_presentations(
+        supported_result_schema_versions=("1",)
+    )
+
+    assert [row["result_id"] for row in rows] == [latest, older]
+    assert client.filters == [
+        ("select", "id"),
+        ("eq", "is_published", True),
+        ("order", "created_at", True),
+        ("order", "id", True),
+    ]
+    assert all(name == "get_calculation_result_presentation_viewer_by_id" for name, _ in client.calls)
+    assert not any(name == "list_calculation_history_admin" for name, _ in client.calls)
 
 
 @pytest.mark.parametrize("response,expected", [

@@ -16,6 +16,7 @@ import {
   Role,
   AnalysisPresentationDto,
   AnalysisPresentationEffectDto,
+  ViewerAnalysisResultOptionDto,
   ForecastGenerateRequestDto,
   ForecastGenerateResponseDto,
   ForecastExcelPreviewDto,
@@ -211,6 +212,9 @@ export const bffClient = {
   ),
   viewerPresentation: async (resultId: string) => validatePresentation(
     await request<unknown>(`/api/viewer/results/${resultId}/presentation`),
+  ),
+  viewerAnalysisResults: async () => validateViewerAnalysisResults(
+    await request<unknown>('/api/viewer/analysis-results', { cache: 'no-store' }),
   ),
   history: async (limit = 25, beforeCreatedAt?: string, beforeJobId?: string) => {
     const query = new URLSearchParams({ limit: String(limit) });
@@ -633,6 +637,19 @@ function validateWorkerStatus(value: unknown): WorkerStatusDto {
 function validateResult(value: unknown): StoredResultDto {
   if (!isRecord(value) || typeof value.result_id !== 'string' || typeof value.job_id !== 'string' || !isRecord(value.analysis_view) || !isRecord(value.provenance)) invalidPayload();
   return value as unknown as StoredResultDto;
+}
+
+function validateViewerAnalysisResults(value: unknown): ViewerAnalysisResultOptionDto[] {
+  if (!isRecord(value) || !Array.isArray(value.results) || value.dto_version !== '1') invalidPayload();
+  return value.results.map((result): ViewerAnalysisResultOptionDto => {
+    if (!isRecord(result)
+      || !uuid(result.result_id)
+      || typeof result.label !== 'string'
+      || result.label.trim() === ''
+      || typeof result.completed_at !== 'string'
+      || typeof result.published_at !== 'string') invalidPayload();
+    return result as unknown as ViewerAnalysisResultOptionDto;
+  });
 }
 
 function validateForecastInputMetadata(value: unknown): ForecastInputMetadataDto {

@@ -8,11 +8,25 @@ const BASE = '11111111-1111-4111-8111-111111111111';
 const COMP = '22222222-2222-4222-8222-222222222222';
 const JOB = '33333333-3333-4333-8333-333333333333';
 const RESULT = '44444444-4444-4444-8444-444444444444';
+const OTHER_RESULT = '55555555-5555-4555-8555-555555555555';
+const THIRD_RESULT = '66666666-6666-4666-8666-666666666666';
 
 function json(body: unknown, status = 200) {
   return Promise.resolve(new Response(JSON.stringify(body), {
     status, headers: { 'Content-Type': 'application/json' },
   }));
+}
+
+function viewerResults(...ids: string[]) {
+  return {
+    results: ids.map((result_id, index) => ({
+      result_id,
+      label: index === 0 ? '2026 계획 대비 12월 실적 · 12월' : `공개 분석 ${index + 1}`,
+      completed_at: `2026-08-${12 - index}T00:00:00Z`,
+      published_at: `2026-08-${12 - index}T00:01:00Z`,
+    })),
+    dto_version: '1',
+  };
 }
 
 afterEach(() => vi.unstubAllGlobals());
@@ -154,18 +168,18 @@ describe('React core vertical slice', () => {
   });
 
   it('clears cached Viewer result after the backend later denies availability', async () => {
-    let reads = 0;
     vi.stubGlobal('fetch', vi.fn((input: RequestInfo | URL) => {
-      if (!String(input).includes('/api/viewer/results/') || !String(input).endsWith('/presentation')) throw new Error('unexpected request');
-      reads += 1;
-      if (reads === 1) return json(presentationFixture());
-      return json({ error: { code: 'RESULT_NOT_AVAILABLE', message: 'Result not available', field_errors: {}, correlation_id: null, dto_version: '1' } }, 404);
+      const path = String(input);
+      if (path.endsWith('/api/viewer/analysis-results')) return json(viewerResults(RESULT, OTHER_RESULT));
+      if (path.endsWith(`/api/viewer/results/${RESULT}/presentation`)) return json(presentationFixture());
+      if (path.endsWith(`/api/viewer/results/${OTHER_RESULT}/presentation`)) {
+        return json({ error: { code: 'RESULT_NOT_AVAILABLE', message: 'Result not available', field_errors: {}, correlation_id: null, dto_version: '1' } }, 404);
+      }
+      throw new Error(`unexpected request ${path}`);
     }));
     render(<CoreAnalysisView role="viewer" />);
-    fireEvent.change(screen.getByLabelText('Result ID'), { target: { value: RESULT } });
-    fireEvent.click(screen.getByRole('button', { name: '조회' }));
     expect(await screen.findByTestId('stored-result')).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: '조회' }));
+    fireEvent.change(screen.getByLabelText('분석 결과 선택'), { target: { value: OTHER_RESULT } });
     await waitFor(() => expect(screen.queryByTestId('stored-result')).not.toBeInTheDocument());
     expect(screen.getByTestId('viewer-empty')).toBeInTheDocument();
   });
@@ -210,34 +224,32 @@ describe('React core vertical slice', () => {
   });
 
   it('treats malformed Result payload as INVALID_PAYLOAD rather than READY', async () => {
-    vi.stubGlobal('fetch', vi.fn(() => json({ result_id: RESULT, job_id: JOB, analysis_view: null, provenance: {} })));
+    vi.stubGlobal('fetch', vi.fn((input: RequestInfo | URL) => String(input).endsWith('/api/viewer/analysis-results')
+      ? json(viewerResults(RESULT))
+      : json({ result_id: RESULT, job_id: JOB, analysis_view: null, provenance: {} })));
     render(<CoreAnalysisView role="viewer" />);
-    fireEvent.change(screen.getByLabelText('Result ID'), { target: { value: RESULT } });
-    fireEvent.click(screen.getByRole('button', { name: '조회' }));
     expect(await screen.findByText('서버 응답 형식이 올바르지 않습니다.')).toBeInTheDocument();
     expect(screen.queryByTestId('stored-result')).not.toBeInTheDocument();
   });
 
   it('keeps EMPTY, ERROR and FORBIDDEN presentation states distinct', async () => {
-    let response: 'empty' | 'error' | 'forbidden' = 'empty';
-    vi.stubGlobal('fetch', vi.fn(() => {
-      if (response === 'empty') return json({ error: { code: 'RESULT_NOT_AVAILABLE', message: 'Result not available' } }, 404);
-      if (response === 'forbidden') return json({ error: { code: 'FORBIDDEN', message: 'Forbidden' } }, 403);
-      return json({ error: { code: 'TRANSIENT_SYSTEM_ERROR', message: 'temporary' } }, 503);
+    vi.stubGlobal('fetch', vi.fn((input: RequestInfo | URL) => {
+      const path = String(input);
+      if (path.endsWith('/api/viewer/analysis-results')) return json(viewerResults(RESULT, OTHER_RESULT, THIRD_RESULT));
+      if (path.endsWith(`/api/viewer/results/${RESULT}/presentation`)) return json({ error: { code: 'RESULT_NOT_AVAILABLE', message: 'Result not available' } }, 404);
+      if (path.endsWith(`/api/viewer/results/${OTHER_RESULT}/presentation`)) return json({ error: { code: 'TRANSIENT_SYSTEM_ERROR', message: 'temporary' } }, 503);
+      if (path.endsWith(`/api/viewer/results/${THIRD_RESULT}/presentation`)) return json({ error: { code: 'FORBIDDEN', message: 'Forbidden' } }, 403);
+      throw new Error(`unexpected request ${path}`);
     }));
     const view = render(<CoreAnalysisView role="viewer" />);
-    const input = screen.getByLabelText('Result ID');
-    fireEvent.change(input, { target: { value: RESULT } });
-    fireEvent.click(screen.getByRole('button', { name: '조회' }));
-    expect(await screen.findByText('아직 공개된 분석 결과가 없습니다.')).toBeInTheDocument();
+    const select = screen.getByLabelText('분석 결과 선택');
+    expect(await screen.findByText('조회 가능한 공개 분석 결과가 없습니다.')).toBeInTheDocument();
 
-    response = 'error';
-    fireEvent.click(screen.getByRole('button', { name: '조회' }));
+    fireEvent.change(select, { target: { value: OTHER_RESULT } });
     expect(await screen.findByText('분석 결과를 불러오지 못했습니다.')).toBeInTheDocument();
     expect(screen.queryByTestId('viewer-empty')).not.toBeInTheDocument();
 
-    response = 'forbidden';
-    fireEvent.click(screen.getByRole('button', { name: '조회' }));
+    fireEvent.change(select, { target: { value: THIRD_RESULT } });
     expect(await screen.findByText('이 분석 결과를 볼 권한이 없습니다.')).toBeInTheDocument();
     expect(screen.queryByText('분석 결과를 불러오지 못했습니다.')).not.toBeInTheDocument();
     view.unmount();

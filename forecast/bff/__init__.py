@@ -43,6 +43,8 @@ from .dto import (
     ResultProvenanceResponse,
     SessionResponse,
     SessionTicket,
+    ViewerAnalysisResultListResponse,
+    ViewerAnalysisResultOptionResponse,
     ViewerResultResponse,
 )
 from .errors import ApiError, ApiErrorCode, BffError
@@ -101,5 +103,7 @@ __all__ = [
     "ProductionAllocationResult",
     "allocate_production",
     "ViewerResultResponse",
+    "ViewerAnalysisResultListResponse",
+    "ViewerAnalysisResultOptionResponse",
     "create_supabase_bff_application",
 ]

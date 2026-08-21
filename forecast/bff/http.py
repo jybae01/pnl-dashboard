@@ -1186,6 +1186,16 @@ def create_http_bff(
             )
         return application.presentation.viewer_read(value, result_id)
 
+    @app.get("/api/viewer/analysis-results")
+    def viewer_analysis_results(response: Response, value: str = Depends(viewer_session)):
+        if application.presentation is None:
+            raise BffError(
+                ApiErrorCode.TRANSIENT_SYSTEM_ERROR,
+                "Analysis presentation capability is not configured",
+            )
+        response.headers["Cache-Control"] = "private, no-store"
+        return application.presentation.list_viewer(value)
+
     @app.get("/api/viewer/pnl-dashboard")
     def viewer_pnl_dashboard(response: Response, value: str = Depends(viewer_session)):
         if application.pnl_dashboard is None:
