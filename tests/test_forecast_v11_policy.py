@@ -37,18 +37,42 @@ def test_v11_forecast_freight_and_tariff_policy_uses_all_authoritative_rates():
         na_sa_sales=2_000,
     )
 
-    assert result["sw_freight"] == pytest.approx(9)
-    assert result["bw_freight"] == pytest.approx(30)
-    assert result["lc_freight"] == pytest.approx(21)
-    assert result["fs_freight"] == pytest.approx(18)
-    assert result["existing_product_freight"] == pytest.approx(78)
+    assert result["sw_freight"] == pytest.approx(4.5)
+    assert result["bw_freight"] == pytest.approx(15)
+    assert result["lc_freight"] == pytest.approx(10.5)
+    assert result["fs_freight"] == pytest.approx(9)
+    assert result["existing_product_freight"] == pytest.approx(39)
     assert result["uf_mbr_freight"] == pytest.approx(100)
     assert result["ix_freight"] == pytest.approx(100)
-    assert result["default_customer_freight"] == pytest.approx(278)
+    assert result["default_customer_freight"] == pytest.approx(239)
     assert result["plan_tariff"] == pytest.approx(85)
     assert result["forecast_tariff"] == pytest.approx(170)
     assert result["tariff_adjustment"] == pytest.approx(85)
-    assert result["target_selling_transport"] == pytest.approx(448)
+    assert result["target_selling_transport"] == pytest.approx(409)
+
+
+@pytest.mark.parametrize(
+    ("product_code", "freight_key"),
+    [
+        ("SW400", "sw_freight"),
+        ("BW400", "bw_freight"),
+        ("LC", "lc_freight"),
+        ("FS_SW", "fs_freight"),
+    ],
+)
+def test_each_existing_product_group_uses_one_point_five_percent(
+    product_code, freight_key,
+):
+    result = calculate_v11_forecast_transport_policy(
+        {product_code: SalesInput(amount=100)},
+        plan_na_sa_sales=0,
+        na_sa_sales=0,
+    )
+
+    assert result[freight_key] == pytest.approx(1.5)
+    assert result["existing_product_freight"] == pytest.approx(1.5)
+    assert result["default_customer_freight"] == pytest.approx(1.5)
+    assert result["target_selling_transport"] == pytest.approx(1.5)
 
 
 def test_lc_merchandise_revenue_is_not_existing_product_freight():
@@ -67,7 +91,7 @@ def test_lc_merchandise_revenue_is_not_existing_product_freight():
 def test_legacy_request_rate_fields_cannot_change_v11_policy():
     first = ForecastInput(
         sales=_sales(),
-        uf_mbr_transport_rate=0.01,
+        uf_mbr_transport_rate=0.03,
         ix_transport_rate=0.99,
         tariff_applicable_rate=0.02,
         tariff_rate=0.97,
@@ -96,6 +120,7 @@ def test_legacy_request_rate_fields_cannot_change_v11_policy():
     )
 
     assert first_policy == second_policy
+    assert first_policy["existing_product_freight"] == pytest.approx(39)
 
 
 def test_v11_forecast_policy_zero_revenue_and_invalid_revenue_contract():
@@ -125,11 +150,15 @@ def test_authoritative_selling_transport_is_written_to_workbook_audit(tmp_path):
     workbook.save(source)
 
     golden = GoldenWorkbook(source)
+    policy_reason = (
+        "v1.1 Backend authoritative: 기존제품 운반비 1.5%, UF/MBR 10%, "
+        "IX 5%, Forecast 미주매출 관세 8.5%"
+    )
     golden.set_input(
         "K1168",
         123,
         "sga_authoritative_default",
-        "v1.1 Backend authoritative freight and tariff",
+        policy_reason,
     )
     golden.save(output)
 
@@ -139,7 +168,7 @@ def test_authoritative_selling_transport_is_written_to_workbook_audit(tmp_path):
         str(cell.value or "") for row in audit.iter_rows() for cell in row
     )
     assert "K1168" in text
-    assert "v1.1 Backend authoritative freight and tariff" in text
+    assert policy_reason in text
     generated.close()
 
 

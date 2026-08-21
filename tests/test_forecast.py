@@ -411,6 +411,7 @@ class GoldenModelTests(unittest.TestCase):
                 self.assertIn("'Data'!K1168", locations)
                 self.assertNotIn("'Data'!K1194", locations)
                 audit_text = audit_bytes.decode("utf-8")
+                self.assertIn("1.5%", audit_text)
                 self.assertIn("원재료 관세 환급금", audit_text)
                 self.assertIn("제품 폐기손실", audit_text)
 

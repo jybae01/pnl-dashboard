@@ -179,7 +179,7 @@ def test_engine_writes_explicit_lc_merchandise_revenue_and_excludes_manufactured
         instances = []
 
         def __init__(self, _path):
-            self.values = {}
+            self.values = {"K1168": 999_999}
             self.inputs = {}
             self.formulas = {"K101": "=K56", "K102": "=K57"}
             self.__class__.instances.append(self)
@@ -321,21 +321,32 @@ def test_engine_writes_explicit_lc_merchandise_revenue_and_excludes_manufactured
     assert changed.detail["merchandise_cogs_total"] == pytest.approx(20_000_000)
     assert first.detail["forecast_sales_contract_version"] == "forecast-sales-v2.0.0"
     assert first.detail["lc_sales_mode"] == "EXPLICIT_LC_PRODUCT_MERCHANDISE"
-    assert first_workbook.inputs["K1168"] == pytest.approx(5_170_000)
-    assert changed_workbook.inputs["K1168"] == pytest.approx(29_170_000)
+    assert first_workbook.inputs["K1168"] == pytest.approx(3_670_000)
+    assert changed_workbook.inputs["K1168"] == pytest.approx(15_670_000)
+    assert first.detail["default_customer_freight"] == pytest.approx(3_500_000)
     assert first.detail["plan_na_sa_tariff"] == pytest.approx(85_000)
     assert first.detail["forecast_na_sa_tariff"] == pytest.approx(170_000)
+    assert first.detail["plan_selling_transport"] == pytest.approx(999_999)
+    assert first.detail["selling_transport_authoritative_target"] == pytest.approx(
+        3_670_000
+    )
+    assert first.detail["selling_transport_automatic_adjustment"] == pytest.approx(
+        2_670_001
+    )
+    assert first.detail["authoritative_existing_freight_rate"] == pytest.approx(
+        0.015
+    )
     assert first.detail["authoritative_uf_mbr_freight_rate"] == pytest.approx(0.10)
     assert first.detail["authoritative_tariff_eligible_ratio"] == pytest.approx(0.85)
 
     adjusted, adjusted_workbook = run(100_000_000, 100, "adjusted", 1_234)
     assert adjusted.detail["selling_transport_before_adjustment"] == pytest.approx(
-        5_170_000
+        3_670_000
     )
     assert adjusted.detail["selling_transport_after_adjustment"] == pytest.approx(
-        5_171_234
+        3_671_234
     )
-    assert adjusted_workbook.inputs["K1168"] == pytest.approx(5_171_234)
+    assert adjusted_workbook.inputs["K1168"] == pytest.approx(3_671_234)
 
     legacy = ForecastEngine(
         model_path,

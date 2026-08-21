@@ -26,7 +26,7 @@ from .sales_contract import (
 from .workbook import GoldenWorkbook
 
 
-V11_EXISTING_PRODUCT_FREIGHT_RATE = 0.03
+V11_EXISTING_PRODUCT_FREIGHT_RATE = 0.015
 V11_UF_MBR_FREIGHT_RATE = 0.10
 V11_IX_FREIGHT_RATE = 0.05
 V11_TARIFF_ELIGIBLE_RATIO = 0.85
@@ -397,7 +397,7 @@ class ForecastEngine:
             authoritative_selling_transport,
             "sga_authoritative_default",
             (
-                "v1.1 Backend authoritative: 기존제품 운반비 3%, UF/MBR 10%, "
+                "v1.1 Backend authoritative: 기존제품 운반비 1.5%, UF/MBR 10%, "
                 "IX 5%, Forecast 미주매출 관세 8.5%"
             ),
         )
