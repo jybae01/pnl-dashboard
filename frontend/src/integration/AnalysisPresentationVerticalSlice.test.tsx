@@ -552,7 +552,7 @@ describe('analysis presentation vertical slice', () => {
     expect(screen.getByRole('option', { name: '2026 계획 대비 12월 실적' })).toBeInTheDocument();
     expect(screen.queryByLabelText('Result ID')).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: '조회' })).not.toBeInTheDocument();
-    for (const control of ['분석 실행', '삭제', '공개', '공개 해제']) {
+    for (const control of ['분석 실행', '손익 변동 요인 분석 실행', '새 분석', '삭제', '공개', '공개 해제']) {
       expect(screen.queryByRole('button', { name: control })).not.toBeInTheDocument();
     }
     expect(screen.getByTestId('analysis-waterfall-card')).toBeInTheDocument();
@@ -597,6 +597,7 @@ describe('analysis presentation vertical slice', () => {
     expect(await screen.findByText('조회 가능한 공개 분석 결과가 없습니다.')).toBeInTheDocument();
     expect(screen.getByLabelText('분석 결과 선택')).toBeDisabled();
     expect(screen.queryByRole('button', { name: '분석 실행' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: '손익 변동 요인 분석 실행' })).not.toBeInTheDocument();
     empty.unmount();
 
     vi.unstubAllGlobals();

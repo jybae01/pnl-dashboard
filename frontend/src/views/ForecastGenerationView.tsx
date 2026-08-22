@@ -1,5 +1,5 @@
-import React, { useEffect, useId, useMemo, useRef, useState } from 'react';
-import { AlertCircle, CalendarDays, Calculator, CheckCircle2, ChevronDown, Database, Download, FileSpreadsheet, FileText, Info, LockKeyhole, RotateCcw, ShieldCheck, Trash2, Upload } from 'lucide-react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { AlertCircle, Calculator, CheckCircle2, Database, Download, FileSpreadsheet, FileText, Info, LockKeyhole, RotateCcw, ShieldCheck, Trash2, Upload } from 'lucide-react';
 import { bffClient } from '../integration/client';
 import {
   AnalysisModelDto,
@@ -246,185 +246,6 @@ function ForecastMonthSelect({ ariaLabel, disabled, months, modelYear, preserved
     {unavailableMonths.map((month) => <option key={`preserved-${month}`} value={month}>{label(month)} (범위 밖)</option>)}
     {months.map((month) => <option key={month} value={month}>{label(month)}</option>)}
   </select>;
-}
-
-interface AdjustmentMonthPickerProps {
-  disabled: boolean;
-  helperId: string;
-  months: readonly number[];
-  modelYear: number | undefined;
-  preservedMonths?: readonly number[];
-  value: number;
-  onChange: (month: number) => void;
-}
-
-const MONTH_OPTIONS = Array.from({ length: MONTH_MAX - MONTH_MIN + 1 }, (_, index) => index + MONTH_MIN);
-
-function AdjustmentMonthPicker({ disabled, helperId, months, modelYear, preservedMonths = [], value, onChange }: AdjustmentMonthPickerProps) {
-  const rootRef = useRef<HTMLDivElement>(null);
-  const triggerRef = useRef<HTMLButtonElement>(null);
-  const optionRefs = useRef<Array<HTMLButtonElement | null>>([]);
-  const [open, setOpen] = useState(false);
-  const [activeMonth, setActiveMonth] = useState(value);
-  const generatedId = useId().replace(/:/g, '');
-  const popoverId = `forecast-adjustment-month-popover-${generatedId}`;
-  const modelMonthLabel = (month: number) => `${modelYear ?? '----'}-${String(month).padStart(2, '0')}`;
-  const availableMonths = new Set([...months, ...preservedMonths, value]);
-  const selectableMonths = MONTH_OPTIONS.filter((month) => availableMonths.has(month));
-  const outOfRange = !months.includes(value);
-  const isDisabled = disabled || months.length === 0;
-
-  useEffect(() => {
-    if (!open) {
-      setActiveMonth(value);
-      return;
-    }
-    const initialMonth = selectableMonths.includes(value) ? value : selectableMonths[0];
-    if (initialMonth === undefined) return;
-    setActiveMonth(initialMonth);
-    optionRefs.current[initialMonth - MONTH_MIN]?.focus();
-  }, [open, value, selectableMonths.join('|')]);
-
-  useEffect(() => {
-    if (!open) return undefined;
-    const handleOutsidePointerDown = (event: Event) => {
-      if (!rootRef.current?.contains(event.target as Node)) setOpen(false);
-    };
-    document.addEventListener('pointerdown', handleOutsidePointerDown);
-    document.addEventListener('mousedown', handleOutsidePointerDown);
-    return () => {
-      document.removeEventListener('pointerdown', handleOutsidePointerDown);
-      document.removeEventListener('mousedown', handleOutsidePointerDown);
-    };
-  }, [open]);
-
-  const closePicker = (returnFocus = true) => {
-    setOpen(false);
-    if (returnFocus) triggerRef.current?.focus();
-  };
-
-  const focusMonth = (month: number) => {
-    setActiveMonth(month);
-    optionRefs.current[month - MONTH_MIN]?.focus();
-  };
-
-  const moveActiveMonth = (delta: number) => {
-    if (selectableMonths.length === 0) return;
-    if (Math.abs(delta) === 1) {
-      const currentIndex = Math.max(0, selectableMonths.indexOf(activeMonth));
-      const nextIndex = (currentIndex + delta + selectableMonths.length) % selectableMonths.length;
-      focusMonth(selectableMonths[nextIndex]);
-      return;
-    }
-    const targetMonth = activeMonth + delta;
-    if (selectableMonths.includes(targetMonth)) focusMonth(targetMonth);
-  };
-
-  const selectMonth = (month: number) => {
-    if (!selectableMonths.includes(month)) return;
-    if (month !== value) onChange(month);
-    closePicker();
-  };
-
-  const handleTriggerKeyDown = (event: React.KeyboardEvent<HTMLButtonElement>) => {
-    if (isDisabled) return;
-    if (event.key === 'Enter' || event.key === ' ') {
-      event.preventDefault();
-      setOpen((current) => !current);
-    }
-  };
-
-  const handleOptionKeyDown = (event: React.KeyboardEvent<HTMLButtonElement>, month: number) => {
-    switch (event.key) {
-      case 'Enter':
-      case ' ':
-        event.preventDefault();
-        selectMonth(month);
-        break;
-      case 'Escape':
-        event.preventDefault();
-        closePicker();
-        break;
-      case 'ArrowLeft':
-        event.preventDefault();
-        moveActiveMonth(-1);
-        break;
-      case 'ArrowRight':
-        event.preventDefault();
-        moveActiveMonth(1);
-        break;
-      case 'ArrowUp':
-        event.preventDefault();
-        moveActiveMonth(-6);
-        break;
-      case 'ArrowDown':
-        event.preventDefault();
-        moveActiveMonth(6);
-        break;
-      case 'Home': {
-        event.preventDefault();
-        const firstMonth = selectableMonths[0];
-        if (firstMonth !== undefined) focusMonth(firstMonth);
-        break;
-      }
-      case 'End': {
-        event.preventDefault();
-        const lastMonth = selectableMonths[selectableMonths.length - 1];
-        if (lastMonth !== undefined) focusMonth(lastMonth);
-        break;
-      }
-      default:
-        break;
-    }
-  };
-
-  return (
-    <div className="forecast-workflow__adjustment-month-picker" ref={rootRef}>
-      <button
-        ref={triggerRef}
-        type="button"
-        className={`forecast-workflow__adjustment-month-trigger ${outOfRange ? 'is-invalid' : ''}`}
-        disabled={isDisabled}
-        aria-label={`적용월 ${modelMonthLabel(value)}`}
-        aria-describedby={helperId}
-        aria-expanded={open}
-        aria-haspopup="listbox"
-        aria-controls={popoverId}
-        aria-invalid={outOfRange || undefined}
-        onClick={() => setOpen((current) => !current)}
-        onKeyDown={handleTriggerKeyDown}
-      >
-        <CalendarDays size={14} aria-hidden="true" />
-        <span>{modelMonthLabel(value)}</span>
-        <ChevronDown size={14} aria-hidden="true" />
-      </button>
-      {open && (
-        <div id={popoverId} className="forecast-workflow__adjustment-month-popover" role="listbox" aria-label="적용월 선택">
-          {MONTH_OPTIONS.map((month) => {
-            const selectable = selectableMonths.includes(month);
-            return (
-              <button
-                key={month}
-                ref={(element) => { optionRefs.current[month - MONTH_MIN] = element; }}
-                type="button"
-                role="option"
-                className={`forecast-workflow__adjustment-month-option ${month === value ? 'is-selected' : ''}`}
-                disabled={!selectable}
-                aria-disabled={!selectable}
-                aria-selected={month === value}
-                aria-label={`${String(month).padStart(2, '0')}월 ${modelMonthLabel(month)}`}
-                tabIndex={month === activeMonth && selectable ? 0 : -1}
-                onClick={() => selectMonth(month)}
-                onKeyDown={(event) => handleOptionKeyDown(event, month)}
-              >
-                {String(month).padStart(2, '0')}월
-              </button>
-            );
-          })}
-        </div>
-      )}
-    </div>
-  );
 }
 
 export interface ForecastGenerationViewProps {
@@ -1236,10 +1057,12 @@ export const ForecastGenerationView: React.FC<ForecastGenerationViewProps> = ({
   const activeMonthInput = inputs[activeInputMonth] ?? createForecastMonthFormState(activeInputMonth, inputMetadata ?? undefined);
   const monthInput = (month: number) => inputs[month] ?? createForecastMonthFormState(month, inputMetadata ?? undefined);
   const monthLabel = (month: number) => `${selectedBaseModel?.model_year ?? '----'}-${String(month).padStart(2, '0')}`;
+  const adjustmentResetMonth = outOfRangeAdjustmentMonths[0] ?? adjustmentInputMonth;
   const tariffMonthInput = monthInput(tariffInputMonth);
   const newBusinessMonthInput = monthInput(newBusinessInputMonth);
   const rawMaterialMonthInput = monthInput(rawMaterialInputMonth);
   const applyAdjustmentMonthToAll = (month: number) => {
+    if (month === adjustmentInputMonth) return;
     setAdjustmentInputMonth(month);
     setManufacturingInputMonths(Object.fromEntries((inputMetadata?.manufacturing ?? []).map((item) => [item.adjustment_key, month])));
     setSgaInputMonths(Object.fromEntries((inputMetadata?.sga ?? []).map((item) => [item.adjustment_key, month])));
@@ -1623,22 +1446,24 @@ export const ForecastGenerationView: React.FC<ForecastGenerationViewProps> = ({
               role="group"
               aria-label="비용 및 원가 조정 적용월"
             >
-              <div className="forecast-workflow__adjustment-month-selector">
+              <div className="forecast-workflow__month-tabs forecast-workflow__month-tabs--adjustment" role="tablist" aria-label="비용 및 원가 조정 적용월 선택">
                 <span id="forecast-adjustment-month-label" className="forecast-workflow__adjustment-month-label">적용월</span>
-                <AdjustmentMonthPicker
+                {months.map((month) => <button
+                  key={month}
+                  type="button"
+                  role="tab"
+                  aria-selected={adjustmentInputMonth === month}
+                  aria-label={`비용 및 원가 조정 ${String(month).padStart(2, '0')}월`}
+                  aria-describedby="forecast-adjustment-month-help"
+                  className={adjustmentInputMonth === month ? 'is-active' : ''}
                   disabled={advancedControlsDisabled}
-                  helperId="forecast-adjustment-month-help"
-                  months={months}
-                  modelYear={selectedBaseModel?.model_year}
-                  preservedMonths={outOfRangeAdjustmentMonths}
-                  value={adjustmentInputMonth}
-                  onChange={applyAdjustmentMonthToAll}
-                />
+                  onClick={() => applyAdjustmentMonthToAll(month)}
+                >{String(month).padStart(2, '0')}월</button>)}
               </div>
               <p id="forecast-adjustment-month-help" className="forecast-workflow__adjustment-month-help">선택한 월을 모든 비용 행에 적용합니다. 각 행의 적용월은 이후 개별 변경할 수 있습니다.</p>
-              <button type="button" className="forecast-workflow__reset" disabled={advancedControlsDisabled} onClick={() => resetAdjustmentInputs(adjustmentInputMonth)}>
+              <button type="button" className="forecast-workflow__reset" disabled={advancedControlsDisabled} onClick={() => resetAdjustmentInputs(adjustmentResetMonth)}>
                 <RotateCcw size={13} aria-hidden="true" />
-                선택 적용월 조정 초기화
+                {outOfRangeAdjustmentMonths.length > 0 ? `${monthLabel(adjustmentResetMonth)} 조정 초기화` : '선택 적용월 조정 초기화'}
               </button>
             </div>
             {outOfRangeAdjustmentMonths.length > 0 && <div className="forecast-workflow__range-note is-invalid forecast-workflow__adjustment-range-alert" role="alert">

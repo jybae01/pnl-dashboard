@@ -39,7 +39,7 @@ async function fillMonthlyFx(key: string, baseline: string, comparison: string) 
 afterEach(() => vi.unstubAllGlobals());
 
 describe('React core vertical slice', () => {
-  it('keeps one coherent condition grid, FX subsection, and compact primary/secondary actions', async () => {
+  it('renders exactly two condition cards with the approved labels, hierarchy, and actions', async () => {
     window.sessionStorage.removeItem('pnl.active-analysis-job-id');
     vi.stubGlobal('fetch', vi.fn((input: RequestInfo | URL) => {
       if (!String(input).endsWith('/api/models')) throw new Error(`unexpected request ${String(input)}`);
@@ -52,33 +52,134 @@ describe('React core vertical slice', () => {
     render(<CoreAnalysisView role="admin" />);
     expect(await screen.findByText('분석 조건 설정')).toBeInTheDocument();
     const condition = screen.getByTestId('analysis-condition-card');
+    const fxCard = screen.getByTestId('analysis-fx-card');
+    const controls = condition.parentElement;
+    expect(controls).toHaveClass('variance-analysis-controls');
+    expect(Array.from(controls?.children ?? []).filter((node) => node.classList.contains('variance-query-card'))).toEqual([condition, fxCard]);
     expect(Array.from(condition.querySelectorAll('.filter-label')).map((node) => node.textContent)).toEqual([
-      '기준 모형',
-      '비교 모형',
+      '기준 모형 (Baseline)',
+      '비교 모형 (Comparison)',
       '시작 월',
       '종료 월',
-      '모형 비교',
     ]);
-    expect(screen.getByLabelText('모형 비교 유형')).toHaveClass('variance-comparison-context');
+    expect(screen.queryByLabelText('모형 비교 유형')).not.toBeInTheDocument();
+    expect(screen.queryByText('모형 비교')).not.toBeInTheDocument();
     expect(condition.querySelector('.variance-control-grid')).toBeInTheDocument();
-    expect(screen.getByLabelText('월별 매출환율 입력')).toHaveClass('variance-monthly-fx');
+    expect(screen.getByRole('button', { name: '기준 모형과 비교 모형 맞바꾸기' })).toHaveClass('variance-swap-button');
+    expect(screen.getByLabelText('기준 모형 (Baseline)').querySelector('option')?.textContent).toBe('-- 모형 선택 --');
+    expect(screen.getByLabelText('비교 모형 (Comparison)').querySelector('option')?.textContent).toBe('-- 모형 선택 --');
+    expect(screen.getAllByTestId('monthly-fx-card')).toHaveLength(12);
+    expect(screen.getByText('12개월')).toBeInTheDocument();
+    expect(screen.getByText('평균 환율 입력 필요')).toBeInTheDocument();
     const initialFxInput = screen.getByLabelText('2026-01 기준 매출환율 (KRW/USD)');
     expect(initialFxInput).toHaveClass('variance-monthly-fx__input');
     expect(initialFxInput).toHaveAttribute('aria-invalid', 'true');
-    expect(within(condition).getByRole('button', { name: '분석 실행' })).toBeDisabled();
+    expect(within(fxCard).getByRole('button', { name: '손익 변동 요인 분석 실행' })).toBeDisabled();
     fireEvent.change(screen.getByLabelText('종료 월'), { target: { value: '1' } });
     await fillMonthlyFx('2026-01', '1480', '1490');
     expect(screen.getByLabelText('2026-01 기준 매출환율 (KRW/USD)')).toHaveAttribute('aria-invalid', 'false');
-    expect(within(condition).getByRole('button', { name: '분석 실행' })).toBeEnabled();
+    expect(within(fxCard).getByRole('button', { name: '손익 변동 요인 분석 실행' })).toBeEnabled();
     const comparisonFx = screen.getByLabelText('2026-01 비교 매출환율 (KRW/USD)');
     fireEvent.change(comparisonFx, { target: { value: '0' } });
-    expect(within(condition).getByRole('button', { name: '분석 실행' })).toBeDisabled();
+    expect(within(fxCard).getByRole('button', { name: '손익 변동 요인 분석 실행' })).toBeDisabled();
     fireEvent.change(comparisonFx, { target: { value: '-1' } });
-    expect(within(condition).getByRole('button', { name: '분석 실행' })).toBeDisabled();
+    expect(within(fxCard).getByRole('button', { name: '손익 변동 요인 분석 실행' })).toBeDisabled();
     fireEvent.change(comparisonFx, { target: { value: '1490' } });
-    expect(within(condition).getByRole('button', { name: '분석 실행' })).toBeEnabled();
-    expect(within(condition).getByRole('button', { name: '재분석' })).toBeEnabled();
-    expect(within(condition).getByRole('button', { name: '분석 실행' }).closest('.variance-control-actions')).toBeInTheDocument();
+    expect(within(fxCard).getByRole('button', { name: '손익 변동 요인 분석 실행' })).toBeEnabled();
+    expect(within(fxCard).getByRole('button', { name: '새 분석' })).toBeEnabled();
+    expect(within(fxCard).getByRole('button', { name: '손익 변동 요인 분석 실행' }).closest('.variance-control-actions')).toBeInTheDocument();
+  });
+
+  it('swaps model IDs, complete preserved monthly FX, and bulk FX without changing period or calling an API', async () => {
+    window.sessionStorage.removeItem('pnl.active-analysis-job-id');
+    const fetchMock = vi.fn((input: RequestInfo | URL) => {
+      if (!String(input).endsWith('/api/models')) throw new Error(`unexpected request ${String(input)}`);
+      return json({ models: [
+        { model_id: BASE, display_name: 'Base', model_type: 'PLAN', model_year: 2026, start_month: 1, end_month: 12, is_published: true, is_default: true, dto_version: '1' },
+        { model_id: COMP, display_name: 'Comparison', model_type: 'ACTUAL', model_year: 2026, start_month: 1, end_month: 12, is_published: true, is_default: false, dto_version: '1' },
+      ], dto_version: '1' });
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    render(<CoreAnalysisView role="admin" />);
+
+    await waitFor(() => expect(screen.getByLabelText('기준 모형 (Baseline)')).toHaveValue(BASE));
+    fireEvent.change(screen.getByLabelText('종료 월'), { target: { value: '3' } });
+    await fillMonthlyFx('2026-01', '1401', '1501');
+    await fillMonthlyFx('2026-02', '1402', '1502');
+    await fillMonthlyFx('2026-03', '1403', '1503');
+    fireEvent.change(screen.getByLabelText('일괄 기준 FX'), { target: { value: '1450' } });
+    fireEvent.change(screen.getByLabelText('일괄 비교 FX'), { target: { value: '1465' } });
+    fireEvent.change(screen.getByLabelText('시작 월'), { target: { value: '2' } });
+    expect(screen.queryByLabelText('2026-01 기준 매출환율 (KRW/USD)')).not.toBeInTheDocument();
+    const requestCountBeforeSwap = fetchMock.mock.calls.length;
+
+    fireEvent.click(screen.getByRole('button', { name: '기준 모형과 비교 모형 맞바꾸기' }));
+
+    expect(screen.getByLabelText('기준 모형 (Baseline)')).toHaveValue(COMP);
+    expect(screen.getByLabelText('비교 모형 (Comparison)')).toHaveValue(BASE);
+    expect(screen.getByLabelText('시작 월')).toHaveValue('2');
+    expect(screen.getByLabelText('종료 월')).toHaveValue('3');
+    expect(screen.getByLabelText('일괄 기준 FX')).toHaveValue('1465');
+    expect(screen.getByLabelText('일괄 비교 FX')).toHaveValue('1450');
+    expect(screen.getByLabelText('2026-02 기준 매출환율 (KRW/USD)')).toHaveValue('1502');
+    expect(screen.getByLabelText('2026-02 비교 매출환율 (KRW/USD)')).toHaveValue('1402');
+
+    fireEvent.change(screen.getByLabelText('시작 월'), { target: { value: '1' } });
+    expect(await screen.findByLabelText('2026-01 기준 매출환율 (KRW/USD)')).toHaveValue('1501');
+    expect(screen.getByLabelText('2026-01 비교 매출환율 (KRW/USD)')).toHaveValue('1401');
+    expect(fetchMock).toHaveBeenCalledTimes(requestCountBeforeSwap);
+  });
+
+  it('derives active month cards, preserves inactive state, and keeps bulk average and delta UI safe', async () => {
+    window.sessionStorage.removeItem('pnl.active-analysis-job-id');
+    vi.stubGlobal('fetch', vi.fn(() => json({ models: [
+      { model_id: BASE, display_name: 'Base', model_type: 'PLAN', model_year: 2026, start_month: 1, end_month: 12, is_published: true, is_default: true, dto_version: '1' },
+      { model_id: COMP, display_name: 'Comparison', model_type: 'ACTUAL', model_year: 2026, start_month: 1, end_month: 12, is_published: true, is_default: false, dto_version: '1' },
+    ], dto_version: '1' })));
+    render(<CoreAnalysisView role="admin" />);
+    await screen.findByText('월별 매출환율 설정 (KRW/USD)');
+
+    fireEvent.change(screen.getByLabelText('종료 월'), { target: { value: '4' } });
+    expect(screen.getAllByTestId('monthly-fx-card')).toHaveLength(4);
+    await fillMonthlyFx('2026-04', '120', '130');
+
+    fireEvent.change(screen.getByLabelText('시작 월'), { target: { value: '7' } });
+    fireEvent.change(screen.getByLabelText('종료 월'), { target: { value: '9' } });
+    expect(screen.getAllByTestId('monthly-fx-card')).toHaveLength(3);
+    expect(screen.getByText('3개월')).toBeInTheDocument();
+
+    fireEvent.change(screen.getByLabelText('시작 월'), { target: { value: '1' } });
+    fireEvent.change(screen.getByLabelText('종료 월'), { target: { value: '12' } });
+    expect(screen.getAllByTestId('monthly-fx-card')).toHaveLength(12);
+    expect(screen.getByLabelText('2026-04 기준 매출환율 (KRW/USD)')).toHaveValue('120');
+
+    fireEvent.change(screen.getByLabelText('종료 월'), { target: { value: '3' } });
+    fireEvent.change(screen.getByLabelText('일괄 기준 FX'), { target: { value: '1450' } });
+    fireEvent.change(screen.getByLabelText('일괄 비교 FX'), { target: { value: '1465' } });
+    fireEvent.click(screen.getByRole('button', { name: '전체 월 적용' }));
+    expect(screen.getByLabelText('2026-01 기준 매출환율 (KRW/USD)')).toHaveValue('1450');
+    expect(screen.getByLabelText('2026-03 비교 매출환율 (KRW/USD)')).toHaveValue('1465');
+    expect(screen.getByText('평균 1,450 / 1,465원 (+15원)')).toBeInTheDocument();
+    expect(within(screen.getByLabelText('2026-01 매출환율')).getByText('+15원')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: '기준 → 비교 동일 적용' }));
+    expect(screen.getByLabelText('2026-02 비교 매출환율 (KRW/USD)')).toHaveValue('1450');
+    expect(screen.getByText('평균 1,450 / 1,450원 (0원)')).toBeInTheDocument();
+
+    fireEvent.change(screen.getByLabelText('종료 월'), { target: { value: '4' } });
+    expect(screen.getByLabelText('2026-04 기준 매출환율 (KRW/USD)')).toHaveValue('120');
+    expect(screen.getByLabelText('2026-04 비교 매출환율 (KRW/USD)')).toHaveValue('130');
+
+    await fillMonthlyFx('2026-01', '150', '120');
+    await fillMonthlyFx('2026-02', '100', '150');
+    await fillMonthlyFx('2026-03', '100', '100');
+    fireEvent.change(screen.getByLabelText('2026-04 비교 매출환율 (KRW/USD)'), { target: { value: '' } });
+    expect(within(screen.getByLabelText('2026-01 매출환율')).getByText('-30원')).toBeInTheDocument();
+    expect(within(screen.getByLabelText('2026-02 매출환율')).getByText('+50원')).toBeInTheDocument();
+    expect(within(screen.getByLabelText('2026-03 매출환율')).getByText('0원')).toBeInTheDocument();
+    expect(within(screen.getByLabelText('2026-04 매출환율')).getByText('입력 필요')).toBeInTheDocument();
+    expect(screen.getByText('평균 환율 입력 필요')).toBeInTheDocument();
+    expect(screen.getByLabelText('2026-04 비교 매출환율 (KRW/USD)')).toHaveValue('');
   });
 
   it('runs login -> model selection -> submit -> polling -> stored result', async () => {
@@ -118,7 +219,7 @@ describe('React core vertical slice', () => {
     expect(await screen.findByText('분석 조건 설정')).toBeInTheDocument();
     fireEvent.change(screen.getByLabelText('종료 월'), { target: { value: '1' } });
     await fillMonthlyFx('2026-01', '1480', '1490');
-    fireEvent.click(screen.getByRole('button', { name: '분석 실행' }));
+    fireEvent.click(screen.getByRole('button', { name: '손익 변동 요인 분석 실행' }));
     expect(await screen.findByTestId('stored-result', {}, { timeout: 3500 })).toHaveTextContent('영업이익 증감');
     const condition = screen.getByTestId('analysis-condition-card');
     const summary = screen.getByTestId('analysis-summary-header');
@@ -185,6 +286,13 @@ describe('React core vertical slice', () => {
     fireEvent.focus(august);
     expect(august.selectionStart).toBe(0);
     expect(august.selectionEnd).toBe(august.value.length);
+    august.setSelectionRange(2, 2);
+    fireEvent.mouseDown(august);
+    expect(august.selectionStart).toBe(2);
+    expect(august.selectionEnd).toBe(2);
+    fireEvent.change(august, { target: { value: '' } });
+    expect(august).toHaveValue('');
+    fireEvent.change(august, { target: { value: '1480.25' } });
 
     fireEvent.change(start, { target: { value: '8' } });
     fireEvent.change(screen.getByLabelText('종료 월'), { target: { value: '10' } });
@@ -192,9 +300,9 @@ describe('React core vertical slice', () => {
     expect(screen.queryByLabelText('2026-07 기준 매출환율 (KRW/USD)')).not.toBeInTheDocument();
     expect(screen.getByLabelText('2026-08 기준 매출환율 (KRW/USD)')).toHaveValue('1480.25');
     expect(screen.getByLabelText('2026-09 비교 매출환율 (KRW/USD)')).toHaveValue('1417');
-    expect(screen.getByRole('button', { name: '분석 실행' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: '손익 변동 요인 분석 실행' })).toBeDisabled();
     await fillMonthlyFx('2026-10', '1482', '1430');
-    fireEvent.click(screen.getByRole('button', { name: '분석 실행' }));
+    fireEvent.click(screen.getByRole('button', { name: '손익 변동 요인 분석 실행' }));
 
     await waitFor(() => expect(fetchMock.mock.calls.some(([input]) => String(input).endsWith('/api/analyses'))).toBe(true));
     const submitCall = fetchMock.mock.calls.find(([input]) => String(input).endsWith('/api/analyses'));
@@ -255,14 +363,14 @@ describe('React core vertical slice', () => {
     expect(await screen.findByText('분석 조건 설정')).toBeInTheDocument();
     fireEvent.change(screen.getByLabelText('종료 월'), { target: { value: '1' } });
     await fillMonthlyFx('2026-01', '1480', '1490');
-    const run = screen.getByRole('button', { name: '분석 실행' });
+    const run = screen.getByRole('button', { name: '손익 변동 요인 분석 실행' });
     fireEvent.click(run);
     expect(await screen.findByText('서버에 연결할 수 없습니다.')).toBeInTheDocument();
     fireEvent.click(run);
     expect(await screen.findByText('분석 요청 접수')).toBeInTheDocument();
     expect(screen.queryByText('QUEUED')).not.toBeInTheDocument();
-    expect(screen.getByLabelText('기준 모형')).toBeDisabled();
-    expect(screen.getByLabelText('비교 모형')).toBeDisabled();
+    expect(screen.getByLabelText('기준 모형 (Baseline)')).toBeDisabled();
+    expect(screen.getByLabelText('비교 모형 (Comparison)')).toBeDisabled();
     expect(keys).toHaveLength(2);
     expect(keys[0]).toBe(keys[1]);
     expect(await screen.findByText('분석 계산에 실패했습니다.', {}, { timeout: 3_500 })).toBeInTheDocument();
@@ -323,8 +431,8 @@ describe('React core vertical slice', () => {
     render(<CoreAnalysisView role="admin" />);
     expect(await screen.findByText('손익 분석 중')).toBeInTheDocument();
     expect(screen.queryByText('PROCESSING')).not.toBeInTheDocument();
-    expect(screen.getByRole('button', { name: '분석 실행' })).toBeDisabled();
-    expect(screen.getByRole('button', { name: '재분석' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: '손익 변동 요인 분석 실행' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: '새 분석' })).toBeDisabled();
   });
 
 });
