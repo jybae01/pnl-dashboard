@@ -606,42 +606,180 @@
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 22px;
-  padding: 20px;
+  padding: 16px 20px 20px;
   align-items: stretch;
 }
 
 .forecast-workflow__adjustment-month-toolbar {
   display: flex;
-  align-items: end;
+  width: calc(100% - 40px);
+  max-width: 920px;
+  min-height: 54px;
+  align-items: center;
+  flex-wrap: wrap;
   gap: 12px;
-  margin: 16px 20px 0;
-  padding: 12px 14px;
+  margin: 12px 20px 0;
+  padding: 10px 12px;
   border: 1px solid #cbd5e1;
   border-radius: 4px;
   background: #f8fafc;
 }
 
-.forecast-workflow__adjustment-month-toolbar label {
-  display: grid;
-  flex: 0 0 160px;
-  gap: 5px;
+.forecast-workflow__adjustment-month-selector {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 8px;
   color: #334155;
   font-size: 11px;
   font-weight: 800;
 }
 
+.forecast-workflow__adjustment-month-picker {
+  position: relative;
+  display: inline-flex;
+}
+
+.forecast-workflow__adjustment-month-trigger {
+  display: inline-flex;
+  width: 132px;
+  height: 34px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  border: 1px solid #cbd5e1;
+  border-radius: 4px;
+  padding: 0 9px;
+  color: #334155;
+  background: #fff;
+  cursor: pointer;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.forecast-workflow__adjustment-month-trigger:hover:not(:disabled) {
+  border-color: #94a3b8;
+  background: #f8fafc;
+}
+
+.forecast-workflow__adjustment-month-trigger:focus-visible,
+.forecast-workflow__adjustment-month-option:focus-visible,
+.forecast-workflow__reset:focus-visible {
+  border-color: #f97316;
+  outline: 3px solid rgba(249, 115, 22, .18);
+  outline-offset: 1px;
+}
+
+.forecast-workflow__adjustment-month-trigger.is-invalid {
+  border-color: #dc2626;
+  color: #991b1b;
+  background: #fef2f2;
+}
+
+.forecast-workflow__adjustment-month-trigger:disabled,
+.forecast-workflow__adjustment-month-option:disabled {
+  cursor: not-allowed;
+  opacity: .55;
+}
+
+.forecast-workflow__adjustment-month-popover {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  z-index: 20;
+  display: grid;
+  grid-template-columns: repeat(6, 40px);
+  gap: 6px;
+  width: 288px;
+  padding: 8px;
+  border: 1px solid #cbd5e1;
+  border-radius: 4px;
+  background: #fff;
+  box-shadow: 0 8px 20px rgba(15, 23, 42, .14);
+}
+
+.forecast-workflow__adjustment-month-option {
+  display: inline-flex;
+  width: 40px;
+  height: 32px;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid #cbd5e1;
+  border-radius: 4px;
+  padding: 0;
+  color: #334155;
+  background: #fff;
+  cursor: pointer;
+  font: inherit;
+  font-size: 11px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.forecast-workflow__adjustment-month-option:hover:not(:disabled) {
+  border-color: #7c3aed;
+  color: #6d28d9;
+  background: #f5f3ff;
+}
+
+.forecast-workflow__adjustment-month-option.is-selected {
+  border-color: #7c3aed;
+  color: #6d28d9;
+  background: #f5f3ff;
+  box-shadow: 0 0 0 2px rgba(124, 58, 237, .1);
+}
+
 .forecast-workflow__adjustment-month-toolbar p {
-  flex: 1 1 auto;
-  margin: 0 0 7px;
+  flex: 0 1 auto;
+  max-width: 560px;
+  margin: 0;
   color: #64748b;
   font-size: 11.5px;
   line-height: 1.45;
 }
 
-.forecast-workflow__adjustment-month-select {
-  width: 100%;
-  min-width: 0;
+.forecast-workflow__adjustment-month-toolbar .forecast-workflow__reset {
+  display: inline-flex;
   height: 34px;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  padding: 0 10px;
+  color: #64748b;
+  background: transparent;
+  cursor: pointer;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.forecast-workflow__adjustment-month-toolbar .forecast-workflow__reset:hover:not(:disabled) {
+  border-color: #cbd5e1;
+  color: #475569;
+  background: #f1f5f9;
+}
+
+.forecast-workflow__adjustment-month-toolbar .forecast-workflow__reset:active:not(:disabled) {
+  background: #e2e8f0;
+}
+
+.forecast-workflow__adjustment-month-toolbar .forecast-workflow__reset:disabled {
+  cursor: not-allowed;
+  opacity: .5;
+}
+
+.forecast-workflow__adjustment-month-select {
+  width: 120px;
+  min-width: 120px;
+  max-width: 140px;
+  height: 32px;
   border: 1px solid #cbd5e1;
   border-radius: 4px;
   padding: 0 28px 0 10px;
@@ -658,8 +796,10 @@
 }
 
 .forecast-workflow__cost-table .forecast-workflow__adjustment-month-select {
-  min-width: 126px;
-  height: 30px;
+  width: 120px;
+  min-width: 120px;
+  max-width: 140px;
+  height: 32px;
   font-size: 11px;
 }
 
@@ -1498,7 +1638,7 @@
 .forecast-workflow__expanded-reason-box span { min-width: 0; white-space: pre-wrap; word-break: break-word; }
 
 .forecast-workflow__block-heading-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
-.forecast-workflow__block-heading-row .forecast-workflow__adjustment-month-select { flex: 0 0 160px; width: 160px; }
+.forecast-workflow__block-heading-row .forecast-workflow__adjustment-month-select { flex: 0 0 120px; width: 120px; }
 .forecast-workflow__block-action-group { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; }
 .forecast-workflow__btn-apply-sga {
   display: inline-flex;
@@ -1551,9 +1691,16 @@
   .forecast-workflow__drawer-readonly-grid { grid-template-columns: 1fr; }
   .forecast-workflow__account-summary-expected { width: 100%; margin-left: 0; }
   .forecast-workflow__adjustment-month-toolbar { align-items: stretch; flex-direction: column; }
-  .forecast-workflow__adjustment-month-toolbar label { flex-basis: auto; width: 100%; }
-  .forecast-workflow__adjustment-month-toolbar p { margin-bottom: 0; }
+  .forecast-workflow__adjustment-month-selector { width: 100%; justify-content: space-between; }
+  .forecast-workflow__adjustment-month-popover {
+    right: 0;
+    left: auto;
+    grid-template-columns: repeat(4, 40px);
+    width: 196px;
+  }
+  .forecast-workflow__adjustment-month-toolbar p { width: 100%; max-width: none; }
   .forecast-workflow__adjustment-month-toolbar .forecast-workflow__reset { width: 100%; }
+  .forecast-workflow__adjustment-month-select { width: 100%; max-width: 140px; min-width: 120px; }
   .forecast-workflow__block-heading-row { align-items: stretch; flex-direction: column; }
-  .forecast-workflow__block-heading-row .forecast-workflow__adjustment-month-select { flex-basis: auto; width: 100%; }
+  .forecast-workflow__block-heading-row .forecast-workflow__adjustment-month-select { flex-basis: auto; width: 100%; max-width: 140px; }
 }

@@ -59,9 +59,13 @@ describe('React core vertical slice', () => {
       '종료 월',
     ]);
     expect(screen.getByLabelText('월별 매출환율 입력')).toBeInTheDocument();
+    const initialFxInput = screen.getByLabelText('2026-01 기준 매출환율 (KRW/USD)');
+    expect(initialFxInput).toHaveClass('variance-monthly-fx__input');
+    expect(initialFxInput).toHaveAttribute('aria-invalid', 'true');
     expect(within(condition).getByRole('button', { name: '분석 실행' })).toBeDisabled();
     fireEvent.change(screen.getByLabelText('종료 월'), { target: { value: '1' } });
     await fillMonthlyFx('2026-01', '1480', '1490');
+    expect(screen.getByLabelText('2026-01 기준 매출환율 (KRW/USD)')).toHaveAttribute('aria-invalid', 'false');
     expect(within(condition).getByRole('button', { name: '분석 실행' })).toBeEnabled();
     const comparisonFx = screen.getByLabelText('2026-01 비교 매출환율 (KRW/USD)');
     fireEvent.change(comparisonFx, { target: { value: '0' } });

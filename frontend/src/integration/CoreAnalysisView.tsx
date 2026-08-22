@@ -455,22 +455,24 @@ export function CoreAnalysisView({ role, modelRefreshKey = 0, initialResultId }:
                 <div className="variance-monthly-fx__row" key={key}>
                   <span className="variance-monthly-fx__month">{key}</span>
                   <EditableNumericInput
-                    className="filter-select"
+                    className="filter-select variance-monthly-fx__input"
                     mode="decimal"
                     value={monthlyFx[key]?.baseline ?? ''}
                     disabled={isSubmitting || isJobActive(job)}
                     aria-label={`${key} 기준 매출환율 (KRW/USD)`}
+                    aria-invalid={parseDecimalInput(monthlyFx[key]?.baseline ?? '') === null}
                     onChange={(value) => setMonthlyFx((current) => ({
                       ...current,
                       [key]: { ...(current[key] ?? { baseline: '', comparison: '' }), baseline: value },
                     }))}
                   />
                   <EditableNumericInput
-                    className="filter-select"
+                    className="filter-select variance-monthly-fx__input"
                     mode="decimal"
                     value={monthlyFx[key]?.comparison ?? ''}
                     disabled={isSubmitting || isJobActive(job)}
                     aria-label={`${key} 비교 매출환율 (KRW/USD)`}
+                    aria-invalid={parseDecimalInput(monthlyFx[key]?.comparison ?? '') === null}
                     onChange={(value) => setMonthlyFx((current) => ({
                       ...current,
                       [key]: { ...(current[key] ?? { baseline: '', comparison: '' }), comparison: value },

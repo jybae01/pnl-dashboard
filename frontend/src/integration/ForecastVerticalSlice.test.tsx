@@ -75,11 +75,81 @@ async function waitForForecastReady() {
   await waitFor(() => expect(screen.getByRole('button', { name: '추정 모형 생성' })).not.toBeDisabled());
 }
 
+function getAdjustmentMonthTrigger() {
+  return screen.getByRole('button', { name: /^적용월 2026-\d{2}$/ });
+}
+
+function selectAdjustmentMonth(month: number) {
+  fireEvent.click(getAdjustmentMonthTrigger());
+  const monthLabel = String(month).padStart(2, '0');
+  fireEvent.click(screen.getByRole('option', { name: new RegExp(`^${monthLabel}월 2026-${monthLabel}$`) }));
+}
+
 afterEach(() => {
   vi.unstubAllGlobals();
 });
 
 describe('Forecast React vertical slice', () => {
+  it('provides an accessible compact applied-month popover while preserving bulk and row-level month ownership', async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(response(modelPayload()))
+      .mockResolvedValueOnce(response(metadataPayload()));
+    vi.stubGlobal('fetch', fetchMock);
+    render(<ForecastGenerationView />);
+    await screen.findByRole('heading', { name: '추정 산출' });
+    fireEvent.change(screen.getByLabelText('종료 월'), { target: { value: '9' } });
+    await waitForForecastReady();
+    fireEvent.click(screen.getByText(/비용 및 원가 조정/));
+
+    const trigger = getAdjustmentMonthTrigger();
+    expect(trigger).toHaveAttribute('aria-haspopup', 'listbox');
+    expect(trigger).toHaveAttribute('aria-expanded', 'false');
+    expect(trigger).toHaveAttribute('aria-describedby', 'forecast-adjustment-month-help');
+    expect(screen.getByText('선택한 월을 모든 비용 행에 적용합니다. 각 행의 적용월은 이후 개별 변경할 수 있습니다.')).toBeInTheDocument();
+
+    fireEvent.keyDown(trigger, { key: 'Enter' });
+    const listbox = screen.getByRole('listbox', { name: '적용월 선택' });
+    expect(within(listbox).getAllByRole('option')).toHaveLength(12);
+    expect(within(listbox).getByRole('option', { name: '01월 2026-01' })).toBeDisabled();
+    expect(within(listbox).getByRole('option', { name: '08월 2026-08' })).toBeEnabled();
+    expect(document.activeElement).toHaveAttribute('role', 'option');
+    fireEvent.keyDown(document.activeElement as HTMLElement, { key: 'End' });
+    expect(document.activeElement).toHaveAccessibleName('09월 2026-09');
+    fireEvent.keyDown(document.activeElement as HTMLElement, { key: 'Home' });
+    expect(document.activeElement).toHaveAccessibleName('07월 2026-07');
+    fireEvent.keyDown(document.activeElement as HTMLElement, { key: 'ArrowRight' });
+    expect(document.activeElement).toHaveAccessibleName('08월 2026-08');
+    fireEvent.keyDown(document.activeElement as HTMLElement, { key: 'Enter' });
+
+    expect(getAdjustmentMonthTrigger()).toHaveAccessibleName('적용월 2026-08');
+    expect(document.activeElement).toBe(getAdjustmentMonthTrigger());
+    expect(screen.getByRole('combobox', { name: '전력비 제조경비 적용월' })).toHaveValue('8');
+    expect(screen.getByRole('combobox', { name: '운송비 판관비 적용월' })).toHaveValue('8');
+    expect(screen.getByRole('combobox', { name: '제품 폐기손실 매출원가 적용월' })).toHaveValue('8');
+
+    fireEvent.change(screen.getByRole('combobox', { name: '전력비 제조경비 적용월' }), { target: { value: '9' } });
+    expect(screen.getByRole('combobox', { name: '전력비 제조경비 적용월' })).toHaveValue('9');
+    expect(screen.getByRole('combobox', { name: '운송비 판관비 적용월' })).toHaveValue('8');
+    expect(getAdjustmentMonthTrigger()).toHaveAccessibleName('적용월 2026-08');
+
+    fireEvent.keyDown(getAdjustmentMonthTrigger(), { key: ' ' });
+    expect(getAdjustmentMonthTrigger()).toHaveAttribute('aria-expanded', 'true');
+    fireEvent.keyDown(document.activeElement as HTMLElement, { key: 'Escape' });
+    expect(getAdjustmentMonthTrigger()).toHaveAttribute('aria-expanded', 'false');
+    expect(document.activeElement).toBe(getAdjustmentMonthTrigger());
+
+    fireEvent.click(getAdjustmentMonthTrigger());
+    fireEvent.mouseDown(document.body);
+    expect(getAdjustmentMonthTrigger()).toHaveAttribute('aria-expanded', 'false');
+
+    fireEvent.click(getAdjustmentMonthTrigger());
+    fireEvent.click(screen.getByRole('option', { name: '08월 2026-08' }));
+    expect(screen.getByRole('combobox', { name: '전력비 제조경비 적용월' })).toHaveValue('9');
+    expect(screen.getByRole('combobox', { name: '운송비 판관비 적용월' })).toHaveValue('8');
+    expect(screen.getByRole('button', { name: '선택 적용월 조정 초기화' })).toHaveClass('forecast-workflow__reset');
+    expect(screen.getByRole('button', { name: '선택 적용월 조정 초기화' }).querySelector('svg')).toBeInTheDocument();
+  });
+
   it('uses the source-mockup progressive hierarchy and one ordered adjustment grid', async () => {
     const fetchMock = vi.fn()
       .mockResolvedValueOnce(response(modelPayload()))
@@ -136,7 +206,7 @@ describe('Forecast React vertical slice', () => {
     ]);
     expect(screen.queryByText('최종 실행')).not.toBeInTheDocument();
 
-    expect(screen.getByRole('combobox', { name: '비용 및 원가 조정 적용월' })).toHaveValue('7');
+    expect(getAdjustmentMonthTrigger()).toHaveAccessibleName('적용월 2026-07');
     expect(screen.getByRole('combobox', { name: '전력비 제조경비 적용월' })).toHaveValue('7');
     expect(screen.getByRole('combobox', { name: '운송비 판관비 적용월' })).toHaveValue('7');
     expect(screen.getByRole('combobox', { name: '제품 폐기손실 매출원가 적용월' })).toHaveValue('7');
@@ -961,7 +1031,7 @@ describe('Forecast React vertical slice', () => {
     fireEvent.change(screen.getByLabelText('7월 전력비 제조경비 조정액'), { target: { value: '9999' } });
     fireEvent.click(screen.getByRole('button', { name: '취소' }));
     expect(screen.getByRole('region', { name: '제조경비 조정 내역 (1건)' })).toHaveTextContent(julyExpected);
-    fireEvent.change(screen.getByRole('combobox', { name: '비용 및 원가 조정 적용월' }), { target: { value: '8' } });
+    selectAdjustmentMonth(8);
     fireEvent.click(screen.getByRole('button', { name: '8월 전력비 조정' }));
     expect(screen.getByLabelText('8월 전력비 제조경비 계획')).toHaveTextContent(augustPlan);
     fireEvent.click(screen.getByRole('button', { name: '취소' }));
@@ -1020,12 +1090,11 @@ describe('Forecast React vertical slice', () => {
     fireEvent.click(screen.getByRole('button', { name: '7월 전력비 조정' }));
     fireEvent.change(screen.getByLabelText('7월 전력비 제조경비 조정액'), { target: { value: '10' } });
     fireEvent.click(within(screen.getByLabelText('7월 전력비 제조경비 조정액').closest('.forecast-workflow__inline-drawer') as HTMLElement).getByRole('button', { name: '등록' }));
-    const adjustmentMonth = screen.getByRole('combobox', { name: '비용 및 원가 조정 적용월' });
-    fireEvent.change(adjustmentMonth, { target: { value: '8' } });
+    selectAdjustmentMonth(8);
     fireEvent.change(screen.getByLabelText('8월 원재료 조정액'), { target: { value: '80' } });
-    fireEvent.change(adjustmentMonth, { target: { value: '9' } });
+    selectAdjustmentMonth(9);
     fireEvent.change(screen.getByLabelText('9월 원재료 조정액'), { target: { value: '90' } });
-    fireEvent.change(adjustmentMonth, { target: { value: '7' } });
+    selectAdjustmentMonth(7);
     fireEvent.click(screen.getByRole('button', { name: '선택 월 판매·생산 0으로 초기화' }));
     expect(screen.getByRole('region', { name: '제조경비 조정 내역 (1건)' })).toHaveTextContent('2026-07');
 
@@ -1034,19 +1103,19 @@ describe('Forecast React vertical slice', () => {
     await waitFor(() => expect(screen.getByRole('button', { name: '모형 적용' })).not.toBeDisabled());
     fireEvent.click(screen.getByRole('button', { name: '모형 적용' }));
 
-    expect(screen.getByRole('combobox', { name: '비용 및 원가 조정 적용월' })).toHaveValue('7');
+    expect(getAdjustmentMonthTrigger()).toHaveAccessibleName('적용월 2026-07');
     expect(screen.getByRole('alert')).toHaveTextContent(/2026-07/);
     expect(screen.getByRole('button', { name: '추정 모형 생성' })).toBeDisabled();
-    fireEvent.change(screen.getByRole('combobox', { name: '비용 및 원가 조정 적용월' }), { target: { value: '8' } });
+    selectAdjustmentMonth(8);
     expect(screen.getByLabelText('8월 원재료 조정액')).toHaveValue('80');
-    fireEvent.change(screen.getByRole('combobox', { name: '비용 및 원가 조정 적용월' }), { target: { value: '9' } });
+    selectAdjustmentMonth(9);
     expect(screen.getByLabelText('9월 원재료 조정액')).toHaveValue('90');
-    fireEvent.change(screen.getByRole('combobox', { name: '비용 및 원가 조정 적용월' }), { target: { value: '10' } });
+    selectAdjustmentMonth(10);
     expect(screen.getByLabelText('10월 원재료 조정액')).toHaveValue('0');
-    fireEvent.change(screen.getByRole('combobox', { name: '비용 및 원가 조정 적용월' }), { target: { value: '7' } });
+    selectAdjustmentMonth(7);
     fireEvent.click(screen.getByRole('button', { name: '선택 적용월 조정 초기화' }));
     await waitFor(() => expect(screen.queryByText(/Forecast 기간 밖 비용·원가 조정이 보존/)).not.toBeInTheDocument());
-    expect(screen.getByRole('combobox', { name: '비용 및 원가 조정 적용월' })).toHaveValue('8');
+    expect(getAdjustmentMonthTrigger()).toHaveAccessibleName('적용월 2026-08');
     expect(screen.getByRole('button', { name: '추정 모형 생성' })).not.toBeDisabled();
     expect(fetchMock).toHaveBeenCalledTimes(2);
   });
@@ -1061,7 +1130,7 @@ describe('Forecast React vertical slice', () => {
     fireEvent.change(screen.getByLabelText('종료 월'), { target: { value: '9' } });
     await waitForForecastReady();
     fireEvent.click(screen.getByText(/비용 및 원가 조정/));
-    fireEvent.change(screen.getByRole('combobox', { name: '비용 및 원가 조정 적용월' }), { target: { value: '8' } });
+    selectAdjustmentMonth(8);
     fireEvent.click(screen.getByRole('button', { name: '8월 전력비 조정' }));
     fireEvent.change(screen.getByLabelText('8월 전력비 제조경비 조정액'), { target: { value: '0.0' } });
     fireEvent.click(within(screen.getByLabelText('8월 전력비 제조경비 조정액').closest('.forecast-workflow__inline-drawer') as HTMLElement).getByRole('button', { name: '등록' }));
@@ -1076,7 +1145,7 @@ describe('Forecast React vertical slice', () => {
     await waitFor(() => expect(screen.getByRole('button', { name: '모형 적용' })).not.toBeDisabled());
     fireEvent.click(screen.getByRole('button', { name: '모형 적용' }));
 
-    await waitFor(() => expect(screen.getByRole('combobox', { name: '비용 및 원가 조정 적용월' })).toHaveValue('9'));
+    await waitFor(() => expect(getAdjustmentMonthTrigger()).toHaveAccessibleName('적용월 2026-09'));
     expect(screen.getByRole('combobox', { name: '전력비 제조경비 적용월' })).toHaveValue('9');
     expect(screen.getByRole('combobox', { name: '신사업 상품원가 및 포장 적용월' })).toHaveValue('9');
     expect(screen.getByRole('combobox', { name: '원재료 관세 환급 적용월' })).toHaveValue('9');
