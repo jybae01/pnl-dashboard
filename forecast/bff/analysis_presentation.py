@@ -166,16 +166,21 @@ class AnalysisPresentationService:
 
         results: list[ViewerAnalysisResultOptionResponse] = []
         for row in rows:
-            result_id = _integrity_uuid(row.get("result_id"))
-            presentation = build_analysis_presentation(
-                result_id,
-                row,
-                self._provenance,
-                self._supported_versions,
-            )
-            identity = presentation.identity
-            if not identity.is_published or identity.published_at is None:
-                raise _integrity()
+            try:
+                result_id = _integrity_uuid(row.get("result_id"))
+                presentation = build_analysis_presentation(
+                    result_id,
+                    row,
+                    self._provenance,
+                    self._supported_versions,
+                )
+                identity = presentation.identity
+                if not identity.is_published or identity.published_at is None:
+                    raise _integrity()
+            except BffError as exc:
+                if exc.code == ApiErrorCode.INPUT_INTEGRITY_MISMATCH:
+                    continue
+                raise
             period = (
                 f"{identity.start_month}월"
                 if identity.start_month == identity.end_month

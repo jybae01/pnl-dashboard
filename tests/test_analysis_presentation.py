@@ -437,6 +437,58 @@ def test_viewer_list_keeps_gateway_order_and_returns_only_minimal_display_fields
     }
 
 
+def test_viewer_list_isolates_invalid_legacy_and_keeps_latest_current_result():
+    sessions = AccessCodeSessionService(
+        viewer_code="viewer", admin_code="admin", actor_namespace_secret="secret" * 8
+    )
+    viewer = sessions.login("viewer").session_id
+    admin = sessions.login("admin").session_id
+    gateway = Gateway()
+
+    latest_id = "55555555-5555-4555-8555-555555555555"
+    latest = presentation_row()
+    latest["result_id"] = latest_id
+    latest["is_published"] = True
+    latest["is_default"] = True
+    latest["published_at"] = "2026-08-12T01:01:00+00:00"
+    request = latest["analysis_request"]
+    request.pop("baseline_sales_fx")
+    request.pop("comparison_sales_fx")
+    request["baseline_sales_fx_monthly"] = {"2026-01": 1480.0, "2026-02": 1480.0}
+    request["comparison_sales_fx_monthly"] = {"2026-01": 1385.0, "2026-02": 1417.0}
+    sales = latest["result_payload"]["comparison_result"]["sales_analysis"]
+    sales["baseline_fx_krw_per_usd"] = None
+    sales["comparison_fx_krw_per_usd"] = None
+    sales["baseline_sales_fx_monthly"] = request["baseline_sales_fx_monthly"]
+    sales["comparison_sales_fx_monthly"] = request["comparison_sales_fx_monthly"]
+
+    invalid_legacy = presentation_row()
+    invalid_legacy["result_id"] = "66666666-6666-4666-8666-666666666666"
+    invalid_legacy["is_published"] = True
+    invalid_legacy["published_at"] = "2026-08-11T01:01:00+00:00"
+    invalid_legacy["result_payload"]["comparison_result"]["effects_total"] = 28.0
+
+    unpublished = presentation_row()
+    unpublished["result_id"] = "77777777-7777-4777-8777-777777777777"
+    gateway.list_rows = [latest, invalid_legacy, unpublished]
+    service = AnalysisPresentationService(
+        sessions, gateway, PROVENANCE, supported_result_schema_versions=("1",)
+    )
+
+    response = service.list_viewer(viewer)
+
+    assert [item.result_id for item in response.results] == [latest_id]
+    assert latest_id not in response.results[0].label
+    gateway.row = latest
+    assert service.viewer_read(viewer, latest_id).identity.result_id == latest_id
+
+    gateway.row = invalid_legacy
+    for read, session_id in ((service.viewer_read, viewer), (service.admin_read, admin)):
+        with pytest.raises(BffError) as caught:
+            read(session_id, invalid_legacy["result_id"])
+        assert caught.value.code == ApiErrorCode.INPUT_INTEGRITY_MISMATCH
+
+
 def test_viewer_malformed_stored_payload_is_safe_invalid_payload_not_empty():
     sessions = AccessCodeSessionService(
         viewer_code="viewer", admin_code="admin", actor_namespace_secret="secret" * 8
