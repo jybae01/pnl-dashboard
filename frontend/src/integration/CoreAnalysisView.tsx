@@ -419,21 +419,6 @@ export function CoreAnalysisView({ role, modelRefreshKey = 0, initialResultId }:
             <strong>분석 조건 설정</strong>
             <span>기준 모형과 비교 모형의 손익 변동 요인을 분석합니다.</span>
           </div>
-          {analysisTypeLabel ? (
-            <span style={{
-              fontSize: '12px',
-              fontWeight: 700,
-              backgroundColor: '#eff6ff',
-              color: '#1d4ed8',
-              padding: '4px 12px',
-              borderRadius: '4px',
-              border: '1px solid #bfdbfe',
-            }}>
-              {analysisTypeLabel}
-            </span>
-          ) : (
-            <span className="unit-tag">실제 Job 상태만 표시</span>
-          )}
         </div>
         <div className="variance-control-grid">
           <ModelSelect label="기준 모형" value={form.baseline_model_id} models={models} disabled={isSubmitting || isJobActive(job)}
@@ -442,6 +427,10 @@ export function CoreAnalysisView({ role, modelRefreshKey = 0, initialResultId }:
             onChange={(value) => setForm({ ...form, comparison_model_id: value })} />
           <NumberInput mode="month" label="시작 월" value={form.start_month} disabled={isSubmitting || isJobActive(job)} onChange={(value) => setForm({ ...form, start_month: value })} />
           <NumberInput mode="month" label="종료 월" value={form.end_month} disabled={isSubmitting || isJobActive(job)} onChange={(value) => setForm({ ...form, end_month: value })} />
+          <div className="variance-comparison-context" aria-label="모형 비교 유형" aria-live="polite">
+            <span className="filter-label">모형 비교</span>
+            <span className="variance-comparison-context__value">{analysisTypeLabel || '선택 대기'}</span>
+          </div>
           <div className="variance-monthly-fx" aria-label="월별 매출환율 입력">
             <div className="variance-monthly-fx__heading">
               <strong>월별 매출환율 (KRW/USD)</strong>
@@ -490,7 +479,7 @@ export function CoreAnalysisView({ role, modelRefreshKey = 0, initialResultId }:
               window.sessionStorage.removeItem(ACTIVE_JOB_STORAGE_KEY);
               logicalRequest.current = null; setJob(null); setResult(null); setViewerState('EMPTY'); setError(null);
             }}>
-              <RefreshCw size={14} />새 분석
+              <RefreshCw size={14} />재분석
             </button>
           </div>
         </div>

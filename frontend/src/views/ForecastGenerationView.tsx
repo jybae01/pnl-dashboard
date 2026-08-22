@@ -1618,9 +1618,13 @@ export const ForecastGenerationView: React.FC<ForecastGenerationViewProps> = ({
 
           <details className="forecast-workflow__advanced" onToggle={(event) => setAdjustmentsExpanded(event.currentTarget.open)}>
             <summary aria-expanded={adjustmentsExpanded}><span>비용 및 원가 조정</span><span className="forecast-workflow__advanced-toggle-label">{adjustmentsExpanded ? '접기' : '펼치기'}</span></summary>
-            <div className="forecast-workflow__adjustment-month-toolbar">
+            <div
+              className="forecast-workflow__adjustment-month-toolbar"
+              role="group"
+              aria-label="비용 및 원가 조정 적용월"
+            >
               <div className="forecast-workflow__adjustment-month-selector">
-                <span id="forecast-adjustment-month-label">적용월</span>
+                <span id="forecast-adjustment-month-label" className="forecast-workflow__adjustment-month-label">적용월</span>
                 <AdjustmentMonthPicker
                   disabled={advancedControlsDisabled}
                   helperId="forecast-adjustment-month-help"
@@ -1631,9 +1635,9 @@ export const ForecastGenerationView: React.FC<ForecastGenerationViewProps> = ({
                   onChange={applyAdjustmentMonthToAll}
                 />
               </div>
-              <p id="forecast-adjustment-month-help">선택한 월을 모든 비용 행에 적용합니다. 각 행의 적용월은 이후 개별 변경할 수 있습니다.</p>
+              <p id="forecast-adjustment-month-help" className="forecast-workflow__adjustment-month-help">선택한 월을 모든 비용 행에 적용합니다. 각 행의 적용월은 이후 개별 변경할 수 있습니다.</p>
               <button type="button" className="forecast-workflow__reset" disabled={advancedControlsDisabled} onClick={() => resetAdjustmentInputs(adjustmentInputMonth)}>
-                <RotateCcw size={14} aria-hidden="true" />
+                <RotateCcw size={13} aria-hidden="true" />
                 선택 적용월 조정 초기화
               </button>
             </div>

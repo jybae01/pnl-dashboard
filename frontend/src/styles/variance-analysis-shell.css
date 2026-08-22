@@ -87,14 +87,16 @@
 
 .variance-result-query .filter-select { width: 100%; min-width: 0; }
 
-.variance-analysis-controls { padding: 18px 24px; }
+.variance-analysis-controls { padding: 20px 24px 22px; }
 
 .variance-control-heading {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 10px;
-  margin-bottom: 16px;
+  margin-bottom: 18px;
+  padding-bottom: 14px;
+  border-bottom: 1px solid #e2e8f0;
   flex-wrap: wrap;
 }
 
@@ -118,9 +120,12 @@
 
 .variance-control-grid {
   display: grid;
-  grid-template-columns: minmax(220px, 1.4fr) minmax(220px, 1.4fr) minmax(80px, 0.6fr) minmax(80px, 0.6fr);
-  gap: 14px 16px;
+  grid-template-columns: minmax(240px, 360px) minmax(240px, 360px) 92px 92px minmax(118px, max-content);
+  width: 100%;
+  max-width: 1080px;
+  gap: 18px 14px;
   align-items: end;
+  justify-content: start;
 }
 
 .variance-control-grid label { display: grid; gap: 5px; }
@@ -131,6 +136,9 @@
   flex-direction: column;
   gap: 6px;
 }
+
+.variance-control-grid > .variance-control-field:nth-child(3),
+.variance-control-grid > .variance-control-field:nth-child(4) { max-width: 92px; }
 
 .variance-control-field label,
 .variance-control-field .filter-label {
@@ -153,44 +161,83 @@
   box-sizing: border-box;
 }
 
+.variance-comparison-context {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+}
+
+.variance-comparison-context > .filter-label {
+  color: #334155;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.variance-comparison-context__value {
+  display: inline-flex;
+  min-width: 118px;
+  height: 38px;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  border: 1px solid #bfdbfe;
+  border-radius: var(--radius-sm, 4px);
+  padding-inline: 12px;
+  color: #1d4ed8;
+  background: #eff6ff;
+  font-size: 12px;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
 .variance-control-actions {
-  grid-column: span 2;
+  grid-column: 1 / -1;
   display: flex;
-  justify-content: stretch;
+  justify-content: flex-end;
   gap: 8px;
   align-items: center;
+  padding-top: 14px;
+  border-top: 1px solid #e2e8f0;
 }
 
 .variance-monthly-fx {
   grid-column: 1 / -1;
   display: grid;
-  gap: 8px;
+  gap: 12px;
   width: 100%;
-  max-width: 420px;
-  margin-inline: auto;
   min-width: 0;
+  box-sizing: border-box;
+  border: 1px solid #e2e8f0;
+  border-radius: var(--radius-sm, 4px);
+  padding: 15px 18px 17px;
+  background: #f8fafc;
 }
 
 .variance-monthly-fx__heading {
-  display: flex;
-  align-items: baseline;
-  gap: 10px;
-  flex-wrap: wrap;
+  display: grid;
+  gap: 3px;
+  justify-items: start;
 }
 
+.variance-monthly-fx__heading strong { color: #334155; font-size: 13px; font-weight: 800; }
 .variance-monthly-fx__heading span { color: var(--text-muted); font-size: 12px; }
-.variance-monthly-fx__table { display: grid; gap: 6px; min-width: 0; width: 100%; }
+.variance-monthly-fx__table {
+  display: grid;
+  gap: 5px;
+  width: 100%;
+  max-width: 420px;
+  min-width: 0;
+}
 .variance-monthly-fx__row {
   display: grid;
   grid-template-columns: 88px repeat(2, minmax(120px, 136px));
-  justify-content: center;
+  justify-content: start;
   column-gap: 12px;
-  row-gap: 6px;
   align-items: center;
 }
 .variance-monthly-fx__row.is-header { color: var(--text-muted); font-size: 11px; font-weight: 700; }
 .variance-monthly-fx__month { font-size: 12px; font-weight: 700; color: var(--text-secondary); }
-.variance-monthly-fx__row.is-header > :nth-child(n + 2) { text-align: left; }
+.variance-monthly-fx__row.is-header > :nth-child(n + 2) { padding-right: 10px; text-align: right; }
 .variance-monthly-fx .filter-select.variance-monthly-fx__input {
   width: 100%;
   min-width: 120px;
@@ -207,13 +254,14 @@
 }
 
 .variance-control-run {
-  flex: 1;
+  flex: 0 0 180px;
   min-height: 38px;
   font-size: 13.5px;
   font-weight: 800;
 }
 
 .variance-control-actions .btn-secondary {
+  flex: 0 0 auto;
   min-height: 38px;
   padding-inline: 12px;
 }
@@ -249,19 +297,47 @@
 .variance-state-message-forbidden { border-left-color: #7c3aed; background: var(--color-forecast-bg); }
 .variance-state-message-integrity { border-left-color: var(--color-warning); background: var(--color-warning-bg); }
 
+@media (max-width: 1100px) {
+  .variance-control-grid {
+    grid-template-columns: minmax(240px, 360px) minmax(240px, 360px) 92px 92px;
+    max-width: 980px;
+  }
+  .variance-comparison-context { grid-column: 1 / -1; max-width: 220px; }
+}
+
 @media (max-width: 900px) {
   .variance-page-heading,
   .variance-job-status { align-items: flex-start; flex-direction: column; }
-  .variance-control-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
+@media (max-width: 820px) {
+  .variance-control-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); max-width: 720px; }
 }
 
 @media (max-width: 620px) {
   .variance-query-card { align-items: stretch; flex-direction: column; }
+  .variance-analysis-controls { padding: 16px; }
   .variance-control-heading,
   .variance-control-heading > div { align-items: flex-start; flex-direction: column; }
   .variance-control-grid { grid-template-columns: 1fr; }
-  .variance-control-actions { grid-column: auto; flex-direction: column; align-items: stretch; }
-  .variance-monthly-fx__row { grid-template-columns: 1fr; gap: 5px; }
-  .variance-monthly-fx__row.is-header { display: none; }
-  .variance-monthly-fx .filter-select.variance-monthly-fx__input { width: 100%; max-width: none; }
+  .variance-comparison-context { grid-column: auto; max-width: none; }
+  .variance-comparison-context__value { justify-content: flex-start; }
+  .variance-control-actions { grid-column: auto; }
+  .variance-monthly-fx { padding: 14px; }
+  .variance-monthly-fx__table { max-width: 388px; }
+  .variance-monthly-fx__row {
+    grid-template-columns: 72px repeat(2, minmax(0, 1fr));
+    column-gap: 8px;
+  }
+  .variance-monthly-fx .filter-select.variance-monthly-fx__input {
+    width: 100%;
+    min-width: 0;
+    max-width: none;
+  }
+  .variance-control-run { flex: 1 1 auto; }
+}
+
+@media (max-width: 420px) {
+  .variance-control-actions { flex-direction: column; align-items: stretch; }
+  .variance-monthly-fx__row { grid-template-columns: 64px repeat(2, minmax(0, 1fr)); column-gap: 6px; }
 }

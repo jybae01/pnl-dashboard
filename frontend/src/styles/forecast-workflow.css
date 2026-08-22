@@ -611,15 +611,15 @@
 }
 
 .forecast-workflow__adjustment-month-toolbar {
-  display: flex;
+  display: grid;
+  grid-template-columns: max-content minmax(240px, 1fr) max-content;
   width: calc(100% - 40px);
-  max-width: 920px;
-  min-height: 54px;
+  max-width: 900px;
   align-items: center;
-  flex-wrap: wrap;
-  gap: 12px;
+  gap: 14px;
   margin: 12px 20px 0;
-  padding: 10px 12px;
+  box-sizing: border-box;
+  padding: 9px 10px;
   border: 1px solid #cbd5e1;
   border-radius: 4px;
   background: #f8fafc;
@@ -627,12 +627,20 @@
 
 .forecast-workflow__adjustment-month-selector {
   display: inline-flex;
-  flex: 0 0 auto;
   align-items: center;
   gap: 8px;
+  padding-right: 14px;
+  border-right: 1px solid #e2e8f0;
   color: #334155;
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 800;
+}
+
+.forecast-workflow__adjustment-month-label {
+  color: #334155;
+  font-size: 12px;
+  font-weight: 800;
+  white-space: nowrap;
 }
 
 .forecast-workflow__adjustment-month-picker {
@@ -647,11 +655,12 @@
   align-items: center;
   justify-content: space-between;
   gap: 6px;
-  border: 1px solid #cbd5e1;
+  border: 1px solid #7c3aed;
   border-radius: 4px;
   padding: 0 9px;
-  color: #334155;
-  background: #fff;
+  color: #6d28d9;
+  background: #f5f3ff;
+  box-shadow: 0 0 0 2px rgba(124, 58, 237, .08);
   cursor: pointer;
   font: inherit;
   font-size: 12px;
@@ -661,8 +670,9 @@
 }
 
 .forecast-workflow__adjustment-month-trigger:hover:not(:disabled) {
-  border-color: #94a3b8;
-  background: #f8fafc;
+  border-color: #6d28d9;
+  color: #5b21b6;
+  background: #ede9fe;
 }
 
 .forecast-workflow__adjustment-month-trigger:focus-visible,
@@ -677,6 +687,7 @@
   border-color: #dc2626;
   color: #991b1b;
   background: #fef2f2;
+  box-shadow: 0 0 0 2px rgba(220, 38, 38, .08);
 }
 
 .forecast-workflow__adjustment-month-trigger:disabled,
@@ -733,29 +744,29 @@
 }
 
 .forecast-workflow__adjustment-month-toolbar p {
-  flex: 0 1 auto;
-  max-width: 560px;
+  max-width: 520px;
   margin: 0;
   color: #64748b;
   font-size: 11.5px;
-  line-height: 1.45;
+  line-height: 1.5;
 }
+
+.forecast-workflow__adjustment-month-help { min-width: 0; }
 
 .forecast-workflow__adjustment-month-toolbar .forecast-workflow__reset {
   display: inline-flex;
-  height: 34px;
-  flex: 0 0 auto;
+  height: 30px;
   align-items: center;
   justify-content: center;
   gap: 6px;
   border: 1px solid transparent;
   border-radius: 4px;
-  padding: 0 10px;
+  padding: 0 8px;
   color: #64748b;
   background: transparent;
   cursor: pointer;
   font: inherit;
-  font-size: 12px;
+  font-size: 11.5px;
   font-weight: 700;
   white-space: nowrap;
 }
@@ -778,8 +789,8 @@
 .forecast-workflow__adjustment-month-select {
   width: 120px;
   min-width: 120px;
-  max-width: 140px;
-  height: 32px;
+  max-width: 120px;
+  height: 30px;
   border: 1px solid #cbd5e1;
   border-radius: 4px;
   padding: 0 28px 0 10px;
@@ -798,9 +809,15 @@
 .forecast-workflow__cost-table .forecast-workflow__adjustment-month-select {
   width: 120px;
   min-width: 120px;
-  max-width: 140px;
-  height: 32px;
-  font-size: 11px;
+  max-width: 120px;
+  height: 30px;
+  font-size: 11.5px;
+}
+
+.forecast-workflow__adjustment-month-select:focus-visible {
+  border-color: #f97316;
+  outline: 3px solid rgba(249, 115, 22, .16);
+  outline-offset: 1px;
 }
 
 .forecast-workflow__adjustment-range-alert { margin: 12px 20px 0; }
@@ -1679,6 +1696,16 @@
   .forecast-workflow__field-group-row .forecast-workflow__btn-apply-sga { width: 100%; }
 }
 
+@media (max-width: 760px) {
+  .forecast-workflow__adjustment-month-toolbar {
+    grid-template-columns: max-content minmax(0, 1fr);
+  }
+  .forecast-workflow__adjustment-month-toolbar .forecast-workflow__reset {
+    grid-column: 1 / -1;
+    justify-self: start;
+  }
+}
+
 @media (max-width: 640px) {
   .forecast-workflow__header { flex-wrap: wrap; }
   .forecast-workflow__header-badges { width: 100%; margin-left: 0; }
@@ -1690,8 +1717,22 @@
   .forecast-workflow__raw-material-row,
   .forecast-workflow__drawer-readonly-grid { grid-template-columns: 1fr; }
   .forecast-workflow__account-summary-expected { width: 100%; margin-left: 0; }
-  .forecast-workflow__adjustment-month-toolbar { align-items: stretch; flex-direction: column; }
-  .forecast-workflow__adjustment-month-selector { width: 100%; justify-content: space-between; }
+  .forecast-workflow__adjustment-month-toolbar {
+    grid-template-columns: 1fr;
+    width: calc(100% - 24px);
+    align-items: stretch;
+    gap: 9px;
+    margin-inline: 12px;
+  }
+  .forecast-workflow__adjustment-month-selector {
+    width: 100%;
+    justify-content: flex-start;
+    box-sizing: border-box;
+    padding-right: 0;
+    padding-bottom: 9px;
+    border-right: 0;
+    border-bottom: 1px solid #e2e8f0;
+  }
   .forecast-workflow__adjustment-month-popover {
     right: 0;
     left: auto;
@@ -1699,8 +1740,8 @@
     width: 196px;
   }
   .forecast-workflow__adjustment-month-toolbar p { width: 100%; max-width: none; }
-  .forecast-workflow__adjustment-month-toolbar .forecast-workflow__reset { width: 100%; }
-  .forecast-workflow__adjustment-month-select { width: 100%; max-width: 140px; min-width: 120px; }
+  .forecast-workflow__adjustment-month-toolbar .forecast-workflow__reset { width: auto; justify-self: start; }
+  .forecast-workflow__adjustment-month-select { width: 120px; max-width: 120px; min-width: 120px; }
   .forecast-workflow__block-heading-row { align-items: stretch; flex-direction: column; }
-  .forecast-workflow__block-heading-row .forecast-workflow__adjustment-month-select { flex-basis: auto; width: 100%; max-width: 140px; }
+  .forecast-workflow__block-heading-row .forecast-workflow__adjustment-month-select { flex-basis: auto; width: 120px; max-width: 120px; }
 }

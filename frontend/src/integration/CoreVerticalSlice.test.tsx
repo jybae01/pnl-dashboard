@@ -39,7 +39,7 @@ async function fillMonthlyFx(key: string, baseline: string, comparison: string) 
 afterEach(() => vi.unstubAllGlobals());
 
 describe('React core vertical slice', () => {
-  it('keeps the mockup condition field order and compact primary/secondary actions', async () => {
+  it('keeps one coherent condition grid, FX subsection, and compact primary/secondary actions', async () => {
     window.sessionStorage.removeItem('pnl.active-analysis-job-id');
     vi.stubGlobal('fetch', vi.fn((input: RequestInfo | URL) => {
       if (!String(input).endsWith('/api/models')) throw new Error(`unexpected request ${String(input)}`);
@@ -57,8 +57,11 @@ describe('React core vertical slice', () => {
       '비교 모형',
       '시작 월',
       '종료 월',
+      '모형 비교',
     ]);
-    expect(screen.getByLabelText('월별 매출환율 입력')).toBeInTheDocument();
+    expect(screen.getByLabelText('모형 비교 유형')).toHaveClass('variance-comparison-context');
+    expect(condition.querySelector('.variance-control-grid')).toBeInTheDocument();
+    expect(screen.getByLabelText('월별 매출환율 입력')).toHaveClass('variance-monthly-fx');
     const initialFxInput = screen.getByLabelText('2026-01 기준 매출환율 (KRW/USD)');
     expect(initialFxInput).toHaveClass('variance-monthly-fx__input');
     expect(initialFxInput).toHaveAttribute('aria-invalid', 'true');
@@ -74,7 +77,8 @@ describe('React core vertical slice', () => {
     expect(within(condition).getByRole('button', { name: '분석 실행' })).toBeDisabled();
     fireEvent.change(comparisonFx, { target: { value: '1490' } });
     expect(within(condition).getByRole('button', { name: '분석 실행' })).toBeEnabled();
-    expect(within(condition).getByRole('button', { name: '새 분석' })).toBeEnabled();
+    expect(within(condition).getByRole('button', { name: '재분석' })).toBeEnabled();
+    expect(within(condition).getByRole('button', { name: '분석 실행' }).closest('.variance-control-actions')).toBeInTheDocument();
   });
 
   it('runs login -> model selection -> submit -> polling -> stored result', async () => {
@@ -320,7 +324,7 @@ describe('React core vertical slice', () => {
     expect(await screen.findByText('손익 분석 중')).toBeInTheDocument();
     expect(screen.queryByText('PROCESSING')).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: '분석 실행' })).toBeDisabled();
-    expect(screen.getByRole('button', { name: '새 분석' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: '재분석' })).toBeDisabled();
   });
 
 });

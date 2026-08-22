@@ -101,7 +101,12 @@ describe('Forecast React vertical slice', () => {
     await waitForForecastReady();
     fireEvent.click(screen.getByText(/비용 및 원가 조정/));
 
+    const toolbar = screen.getByRole('group', { name: '비용 및 원가 조정 적용월' });
+    expect(toolbar).toHaveClass('forecast-workflow__adjustment-month-toolbar');
+    expect(within(toolbar).getByText('적용월')).toHaveClass('forecast-workflow__adjustment-month-label');
+    expect(within(toolbar).getByText('선택한 월을 모든 비용 행에 적용합니다. 각 행의 적용월은 이후 개별 변경할 수 있습니다.')).toHaveClass('forecast-workflow__adjustment-month-help');
     const trigger = getAdjustmentMonthTrigger();
+    expect(toolbar).toContainElement(trigger);
     expect(trigger).toHaveAttribute('aria-haspopup', 'listbox');
     expect(trigger).toHaveAttribute('aria-expanded', 'false');
     expect(trigger).toHaveAttribute('aria-describedby', 'forecast-adjustment-month-help');
@@ -146,8 +151,8 @@ describe('Forecast React vertical slice', () => {
     fireEvent.click(screen.getByRole('option', { name: '08월 2026-08' }));
     expect(screen.getByRole('combobox', { name: '전력비 제조경비 적용월' })).toHaveValue('9');
     expect(screen.getByRole('combobox', { name: '운송비 판관비 적용월' })).toHaveValue('8');
-    expect(screen.getByRole('button', { name: '선택 적용월 조정 초기화' })).toHaveClass('forecast-workflow__reset');
-    expect(screen.getByRole('button', { name: '선택 적용월 조정 초기화' }).querySelector('svg')).toBeInTheDocument();
+    expect(within(toolbar).getByRole('button', { name: '선택 적용월 조정 초기화' })).toHaveClass('forecast-workflow__reset');
+    expect(within(toolbar).getByRole('button', { name: '선택 적용월 조정 초기화' }).querySelector('svg')).toBeInTheDocument();
   });
 
   it('uses the source-mockup progressive hierarchy and one ordered adjustment grid', async () => {
