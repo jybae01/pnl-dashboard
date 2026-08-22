@@ -19,11 +19,13 @@ from .analysis.golden_adapter import AdaptedGoldenScenario, GoldenAnalysisAdapte
 from .analysis.inventory_effects import calculate_inventory_timing_effects
 from .analysis.manufacturing_effects import calculate_manufacturing_effects
 from .analysis.material_effects import calculate_material_effects
+from .analysis.production_evidence import calculate_production_evidence
 from .analysis.residual_rca import analyze_residual_rca
 from .analysis.sales_cogs_overlap import analyze_sales_cogs_basis_overlap
 from .analysis.sales_cogs_scope import analyze_sales_cogs_scope_reconciliation
 from .analysis.sales_effects import calculate_sales_effects
 from .analysis.sga_effects import calculate_sga_effects
+from .provenance import mapping_hash
 from .sales_comparison import calculate_sales_effect_rows, sales_effect_totals
 
 
@@ -66,6 +68,8 @@ class ComparisonResult:
     sales_cogs_basis_analysis: dict[str, Any] = field(default_factory=dict)
     sales_cogs_scope_analysis: dict[str, Any] = field(default_factory=dict)
     core_cogs_overlap_analysis: dict[str, Any] = field(default_factory=dict)
+    production_evidence: list[dict[str, Any]] = field(default_factory=list)
+    production_evidence_source: dict[str, Any] = field(default_factory=dict)
 
 
 class GenericComparisonEngine:
@@ -89,7 +93,27 @@ class GenericComparisonEngine:
         )
         if self.analysis_config is None:
             raise ValueError("analysis_v1.json is required for Golden Model comparison")
-        self.analysis_adapter = GoldenAnalysisAdapter(payload, self.analysis_config)
+        production_evidence_path = mapping_path.with_name(
+            "analysis_production_evidence_sources.json"
+        )
+        self.production_evidence_mapping = json.loads(
+            production_evidence_path.read_text(encoding="utf-8")
+        )
+        if (
+            str(self.production_evidence_mapping.get("schema_version")) != "1"
+            or not str(self.production_evidence_mapping.get("mapping_version") or "").strip()
+        ):
+            raise ValueError("analysis production evidence mapping identity is invalid")
+        self.production_evidence_source = {
+            "schema_version": "1",
+            "mapping_version": str(self.production_evidence_mapping["mapping_version"]),
+            "mapping_hash": mapping_hash(self.production_evidence_mapping),
+        }
+        self.analysis_adapter = GoldenAnalysisAdapter(
+            payload,
+            self.analysis_config,
+            self.production_evidence_mapping,
+        )
 
     @staticmethod
     def common_months(baseline: ModelMeta, comparison: ModelMeta) -> tuple[int, ...]:
@@ -223,6 +247,7 @@ class GenericComparisonEngine:
         sales_cogs_scope_analysis: dict[str, Any] = {}
         core_cogs_overlap_analysis: dict[str, Any] = {}
         sga_monthly_trace: list[dict[str, Any]] = []
+        production_evidence: list[dict[str, Any]] = []
         if baseline.get("adapted") is not None and target.get("adapted") is not None:
             full_base_scenario = baseline["adapted"].scenario
             full_comparison_scenario = target["adapted"].scenario
@@ -231,6 +256,9 @@ class GenericComparisonEngine:
             )
             base_scenario = full_base_scenario.select(selected_year_months)
             comparison_scenario = full_comparison_scenario.select(selected_year_months)
+            production_evidence = calculate_production_evidence(
+                base_scenario, comparison_scenario
+            )
             calculated_analysis_sales = calculate_sales_effects(
                 base_scenario, comparison_scenario, self.analysis_config
             )
@@ -651,6 +679,10 @@ class GenericComparisonEngine:
             sales_cogs_basis_analysis=sales_cogs_basis_analysis,
             sales_cogs_scope_analysis=sales_cogs_scope_analysis,
             core_cogs_overlap_analysis=core_cogs_overlap_analysis,
+            production_evidence=production_evidence,
+            production_evidence_source=(
+                dict(self.production_evidence_source) if production_evidence else {}
+            ),
         )
 
     @staticmethod

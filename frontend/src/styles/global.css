@@ -425,6 +425,14 @@ html, body {
 }
 
 @media (max-width: 520px) {
+  .app-header { padding-right: 8px; padding-left: 8px; }
+  .system-logo-group { gap: 6px; }
+  .system-logo-mark {
+    --nano-logo-height: 12px;
+    padding: 1px 4px !important;
+  }
+  .system-title { font-size: 12.5px; letter-spacing: -.4px; }
+  .env-tag { display: none; }
   .btn-header-logout {
     width: 30px;
     height: 30px;

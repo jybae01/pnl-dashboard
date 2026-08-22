@@ -16,6 +16,7 @@ from .schema import (
     OpeningInventoryUnitRecord,
     PnlRecord,
     ProductRecord,
+    ProductionEvidenceRecord,
     ScenarioMeta,
 )
 
@@ -38,11 +39,20 @@ class GoldenAnalysisAdapter:
 
     MONTH_COLUMNS = {month: chr(ord("E") + month - 1) for month in range(1, 13)}
 
-    def __init__(self, mapping: dict[str, Any], config: AnalysisConfig):
+    def __init__(
+        self,
+        mapping: dict[str, Any],
+        config: AnalysisConfig,
+        production_evidence_mapping: Mapping[str, Any] | None = None,
+    ):
         self.mapping = mapping
         self.adapter = mapping["analysis_adapter"]
         self.comparison = mapping["comparison"]
         self.config = config
+        self.production_evidence_mapping = (
+            dict(production_evidence_mapping)
+            if production_evidence_mapping is not None else None
+        )
 
     @staticmethod
     def _number(value: Any) -> float:
@@ -496,8 +506,10 @@ class GoldenAnalysisAdapter:
         core_manufactured_cogs: list[CoreManufacturedCogsRecord] = []
         current_cost_components: list[CurrentCostComponentRecord] = []
         opening_inventory_units: list[OpeningInventoryUnitRecord] = []
+        production_evidence: list[ProductionEvidenceRecord] = []
         pnl: list[PnlRecord] = []
         manufacturing = self.adapter["manufacturing"]
+        production_evidence_mapping = self.production_evidence_mapping
         ratio_rows = manufacturing["front_ratio_rows"]
         manufacturing_ratio_sources = {
             item["account"]: int(ratio_rows[item["ratio_key"]])
@@ -563,6 +575,32 @@ class GoldenAnalysisAdapter:
                 sales_fx_source=month_sales_fx_source,
             )
             products.extend(month_products)
+            for product_group, source in (
+                production_evidence_mapping.get("groups", {}).items()
+                if production_evidence_mapping is not None else ()
+            ):
+                quantity_rows = tuple(int(row) for row in source["quantity_rows"])
+                amount_rows = tuple(int(row) for row in source["amount_rows"])
+                production_evidence.append(ProductionEvidenceRecord(
+                    year_month=year_month,
+                    product_group=str(product_group),
+                    process=str(source["process"]),
+                    unit_basis=str(source["unit_basis"]),
+                    quantity=sum(
+                        self._number(workbook.value(f"{column}{row}"))
+                        for row in quantity_rows
+                    ),
+                    amount=sum(
+                        self._number(workbook.value(f"{column}{row}"))
+                        for row in amount_rows
+                    ),
+                    quantity_source=self._source_reference(column, list(quantity_rows)),
+                    amount_source=self._source_reference(column, list(amount_rows)),
+                    quantity_source_rows=quantity_rows,
+                    amount_source_rows=amount_rows,
+                    aggregation_basis=str(source["aggregation_basis"]),
+                    formula_policy=str(production_evidence_mapping["formula_policy"]),
+                ))
             for product_group in ("SW", "BW", "LC", "FS"):
                 core_source = dict(core_cogs_mapping.get(product_group) or {})
                 quantity_row = int(core_source.get("quantity_row") or 0)
@@ -811,6 +849,7 @@ class GoldenAnalysisAdapter:
             core_manufactured_cogs=core_manufactured_cogs,
             current_cost_components=current_cost_components,
             opening_inventory_units=opening_inventory_units,
+            production_evidence=production_evidence,
             pnl=pnl,
         )
         return AdaptedGoldenScenario(

@@ -6,6 +6,7 @@ from openpyxl import Workbook, load_workbook
 
 from forecast.analysis.configuration import AnalysisConfig
 from forecast.analysis.golden_adapter import GoldenAnalysisAdapter
+from forecast.comparison import GenericComparisonEngine, PeriodOption
 from forecast.storage import ModelMeta
 from forecast.workbook import GoldenWorkbook
 
@@ -98,6 +99,15 @@ def _build_workbook(path, *, comparison: bool = False) -> None:
     put(1722, 10, 10)
     put(1154, 120, 110)
     put(536, 10, 10)
+    for row, base, target in (
+        (532, 10, 20), (533, 1_000, 2_400),
+        (1026, 2, 4), (1027, 40, 100),
+        (1051, 3, 6), (1052, 90, 180),
+        (1076, 5, 7), (1077, 200, 350),
+        (1101, 5, 3), (1102, 300, 150),
+        (1126, 8, 10), (1127, 560, 800),
+    ):
+        put(row, base, target)
     put(556, 60)
     put(557, 40)
     put(568, 10)
@@ -176,8 +186,11 @@ def _build_workbook(path, *, comparison: bool = False) -> None:
 
 def _adapter() -> GoldenAnalysisAdapter:
     mapping = json.loads(open("config/model_mapping.json", encoding="utf-8").read())
+    production_evidence_mapping = json.loads(
+        open("config/analysis_production_evidence_sources.json", encoding="utf-8").read()
+    )
     config = AnalysisConfig.load("config/analysis_v1.json")
-    return GoldenAnalysisAdapter(mapping, config)
+    return GoldenAnalysisAdapter(mapping, config, production_evidence_mapping)
 
 
 def test_adapter_calculates_material_three_part_identity_from_golden_cells(tmp_path):
@@ -214,6 +227,58 @@ def test_adapter_calculates_material_three_part_identity_from_golden_cells(tmp_p
     assert nonwoven_trace["canonical_fields"].endswith("jpy_fx_krw_per_jpy")
     assert "mcm" not in str(result).lower()
     assert "yield" not in str(result).lower()
+
+
+def test_adapter_maps_inventory_ledger_production_quantity_and_amount_sources(tmp_path):
+    path = tmp_path / "production-evidence.xlsx"
+    _build_workbook(path)
+
+    adapted = _adapter().build(GoldenWorkbook(path), _meta("base"), (1,))
+    records = {row.product_group: row for row in adapted.scenario.production_evidence}
+
+    assert (records["FS"].quantity, records["FS"].amount) == (10, 1_000)
+    assert records["FS"].quantity_source == "Data!E532"
+    assert records["FS"].amount_source == "Data!E533"
+    assert (records["SW"].quantity, records["SW"].amount) == (5, 130)
+    assert records["SW"].quantity_source_rows == (1026, 1051)
+    assert records["SW"].amount_source_rows == (1027, 1052)
+    assert (records["BW"].quantity, records["BW"].amount) == (10, 500)
+    assert records["BW"].quantity_source_rows == (1076, 1101)
+    assert records["BW"].amount_source_rows == (1077, 1102)
+    assert (records["LC"].quantity, records["LC"].amount) == (8, 560)
+    assert records["LC"].quantity_source == "Data!E1126"
+    assert records["LC"].amount_source == "Data!E1127"
+
+
+def test_inventory_ledger_evidence_changes_do_not_mutate_effects_or_op_bridge(tmp_path):
+    base_path = tmp_path / "base.xlsx"
+    comparison_path = tmp_path / "comparison.xlsx"
+    _build_workbook(base_path)
+    _build_workbook(comparison_path, comparison=True)
+    engine = GenericComparisonEngine("config/model_mapping.json")
+    period = PeriodOption("M01", "1월", (1,), "월")
+
+    before = engine.compare(
+        _meta("base"), base_path, _meta("comparison"), comparison_path, period
+    )
+    workbook = load_workbook(comparison_path)
+    sheet = workbook["Data"]
+    for row in (532, 1026, 1051, 1076, 1101, 1126):
+        sheet[f"E{row}"] = float(sheet[f"E{row}"].value or 0) * 3 + 1
+    for row in (533, 1027, 1052, 1077, 1102, 1127):
+        sheet[f"E{row}"] = float(sheet[f"E{row}"].value or 0) * 7 + 10_000
+    workbook.save(comparison_path)
+
+    after = engine.compare(
+        _meta("base"), base_path, _meta("comparison"), comparison_path, period
+    )
+
+    assert before.production_evidence != after.production_evidence
+    assert before.effects == after.effects
+    assert before.operating_profit_delta == after.operating_profit_delta
+    assert before.effects_total == after.effects_total
+    assert before.residual == after.residual
+    assert before.reconciled == after.reconciled
 
 
 def test_adapter_marks_blank_inventory_source_as_validation_failure(tmp_path):

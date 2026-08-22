@@ -76,6 +76,8 @@ describe('P&L Status exact visual skeleton port', () => {
     expect(kpis.map((node) => node.querySelector('.pnl-report__kpi-label')?.textContent)).toEqual(['매출액', '영업이익', '조정 영업이익']);
     expect(kpis.every((node) => node.querySelector('.pnl-report__kpi-unit')?.textContent === '백만원')).toBe(true);
     expect(kpis[0]).toHaveTextContent('진도율 61.8% | 계획 대비 달성률 104.5%');
+    expect(kpis.every((node) => node.querySelector('.pnl-report__kpi-secondary'))).toBe(true);
+    expect(kpis.every((node) => !node.querySelector('.pnl-report__kpi-pill'))).toBe(true);
 
     const trends = document.querySelector('.pnl-report__trends');
     expect(trends?.children).toHaveLength(2);

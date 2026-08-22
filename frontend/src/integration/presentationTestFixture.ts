@@ -64,10 +64,16 @@ export function presentationFixture(overrides: Partial<AnalysisPresentationDto> 
     },
     effects,
     residual,
-    product_groups: [{ code: 'LC', display_name: '4인치 LC', quantity_unit: 'PCS', baseline_quantity: 10, comparison_quantity: 12, baseline_revenue: 100, comparison_revenue: 120 }],
+    product_groups: [
+      { code: 'LC', display_name: '4인치 LC', quantity_unit: 'PCS', baseline_quantity: 10, comparison_quantity: 12, quantity_delta: 2, baseline_revenue: 100_000_000, comparison_revenue: 120_000_000, revenue_delta: 20_000_000 },
+      { code: '신사업', display_name: '신사업', quantity_unit: null, baseline_quantity: null, comparison_quantity: null, quantity_delta: null, baseline_revenue: 50_000_000, comparison_revenue: 80_000_000, revenue_delta: 30_000_000 },
+    ],
     manufacturing_activities: [
-      { process: '전공정', production_basis: 'SW', unit: 'PCS', baseline: 10, comparison: 12, delta: 2 },
-      { process: '후공정', production_basis: 'FS', unit: 'm', baseline: 20, comparison: 19, delta: -1 },
+      { process: '전공정', production_basis: 'FS', unit: 'm', baseline: 20, comparison: 25, delta: 5, unit_cost_unit: '원/m', baseline_unit_cost: 100, comparison_unit_cost: 120, unit_cost_delta: 20, evidence_basis: 'INVENTORY_LEDGER_WEIGHTED' },
+      { process: '후공정', production_basis: 'SW', unit: 'PCS', baseline: 10, comparison: 12, delta: 2, unit_cost_unit: '원/PCS', baseline_unit_cost: 200, comparison_unit_cost: 210, unit_cost_delta: 10, evidence_basis: 'INVENTORY_LEDGER_WEIGHTED' },
+      { process: '후공정', production_basis: 'BW', unit: 'PCS', baseline: 5, comparison: 6, delta: 1, unit_cost_unit: '원/PCS', baseline_unit_cost: 300, comparison_unit_cost: 290, unit_cost_delta: -10, evidence_basis: 'INVENTORY_LEDGER_WEIGHTED' },
+      { process: '후공정', production_basis: 'LC', unit: 'PCS', baseline: 5, comparison: 6, delta: 1, unit_cost_unit: '원/PCS', baseline_unit_cost: 400, comparison_unit_cost: 390, unit_cost_delta: -10, evidence_basis: 'INVENTORY_LEDGER_WEIGHTED' },
+      { process: '후공정 합계', production_basis: 'SW+BW+LC', unit: 'PCS', baseline: 20, comparison: 24, delta: 4, unit_cost_unit: '원/PCS', baseline_unit_cost: 275, comparison_unit_cost: 275, unit_cost_delta: 0, evidence_basis: 'INVENTORY_LEDGER_WEIGHTED' },
     ],
     executive_summary: {
       operating_profit_delta: effectsTotal + residual.amount,

@@ -1,6 +1,6 @@
-# NANOH2O 손익분석 시스템 Frontend Integration Handoff Document
+# NANOH2O 손익 분석 업무 시스템 Frontend Integration Handoff Document
 
-본 문서는 NANOH2O 손익분석 시스템 프론트엔드 UI 프로토타입의 개발 완료 및 동결(UI Freeze) 상태에서, 향후 실제 백엔드 레포지토리(Backend Repository)와 안전하고 체계적으로 통합하기 위한 가이드라인과 인계 사항을 정의합니다.
+본 문서는 NANOH2O 손익 분석 업무 시스템 프론트엔드 UI 프로토타입의 개발 완료 및 동결(UI Freeze) 상태에서, 향후 실제 백엔드 레포지토리(Backend Repository)와 안전하고 체계적으로 통합하기 위한 가이드라인과 인계 사항을 정의합니다.
 
 ---
 

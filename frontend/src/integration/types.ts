@@ -302,12 +302,16 @@ export interface AnalysisPresentationDto {
   residual: AnalysisResidualDto;
   product_groups: Array<{
     code: 'SW' | 'BW' | 'LC' | 'FS' | '신사업'; display_name: string;
-    quantity_unit: 'PCS' | 'm'; baseline_quantity: number; comparison_quantity: number;
-    baseline_revenue: number; comparison_revenue: number;
+    quantity_unit: 'PCS' | 'm' | null;
+    baseline_quantity: number | null; comparison_quantity: number | null; quantity_delta: number | null;
+    baseline_revenue: number; comparison_revenue: number; revenue_delta: number;
   }>;
   manufacturing_activities: Array<{
     process: string; production_basis: string; unit: 'PCS' | 'm';
     baseline: number; comparison: number; delta: number;
+    unit_cost_unit: '원/PCS' | '원/m';
+    baseline_unit_cost: number | null; comparison_unit_cost: number | null; unit_cost_delta: number | null;
+    evidence_basis: 'INVENTORY_LEDGER_WEIGHTED' | 'LEGACY_QUANTITY_ONLY';
   }>;
   executive_summary: {
     operating_profit_delta: number;

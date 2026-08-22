@@ -321,7 +321,7 @@ def build_analysis_presentation(
         display_label=RESIDUAL_LABELS[residual_classification],
     )
     product_groups = _product_groups(sales_rows)
-    activities = _activities(analysis_view)
+    activities = _activities(result, analysis_view)
     positives = tuple(sorted(
         (effect for effect in effects if effect.profit_effect > 0),
         key=lambda effect: (-effect.profit_effect, EFFECT_ORDER.index(effect.code)),
@@ -609,18 +609,122 @@ def _product_groups(rows: tuple[Mapping[str, Any], ...]) -> tuple[AnalysisProduc
         AnalysisProductGroupResponse(
             code=group,
             display_name=PRODUCT_LABELS[group],
-            quantity_unit="m" if group == "FS" else "PCS",
-            baseline_quantity=_number(by_group[group].get("baseline_quantity")),
-            comparison_quantity=_number(by_group[group].get("comparison_quantity")),
+            quantity_unit=(None if group == "신사업" else "m" if group == "FS" else "PCS"),
+            baseline_quantity=(
+                None if group == "신사업"
+                else _number(by_group[group].get("baseline_quantity"))
+            ),
+            comparison_quantity=(
+                None if group == "신사업"
+                else _number(by_group[group].get("comparison_quantity"))
+            ),
+            quantity_delta=(
+                None if group == "신사업"
+                else _number(by_group[group].get("comparison_quantity"))
+                - _number(by_group[group].get("baseline_quantity"))
+            ),
             baseline_revenue=_number(by_group[group].get("baseline_amount")),
             comparison_revenue=_number(by_group[group].get("comparison_amount")),
+            revenue_delta=(
+                _number(by_group[group].get("comparison_amount"))
+                - _number(by_group[group].get("baseline_amount"))
+            ),
         )
         for group in PRODUCT_ORDER
         if group in by_group
     )
 
 
-def _activities(analysis_view: Mapping[str, Any]) -> tuple[AnalysisActivityResponse, ...]:
+def _activities(
+    result: Mapping[str, Any],
+    analysis_view: Mapping[str, Any],
+) -> tuple[AnalysisActivityResponse, ...]:
+    raw_rows = result.get("production_evidence")
+    if raw_rows is None or raw_rows == []:
+        if result.get("production_evidence_source") not in (None, {}):
+            raise _integrity()
+        return _legacy_activities(analysis_view)
+    source = _mapping(result.get("production_evidence_source"))
+    if (
+        source.get("schema_version") != "1"
+        or not str(source.get("mapping_version") or "").strip()
+        or not SHA256_PATTERN.fullmatch(str(source.get("mapping_hash") or ""))
+    ):
+        raise _integrity()
+    rows = _sequence_of_mappings(raw_rows)
+    output = []
+    validated: dict[str, dict[str, Any]] = {}
+    for row in rows:
+        basis = str(row.get("production_basis") or "")
+        if basis in validated:
+            raise _integrity()
+        unit = str(row.get("unit") or "")
+        if (basis == "FS" and unit != "m") or (basis != "FS" and unit != "PCS"):
+            raise _integrity()
+        unit_cost_unit = str(row.get("unit_cost_unit") or "")
+        if unit_cost_unit != ("원/m" if unit == "m" else "원/PCS"):
+            raise _integrity()
+        baseline = _number(row.get("baseline_quantity"))
+        comparison = _number(row.get("comparison_quantity"))
+        delta = _number(row.get("quantity_delta"))
+        if not _close(comparison - baseline, delta):
+            raise _integrity()
+        baseline_amount = _number(row.get("baseline_amount"))
+        comparison_amount = _number(row.get("comparison_amount"))
+        baseline_cost = _optional_number(row.get("baseline_weighted_unit_cost"))
+        comparison_cost = _optional_number(row.get("comparison_weighted_unit_cost"))
+        cost_delta = _optional_number(row.get("unit_cost_delta"))
+        expected_baseline_cost = baseline_amount / baseline if baseline else None
+        expected_comparison_cost = comparison_amount / comparison if comparison else None
+        expected_cost_delta = (
+            expected_comparison_cost - expected_baseline_cost
+            if expected_baseline_cost is not None and expected_comparison_cost is not None
+            else None
+        )
+        if (
+            not _optional_close(baseline_cost, expected_baseline_cost)
+            or not _optional_close(comparison_cost, expected_comparison_cost)
+            or not _optional_close(cost_delta, expected_cost_delta)
+            or row.get("formula_policy")
+            != "SUM(selected-period production amount) / SUM(selected-period production quantity)"
+            or row.get("source_validation_status") != "SOURCE_MAPPED"
+        ):
+            raise _integrity()
+        validated[basis] = {
+            "baseline_quantity": baseline,
+            "comparison_quantity": comparison,
+            "baseline_amount": baseline_amount,
+            "comparison_amount": comparison_amount,
+        }
+        output.append(AnalysisActivityResponse(
+            process=str(row.get("process") or ""),
+            production_basis=basis,
+            unit=unit,
+            baseline=baseline,
+            comparison=comparison,
+            delta=delta,
+            unit_cost_unit=unit_cost_unit,
+            baseline_unit_cost=baseline_cost,
+            comparison_unit_cost=comparison_cost,
+            unit_cost_delta=cost_delta,
+            evidence_basis="INVENTORY_LEDGER_WEIGHTED",
+        ))
+    if set(validated) != {"FS", "SW", "BW", "LC", "SW+BW+LC"}:
+        raise _integrity()
+    components = [validated[group] for group in ("SW", "BW", "LC")]
+    back_total = validated["SW+BW+LC"]
+    for key in (
+        "baseline_quantity", "comparison_quantity",
+        "baseline_amount", "comparison_amount",
+    ):
+        if not _close(sum(row[key] for row in components), back_total[key]):
+            raise _integrity()
+    return tuple(output)
+
+
+def _legacy_activities(
+    analysis_view: Mapping[str, Any],
+) -> tuple[AnalysisActivityResponse, ...]:
     manufacturing = _mapping(analysis_view.get("manufacturing"))
     rows = _sequence_of_mappings(manufacturing.get("activities"))
     output = []
@@ -641,6 +745,11 @@ def _activities(analysis_view: Mapping[str, Any]) -> tuple[AnalysisActivityRespo
             baseline=baseline,
             comparison=comparison,
             delta=delta,
+            unit_cost_unit="원/m" if unit == "m" else "원/PCS",
+            baseline_unit_cost=None,
+            comparison_unit_cost=None,
+            unit_cost_delta=None,
+            evidence_basis="LEGACY_QUANTITY_ONLY",
         ))
     return tuple(output)
 
@@ -851,6 +960,12 @@ def _optional_number(value: Any) -> float | None:
 def _close(left: float, right: float) -> bool:
     tolerance = max(1.0, abs(left), abs(right)) * 1e-9
     return abs(left - right) <= tolerance
+
+
+def _optional_close(left: float | None, right: float | None) -> bool:
+    return left is None and right is None or (
+        left is not None and right is not None and _close(left, right)
+    )
 
 
 def _uuid(value: Any) -> str:

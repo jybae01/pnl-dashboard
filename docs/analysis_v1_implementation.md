@@ -10,7 +10,7 @@ Streamlit은 Golden Model 셀을 읽거나 손익효과를 자체 계산하지 �
 
 ## Golden Model 원천 매핑
 
-원천 행은 `config/model_mapping.json`의 `analysis_adapter`에 명시한다.
+공식 Effect 원천 행은 `config/model_mapping.json`의 `analysis_adapter`에 명시한다. 등록된 모델의 global mapping provenance를 바꾸지 않는 additive 생산단가 Evidence 원천 행은 동일한 version/hash source-map 패턴의 `config/analysis_production_evidence_sources.json`에 분리한다.
 
 - 엔화환율: 9행, 단위 KRW/JPY
 - 전공정 부직포 생산출고: 205~207행(수량·금액·단가)

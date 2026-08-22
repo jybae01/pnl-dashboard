@@ -348,11 +348,13 @@ class AnalysisResidualResponse:
 class AnalysisProductGroupResponse:
     code: str
     display_name: str
-    quantity_unit: str
-    baseline_quantity: float
-    comparison_quantity: float
+    quantity_unit: str | None
+    baseline_quantity: float | None
+    comparison_quantity: float | None
+    quantity_delta: float | None
     baseline_revenue: float
     comparison_revenue: float
+    revenue_delta: float
 
 
 @dataclass(frozen=True)
@@ -363,6 +365,11 @@ class AnalysisActivityResponse:
     baseline: float
     comparison: float
     delta: float
+    unit_cost_unit: str
+    baseline_unit_cost: float | None
+    comparison_unit_cost: float | None
+    unit_cost_delta: float | None
+    evidence_basis: str
 
 
 @dataclass(frozen=True)

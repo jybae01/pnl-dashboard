@@ -1,0 +1,35 @@
+{
+  "schema_version": "1",
+  "mapping_version": "analysis-production-evidence-v1.0.0",
+  "formula_policy": "SUM(selected-period production amount) / SUM(selected-period production quantity)",
+  "groups": {
+    "FS": {
+      "process": "전공정",
+      "unit_basis": "LENGTH",
+      "quantity_rows": [532],
+      "amount_rows": [533],
+      "aggregation_basis": "FS"
+    },
+    "SW": {
+      "process": "후공정",
+      "unit_basis": "PCS",
+      "quantity_rows": [1026, 1051],
+      "amount_rows": [1027, 1052],
+      "aggregation_basis": "SW400 + SW440"
+    },
+    "BW": {
+      "process": "후공정",
+      "unit_basis": "PCS",
+      "quantity_rows": [1076, 1101],
+      "amount_rows": [1077, 1102],
+      "aggregation_basis": "BW400 + BW440"
+    },
+    "LC": {
+      "process": "후공정",
+      "unit_basis": "PCS",
+      "quantity_rows": [1126],
+      "amount_rows": [1127],
+      "aggregation_basis": "LC"
+    }
+  }
+}

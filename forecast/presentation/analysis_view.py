@@ -114,6 +114,9 @@ def _sales_view(result: dict[str, Any], baseline_fx: float | None, comparison_fx
 
 
 def _activity_view(result: dict[str, Any]) -> list[dict[str, Any]]:
+    evidence = list(result.get("production_evidence") or [])
+    if evidence:
+        return evidence
     production = result.get("production", [])
 
     def sum_prefix(prefix: str, field: str) -> float:

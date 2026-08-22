@@ -200,6 +200,25 @@ class OpeningInventoryUnitRecord:
 
 
 @dataclass(frozen=True)
+class ProductionEvidenceRecord:
+    """Inventory-ledger production evidence for one product group and month."""
+
+    year_month: str
+    product_group: str
+    process: str
+    unit_basis: str
+    quantity: float
+    amount: float
+    quantity_source: str
+    amount_source: str
+    quantity_source_rows: tuple[int, ...]
+    amount_source_rows: tuple[int, ...]
+    aggregation_basis: str
+    formula_policy: str
+    source_validation_status: str = "SOURCE_MAPPED"
+
+
+@dataclass(frozen=True)
 class PnlRecord:
     year_month: str
     revenue: float
@@ -228,6 +247,7 @@ class AnalysisScenario:
     )
     current_cost_components: list[CurrentCostComponentRecord] = field(default_factory=list)
     opening_inventory_units: list[OpeningInventoryUnitRecord] = field(default_factory=list)
+    production_evidence: list[ProductionEvidenceRecord] = field(default_factory=list)
     pnl: list[PnlRecord] = field(default_factory=list)
     direct_effects: list[DirectEffectRecord] = field(default_factory=list)
 
@@ -266,6 +286,9 @@ class AnalysisScenario:
             opening_inventory_units=[
                 row for row in self.opening_inventory_units if row.year_month in selected
             ],
+            production_evidence=[
+                row for row in self.production_evidence if row.year_month in selected
+            ],
             pnl=[row for row in self.pnl if row.year_month in selected],
             direct_effects=[row for row in self.direct_effects if row.year_month in selected],
         )
@@ -278,6 +301,7 @@ class AnalysisScenario:
 
         return {
             "products": rows(self.products),
+            "production_evidence": rows(self.production_evidence),
             "manufacturing_expenses": [
                 {
                     **common,

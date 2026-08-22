@@ -108,10 +108,17 @@
 .pnl-report__kpi-label { margin-bottom: 6px; color: #475569; font-size: 13px; font-weight: 700; }
 .pnl-report__kpi-value { display: flex; align-items: baseline; gap: 5px; margin-bottom: 8px; color: #0f172a; font-size: 24px; font-weight: 800; letter-spacing: -.02em; }
 .pnl-report__kpi-unit { color: #64748b; font-size: 14px; font-weight: 600; letter-spacing: normal; }
-.pnl-report__kpi-pill { display: inline-flex; align-items: center; gap: 5px; padding: 3px 9px; border: 1px solid; border-radius: 6px; font-size: 11.5px; font-weight: 700; }
-.pnl-report__kpi-pill.pnl-report__value--favorable { color: #059669; background: #ecfdf5; border-color: #bbf7d0; }
-.pnl-report__kpi-pill.pnl-report__value--unfavorable { color: #dc2626; background: #fef2f2; border-color: #fecaca; }
-.pnl-report__kpi-pill.pnl-report__value--neutral { color: #64748b; background: #f8fafc; border-color: #e2e8f0; }
+.pnl-report__kpi-secondary {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 9px;
+  border: 1px solid #dcebe2;
+  border-radius: 7px;
+  color: #52665a;
+  background: #f4faf6;
+  font-size: 11.5px;
+  font-weight: 600;
+}
 
 .pnl-report__trends {
   display: flex;

@@ -807,24 +807,60 @@ function validatePresentation(value: unknown): AnalysisPresentationDto {
 
   const groups = new Set<string>();
   for (const group of value.product_groups) {
+    const newBusiness = group.code === '신사업';
     if (!isRecord(group)
       || !['SW', 'BW', 'LC', 'FS', '신사업'].includes(String(group.code))
       || groups.has(String(group.code))
       || typeof group.display_name !== 'string'
       || (group.code === 'LC' && group.display_name !== '4인치 LC')
-      || (group.code === 'FS' ? group.quantity_unit !== 'm' : group.quantity_unit !== 'PCS')
-      || !finite(group.baseline_quantity) || !finite(group.comparison_quantity)
-      || !finite(group.baseline_revenue) || !finite(group.comparison_revenue)) invalidPayload();
+      || (newBusiness
+        ? group.quantity_unit !== null
+          || group.baseline_quantity !== null
+          || group.comparison_quantity !== null
+          || group.quantity_delta !== null
+        : (group.code === 'FS' ? group.quantity_unit !== 'm' : group.quantity_unit !== 'PCS')
+          || !finite(group.baseline_quantity)
+          || !finite(group.comparison_quantity)
+          || !finite(group.quantity_delta)
+          || !close(Number(group.comparison_quantity) - Number(group.baseline_quantity), Number(group.quantity_delta)))
+      || !finite(group.baseline_revenue)
+      || !finite(group.comparison_revenue)
+      || !finite(group.revenue_delta)
+      || !close(Number(group.comparison_revenue) - Number(group.baseline_revenue), Number(group.revenue_delta))) invalidPayload();
     groups.add(String(group.code));
   }
+  const activities = new Set<string>();
+  const activityEvidenceBases = new Set<string>();
   for (const activity of value.manufacturing_activities) {
+    const inventoryLedger = activity.evidence_basis === 'INVENTORY_LEDGER_WEIGHTED';
     if (!isRecord(activity)
       || typeof activity.process !== 'string'
       || typeof activity.production_basis !== 'string'
+      || activities.has(String(activity.production_basis))
+      || !['INVENTORY_LEDGER_WEIGHTED', 'LEGACY_QUANTITY_ONLY'].includes(String(activity.evidence_basis))
       || (activity.production_basis === 'FS' ? activity.unit !== 'm' : activity.unit !== 'PCS')
+      || activity.unit_cost_unit !== (activity.unit === 'm' ? '원/m' : '원/PCS')
       || !finite(activity.baseline) || !finite(activity.comparison) || !finite(activity.delta)
-      || !close(Number(activity.comparison) - Number(activity.baseline), Number(activity.delta))) invalidPayload();
+      || !optionalFinite(activity.baseline_unit_cost)
+      || !optionalFinite(activity.comparison_unit_cost)
+      || !optionalFinite(activity.unit_cost_delta)
+      || (inventoryLedger
+        ? (Number(activity.baseline) === 0 ? activity.baseline_unit_cost !== null : !finite(activity.baseline_unit_cost))
+          || (Number(activity.comparison) === 0 ? activity.comparison_unit_cost !== null : !finite(activity.comparison_unit_cost))
+        : activity.baseline_unit_cost !== null
+          || activity.comparison_unit_cost !== null
+          || activity.unit_cost_delta !== null)
+      || !close(Number(activity.comparison) - Number(activity.baseline), Number(activity.delta))
+      || (activity.baseline_unit_cost === null || activity.comparison_unit_cost === null
+        ? activity.unit_cost_delta !== null
+        : !finite(activity.unit_cost_delta)
+          || !close(Number(activity.comparison_unit_cost) - Number(activity.baseline_unit_cost), Number(activity.unit_cost_delta)))) invalidPayload();
+    activities.add(String(activity.production_basis));
+    activityEvidenceBases.add(String(activity.evidence_basis));
   }
+  if (activityEvidenceBases.size > 1) invalidPayload();
+  if (activityEvidenceBases.has('INVENTORY_LEDGER_WEIGHTED')
+    && !['FS', 'SW', 'BW', 'LC', 'SW+BW+LC'].every((basis) => activities.has(basis))) invalidPayload();
   const summary = value.executive_summary;
   if (!finite(summary.operating_profit_delta)
     || !close(Number(summary.operating_profit_delta), Number(kpis.operating_profit_delta))

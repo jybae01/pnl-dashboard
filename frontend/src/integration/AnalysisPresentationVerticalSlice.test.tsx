@@ -1,10 +1,9 @@
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { AnalysisPresentationPanel, formatQuantity } from './AnalysisPresentationPanel';
+import { AnalysisPresentationPanel, formatQuantity, formatUnitCost } from './AnalysisPresentationPanel';
 import { CoreAnalysisView } from './CoreAnalysisView';
 import { presentationFixture, TEST_RESULT } from './presentationTestFixture';
 import {
-  CANONICAL_EFFECT_ORDER,
   calculateContributionRate,
   formatContributionRate,
   mapAnalysisPresentation,
@@ -96,6 +95,16 @@ describe('analysis presentation vertical slice', () => {
     expect(formatContributionRate(-0.01)).toBe('0.0%');
     expect(calculateContributionRate(30, 0)).toBeNull();
     expect(formatContributionRate(calculateContributionRate(30, 0))).toBe('—');
+  });
+
+  it('keeps individual contribution values but leaves the effect total contribution cell empty', () => {
+    render(<AnalysisPresentationPanel value={presentationFixture()} role="admin" />);
+    const totalRow = screen.getByText('손익 영향 총액').closest('tr')!;
+    expect(Array.from(totalRow.cells).reduce((count, cell) => count + cell.colSpan, 0)).toBe(8);
+    expect(totalRow.cells[1]).toHaveClass('text-right', 'tabular-nums');
+    expect(totalRow.cells[2]).toHaveTextContent('');
+    expect(totalRow.cells[2]).toHaveAttribute('data-testid', 'effects-total-contribution-empty');
+    expect(screen.getAllByText('기여율').length).toBeGreaterThan(0);
   });
 
   it('builds exactly three executive cards with icons, group totals, dots and a separate residual footer', () => {
@@ -433,23 +442,86 @@ describe('analysis presentation vertical slice', () => {
     expect(screen.getByRole('heading', { name: '생산 수량' })).toBeInTheDocument();
     expect(screen.getByText('단위: 백만원, %, PCS, m')).toBeInTheDocument();
     expect(screen.getByText('수량: PCS, m · 금액: 백만원')).toBeInTheDocument();
-    expect(screen.getByText('단위: PCS, m')).toBeInTheDocument();
+    expect(screen.getByText('수량: PCS, m · 생산단가: 원/PCS, 원/m')).toBeInTheDocument();
     expect(screen.queryByText(/DTO 값 유지|상세 값은 서버 DTO|서버가 제공한 판매 수량/)).not.toBeInTheDocument();
     expect(screen.queryByRole('heading', { name: '제품군 근거' })).not.toBeInTheDocument();
     expect(screen.queryByRole('heading', { name: '제조 조업도 근거' })).not.toBeInTheDocument();
     const tables = Array.from(screen.getByTestId('analysis-presentation').querySelectorAll('table'));
     for (const table of tables) {
-      const headers = Array.from(table.tHead?.rows[0]?.cells ?? []);
+      const headers = Array.from(table.tHead?.querySelectorAll('th') ?? []);
       expect(headers.length).toBeGreaterThan(0);
       expect(table.tHead).toHaveClass('variance-analysis__table-head');
       for (const header of headers) {
         expect(header).not.toHaveClass('text-right');
       }
+      const expectedColumns = Math.max(...Array.from(table.tHead?.rows ?? []).map((row) => (
+        Array.from(row.cells).reduce((count, cell) => count + cell.colSpan, 0)
+      )));
       for (const row of Array.from(table.tBodies[0]?.rows ?? [])) {
         const occupiedColumns = Array.from(row.cells).reduce((count, cell) => count + cell.colSpan, 0);
-        expect(occupiedColumns).toBe(headers.length);
+        expect(occupiedColumns).toBe(expectedColumns);
       }
     }
+  });
+
+  it('shows sales deltas, preserves New Business revenue and renders truly blank quantity cells', () => {
+    render(<AnalysisPresentationPanel value={presentationFixture()} role="admin" />);
+    fireEvent.click(screen.getByRole('button', { name: '펼치기' }));
+    const section = screen.getByRole('heading', { name: '판매 수량/매출' }).closest('section')!;
+    const table = within(section).getByRole('table');
+    expect(within(table).getAllByRole('columnheader').map((cell) => cell.textContent)).toEqual([
+      '제품군', '수량 단위', '수량', '매출', '기준', '비교', '차이', '기준', '비교', '차이',
+    ]);
+    const newBusiness = within(table).getByText('신사업').closest('tr')!;
+    expect(Array.from(newBusiness.cells).map((cell) => cell.textContent)).toEqual([
+      '신사업', '', '', '', '', '50 백만원', '80 백만원', '+30 백만원',
+    ]);
+    const lc = within(table).getByText('4인치 LC').closest('tr')!;
+    expect(Array.from(lc.cells).map((cell) => cell.textContent)).toEqual([
+      '4인치 LC', 'PCS', '10', '12', '+2', '100 백만원', '120 백만원', '+20 백만원',
+    ]);
+  });
+
+  it('renders weighted production unit costs, weighted back total and the exact inventory-ledger note', () => {
+    render(<AnalysisPresentationPanel value={presentationFixture()} role="admin" />);
+    fireEvent.click(screen.getByRole('button', { name: '펼치기' }));
+    const section = screen.getByRole('heading', { name: '생산 수량' }).closest('section')!;
+    const table = within(section).getByRole('table');
+    expect(within(table).getAllByRole('columnheader').map((cell) => cell.textContent)).toEqual([
+      '공정', 'Basis', '단위', '수량', '생산단가', '기준', '비교', '차이', '기준', '비교', '차이',
+    ]);
+    expect(within(section).getByText('* 생산 수량과 금액: 수불부 기준')).toBeInTheDocument();
+    const fs = within(table).getByText('FS').closest('tr')!;
+    expect(fs).toHaveTextContent('m원/m');
+    expect(Array.from(fs.cells).slice(3).map((cell) => cell.textContent)).toEqual([
+      '20', '25', '+5', '100', '120', '+20',
+    ]);
+    const backTotal = within(table).getByText('SW+BW+LC').closest('tr')!;
+    expect(backTotal).toHaveClass('row-total');
+    expect(Array.from(backTotal.cells).slice(3).map((cell) => cell.textContent)).toEqual([
+      '20', '24', '+4', '275', '275', '0',
+    ]);
+    expect(formatUnitCost(1234.6)).toBe('1,235');
+    expect(formatUnitCost(10, true)).toBe('+10');
+    expect(formatUnitCost(-10, true)).toBe('-10');
+    expect(formatUnitCost(null)).toBe('');
+  });
+
+  it('accepts existing schema-v1 quantity-only Results without inventing unit costs or a source note', async () => {
+    const legacy = presentationFixture();
+    legacy.manufacturing_activities = [
+      { process: '전공정', production_basis: 'FS', unit: 'm', baseline: 20, comparison: 25, delta: 5, unit_cost_unit: '원/m', baseline_unit_cost: null, comparison_unit_cost: null, unit_cost_delta: null, evidence_basis: 'LEGACY_QUANTITY_ONLY' },
+      { process: '후공정 합계', production_basis: 'SW+BW+LC', unit: 'PCS', baseline: 20, comparison: 24, delta: 4, unit_cost_unit: '원/PCS', baseline_unit_cost: null, comparison_unit_cost: null, unit_cost_delta: null, evidence_basis: 'LEGACY_QUANTITY_ONLY' },
+    ];
+    vi.stubGlobal('fetch', vi.fn((input: RequestInfo | URL) => String(input).endsWith('/api/viewer/analysis-results')
+      ? json(viewerResults([TEST_RESULT, '기존 공개 분석']))
+      : json(legacy)));
+    render(<CoreAnalysisView role="viewer" />);
+    expect(await screen.findByTestId('analysis-presentation')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: '펼치기' }));
+    const production = screen.getByRole('heading', { name: '생산 수량' }).closest('section')!;
+    expect(within(production).queryByText('* 생산 수량과 금액: 수불부 기준')).not.toBeInTheDocument();
+    expect(within(production).getByText('FS').closest('tr')?.cells[6]).toHaveTextContent('');
   });
 
   it('formats every Analysis quantity as a rounded integer with grouping', () => {

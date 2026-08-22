@@ -34,6 +34,58 @@ def presentation_row() -> dict:
         "sga_fixed": 4.0,
         "tariff": -1.0,
     }
+    formula_policy = (
+        "SUM(selected-period production amount) / "
+        "SUM(selected-period production quantity)"
+    )
+
+    def production_row(
+        process: str,
+        basis: str,
+        unit: str,
+        baseline_quantity: float,
+        comparison_quantity: float,
+        baseline_amount: float,
+        comparison_amount: float,
+    ) -> dict:
+        baseline_cost = baseline_amount / baseline_quantity if baseline_quantity else None
+        comparison_cost = comparison_amount / comparison_quantity if comparison_quantity else None
+        return {
+            "process": process,
+            "production_basis": basis,
+            "unit": unit,
+            "unit_cost_unit": "원/m" if unit == "m" else "원/PCS",
+            "baseline_quantity": baseline_quantity,
+            "comparison_quantity": comparison_quantity,
+            "quantity_delta": comparison_quantity - baseline_quantity,
+            "baseline_amount": baseline_amount,
+            "comparison_amount": comparison_amount,
+            "baseline_weighted_unit_cost": baseline_cost,
+            "comparison_weighted_unit_cost": comparison_cost,
+            "unit_cost_delta": (
+                comparison_cost - baseline_cost
+                if baseline_cost is not None and comparison_cost is not None
+                else None
+            ),
+            "selected_period": ["2026-01", "2026-02"],
+            "quantity_source_rows": [],
+            "amount_source_rows": [],
+            "baseline_quantity_sources": [],
+            "comparison_quantity_sources": [],
+            "baseline_amount_sources": [],
+            "comparison_amount_sources": [],
+            "aggregation_basis": basis,
+            "formula_policy": formula_policy,
+            "source_validation_status": "SOURCE_MAPPED",
+        }
+
+    production_evidence = [
+        production_row("전공정", "FS", "m", 100, 120, 10_000, 14_400),
+        production_row("후공정", "SW", "PCS", 100, 110, 10_000, 12_100),
+        production_row("후공정", "BW", "PCS", 50, 45, 7_500, 7_200),
+        production_row("후공정", "LC", "PCS", 50, 55, 10_000, 12_100),
+        production_row("후공정 합계", "SW+BW+LC", "PCS", 200, 210, 27_500, 31_400),
+    ]
     result = {
         "baseline": {"id": BASE_ID, "name": "Base"},
         "comparison": {"id": COMP_ID, "name": "Comparison"},
@@ -74,6 +126,14 @@ def presentation_row() -> dict:
                     "baseline_amount": 200.0, "comparison_amount": 250.0,
                     "quantity_effect": 4.0, "pure_price_effect": 1.0,
                     "sales_fx_effect": 1.0,
+                },
+                {
+                    "product_group": "신사업", "baseline_quantity": 999.0,
+                    "comparison_quantity": 888.0, "quantity_delta": -111.0,
+                    "baseline_amount": 50.0, "comparison_amount": 80.0,
+                    "quantity_effect": 0.0, "pure_price_effect": 0.0,
+                    "sales_fx_effect": 0.0,
+                    "analysis_method": "REVENUE_AND_GP_RATE",
                 },
             ],
             "totals": {
@@ -164,15 +224,14 @@ def presentation_row() -> dict:
                 "profit_effect": -1.0,
             },
         ],
-    }
-    analysis_view = {
-        "manufacturing": {
-            "activities": [
-                {"process": "전공정", "production_basis": "FS", "unit": "m", "baseline": 100.0, "comparison": 120.0, "delta": 20.0},
-                {"process": "후공정", "production_basis": "SW+BW+LC", "unit": "PCS", "baseline": 200.0, "comparison": 210.0, "delta": 10.0},
-            ],
+        "production_evidence": production_evidence,
+        "production_evidence_source": {
+            "schema_version": "1",
+            "mapping_version": "analysis-production-evidence-v1.0.0",
+            "mapping_hash": "d" * 64,
         },
     }
+    analysis_view = {"manufacturing": {"production_evidence": production_evidence}}
     return {
         "result_id": RESULT_ID,
         "job_id": JOB_ID,
@@ -286,9 +345,74 @@ def test_product_and_activity_units_never_mix_and_lc_is_four_inch():
     assert groups["LC"].display_name == "4인치 LC"
     assert groups["LC"].quantity_unit == "PCS"
     assert groups["FS"].quantity_unit == "m"
+    assert groups["신사업"].quantity_unit is None
+    assert groups["신사업"].baseline_quantity is None
+    assert groups["신사업"].comparison_quantity is None
+    assert groups["신사업"].quantity_delta is None
+    assert groups["신사업"].baseline_revenue == 50
+    assert groups["신사업"].comparison_revenue == 80
+    assert groups["신사업"].revenue_delta == 30
     assert {(row.production_basis, row.unit) for row in response.manufacturing_activities} == {
-        ("FS", "m"), ("SW+BW+LC", "PCS")
+        ("FS", "m"), ("SW", "PCS"), ("BW", "PCS"), ("LC", "PCS"),
+        ("SW+BW+LC", "PCS")
     }
+    activities = {row.production_basis: row for row in response.manufacturing_activities}
+    assert activities["FS"].baseline_unit_cost == 100
+    assert activities["SW"].comparison_unit_cost == 110
+    assert activities["SW+BW+LC"].baseline_unit_cost == 137.5
+    assert activities["SW+BW+LC"].unit_cost_unit == "원/PCS"
+    assert all(
+        row.evidence_basis == "INVENTORY_LEDGER_WEIGHTED"
+        for row in response.manufacturing_activities
+    )
+
+
+def test_existing_schema_v1_result_keeps_legacy_quantity_only_compatibility():
+    row = presentation_row()
+    result = row["result_payload"]["comparison_result"]
+    result.pop("production_evidence")
+    result.pop("production_evidence_source")
+    row["result_payload"]["analysis_view"] = {
+        "manufacturing": {
+            "activities": [
+                {
+                    "process": "전공정", "production_basis": "FS", "unit": "m",
+                    "baseline": 100.0, "comparison": 120.0, "delta": 20.0,
+                },
+                {
+                    "process": "후공정 합계", "production_basis": "SW+BW+LC", "unit": "PCS",
+                    "baseline": 200.0, "comparison": 210.0, "delta": 10.0,
+                },
+            ]
+        }
+    }
+
+    response = build_analysis_presentation(RESULT_ID, row, PROVENANCE, ("1",))
+
+    assert [item.production_basis for item in response.manufacturing_activities] == [
+        "FS", "SW+BW+LC",
+    ]
+    assert all(item.evidence_basis == "LEGACY_QUANTITY_ONLY" for item in response.manufacturing_activities)
+    assert all(item.baseline_unit_cost is None for item in response.manufacturing_activities)
+
+
+def test_presentation_rejects_simple_average_or_mixed_back_process_total():
+    row = presentation_row()
+    evidence = row["result_payload"]["comparison_result"]["production_evidence"]
+    total = next(item for item in evidence if item["production_basis"] == "SW+BW+LC")
+    total["baseline_weighted_unit_cost"] = (100 + 150 + 200) / 3
+    with pytest.raises(BffError):
+        build_analysis_presentation(RESULT_ID, row, PROVENANCE, ("1",))
+
+    row = presentation_row()
+    evidence = row["result_payload"]["comparison_result"]["production_evidence"]
+    total = next(item for item in evidence if item["production_basis"] == "SW+BW+LC")
+    total["baseline_quantity"] += 100
+    total["quantity_delta"] = total["comparison_quantity"] - total["baseline_quantity"]
+    total["baseline_weighted_unit_cost"] = total["baseline_amount"] / total["baseline_quantity"]
+    total["unit_cost_delta"] = total["comparison_weighted_unit_cost"] - total["baseline_weighted_unit_cost"]
+    with pytest.raises(BffError):
+        build_analysis_presentation(RESULT_ID, row, PROVENANCE, ("1",))
 
 
 def test_net_inventory_timing_payload_validates_gross_and_overlap_contract():
