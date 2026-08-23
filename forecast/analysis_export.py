@@ -25,6 +25,7 @@ from .evidence_traceability import (
     write_sga_evidence,
 )
 from .evidence_presentation import add_user_evidence_sheets, polish_evidence_workbook
+from .evidence_reporting import build_reporting_workbook
 
 
 MIME_XLSX = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
@@ -1702,152 +1703,20 @@ def build_comparison_audit_workbook(
     comparison_path: str | Path | None = None,
     mapping_path: str | Path,
 ) -> bytes:
-    """Build a formula-bearing audit workbook for the current comparison result."""
-    workbook = Workbook()
-    workbook.remove(workbook.active)
-    workbook.calculation.fullCalcOnLoad = True
-    workbook.calculation.forceFullCalc = True
-    workbook.calculation.calcMode = "auto"
+    """Build the five-tab, formula-lineage Evidence reporting workbook.
 
-    user_sheet_names = add_user_evidence_sheets(workbook, result)
-    _write_readme(workbook.create_sheet("README"), result, baseline_fx, comparison_fx)
-    sales_cells = write_sales_evidence(
-        workbook.create_sheet("판매효과_근거"),
-        result,
-        sales_rows,
-        sales_totals,
-        baseline_fx,
-        comparison_fx,
+    Backend ``result`` remains authoritative.  The workbook contains source/input
+    hardcodes only on ``90_원본값`` and reconstructs every displayed number with
+    Excel formulas for auditability.  The historical technical-sheet writers
+    remain available for compatibility tests but are not emitted here.
+    """
+    _ = (sales_totals, baseline_path, comparison_path, mapping_path)
+    workbook = build_reporting_workbook(
+        result=result,
+        sales_rows=sales_rows,
+        baseline_fx=baseline_fx,
+        comparison_fx=comparison_fx,
     )
-    material_cells = write_material_evidence(
-        workbook.create_sheet("원부재료_근거"), result
-    )
-    manufacturing_cells = write_manufacturing_evidence(
-        workbook.create_sheet("제조경비_근거"), result
-    )
-    inventory_cells = _write_inventory_timing(
-        workbook.create_sheet("재고원가반영시차_근거"), result
-    )
-    merchandise_cells = write_merchandise_link(
-        workbook.create_sheet("상품원가검증")
-    )
-    sga_cells = write_sga_evidence(workbook.create_sheet("판관비_검증"), result)
-    evidence_cells = {
-        "sales": sales_cells,
-        "material": material_cells,
-        "manufacturing": manufacturing_cells,
-        "sga": sga_cells,
-    }
-    _write_current_cost_basis(
-        workbook.create_sheet("당기제조원가_기준차이"), result, evidence_cells
-    )
-    bridge_cells: dict[str, tuple[str, str]] = {
-        code: ("판매효과_근거", cell)
-        for code, cell in sales_cells.items()
-        if code in {"sales_quantity", "sales_mix", "sales_price", "sales_fx", "tariff"}
-    }
-    if material_cells.get("material_total"):
-        bridge_cells["material_total"] = (
-            "원부재료_근거", str(material_cells["material_total"])
-        )
-    if manufacturing_cells.get("manufacturing_realized"):
-        bridge_cells["manufacturing_realized"] = (
-            "제조경비_근거", str(manufacturing_cells["manufacturing_realized"])
-        )
-    bridge_cells["inventory_timing"] = (
-        "재고원가반영시차_근거", inventory_cells["inventory_timing"]
-    )
-    bridge_cells["gross_inventory_timing"] = (
-        "재고원가반영시차_근거", inventory_cells["gross_inventory_timing"]
-    )
-    bridge_cells["core_cogs_quantity_overlap"] = (
-        "재고원가반영시차_근거", inventory_cells["core_quantity_overlap"]
-    )
-    bridge_cells["core_cogs_mix_overlap"] = (
-        "재고원가반영시차_근거", inventory_cells["core_mix_overlap"]
-    )
-    bridge_cells["core_manufactured_cogs_overlap"] = (
-        "재고원가반영시차_근거", inventory_cells["core_total_overlap"]
-    )
-    bridge_cells["core_overlap_policy"] = (
-        "재고원가반영시차_근거", inventory_cells["core_overlap_policy"]
-    )
-    for code in ("sga_variable", "sga_fixed"):
-        if sga_cells.get(code):
-            bridge_cells[code] = ("판관비_검증", sga_cells[code])
-    final_bridge_cells = write_final_bridge(
-        workbook.create_sheet("최종Bridge_검증"),
-        result,
-        bridge_cells,
-        ("상품원가검증", merchandise_cells["scope_validation"]),
-    )
-    write_residual_rca(
-        workbook.create_sheet("Residual_RCA"),
-        result,
-        final_bridge_cells,
-    )
-    write_sales_cogs_basis(
-        workbook.create_sheet("Sales_COGS_Basis"),
-        result,
-        final_bridge_cells,
-        sales_cells,
-    )
-    write_sales_cogs_scope(
-        workbook.create_sheet("Sales_COGS_Scope"),
-        result,
-    )
-    _write_formula_catalog(workbook.create_sheet("수식_정의"))
-    months = tuple(int(month) for month in result.get("period", {}).get("months", ()))
-    source_sheet = workbook.create_sheet("원천셀_추적")
-    if baseline_path is not None and comparison_path is not None:
-        _write_source_trace(source_sheet, baseline_path, comparison_path, mapping_path, months)
-    else:
-        _write_stored_source_provenance(source_sheet, result)
-
-    _write_raw_formula_audit(
-        workbook,
-        sales_cells=sales_cells,
-        material_cells=material_cells,
-        manufacturing_cells=manufacturing_cells,
-        inventory_cells=inventory_cells,
-        bridge_cells=final_bridge_cells,
-        strict_trace=bool(result.get("residual_analysis")),
-    )
-
-    polish_evidence_workbook(
-        workbook,
-        sales_cells=sales_cells,
-        material_cells=material_cells,
-        manufacturing_cells=manufacturing_cells,
-        inventory_cells=inventory_cells,
-        bridge_cells=final_bridge_cells,
-    )
-    _write_source_detail(workbook.create_sheet("Source Detail"), result)
-
-    required = {
-        "분석요약", "판매효과", "상품원가산출", "원재료", "제조경비",
-        "판관비", "Inventory Timing", "Source Detail",
-        "README", "판매효과_근거", "원부재료_근거", "제조경비_근거",
-        "재고원가반영시차_근거", "상품원가검증", "최종Bridge_검증", "Residual_RCA",
-        "Sales_COGS_Basis", "Sales_COGS_Scope",
-        "당기제조원가_기준차이", "판관비_검증", "수식_정의", "원천셀_추적",
-        "Evidence_Audit",
-    }
-    missing = required.difference(workbook.sheetnames)
-    if missing:
-        raise ValueError(f"검증 엑셀 필수 시트 누락: {sorted(missing)}")
-    if workbook.sheetnames[:len(user_sheet_names)] != user_sheet_names:
-        raise ValueError("사용자 Evidence 시트 순서가 올바르지 않습니다.")
-    if workbook.sheetnames[-1] != "Source Detail":
-        raise ValueError("Source Detail은 마지막 시트여야 합니다.")
-    if not any(
-        isinstance(cell.value, str) and cell.value.startswith("=")
-        for row in workbook["판매효과_근거"].iter_rows()
-        for cell in row
-    ):
-        raise ValueError("판매효과 검증 수식이 생성되지 않았습니다.")
-
-    _validate_formula_integrity(workbook)
 
     output = BytesIO()
     workbook.save(output)

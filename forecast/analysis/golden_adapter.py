@@ -367,14 +367,26 @@ class GoldenAnalysisAdapter:
             product_cogs = self._number(
                 workbook.value(f"{column}{sales_spec['cogs_row']}")
             ) if sales_spec else 0.0
-            production = sum(
-                self._number(workbook.value(f"{column}{row}"))
-                for row in spec.get("production_quantity_rows", ())
+            production_rows = tuple(
+                int(row) for row in spec.get("production_quantity_rows", ())
             )
-            mcm_quantity = sum(
-                self._number(workbook.value(f"{column}{row}"))
-                for row in spec.get("mcm_rows", ())
+            mcm_rows = tuple(int(row) for row in spec.get("mcm_rows", ()))
+            production_components = tuple(
+                (
+                    f"Data!{column}{row}",
+                    self._number(workbook.value(f"{column}{row}")),
+                )
+                for row in production_rows
             )
+            mcm_components = tuple(
+                (
+                    f"Data!{column}{row}",
+                    self._number(workbook.value(f"{column}{row}")),
+                )
+                for row in mcm_rows
+            )
+            production = sum(value for _, value in production_components)
+            mcm_quantity = sum(value for _, value in mcm_components)
             core_production = max(production - mcm_quantity, 0.0)
             nonwoven_input = sum(
                 self._number(workbook.value(f"{column}{term['sales_quantity_row']}"))
@@ -410,7 +422,7 @@ class GoldenAnalysisAdapter:
                     f"Data!{column}{sales_spec['cogs_row']}" if sales_spec else "UNMAPPED"
                 ),
                 production_source=self._source_reference(
-                    column, [int(row) for row in spec.get("production_quantity_rows", ())]
+                    column, list(production_rows)
                 ),
                 raw_material_cost_source=self._source_reference(
                     column, self._material_source_rows(spec)
@@ -431,6 +443,8 @@ class GoldenAnalysisAdapter:
                 sales_fx_source=sales_fx_source,
                 jpy_fx_source=f"Data!{column}{material['jpy_fx_row']}",
                 source_validation_status="SOURCE_MAPPED",
+                production_components=production_components,
+                mcm_components=mcm_components,
             ))
             if mcm_quantity:
                 records.append(ProductRecord(
@@ -600,6 +614,20 @@ class GoldenAnalysisAdapter:
                     amount_source_rows=amount_rows,
                     aggregation_basis=str(source["aggregation_basis"]),
                     formula_policy=str(production_evidence_mapping["formula_policy"]),
+                    quantity_components=tuple(
+                        (
+                            f"Data!{column}{row}",
+                            self._number(workbook.value(f"{column}{row}")),
+                        )
+                        for row in quantity_rows
+                    ),
+                    amount_components=tuple(
+                        (
+                            f"Data!{column}{row}",
+                            self._number(workbook.value(f"{column}{row}")),
+                        )
+                        for row in amount_rows
+                    ),
                 ))
             for product_group in ("SW", "BW", "LC", "FS"):
                 core_source = dict(core_cogs_mapping.get(product_group) or {})

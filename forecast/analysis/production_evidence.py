@@ -58,6 +58,70 @@ def _aggregate_side(rows: list[ProductionEvidenceRecord]) -> dict[str, Any]:
     }
 
 
+def _component_values(
+    row: ProductionEvidenceRecord,
+    *,
+    kind: str,
+) -> list[tuple[str, float]]:
+    components = (
+        row.quantity_components if kind == "quantity" else row.amount_components
+    )
+    if components:
+        return [(str(source), float(value)) for source, value in components]
+    source = row.quantity_source if kind == "quantity" else row.amount_source
+    value = row.quantity if kind == "quantity" else row.amount
+    return [(str(source), float(value))]
+
+
+def _source_components(
+    baseline_rows: list[ProductionEvidenceRecord],
+    comparison_rows: list[ProductionEvidenceRecord],
+) -> list[dict[str, Any]]:
+    baseline_by_period = {row.year_month: row for row in baseline_rows}
+    comparison_by_period = {row.year_month: row for row in comparison_rows}
+    components: list[dict[str, Any]] = []
+    for period in sorted(set(baseline_by_period) | set(comparison_by_period)):
+        baseline = baseline_by_period.get(period)
+        comparison = comparison_by_period.get(period)
+        if baseline is None or comparison is None:
+            raise ValueError(f"production evidence component is missing for {period}")
+        base_quantities = _component_values(baseline, kind="quantity")
+        comparison_quantities = _component_values(comparison, kind="quantity")
+        base_amounts = _component_values(baseline, kind="amount")
+        comparison_amounts = _component_values(comparison, kind="amount")
+        if len(base_quantities) != len(comparison_quantities):
+            raise ValueError(f"production quantity component count mismatch for {period}")
+        if len(base_amounts) != len(comparison_amounts):
+            raise ValueError(f"production amount component count mismatch for {period}")
+        for index, ((base_source, base_value), (comparison_source, comparison_value)) in enumerate(
+            zip(base_quantities, comparison_quantities, strict=True),
+            1,
+        ):
+            components.append({
+                "period": period,
+                "kind": "quantity",
+                "component": index,
+                "baseline_source": base_source,
+                "baseline_value": base_value,
+                "comparison_source": comparison_source,
+                "comparison_value": comparison_value,
+            })
+        for index, ((base_source, base_value), (comparison_source, comparison_value)) in enumerate(
+            zip(base_amounts, comparison_amounts, strict=True),
+            1,
+        ):
+            components.append({
+                "period": period,
+                "kind": "amount",
+                "component": index,
+                "baseline_source": base_source,
+                "baseline_value": base_value,
+                "comparison_source": comparison_source,
+                "comparison_value": comparison_value,
+            })
+    return components
+
+
 def _evidence_row(
     product_group: str,
     baseline_rows: list[ProductionEvidenceRecord],
@@ -115,6 +179,7 @@ def _evidence_row(
         "aggregation_basis": sample.aggregation_basis,
         "formula_policy": WEIGHTED_FORMULA_POLICY,
         "source_validation_status": "SOURCE_MAPPED",
+        "source_components": _source_components(baseline_rows, comparison_rows),
     }
 
 

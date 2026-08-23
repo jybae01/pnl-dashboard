@@ -122,6 +122,23 @@ def _production_reconciliation(base: AnalysisScenario, comparison: AnalysisScena
                     "sap_length": sap_length,
                     "mes_length": sum(mes_length_values) if mes_length_values else None,
                     "length_difference": (sum(mes_length_values) - sap_length) if mes_length_values else None,
+                    "activity_components": [
+                        {
+                            "operation": "ADD",
+                            "source": source,
+                            "value": value,
+                        }
+                        for row in selected
+                        for source, value in row.production_components
+                    ] + [
+                        {
+                            "operation": "SUBTRACT",
+                            "source": source,
+                            "value": value,
+                        }
+                        for row in selected
+                        for source, value in row.mcm_components
+                    ],
                 })
     return output
 
@@ -186,6 +203,9 @@ def calculate_manufacturing_effects(
                 "comparison_back_activity_source": raw_a1.back_activity_source,
                 "business_source": (lrow or rrow).business_source if (lrow or rrow) else account,
                 "canonical_fields": "manufacturing_expense.amount / allocation ratio / SAP production activity",
+                "back_activity_basis": (
+                    "OUTSOURCING_BACK" if config.is_outsourcing(account) else "BACK"
+                ),
                 "validation_status": (
                     "SOURCE_MAPPED"
                     if (not lrow or lrow.source_validation_status in {"PASS", "SOURCE_MAPPED"})

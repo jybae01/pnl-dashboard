@@ -52,6 +52,8 @@ class ProductRecord:
     sales_fx_source: str = "Analysis request"
     jpy_fx_source: str = ""
     source_validation_status: str = "UNVALIDATED"
+    production_components: tuple[tuple[str, float], ...] = ()
+    mcm_components: tuple[tuple[str, float], ...] = ()
 
     @property
     def sales_basis(self) -> float:
@@ -216,6 +218,8 @@ class ProductionEvidenceRecord:
     aggregation_basis: str
     formula_policy: str
     source_validation_status: str = "SOURCE_MAPPED"
+    quantity_components: tuple[tuple[str, float], ...] = ()
+    amount_components: tuple[tuple[str, float], ...] = ()
 
 
 @dataclass(frozen=True)

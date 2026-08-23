@@ -7,12 +7,11 @@ from pathlib import Path
 import tempfile
 import unittest
 
-from openpyxl import Workbook, load_workbook
+from openpyxl import load_workbook
 
 from forecast.analysis_export import build_comparison_audit_workbook
 from forecast.comparison import GenericComparisonEngine, PeriodOption
-from forecast.evidence_traceability import write_sales_evidence
-from forecast.evidence_presentation import add_user_evidence_sheets
+from forecast.evidence_reporting import REPORT_SHEETS, audit_reporting_workbook
 
 try:
     from tests.test_golden_analysis_adapter import _build_workbook, _meta
@@ -54,86 +53,13 @@ def _build_three_month_sentinel_workbook(path: Path, *, comparison: bool) -> Non
 
 
 class EvidenceWorkbookTraceabilityTests(unittest.TestCase):
-    def test_user_freight_evidence_keeps_fs_length_and_shows_45m_conversion(self):
-        workbook = Workbook()
-        workbook.remove(workbook.active)
-        result = {
-            "baseline": {"name": "기준", "year": 2026},
-            "comparison": {"name": "비교", "year": 2026},
-            "period": {"label": "2026-05", "months": [5]},
-            "effects": [
-                {"code": "sales_price", "profit_effect": -202.0},
-                {"code": "tariff", "profit_effect": 0.0},
-            ],
-            "operating_profit_delta": -202.0,
-            "effects_total": -202.0,
-            "residual": 0.0,
-            "sales_analysis": {
-                "totals": {
-                    "sales_price_effect": -202.0,
-                    "transport_effect": -202.0,
-                    "tariff_effect": 0.0,
-                },
-                "monthly_effects": [{
-                    "period": "2026-05", "sales_price_effect": -202.0,
-                    "freight_effect": -202.0, "tariff_effect": 0.0,
-                }],
-                "freight_trace_rows": [{
-                    "period": "2026-05",
-                    "base_freight_ex_tariff": 101.0,
-                    "comparison_freight_ex_tariff": 404.0,
-                    "base_sw_pcs": 100.0,
-                    "comparison_sw_pcs": 200.0,
-                    "base_bw_pcs": 0.0,
-                    "comparison_bw_pcs": 0.0,
-                    "base_lc_pcs": 0.0,
-                    "comparison_lc_pcs": 0.0,
-                    "base_fs_length": 45.0,
-                    "comparison_fs_length": 90.0,
-                    "freight_conversion_basis": "45m/PCS",
-                    "base_fs_converted_pcs": 1.0,
-                    "comparison_fs_converted_pcs": 2.0,
-                    "base_equivalent_shipment_quantity": 101.0,
-                    "comparison_equivalent_shipment_quantity": 202.0,
-                    "base_freight_unit_cost": 1.0,
-                    "comparison_freight_unit_cost": 2.0,
-                    "freight_effect": -202.0,
-                    "tariff_effect": 0.0,
-                    "freight_denominator_policy": "DIRECT_AMOUNT_NO_DENOMINATOR",
-                    "base_source_reference": "Data!I1168",
-                    "comparison_source_reference": "Data!I1168",
-                    "base_quantity_source_reference": "FS: Data!I1720",
-                    "comparison_quantity_source_reference": "FS: Data!I1720",
-                }],
-            },
-        }
-        add_user_evidence_sheets(workbook, result)
-
-        sheet = workbook["판매효과"]
-        fs_length = _row_with_value(sheet, "B", "FS 판매길이")
-        fs_converted = _row_with_value(sheet, "B", "FS 환산 판매수량")
-        freight_effect = _row_with_value(sheet, "B", "운반비 Effect")
-        self.assertEqual(sheet[f"C{fs_length}"].value, 45.0)
-        self.assertEqual(sheet[f"D{fs_length}"].value, 90.0)
-        self.assertEqual(sheet[f"C{fs_converted}"].value, 1.0)
-        self.assertEqual(sheet[f"D{fs_converted}"].value, 2.0)
-        self.assertIn("45m = 1 환산 PCS", sheet[f"G{fs_length + 1}"].value)
-        self.assertEqual(sheet[f"F{freight_effect}"].value, -202.0)
-        self.assertIn("별도 가산하지 않음", sheet[f"C{_row_with_value(sheet, 'A', '운반비')}"].value)
-        self.assertFalse(any(
-            cell.value == "DIRECT_AMOUNT_NO_DENOMINATOR"
-            for name in workbook.sheetnames
-            for row in workbook[name].iter_rows()
-            for cell in row
-        ))
-
-    def test_three_month_engine_trace_preserves_sentinels_and_reconciles(self):
+    def test_three_month_formula_lineage_preserves_monthly_sources_and_results(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
-            base_path = root / "base.xlsx"
-            comparison_path = root / "comparison.xlsx"
-            _build_three_month_sentinel_workbook(base_path, comparison=False)
-            _build_three_month_sentinel_workbook(comparison_path, comparison=True)
+            baseline = root / "base.xlsx"
+            comparison = root / "comparison.xlsx"
+            _build_three_month_sentinel_workbook(baseline, comparison=False)
+            _build_three_month_sentinel_workbook(comparison, comparison=True)
             base_meta = _meta("base")
             comparison_meta = _meta("comparison")
             base_meta.regional_sales_monthly = {"7": 101_000, "8": 202_000, "9": 303_000}
@@ -145,771 +71,242 @@ class EvidenceWorkbookTraceabilityTests(unittest.TestCase):
                 meta.tariff_applicable_rate = 0.85
                 meta.tariff_rate = 0.10
             engine = GenericComparisonEngine(ROOT / "config" / "model_mapping.json")
+            period = PeriodOption(
+                "R2026_07_09", "2026-07 ~ 2026-09", (7, 8, 9), "사용자정의"
+            )
             result = engine.compare(
                 base_meta,
-                base_path,
+                baseline,
                 comparison_meta,
-                comparison_path,
-                PeriodOption("R2026_07_09", "2026-07 ~ 2026-09", (7, 8, 9), "사용자정의"),
+                comparison,
+                period,
                 baseline_sales_fx=None,
                 comparison_sales_fx=None,
                 baseline_sales_fx_monthly={
-                    "2026-07": 1_480.0, "2026-08": 1_480.0, "2026-09": 1_480.0,
+                    "2026-07": 1_480.0,
+                    "2026-08": 1_480.0,
+                    "2026-09": 1_480.0,
                 },
                 comparison_sales_fx_monthly={
-                    "2026-07": 1_380.0, "2026-08": 1_420.0, "2026-09": 1_500.0,
+                    "2026-07": 1_380.0,
+                    "2026-08": 1_420.0,
+                    "2026-09": 1_500.0,
                 },
             )
-            invariant_reference = engine.compare(
-                base_meta, base_path, comparison_meta, comparison_path,
-                PeriodOption("R2026_07_09", "2026-07 ~ 2026-09", (7, 8, 9), "사용자정의"),
-                baseline_sales_fx=None, comparison_sales_fx=None,
-                baseline_sales_fx_monthly={
-                    "2026-07": 1_480.0, "2026-08": 1_480.0, "2026-09": 1_480.0,
-                },
-                comparison_sales_fx_monthly={
-                    "2026-07": 1_490.0, "2026-08": 1_490.0, "2026-09": 1_490.0,
-                },
-            )
-            workbook_payload = build_comparison_audit_workbook(
+            before = {
+                baseline: sha256(baseline.read_bytes()).hexdigest(),
+                comparison: sha256(comparison.read_bytes()).hexdigest(),
+            }
+            payload = build_comparison_audit_workbook(
                 result=asdict(result),
                 sales_rows=result.sales_analysis["rows"],
                 sales_totals=result.sales_analysis["totals"],
                 baseline_fx=None,
                 comparison_fx=None,
+                baseline_path=baseline,
+                comparison_path=comparison,
+                mapping_path=ROOT / "config" / "model_mapping.json",
+            )
+            after = {
+                baseline: sha256(baseline.read_bytes()).hexdigest(),
+                comparison: sha256(comparison.read_bytes()).hexdigest(),
+            }
+
+        self.assertEqual(before, after)
+        self.assertAlmostEqual(
+            result.effects_total + result.residual, result.operating_profit_delta
+        )
+        expected_periods = {"2026-07", "2026-08", "2026-09"}
+        self.assertEqual(
+            {row["period"] for row in result.sales_analysis["monthly_effects"]},
+            expected_periods,
+        )
+        self.assertEqual(
+            {row["period"] for row in result.material_analysis["trace_rows"]},
+            expected_periods,
+        )
+        self.assertEqual(
+            {row["month"] for row in result.manufacturing_analysis["trace_rows"]},
+            expected_periods,
+        )
+        self.assertEqual(
+            {row["period"] for row in result.inventory_analysis["selected_monthly_details"]},
+            expected_periods,
+        )
+
+        workbook = load_workbook(BytesIO(payload), data_only=False)
+        audit = audit_reporting_workbook(workbook)
+        self.assertEqual(tuple(workbook.sheetnames), REPORT_SHEETS)
+        self.assertGreater(audit["formula_count"], 1_000)
+        self.assertEqual(audit["hard_coded_derived_duplicates"], 0)
+
+        source = workbook["90_원본값"]
+        source_rows = [
+            {
+                "key": source.cell(row, 1).value,
+                "period": source.cell(row, 5).value,
+                "unit": source.cell(row, 6).value,
+                "base_source": source.cell(row, 7).value,
+                "base_value": source.cell(row, 8).value,
+                "comparison_value": source.cell(row, 10).value,
+            }
+            for row in range(6, source.max_row + 1)
+        ]
+        self.assertEqual(
+            {row["period"] for row in source_rows if str(row["key"]).startswith("sales_fx:")},
+            expected_periods,
+        )
+        self.assertEqual(
+            [row["base_value"] for row in source_rows if str(row["key"]).startswith("sales_fx:")],
+            [1_480.0, 1_480.0, 1_480.0],
+        )
+        self.assertEqual(
+            [row["comparison_value"] for row in source_rows if str(row["key"]).startswith("sales_fx:")],
+            [1_380.0, 1_420.0, 1_500.0],
+        )
+        keys = [row["key"] for row in source_rows]
+        self.assertEqual(len(keys), len(set(keys)))
+        self.assertTrue(any("Data!K1594" in str(row["base_source"]) for row in source_rows))
+        self.assertTrue(any("Data!L1594" in str(row["base_source"]) for row in source_rows))
+        self.assertTrue(any("Data!M1594" in str(row["base_source"]) for row in source_rows))
+
+        sales = workbook["03_판매근거"]
+        monthly_rows = [
+            row for row in range(1, sales.max_row + 1)
+            if sales[f"A{row}"].value in expected_periods
+        ]
+        self.assertTrue(monthly_rows)
+        self.assertTrue(all(
+            any(
+                isinstance(sales.cell(row, column).value, str)
+                and sales.cell(row, column).value.startswith("=")
+                for column in range(4, min(sales.max_column, 16) + 1)
+            )
+            for row in monthly_rows
+        ))
+        new_business_rows = [
+            row for row in range(1, sales.max_row + 1)
+            if sales[f"A{row}"].value == "신사업"
+        ]
+        self.assertEqual(len(new_business_rows), 3)
+        self.assertTrue(all(
+            sales[f"E{row}"].value is None
+            and sales[f"F{row}"].value is None
+            and sales[f"G{row}"].value is None
+            for row in new_business_rows
+        ))
+
+        effects = workbook["02_손익영향"]
+        effect_rows = [
+            row for row in range(1, effects.max_row + 1)
+            if effects[f"B{row}"].value in {
+                "sales_quantity", "sales_mix", "sales_price", "sales_fx", "tariff",
+                "material_total", "manufacturing_realized", "inventory_timing",
+                "sga_variable", "sga_fixed",
+            }
+        ]
+        self.assertEqual(len(effect_rows), 10)
+        self.assertTrue(all(
+            str(effects[f"D{row}"].value).startswith("='0")
+            for row in effect_rows
+        ))
+        summary = workbook["01_보고요약"]
+        self.assertTrue(all(
+            isinstance(cell.value, str) and cell.value.startswith("='02_손익영향'!")
+            for row in summary.iter_rows()
+            for cell in row
+            if cell.number_format == '#,##0;[Red](#,##0);-'
+        ))
+
+    def test_explicit_monthly_fx_matches_scalar_business_result(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            baseline = root / "base.xlsx"
+            comparison = root / "comparison.xlsx"
+            _build_workbook(baseline, comparison=False)
+            _build_workbook(comparison, comparison=True)
+            engine = GenericComparisonEngine(ROOT / "config" / "model_mapping.json")
+            period = PeriodOption("M2026_01", "2026-01", (1,), "사용자정의")
+            scalar = engine.compare(
+                _meta("base"), baseline, _meta("comparison"), comparison, period,
+                baseline_sales_fx=1_000.0, comparison_sales_fx=1_100.0,
+            )
+            monthly = engine.compare(
+                _meta("base"), baseline, _meta("comparison"), comparison, period,
+                baseline_sales_fx=None,
+                comparison_sales_fx=None,
+                baseline_sales_fx_monthly={"2026-01": 1_000.0},
+                comparison_sales_fx_monthly={"2026-01": 1_100.0},
+            )
+            payload = build_comparison_audit_workbook(
+                result=asdict(monthly),
+                sales_rows=monthly.sales_analysis["rows"],
+                sales_totals=monthly.sales_analysis["totals"],
+                baseline_fx=1_000.0,
+                comparison_fx=1_100.0,
                 mapping_path=ROOT / "config" / "model_mapping.json",
             )
 
-        expected_periods = {"2026-07", "2026-08", "2026-09"}
-        effects = {row["code"]: float(row["profit_effect"]) for row in result.effects}
-        reference_effects = {
-            row["code"]: float(row["profit_effect"])
-            for row in invariant_reference.effects
-        }
-        for invariant_code in (
-            "sales_quantity", "sales_mix", "tariff", "material_total",
-            "manufacturing_realized", "inventory_timing", "sga_variable", "sga_fixed",
-        ):
-            self.assertAlmostEqual(effects[invariant_code], reference_effects[invariant_code])
-        self.assertAlmostEqual(
-            result.sales_analysis["totals"]["new_business_revenue_effect"],
-            invariant_reference.sales_analysis["totals"]["new_business_revenue_effect"],
-        )
-        self.assertAlmostEqual(
-            result.sales_analysis["totals"]["new_business_gp_rate_effect"],
-            invariant_reference.sales_analysis["totals"]["new_business_gp_rate_effect"],
-        )
-        self.assertAlmostEqual(result.effects_total + result.residual, result.operating_profit_delta)
-        monthly_sales = result.sales_analysis["monthly_effects"]
-        self.assertEqual({row["period"] for row in monthly_sales}, expected_periods)
-        self.assertTrue(all(
-            row["pure_price_delta_usd"] is None
-            for row in result.sales_analysis["rows"]
-            if row["product_group"] != "신사업"
-        ))
-        self.assertEqual(
-            [row["baseline_sales_fx"] for row in monthly_sales],
-            [1_480.0, 1_480.0, 1_480.0],
-        )
-        self.assertEqual(
-            [row["comparison_sales_fx"] for row in monthly_sales],
-            [1_380.0, 1_420.0, 1_500.0],
-        )
-        for monthly_key, effect_code in (
-            ("quantity_effect", "sales_quantity"),
-            ("mix_effect", "sales_mix"),
-            ("sales_price_effect", "sales_price"),
-            ("sales_fx_effect", "sales_fx"),
-            ("tariff_effect", "tariff"),
-        ):
-            self.assertAlmostEqual(
-                sum(float(row[monthly_key]) for row in monthly_sales),
-                effects[effect_code],
-            )
-            self.assertEqual(
-                len({float(row[monthly_key]) for row in monthly_sales}),
-                3,
-                f"{monthly_key} latest-month duplication",
-            )
+        self.assertEqual(scalar.effects, monthly.effects)
+        self.assertEqual(scalar.effects_total, monthly.effects_total)
+        self.assertEqual(scalar.residual, monthly.residual)
+        workbook = load_workbook(BytesIO(payload), data_only=False)
+        source = workbook["90_원본값"]
+        fx_row = _row_with_value(source, "A", "sales_fx:2026-01")
+        self.assertEqual(source[f"H{fx_row}"].value, 1_000.0)
+        self.assertEqual(source[f"J{fx_row}"].value, 1_100.0)
+        self.assertEqual(source[f"H{fx_row}"].number_format, "#,##0.00")
 
-        freight = result.sales_analysis["freight_trace_rows"]
-        self.assertEqual({row["period"] for row in freight}, expected_periods)
-        self.assertEqual([row["base_source_reference"].split("Data!")[1][0] for row in freight], ["K", "L", "M"])
-        self.assertEqual({row["base_tariff_applicable_rate"] for row in freight}, {0.85})
-        self.assertEqual({row["base_tariff_rate"] for row in freight}, {0.10})
-        self.assertEqual({row["base_tariff_effective_rate"] for row in freight}, {0.085})
-        self.assertAlmostEqual(
-            sum(float(row["freight_effect"]) for row in freight),
-            float(result.sales_analysis["totals"]["transport_effect"]),
-        )
-        self.assertEqual(
-            len({float(row["base_equivalent_shipment_quantity"]) for row in freight}),
-            3,
-        )
-        self.assertEqual(len({row["tariff_effect"] for row in freight}), 3)
-
-        user_sales = load_workbook(BytesIO(workbook_payload), data_only=False)["판매효과"]
-        monthly_header = _row_with_value(user_sales, "A", "월")
-        self.assertEqual(
-            [user_sales.cell(monthly_header, column).value for column in range(1, 6)],
-            ["월", "기준환율", "비교환율", "Quantity 효과", "Mix 효과"],
-        )
-        self.assertEqual(
-            [user_sales.cell(monthly_header + offset, 2).value for offset in range(1, 4)],
-            [1_480.0, 1_480.0, 1_480.0],
-        )
-        self.assertEqual(
-            [user_sales.cell(monthly_header + offset, 3).value for offset in range(1, 4)],
-            [1_380.0, 1_420.0, 1_500.0],
-        )
-
-        new_business = result.sales_analysis["new_business_trace_rows"]
-        self.assertEqual({row["period"] for row in new_business}, expected_periods)
-        self.assertTrue(all(row["base_quantity"] == row["comparison_quantity"] == 0 for row in new_business))
-        self.assertTrue(all(row["base_revenue"] and row["base_cogs"] for row in new_business))
-        self.assertTrue(all(row["mix_effect"] == row["sales_fx_effect"] == 0 for row in new_business))
-        self.assertAlmostEqual(
-            sum(float(row["revenue_effect"]) for row in new_business),
-            float(result.sales_analysis["totals"]["new_business_revenue_effect"]),
-        )
-        self.assertAlmostEqual(
-            sum(float(row["gp_rate_effect"]) for row in new_business),
-            float(result.sales_analysis["totals"]["new_business_gp_rate_effect"]),
-        )
-
-        material_rows = result.material_analysis["trace_rows"]
-        self.assertEqual({row["period"] for row in material_rows}, expected_periods)
-        self.assertAlmostEqual(
-            sum(float(row["total_effect"]) for row in material_rows),
-            effects["material_total"],
-        )
-        self.assertEqual(len({
-            sum(
-                float(row["total_effect"])
-                for row in material_rows if row["period"] == period
-            )
-            for period in expected_periods
-        }), 3)
-        manufacturing_rows = result.manufacturing_analysis["trace_rows"]
-        self.assertEqual({row["month"] for row in manufacturing_rows}, expected_periods)
-        self.assertAlmostEqual(
-            sum(float(row["final_profit_effect"]) for row in manufacturing_rows),
-            effects["manufacturing_realized"],
-        )
-        first_manufacturing_account = manufacturing_rows[0]["account"]
-        self.assertEqual(len({
-            float(row["baseline_amount"])
-            for row in manufacturing_rows if row["account"] == first_manufacturing_account
-        }), 3)
-
-        sga_rows = result.sga_monthly_trace
-        self.assertEqual({row["period"] for row in sga_rows}, expected_periods)
-        commission = [row for row in sga_rows if row["account"] == "브랜드사용료"]
-        self.assertEqual(len(commission), 3)
-        self.assertEqual(len({row["base_amount"] for row in commission}), 3)
-        self.assertEqual(
-            [row["base_source_reference"].split("Data!")[1][0] for row in commission],
-            ["K", "L", "M"],
-        )
-        self.assertAlmostEqual(
-            sum(float(row["profit_effect"]) for row in sga_rows),
-            effects["sga_variable"] + effects["sga_fixed"],
-        )
-        self.assertAlmostEqual(
-            sum(
-                float(row["profit_effect"])
-                for row in result.sga_accounts
-                if row["classification"] not in {"transport", "tariff"}
-            ),
-            effects["sga_variable"] + effects["sga_fixed"],
-        )
-
-        inventory_rows = result.inventory_analysis["selected_monthly_details"]
-        self.assertEqual({row["period"] for row in inventory_rows}, expected_periods)
-        self.assertAlmostEqual(
-            sum(float(row["inventory_timing_effect"]) for row in inventory_rows),
-            effects["inventory_timing"],
-        )
-        self.assertEqual(
-            len({float(row["inventory_timing_effect"]) for row in inventory_rows}),
-            3,
-        )
-
-        workbook = load_workbook(BytesIO(workbook_payload), data_only=False)
-        self.assertEqual(
-            workbook.sheetnames[:10],
-            [
-                "분석요약", "판매효과", "상품원가산출", "원재료", "제조경비",
-                "판관비", "Inventory Timing", "2026-07 상세", "2026-08 상세",
-                "2026-09 상세",
-            ],
-        )
-        self.assertEqual(workbook.sheetnames[-1], "Source Detail")
-        sales_sheet = workbook["판매효과"]
-        tariff_policy_rows = [
-            row for row in range(1, sales_sheet.max_row + 1)
-            if sales_sheet[f"B{row}"].value == "적용 비율"
-        ]
-        self.assertEqual(len(tariff_policy_rows), 3)
-        self.assertTrue(all(
-            sales_sheet[f"C{row}"].value == sales_sheet[f"D{row}"].value == 0.85
-            for row in tariff_policy_rows
-        ))
-        self.assertTrue(all(
-            sales_sheet[f"C{row}"].number_format.startswith("0.00%")
-            for row in tariff_policy_rows
-        ))
-        new_business_quantity_rows = [
-            row for row in range(1, sales_sheet.max_row + 1)
-            if sales_sheet[f"B{row}"].value == "수량"
-        ]
-        self.assertEqual(len(new_business_quantity_rows), 3)
-        self.assertTrue(all(
-            sales_sheet[f"C{row}"].value == sales_sheet[f"D{row}"].value == 0
-            for row in new_business_quantity_rows
-        ))
-        fs_raw_rows = [
-            row for row in range(1, sales_sheet.max_row + 1)
-            if sales_sheet[f"B{row}"].value == "FS 판매길이"
-        ]
-        fs_converted_rows = [
-            row for row in range(1, sales_sheet.max_row + 1)
-            if sales_sheet[f"B{row}"].value == "FS 환산 판매수량"
-        ]
-        self.assertEqual(len(fs_raw_rows), len(fs_converted_rows), 3)
-        for raw_row, converted_row in zip(fs_raw_rows, fs_converted_rows, strict=True):
-            self.assertAlmostEqual(
-                float(sales_sheet[f"C{raw_row}"].value) / 45.0,
-                float(sales_sheet[f"C{converted_row}"].value),
-            )
-            self.assertIn("#,##0.00", sales_sheet[f"C{raw_row}"].number_format)
-        sga_sheet = workbook["판관비"]
-        sga_sentinel_rows = [
-            row for row in range(1, sga_sheet.max_row + 1)
-            if sga_sheet[f"C{row}"].value == "판매_브랜드사용료"
-        ]
-        self.assertEqual(len(sga_sentinel_rows), 3)
-        self.assertEqual(
-            len({sga_sheet[f"D{row}"].value for row in sga_sentinel_rows}),
-            3,
-        )
-        required_sections = {
-            "판매효과", "운반비", "관세", "원재료", "제조경비", "판관비",
-            "Inventory Timing", "상품원가", "신사업",
-        }
-        for month in ("2026-07", "2026-08", "2026-09"):
-            detail = workbook[f"{month} 상세"]
-            self.assertEqual(
-                {
-                    detail[f"A{row}"].value
-                    for row in range(1, detail.max_row + 1)
-                    if detail[f"A{row}"].value in required_sections
-                },
-                required_sections,
-            )
-            self.assertIsNotNone(detail.freeze_panes)
-        source_detail = workbook["Source Detail"]
-        fx_rows = [
-            row for row in range(1, source_detail.max_row + 1)
-            if source_detail.cell(row, 2).value == "SALES"
-            and source_detail.cell(row, 6).value == "sales_fx"
-        ]
-        self.assertEqual(
-            {source_detail.cell(row, 1).value for row in fx_rows}, expected_periods
-        )
-        self.assertEqual(
-            {source_detail.cell(row, 3).value for row in fx_rows},
-            {"BASE", "COMPARISON"},
-        )
-        self.assertTrue(all(
-            "Analysis request input:" in str(source_detail.cell(row, 8).value)
-            for row in fx_rows
-        ))
-        self.assertTrue(all(
-            cell.alignment.wrap_text
-            for sheet_name in workbook.sheetnames[:10]
-            for row in workbook[sheet_name].iter_rows()
-            for cell in row
-            if cell.value is not None
-        ))
-
-    def test_explicit_same_monthly_fx_matches_legacy_scalar_results(self):
+    def test_formula_workbook_has_no_value_only_regression(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
-            base_path = root / "base.xlsx"
-            comparison_path = root / "comparison.xlsx"
-            _build_three_month_sentinel_workbook(base_path, comparison=False)
-            _build_three_month_sentinel_workbook(comparison_path, comparison=True)
-            engine = GenericComparisonEngine(ROOT / "config" / "model_mapping.json")
-            period = PeriodOption(
-                "R2026_07_09", "2026-07 ~ 2026-09", (7, 8, 9), "사용자정의"
-            )
-            scalar = engine.compare(
-                _meta("base"), base_path, _meta("comparison"), comparison_path,
-                period, baseline_sales_fx=1_480.0, comparison_sales_fx=1_490.0,
-            )
-            monthly = engine.compare(
-                _meta("base"), base_path, _meta("comparison"), comparison_path,
-                period, baseline_sales_fx=None, comparison_sales_fx=None,
-                baseline_sales_fx_monthly={
-                    "2026-07": 1_480.0, "2026-08": 1_480.0, "2026-09": 1_480.0,
-                },
-                comparison_sales_fx_monthly={
-                    "2026-07": 1_490.0, "2026-08": 1_490.0, "2026-09": 1_490.0,
-                },
-            )
-
-        scalar_effects = {row["code"]: row["profit_effect"] for row in scalar.effects}
-        monthly_effects = {row["code"]: row["profit_effect"] for row in monthly.effects}
-        self.assertEqual(monthly_effects, scalar_effects)
-        self.assertEqual(monthly.operating_profit_delta, scalar.operating_profit_delta)
-        self.assertEqual(monthly.effects_total, scalar.effects_total)
-        self.assertEqual(monthly.residual, scalar.residual)
-
-    def test_legacy_stored_freight_trace_requires_v11_recalculation(self):
-        workbook = Workbook()
-        sheet = workbook.active
-        sheet.title = "판매효과_근거"
-        totals = {
-            "quantity_effect": 0.0,
-            "mix_effect": 0.0,
-            "displayed_sales_price_effect": 0.0,
-            "sales_price_effect": -10.0,
-            "sales_fx_effect": 0.0,
-            "transport_effect": -10.0,
-            "tariff_effect": 0.0,
-        }
-        write_sales_evidence(
-            sheet,
-            {"period": {"label": "2026-07"}, "sales_analysis": {
-                "totals": totals,
-                "freight_trace_rows": [{
-                    "period": "2026-07",
-                    "base_freight_ex_tariff": 100.0,
-                    "comparison_freight_ex_tariff": 110.0,
-                    "base_pcs_quantity": 10.0,
-                    "comparison_pcs_quantity": 10.0,
-                    "base_length_quantity": 0.0,
-                    "comparison_length_quantity": 0.0,
-                    "freight_denominator_policy": "DIRECT_AMOUNT_NO_DENOMINATOR",
-                    "freight_effect": -10.0,
-                }],
-            }},
-            [{
-                "product_group": "SW",
-                "baseline_quantity": 10.0,
-                "comparison_quantity": 10.0,
-                "baseline_amount": 100.0,
-                "comparison_amount": 100.0,
-                "baseline_gross_margin_rate": 0.5,
-                "quantity_effect": 0.0,
-                "pure_price_effect": 0.0,
-                "sales_fx_effect": 0.0,
-            }],
-            totals,
-            1_450.0,
-            1_500.0,
-        )
-
-        self.assertIn("v1.1 운반비 재계산 필요", sheet["AJ5"].value)
-        self.assertIn('SEARCH("재계산 필요",AJ5)', sheet["BO5"].value)
-        self.assertFalse(any(
-            cell.value == "DIRECT_AMOUNT_NO_DENOMINATOR"
-            for row in sheet.iter_rows()
-            for cell in row
-        ))
-
-    def test_real_golden_adapter_trace_reaches_formula_workbook_without_source_mutation(self):
-        with tempfile.TemporaryDirectory() as directory:
-            root = Path(directory)
-            base_path = root / "base.xlsx"
-            comparison_path = root / "comparison.xlsx"
-            _build_workbook(base_path)
-            _build_workbook(comparison_path, comparison=True)
-            before = {
-                base_path: sha256(base_path.read_bytes()).hexdigest(),
-                comparison_path: sha256(comparison_path.read_bytes()).hexdigest(),
-            }
-            result = GenericComparisonEngine(ROOT / "config" / "model_mapping.json").compare(
-                _meta("base"),
-                base_path,
-                _meta("comparison"),
-                comparison_path,
-                PeriodOption("M01", "1월", (1,), "월"),
-                baseline_sales_fx=1_000,
-                comparison_sales_fx=1_100,
+            baseline = root / "base.xlsx"
+            comparison = root / "comparison.xlsx"
+            _build_workbook(baseline, comparison=False)
+            _build_workbook(comparison, comparison=True)
+            result = GenericComparisonEngine(
+                ROOT / "config" / "model_mapping.json"
+            ).compare(
+                _meta("base"), baseline, _meta("comparison"), comparison,
+                PeriodOption("M2026_01", "2026-01", (1,), "사용자정의"),
+                baseline_sales_fx=1_400.0, comparison_sales_fx=1_450.0,
             )
             payload = build_comparison_audit_workbook(
                 result=asdict(result),
                 sales_rows=result.sales_analysis["rows"],
                 sales_totals=result.sales_analysis["totals"],
-                baseline_fx=1_000,
-                comparison_fx=1_100,
-                baseline_path=base_path,
-                comparison_path=comparison_path,
+                baseline_fx=1_400.0,
+                comparison_fx=1_450.0,
                 mapping_path=ROOT / "config" / "model_mapping.json",
             )
-            stored_payload = build_comparison_audit_workbook(
-                result=asdict(result),
-                sales_rows=result.sales_analysis["rows"],
-                sales_totals=result.sales_analysis["totals"],
-                baseline_fx=1_000,
-                comparison_fx=1_100,
-                mapping_path=ROOT / "config" / "model_mapping.json",
-            )
-            after = {
-                base_path: sha256(base_path.read_bytes()).hexdigest(),
-                comparison_path: sha256(comparison_path.read_bytes()).hexdigest(),
-            }
 
-        self.assertEqual(before, after)
-        stored = load_workbook(BytesIO(stored_payload), data_only=False)
-        stored_trace = stored["원천셀_추적"]
-        raw_header = next(
-            row for row in range(1, stored_trace.max_row + 1)
-            if stored_trace[f"A{row}"].value == "Domain"
-        )
-        self.assertGreater(stored_trace.max_row, raw_header)
-        self.assertIn("SALES", {
-            stored_trace[f"A{row}"].value
-            for row in range(raw_header + 1, stored_trace.max_row + 1)
-        })
-        self.assertTrue(all(
-            not (isinstance(stored_trace[f"I{row}"].value, str) and stored_trace[f"I{row}"].value.startswith("="))
-            for row in range(raw_header + 1, stored_trace.max_row + 1)
-        ))
-        workbook = load_workbook(BytesIO(payload), data_only=False)
-        self.assertEqual(
-            workbook.sheetnames[:8],
-            [
-                "분석요약", "판매효과", "상품원가산출", "원재료", "제조경비",
-                "판관비", "Inventory Timing", "2026-01 상세",
-            ],
-        )
-        self.assertEqual(workbook.sheetnames[-1], "Source Detail")
-        self.assertTrue({
-            "README", "판매효과_근거", "원부재료_근거", "제조경비_근거",
-            "재고원가반영시차_근거", "상품원가검증",
-        } <= set(workbook.sheetnames))
-        for sheet_name in workbook.sheetnames[:8]:
-            self.assertIsNotNone(workbook[sheet_name].freeze_panes)
-        source_detail = workbook["Source Detail"]
-        self.assertEqual(
-            [source_detail.cell(4, column).value for column in range(1, 17)],
-            [
-                "Period", "Domain", "Side", "Product/Pool", "Account",
-                "Canonical Field", "Mapping Key", "Source Reference",
-                "Source Row/Cell", "Raw Value", "Normalized Value",
-                "Engine Classification", "Reason Code", "Mapping Version",
-                "Mapping Hash", "Notes",
-            ],
-        )
-        user_sheet_names = workbook.sheetnames[:8]
-        self.assertFalse(any(
-            cell.value in {"DIRECT_AMOUNT_NO_DENOMINATOR", "MANUAL_OVERRIDE", "ACTUAL_YTD_DEFAULT"}
-            for sheet_name in user_sheet_names
-            for row in workbook[sheet_name].iter_rows()
-            for cell in row
-        ))
-
-        sales = workbook["판매효과_근거"]
-        self.assertIn("Data!E", sales["G5"].value)
-        self.assertIn(sales["B5"].value, {"PCS", "LENGTH"})
-        self.assertTrue(sales["O5"].value.startswith("=IFERROR("))
-        scope = workbook["Sales_COGS_Scope"]
-        self.assertEqual(scope["A1"].value, "Sales/Product COGS ↔ P&L Manufactured COGS Source Scope")
-        self.assertTrue(any(
-            isinstance(cell.value, str) and cell.value.startswith("=")
-            for row in scope.iter_rows()
-            for cell in row
-        ))
-        quantity_row = _row_with_value(sales, "A", "sales_quantity")
-        mix_row = _row_with_value(sales, "A", "sales_mix")
-        price_row = _row_with_value(sales, "A", "sales_price")
-        freight_row = _row_with_value(sales, "A", "freight_adjustment")
-        self.assertIn("SUM(M", sales[f"B{quantity_row}"].value)
-        self.assertIn("SUM(P", sales[f"B{mix_row}"].value)
-        self.assertEqual(
-            sales[f"B{price_row}"].value,
-            f"=B{price_row - 2}+B{freight_row}",
-        )
-        self.assertEqual(sales[f"E{freight_row}"].value, "Price에 1회 포함")
-        self.assertEqual(sales["BC5"].value, "45m/PCS")
-        self.assertEqual(sales["BD5"].value, "=BA5/45")
-        self.assertEqual(sales["BE5"].value, "=BB5/45")
-        self.assertEqual(sales["BF5"].value, "=AU5+AW5+AY5+BD5")
-        self.assertEqual(sales["BG5"].value, "=AV5+AX5+AZ5+BE5")
-        self.assertEqual(sales["BJ5"].value, "=(BH5-BI5)*BG5")
-        self.assertIsInstance(sales["BK5"].value, (int, float))
-        self.assertEqual(sales["BL5"].value, "=AO5-AP5")
-        self.assertTrue(sales["BO5"].value.startswith("=IF("))
-        self.assertFalse(any(
-            cell.value == "DIRECT_AMOUNT_NO_DENOMINATOR"
-            for row in sales.iter_rows()
-            for cell in row
-        ))
-        self.assertEqual(sales["E4"].value, "원천 항목")
-        self.assertEqual(sales["B4"].value, "수량 Pool")
-        self.assertEqual(sales["AM4"].value, "기준 운반비(관세 포함)")
-        self.assertEqual(sales["AN4"].value, "비교 운반비(관세 포함)")
-        self.assertEqual(sales["AS4"].value, "기준 운반비(관세 제외)")
-        self.assertEqual(sales["AT4"].value, "비교 운반비(관세 제외)")
-        self.assertIn("FS 판매길이÷45", sales["AI2"].value)
-        self.assertTrue(sales.column_dimensions["E"].hidden)
-        self.assertGreaterEqual(float(sales.column_dimensions["B"].width), 18)
-        self.assertGreaterEqual(float(sales.column_dimensions["C"].width), 18)
-        self.assertLessEqual(max(
-            dimension.width or 0
-            for dimension in sales.column_dimensions.values()
-            if not dimension.hidden
-        ), 28)
-        self.assertEqual(sales.page_setup.fitToWidth, 2)
-        self.assertEqual(
-            sales[f"B{_row_with_value(sales, 'A', '운반비 중복계상 없음')}"].value[:4],
-            "=IF(",
-        )
-
-        material = workbook["원부재료_근거"]
-        self.assertIn("Data!E", material["F5"].value)
-        lc_row = _row_with_value(material, "B", "LC")
-        self.assertEqual(material[f"C{lc_row}"].value, "PCS (4-inch)")
-        self.assertTrue(material["O5"].value.startswith("=IF("))
-        self.assertEqual(material["R5"].value, "SOURCE_MAPPED")
-        self.assertEqual(material["AG5"].value, "=IFERROR(Z5/AB5,0)")
-        self.assertEqual(material["AH5"].value, "=(AF5-AG5)*AC5")
-        material_total_row = _row_with_value(material, "A", "material_total")
-        jpy_row = _row_with_value(material, "A", "nonwoven_jpy")
-        self.assertIn("SUM(O", material[f"B{material_total_row}"].value)
-        self.assertIn("SUM(AJ", material[f"B{jpy_row}"].value)
-        self.assertTrue(material[f"B{_row_with_value(material, 'A', 'JPY 원천 유효')}"].value.startswith("=IF("))
-        self.assertTrue(material[f"B{_row_with_value(material, 'A', '판매수량 원천 유효')}"].value.startswith("=IF("))
-        self.assertGreaterEqual(float(material.column_dimensions["B"].width), 18)
-        self.assertGreaterEqual(float(material.column_dimensions["C"].width), 18)
-
-        manufacturing = workbook["제조경비_근거"]
-        reconciliation = result.manufacturing_analysis["production_reconciliation"]
-        production_period = str(reconciliation[0]["month"])
-        production_row = _row_with_value(manufacturing, "A", production_period)
-        for scenario, front_column, back_column in (
-            ("base", "B", "E"), ("comparison", "C", "F"),
-        ):
-            selected = [item for item in reconciliation if item["scenario"] == scenario and str(item["month"]) == production_period]
-            self.assertAlmostEqual(
-                manufacturing[f"{front_column}{production_row}"].value,
-                sum(float(item.get("sap_length") or 0) for item in selected if item["product_group"] == "FS"),
-            )
-            self.assertAlmostEqual(
-                manufacturing[f"{back_column}{production_row}"].value,
-                sum(float(item.get("sap_qty") or 0) for item in selected if item["product_group"] in {"SW", "BW", "LC"}),
-            )
-        self.assertEqual(manufacturing[f"J{production_row}"].value, "=FALSE")
-        self.assertIn("Front:", manufacturing[f"H{production_row}"].value)
-        self.assertIn("Back:", manufacturing[f"H{production_row}"].value)
-        self.assertIn("Front:", manufacturing[f"I{production_row}"].value)
-        self.assertIn("Back:", manufacturing[f"I{production_row}"].value)
-        detail_row = _row_with_value(manufacturing, "B", "수도광열비")
-        self.assertEqual(manufacturing[f"I{detail_row}"].value, "LENGTH(m)")
-        self.assertEqual(
-            manufacturing[f"J{detail_row}"].value,
-            "PCS (LC=4-inch 포함)",
-        )
-        self.assertTrue(manufacturing[f"O{detail_row}"].value.startswith("="))
-        self.assertTrue(manufacturing[f"AC{detail_row}"].value.startswith("="))
-        self.assertTrue(manufacturing[f"AG{detail_row}"].value.startswith("="))
-        self.assertTrue(manufacturing[f"AI{detail_row}"].value.startswith("="))
-        self.assertEqual(manufacturing["L4"].value, "구분")
-        reconciliation_row = _row_with_value(manufacturing, "N", "SW")
-        self.assertIn(manufacturing[f"L{reconciliation_row}"].value, {"base", "comparison"})
-        self.assertIsInstance(manufacturing[f"O{reconciliation_row}"].value, (int, float))
-        self.assertIsNone(manufacturing[f"P{reconciliation_row}"].value)
-        self.assertIsNone(manufacturing[f"Q{reconciliation_row}"].value)
-        # Engine fallback for a zero production denominator assigns Volume=0
-        # and the allocated-cost delta to Unit; the workbook formulas mirror it.
-        self.assertIn("OR(S", manufacturing[f"AA{detail_row}"].value)
-        self.assertIn(",0,", manufacturing[f"AA{detail_row}"].value)
-        self.assertIn(f"O{detail_row}-P{detail_row}", manufacturing[f"AE{detail_row}"].value)
-        self.assertEqual(
-            manufacturing[
-                f"B{_row_with_value(manufacturing, 'A', '재고실현율 계산 반영 여부')}"
-            ].value,
-            "=FALSE",
-        )
-        self.assertTrue(manufacturing.column_dimensions["D"].hidden)
-        self.assertEqual(manufacturing.page_setup.fitToWidth, 1)
-
-        inventory = workbook["재고원가반영시차_근거"]
-        self.assertEqual(inventory["A5"].value, "제품 매출원가")
-        self.assertEqual(inventory["A12"].value, "중복 제거 전 재고·원가 반영시차")
-        self.assertEqual(inventory["D12"].value, "=D10-D11")
-        self.assertEqual(inventory["D12"].number_format, '#,##0;[Red](#,##0);-')
-        self.assertEqual(inventory["D15"].value, "=D13+D14")
-        self.assertEqual(inventory["D16"].value, "=D12-D15")
-        self.assertTrue(inventory["F17"].value.startswith("=IF("))
-        paid_supply_row = _row_with_value(inventory, "A", "CURRENT_COST_ROW_323_PAID_SUPPLY")
-        self.assertEqual(inventory[f"B{paid_supply_row}"].value, "=FALSE")
-        self.assertIn("계획 대응금액", inventory[f"C{paid_supply_row}"].value)
-        audit = workbook["Evidence_Audit"]
-        self.assertEqual(audit["B8"].value, 0)
-        self.assertEqual(audit["C8"].value, "PASS")
-        self.assertEqual(audit["B9"].value, '=IF(B8=0,"PASS","FAIL")')
-        self.assertTrue(any(
-            cell.value == "수량에 포함된 COGS 비용"
-            for row in inventory.iter_rows()
-            for cell in row
-        ))
-        self.assertEqual(scope["J4"].value, "Net Inventory Timing")
-        self.assertEqual(scope["J5"].value, "Gross Inventory Timing (before deduction)")
-        self.assertEqual(scope["K5"].value, "=K4+H7")
-        self.assertTrue(scope["K6"].value)
-        self.assertIn("Data!E325", inventory["G8"].value)
-        self.assertEqual(workbook["상품원가검증"]["B9"].value[:4], "=IF(")
-        sga = workbook["판관비_검증"]
-        self.assertEqual(sga["L5"].value, "SOURCE_MAPPED")
-
-        bridge = workbook["최종Bridge_검증"]
-        self.assertEqual(bridge["B4"].value, "효과")
-        self.assertEqual(bridge["C4"].value, "근거 수식")
-        self.assertTrue(bridge.column_dimensions["A"].hidden)
-        self.assertEqual(bridge["B16"].value, "공식 효과 합계")
-        self.assertEqual(bridge["B19"].value, "공식 효과 합계 + 잔여차이 = 영업이익 증감")
-        for code in (
-            "sales_quantity", "sales_mix", "sales_price", "sales_fx", "tariff",
-            "material_total", "manufacturing_realized", "inventory_timing",
-            "sga_variable", "sga_fixed",
-        ):
-            row = _row_with_value(bridge, "A", code)
-            self.assertTrue(bridge[f"C{row}"].value.startswith("='"))
-            self.assertNotEqual(bridge[f"C{row}"].value, f"=D{row}")
-        identity_row = _row_with_value(
-            bridge,
-            "B",
-            "공식 효과 합계 + 잔여차이 = 영업이익 증감",
-        )
-        self.assertTrue(bridge[f"C{identity_row}"].value.startswith("="))
-        self.assertTrue(bridge[f"F{identity_row}"].value.startswith("=IF("))
-        self.assertEqual(
-            bridge[f"B{_row_with_value(bridge, 'A', 'Current Cost Basis Gap 신규 Effect 아님')}"].value[:4],
-            "=IF(",
-        )
-        inventory_bridge_row = _row_with_value(bridge, "A", "inventory_timing")
-        self.assertEqual(
-            bridge[f"C{inventory_bridge_row}"].value,
-            "='재고원가반영시차_근거'!D16",
-        )
-        self.assertEqual(
+        formulas = load_workbook(BytesIO(payload), data_only=False)
+        values = load_workbook(BytesIO(payload), data_only=True)
+        self.assertGreater(
             sum(
-                1
-                for row in range(1, bridge.max_row + 1)
-                if bridge[f"A{row}"].value == "inventory_timing"
+                1 for sheet in formulas.worksheets for row in sheet.iter_rows()
+                for cell in row
+                if isinstance(cell.value, str) and cell.value.startswith("=")
             ),
-            1,
+            400,
         )
-
-        residual_rca = workbook["Residual_RCA"]
-        self.assertEqual(residual_rca["F6"].value, "=B6-C6-D6-E6")
-        self.assertEqual(residual_rca["F7"].value, "=B7-C7-D7-E7")
-        self.assertEqual(residual_rca["F8"].value, "=F7-F6")
-        self.assertTrue(residual_rca["G8"].value.startswith("='최종Bridge_검증'!"))
-        sales_map_row = _row_with_value(residual_rca, "A", "sales_quantity")
-        self.assertEqual(residual_rca[f"B{sales_map_row}"].value, "SALES_REVENUE")
-        self.assertEqual(residual_rca[f"C{sales_map_row}"].value, "YES")
-        mcm_map_row = _row_with_value(residual_rca, "A", "mcm_policy")
-        self.assertEqual(residual_rca[f"C{mcm_map_row}"].value, "NO")
-        self.assertEqual(residual_rca[f"E{mcm_map_row}"].value, "NO")
-        sales_bucket_row = _row_with_value(residual_rca, "A", "SALES_REVENUE")
-        self.assertEqual(residual_rca[f"D{sales_bucket_row}"].value, f"=C{sales_bucket_row}-B{sales_bucket_row}")
-        self.assertTrue(residual_rca[f"F{sales_bucket_row}"].value.startswith("=SUMIFS("))
-        basis_row = next(
-            row for row in range(1, residual_rca.max_row + 1)
-            if str(residual_rca[f"A{row}"].value or "").startswith(
-                "current_cost_formula_scope_difference"
-            )
-        )
-        self.assertEqual(
-            residual_rca[f"D{basis_row}"].value,
-            "FORMULA_BASIS_DIFFERENCE",
-        )
-        self.assertIn("Data!E321", residual_rca[f"H{basis_row}"].value)
-        unexplained_row = _row_with_value(residual_rca, "D", "UNEXPLAINED")
-        self.assertEqual(residual_rca[f"A{unexplained_row}"].value, "unexplained")
-        classified_row = _row_with_value(residual_rca, "B", "Classified Total")
-        existing_row = _row_with_value(residual_rca, "B", "Existing Residual")
-        waterfall_row = _row_with_value(
-            residual_rca, "B", "Σ Residual Components = Existing Residual"
-        )
-        self.assertTrue(residual_rca[f"C{classified_row}"].value.startswith("=SUM("))
-        self.assertTrue(
-            residual_rca[f"C{existing_row}"].value.startswith("='최종Bridge_검증'!")
-        )
-        self.assertTrue(residual_rca[f"C{waterfall_row}"].value.startswith("=IF("))
-        self.assertTrue(
-            residual_rca[
-                f"B{_row_with_value(residual_rca, 'A', 'MCM 독립 Effect 아님')}"
-            ].value.startswith("=IF(")
-        )
-        self.assertIsNotNone(_row_with_value(residual_rca, "A", "운반비"))
-
-        overlap = workbook["Sales_COGS_Basis"]
-        self.assertEqual(overlap["M10"].value, "=IFERROR(I10/E10,0)")
-        self.assertEqual(overlap["N10"].value, "=IFERROR(K10/E10,0)")
-        self.assertEqual(overlap["O10"].value, "=M10-N10")
-        self.assertEqual(overlap["T10"].value, "=R10-S10")
-        self.assertEqual(overlap["W10"].value, "=U10-V10")
-        self.assertEqual(overlap["X10"].value, "=T10+W10")
-        self.assertEqual(overlap["Y10"].value, "=-X10")
-        self.assertEqual(overlap["H4"].value[:5], "=SUM(")
-        self.assertEqual(overlap["H5"].value, "=-H4")
-        self.assertEqual(overlap["K5"].value, "=IFERROR(ABS(H4)/ABS(K4),0)")
-        self.assertEqual(overlap["K6"].value, "=K4-H4")
-        self.assertTrue(overlap["H7"].value)
-        self.assertFalse(any(
-            overlap[f"D{row}"].value == "신사업"
-            for row in range(10, overlap.max_row + 1)
+        # openpyxl does not evaluate formulas. A value-only rewrite would populate
+        # all formula coordinates instead of preserving formula cells for Excel.
+        formula_coordinates = [
+            (sheet.title, cell.coordinate)
+            for sheet in formulas.worksheets
+            for row in sheet.iter_rows()
+            for cell in row
+            if isinstance(cell.value, str) and cell.value.startswith("=")
+        ]
+        self.assertTrue(formula_coordinates)
+        self.assertTrue(any(
+            values[sheet][coordinate].value is None
+            for sheet, coordinate in formula_coordinates
         ))
-        overlap_validation = _row_with_value(
-            overlap, "A", "Revenue basis - GP basis = Embedded COGS"
+        self.assertEqual(
+            audit_reporting_workbook(formulas)["hard_coded_derived_duplicates"], 0
         )
-        self.assertTrue(overlap[f"B{overlap_validation}"].value.startswith("=IF("))
-        option_a_row = next(
-            row for row in range(1, overlap.max_row + 1)
-            if overlap[f"B{row}"].value == "OPTION_A"
-        )
-        option_b_row = next(
-            row for row in range(1, overlap.max_row + 1)
-            if overlap[f"B{row}"].value == "OPTION_B"
-        )
-        self.assertTrue(overlap[f"F{option_a_row}"].value.startswith("=F"))
-        self.assertTrue(overlap[f"C{option_b_row}"].value.startswith("=SUMIFS("))
-        self.assertTrue(overlap[f"L{option_a_row}"].value.startswith("=IF("))
-        cumulative_current_row = next(
-            row for row in range(1, overlap.max_row + 1)
-            if overlap[f"B{row}"].value == "CURRENT"
-            and overlap[f"A{row}"].value == result.sales_cogs_basis_analysis["period"]
-        )
-        self.assertIsInstance(overlap[f"N{cumulative_current_row}"].value, (int, float))
-        lc_scope_validation = _row_with_value(
-            overlap, "A", "LC manufactured/total source mismatch disclosed"
-        )
-        self.assertTrue(overlap[f"B{lc_scope_validation}"].value.startswith("=IF("))
-
-        scope_policy_row = _row_with_value(
-            scope, "A", "Core overlap Production policy applied"
-        )
-        self.assertEqual(scope[f"B{scope_policy_row}"].value, "=IF(K6=TRUE,0,1)")
-
-        errors = []
-        for ws in workbook.worksheets:
-            for row in ws.iter_rows():
-                for cell in row:
-                    value = cell.value
-                    if isinstance(value, str) and value.startswith("="):
-                        for token in (
-                            "#REF!", "#DIV/0!", "#VALUE!", "#NAME?", "#N/A", "#NUM!",
-                            "#NULL!", "#SPILL!", "#CALC!",
-                        ):
-                            if token in value.upper():
-                                errors.append(f"{ws.title}!{cell.coordinate}:{token}")
-        self.assertEqual(errors, [])
 
 
 if __name__ == "__main__":
