@@ -199,7 +199,7 @@ class EvidenceWorkbookTraceabilityTests(unittest.TestCase):
         effects = workbook["02_손익영향"]
         effect_rows = [
             row for row in range(1, effects.max_row + 1)
-            if effects[f"B{row}"].value in {
+            if effects[f"G{row}"].value in {
                 "sales_quantity", "sales_mix", "sales_price", "sales_fx", "tariff",
                 "material_total", "manufacturing_realized", "inventory_timing",
                 "sga_variable", "sga_fixed",
@@ -207,7 +207,7 @@ class EvidenceWorkbookTraceabilityTests(unittest.TestCase):
         ]
         self.assertEqual(len(effect_rows), 10)
         self.assertTrue(all(
-            str(effects[f"D{row}"].value).startswith("='0")
+            str(effects[f"C{row}"].value).startswith("='0")
             for row in effect_rows
         ))
         summary = workbook["01_보고요약"]

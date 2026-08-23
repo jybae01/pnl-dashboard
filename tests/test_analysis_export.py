@@ -125,9 +125,9 @@ def test_build_comparison_audit_workbook_uses_five_tab_formula_lineage(tmp_path)
 
     effects = workbook["02_손익영향"]
     effect_codes = {
-        effects[f"B{row}"].value: effects[f"D{row}"].value
+        effects[f"G{row}"].value: effects[f"C{row}"].value
         for row in range(1, effects.max_row + 1)
-        if effects[f"B{row}"].value in {
+        if effects[f"G{row}"].value in {
             "sales_quantity", "sales_mix", "sales_price", "sales_fx", "tariff",
             "material_total", "manufacturing_realized", "inventory_timing",
             "sga_variable", "sga_fixed",

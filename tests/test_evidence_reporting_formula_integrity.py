@@ -289,9 +289,9 @@ def test_formula_projection_matches_backend_authoritative_result(tmp_path):
     for code in OFFICIAL_EFFECTS:
         row = next(
             row for row in range(1, effect_sheet.max_row + 1)
-            if effect_sheet[f"B{row}"].value == code
+            if effect_sheet[f"G{row}"].value == code
         )
-        formula = effect_sheet[f"D{row}"].value
+        formula = effect_sheet[f"C{row}"].value
         assert formula.startswith("='03_판매근거'!") or formula.startswith("='04_원가근거'!")
     summary = workbook["01_보고요약"]
     assert all(

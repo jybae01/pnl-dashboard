@@ -8,6 +8,7 @@ from typing import Any, Iterable, Mapping
 from openpyxl import Workbook
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from openpyxl.utils import get_column_letter
+from openpyxl.worksheet.pagebreak import Break
 
 
 REPORT_SHEETS = (
@@ -876,6 +877,8 @@ def _finish_sheet(
     freeze: str,
     print_header_rows: str,
     portrait: bool = False,
+    fit_height: int | None = None,
+    print_last_column: int | None = None,
 ) -> None:
     ws.freeze_panes = freeze
     ws.sheet_view.showGridLines = False
@@ -883,9 +886,13 @@ def _finish_sheet(
     ws.page_setup.orientation = "portrait" if portrait else "landscape"
     ws.page_setup.paperSize = ws.PAPERSIZE_A4
     ws.page_setup.fitToWidth = 1
-    ws.page_setup.fitToHeight = 1 if portrait else 0
+    ws.page_setup.fitToHeight = (
+        fit_height if fit_height is not None else (1 if portrait else 0)
+    )
     ws.print_title_rows = print_header_rows
-    ws.print_area = f"A1:{get_column_letter(last_column)}{last_row}"
+    ws.print_area = (
+        f"A1:{get_column_letter(print_last_column or last_column)}{last_row}"
+    )
     ws.sheet_view.zoomScale = 90
     ws.page_margins.left = 0.25
     ws.page_margins.right = 0.25
@@ -1216,6 +1223,7 @@ def write_sales_sheet(
     _style_data_rows(ws, summary_start, summary_end, 5)
     for current in range(summary_start, summary_end + 1):
         _style_total_row(ws, current, 1, 5)
+    _group_detail_rows(ws, summary_header, summary_end)
 
     _set_widths(ws, {
         "A": 13, "B": 10, "C": 13, "D": 12, "E": 12, "F": 12,
@@ -1223,7 +1231,8 @@ def write_sales_sheet(
         "M": 13, "N": 13, "O": 13, "P": 13,
     })
     _finish_sheet(
-        ws, last_row=ws.max_row, last_column=16, freeze=f"A{sales_start}", print_header_rows=f"1:{sales_header}"
+        ws, last_row=ws.max_row, last_column=16, freeze=f"A{sales_start}",
+        print_header_rows="1:2", fit_height=1,
     )
     cells["_sales_table_rows"] = sales_table_rows
     cells["_pool_rows"] = pool_rows
@@ -1509,6 +1518,16 @@ def write_cost_sheet(
     ws.cell(row, 24, f"=SUM(X{manufacturing_start}:X{manufacturing_end})")
     for column in range(21, 25):
         ws.cell(row, column).number_format = MONEY_FORMAT
+    ws.cell(row, 2, "Volume")
+    ws.cell(row, 3, f"=U{row}")
+    ws.cell(row, 4, "Unit")
+    ws.cell(row, 5, f"=V{row}")
+    ws.cell(row, 6, "Fixed")
+    ws.cell(row, 7, f"=W{row}")
+    ws.cell(row, 8, "Total")
+    ws.cell(row, 9, f"=X{row}")
+    for column in (3, 5, 7, 9):
+        ws.cell(row, column).number_format = MONEY_FORMAT
     _style_total_row(ws, row, 1, 24)
     row += 3
 
@@ -1652,15 +1671,17 @@ def write_cost_sheet(
     _group_detail_rows(ws, manufacturing_start, manufacturing_end)
     _group_detail_rows(ws, core_detail_start, core_detail_end)
     _group_detail_rows(ws, sga_start, sga_end)
+    ws.row_breaks.append(Break(id=inventory_header - 2))
 
     _set_widths(ws, {
-        "A": 18, "B": 20, "C": 12, "D": 12, "E": 12, "F": 12,
+        "A": 24, "B": 20, "C": 12, "D": 12, "E": 12, "F": 12,
         "G": 12, "H": 13, "I": 13, "J": 13, "K": 13, "L": 13,
         "M": 13, "N": 13, "O": 13, "P": 13, "Q": 13, "R": 13,
         "S": 13, "T": 13, "U": 12, "V": 12, "W": 12, "X": 13,
     })
     _finish_sheet(
-        ws, last_row=ws.max_row, last_column=24, freeze=f"A{material_header + 1}", print_header_rows=f"1:{material_header}"
+        ws, last_row=ws.max_row, last_column=24, freeze=f"A{material_header + 1}",
+        print_header_rows="1:2", print_last_column=14,
     )
     return {code: f"C{target}" for code, target in summary_rows.items()} | {
         "material_jpy": jpy_total_cell,
@@ -1679,7 +1700,7 @@ def write_effect_sheet(
         ws,
         "02_손익영향",
         "공식 Effect는 각 Detail sheet의 단일 canonical calculation cell을 참조합니다.",
-        last_column=6,
+        last_column=7,
         unit_legend="단위: 금액 천원",
     )
     row = _section(ws, 4, "손익 요약", 6)
@@ -1700,7 +1721,9 @@ def write_effect_sheet(
     _style_total_row(ws, pnl_start, 1, 6)
 
     row = _section(ws, pnl_start + 3, "손익 영향 요인", 6)
-    _headers(ws, row, ["그룹", "Effect Code", "Effect", "금액", "단위", "Canonical Detail Cell"])
+    _headers(ws, row, [
+        "그룹", "Effect", "금액", "단위", "Canonical Detail Cell", "", "Effect Code",
+    ])
     effect_start = row + 1
     effect_specs = [
         ("매출", "sales_quantity", "판매수량", "03_판매근거", str(sales_cells["sales_quantity"])),
@@ -1718,19 +1741,19 @@ def write_effect_sheet(
     for index, (group, code, label, sheet, cell) in enumerate(effect_specs):
         current = effect_start + index
         ws.cell(current, 1, group)
-        ws.cell(current, 2, code)
-        ws.cell(current, 3, label)
-        ws.cell(current, 4, _sheet_ref(sheet, cell))
-        ws.cell(current, 5, "천원")
-        ws.cell(current, 6, f"{sheet}!{cell}")
-        ws.cell(current, 4).number_format = MONEY_FORMAT
-        effect_cells[code] = f"D{current}"
+        ws.cell(current, 2, label)
+        ws.cell(current, 3, _sheet_ref(sheet, cell))
+        ws.cell(current, 4, "천원")
+        ws.cell(current, 5, f"{sheet}!{cell}")
+        ws.cell(current, 7, code)
+        ws.cell(current, 3).number_format = MONEY_FORMAT
+        effect_cells[code] = f"C{current}"
     effect_end = effect_start + len(effect_specs) - 1
-    _style_data_rows(ws, effect_start, effect_end, 6)
+    _style_data_rows(ws, effect_start, effect_end, 7)
 
     summary = effect_end + 2
     ws.cell(summary, 3, "Effects Total")
-    ws.cell(summary, 4, f"=SUM(D{effect_start}:D{effect_end})")
+    ws.cell(summary, 4, f"=SUM(C{effect_start}:C{effect_end})")
     ws.cell(summary + 1, 3, "OP Delta")
     ws.cell(summary + 1, 4, f"=D{pnl_start}")
     ws.cell(summary + 2, 3, "기타 요인")
@@ -1754,9 +1777,13 @@ def write_effect_sheet(
         ws.cell(check, column).number_format = MONEY_FORMAT
     _style_total_row(ws, check, 1, 6)
 
-    _set_widths(ws, {"A": 12, "B": 25, "C": 24, "D": 14, "E": 10, "F": 30})
+    _set_widths(ws, {
+        "A": 12, "B": 24, "C": 14, "D": 10, "E": 30, "F": 3, "G": 25,
+    })
+    ws.column_dimensions["G"].hidden = True
     _finish_sheet(
-        ws, last_row=ws.max_row, last_column=6, freeze=f"A{effect_start}", print_header_rows="1:10"
+        ws, last_row=ws.max_row, last_column=7, freeze=f"A{effect_start}",
+        print_header_rows="1:10", fit_height=1, print_last_column=6,
     )
     return effect_cells | {
         "baseline_operating_profit": f"B{pnl_start}",
@@ -1871,7 +1898,8 @@ def write_summary_sheet(
 
     _set_widths(ws, {"A": 18, "B": 18, "C": 10, "D": 3, "E": 18, "F": 22, "G": 12, "H": 10})
     _finish_sheet(
-        ws, last_row=ws.max_row, last_column=8, freeze="A9", print_header_rows="1:9", portrait=True
+        ws, last_row=ws.max_row, last_column=8, freeze="A9",
+        print_header_rows="1:9", fit_height=1,
     )
 
 

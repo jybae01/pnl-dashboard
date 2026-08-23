@@ -98,9 +98,9 @@ def audit(path: Path) -> dict[str, Any]:
     sales = workbook["03_판매근거"]
     cost = workbook["04_원가근거"]
     effect_formulas = {
-        str(effects[f"B{row}"].value): effects[f"D{row}"].value
+        str(effects[f"G{row}"].value): effects[f"C{row}"].value
         for row in range(1, effects.max_row + 1)
-        if effects[f"B{row}"].value in {
+        if effects[f"G{row}"].value in {
             "sales_quantity", "sales_mix", "sales_price", "sales_fx", "tariff",
             "material_total", "manufacturing_realized", "inventory_timing",
             "sga_variable", "sga_fixed",
