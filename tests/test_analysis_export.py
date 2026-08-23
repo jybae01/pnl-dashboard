@@ -145,9 +145,13 @@ def test_build_comparison_audit_workbook_uses_five_tab_formula_lineage(tmp_path)
     reconciliation = _row_with_value(
         effects, "A", "OP Delta = Effects Total + 기타 요인"
     )
+    pnl_summary = _row_with_value(effects, "A", "영업이익")
     assert effects[f"D{effects_total}"].value.startswith("=SUM(")
     assert effects[f"D{residual}"].value.startswith("=D")
     assert effects[f"F{reconciliation}"].value.startswith("=IF(")
+    assert effects[f"E{pnl_summary}"].alignment.horizontal == "center"
+    assert effects[f"E{reconciliation}"].alignment.horizontal == "center"
+    assert effects[f"F{reconciliation}"].alignment.horizontal == "center"
 
     summary = workbook["01_보고요약"]
     numeric_summary_cells = [

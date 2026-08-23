@@ -1718,6 +1718,7 @@ def write_effect_sheet(
     ])
     for column in (2, 3, 4):
         ws.cell(pnl_start, column).number_format = MONEY_FORMAT
+    ws.cell(pnl_start, 5).alignment = Alignment(horizontal="center", vertical="center")
     _style_total_row(ws, pnl_start, 1, 6)
 
     row = _section(ws, pnl_start + 3, "손익 영향 요인", 6)
@@ -1775,6 +1776,8 @@ def write_effect_sheet(
     ws.cell(check, 6, f'=IF(ABS(D{check})<=E{check},"PASS","CHECK")')
     for column in range(2, 6):
         ws.cell(check, column).number_format = MONEY_FORMAT
+    ws.cell(check, 5).alignment = Alignment(horizontal="center", vertical="center")
+    ws.cell(check, 6).alignment = Alignment(horizontal="center", vertical="center")
     _style_total_row(ws, check, 1, 6)
 
     _set_widths(ws, {
