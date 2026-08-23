@@ -1700,7 +1700,7 @@ def write_effect_sheet(
         ws,
         "02_손익영향",
         "공식 Effect는 각 Detail sheet의 단일 canonical calculation cell을 참조합니다.",
-        last_column=7,
+        last_column=6,
         unit_legend="단위: 금액 천원",
     )
     row = _section(ws, 4, "손익 요약", 6)
@@ -1778,7 +1778,7 @@ def write_effect_sheet(
     _style_total_row(ws, check, 1, 6)
 
     _set_widths(ws, {
-        "A": 12, "B": 24, "C": 14, "D": 10, "E": 30, "F": 3, "G": 25,
+        "A": 28, "B": 24, "C": 14, "D": 10, "E": 26, "F": 10, "G": 25,
     })
     ws.column_dimensions["G"].hidden = True
     _finish_sheet(
