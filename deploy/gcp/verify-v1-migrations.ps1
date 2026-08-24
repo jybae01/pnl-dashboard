@@ -45,7 +45,7 @@ $expected = [ordered]@{
     '202608210001_forecast_tariff_metadata_finalize_v11.sql' = '07c18cbad778a7dbaabe44ffe4fcfc553230891c78fdbd056a72bd75a87b02af'
     '202608210002_analysis_monthly_fx_idempotent_v11.sql' = 'cb8434fa0d99da8865359db8e4ed2679681af21be26d9ce2b48edf697380fde9'
     '202608240001_model_delete_terminal_reference_cleanup.sql' = 'ae41b34b6d03f98f7d554348e9b38de54c4225eb0566b2afa0804fc5bcdb66ab'
-    '202608240002_model_delete_terminal_artifact_cleanup.sql' = 'c940e31d57ba9e911ea004f173e02465a7642e38e37c46156b83737ca1b4dc9d'
+    '202608240002_model_delete_terminal_artifact_cleanup.sql' = 'a81f749d3be269aac74f35db59741f2219894d5b79b8b476bb42a91d14c88adc'
 }
 
 $files = @(Get-ChildItem -LiteralPath $MigrationDirectory -File -Filter '*.sql' | Sort-Object Name)

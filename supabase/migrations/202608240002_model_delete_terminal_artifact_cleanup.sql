@@ -379,10 +379,11 @@ begin
     ) then
         raise exception 'terminal analysis storage ownership is invalid';
     end if;
-    if p_storage_bucket is distinct from case
-        when v_has_result then v_result.workbook_bucket else null end
-       or p_storage_path is distinct from case
-        when v_has_result then v_result.workbook_path else null end then
+    if p_storage_bucket is distinct from (
+        case when v_has_result then v_result.workbook_bucket else null end
+    ) or p_storage_path is distinct from (
+        case when v_has_result then v_result.workbook_path else null end
+    ) then
         raise exception 'terminal analysis storage binding changed';
     end if;
     if exists (

@@ -283,7 +283,7 @@ def test_v1_production_migration_chain_and_runbook_are_explicit():
         "'202608240001_model_delete_terminal_reference_cleanup.sql' = "
         "'ae41b34b6d03f98f7d554348e9b38de54c4225eb0566b2afa0804fc5bcdb66ab'",
         "'202608240002_model_delete_terminal_artifact_cleanup.sql' = "
-        "'c940e31d57ba9e911ea004f173e02465a7642e38e37c46156b83737ca1b4dc9d'",
+        "'a81f749d3be269aac74f35db59741f2219894d5b79b8b476bb42a91d14c88adc'",
     ]
 
     assert len(manifest) == 29
