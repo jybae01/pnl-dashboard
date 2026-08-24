@@ -414,6 +414,8 @@ class PersistentDeleteService:
                 "PREPARE_UNCERTAIN": "DELETE_PREPARE_UNCERTAIN",
                 "FAILED": "DELETE_INTEGRITY_FAILED",
             }[status]
+            if status == "BLOCKED_IN_USE" and references.get("analysis_storage_cleanup_required"):
+                reason = "MODEL_ANALYSIS_STORAGE_CLEANUP_REQUIRED"
             return _item(resource_id, status, reason, references, replayed)
 
         if not cleanup:

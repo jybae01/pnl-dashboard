@@ -127,6 +127,25 @@ def test_model_batch_deletes_owned_storage_and_reports_blocked_reference_counts(
     assert result.items[1].reference_counts == {"analysis_jobs": 2}
 
 
+def test_model_delete_reports_terminal_result_storage_as_a_distinct_blocker():
+    gateway = Gateway(model_values=[
+        prepared(
+            MODEL_1,
+            status="BLOCKED_IN_USE",
+            path=None,
+            references={"analysis_storage_cleanup_required": 1},
+        ),
+    ])
+    result = PersistentDeleteService(Sessions(), gateway).delete_models(
+        "admin", [MODEL_1]
+    )
+
+    assert result.blocked_count == 1
+    assert result.items[0].status == "BLOCKED_IN_USE"
+    assert result.items[0].reason == "MODEL_ANALYSIS_STORAGE_CLEANUP_REQUIRED"
+    assert result.items[0].reference_counts == {"analysis_storage_cleanup_required": 1}
+
+
 def test_analysis_delete_preserves_owner_identity_and_blocks_non_terminal():
     gateway = Gateway(analysis_values=[
         prepared(JOB_1, resource_type="analysis", owner_model_id=MODEL_2),

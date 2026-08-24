@@ -7,6 +7,7 @@ export function persistentDeleteSummary(result: PersistentDeleteBatchDto): strin
 export function persistentDeleteReason(item: PersistentDeleteItemDto): string {
   switch (item.reason) {
     case 'MODEL_IN_USE': return '분석·Forecast 등에서 사용 중입니다.';
+    case 'MODEL_ANALYSIS_STORAGE_CLEANUP_REQUIRED': return '완료된 분석 결과 Storage를 먼저 정리해야 모형을 삭제할 수 있습니다.';
     case 'NON_TERMINAL_ANALYSIS_DELETE_BLOCKED': return '실행 대기 또는 처리 중인 분석입니다.';
     case 'DELETE_PROTECTED_RESOURCE': return '기본 또는 공개 상태를 먼저 해제해야 삭제할 수 있습니다.';
     case 'RESOURCE_NOT_FOUND': return '이미 삭제되었거나 찾을 수 없습니다.';

@@ -790,7 +790,22 @@ def _build_table_rows(
             )
             key = _period_key(year, month)
             comparison_by_period[key] = comparison
-            compare_by_period[key] = comparison.cells + ytd.cells
+            # The comparison table exposes a monthly comparison followed by
+            # the cumulative comparison through that selected month.  Do not
+            # reuse the latest-actual YTD value here: that value is the
+            # separate row.ytd/actual-only latest-through semantics and would
+            # make every selected period display the same cumulative figures.
+            period_ytd = _comparison(
+                aggregate_value(plan_rows, plan_series, 1, month),
+                aggregate_value(actual_rows, actual_series, 1, month)
+                if month <= through
+                else None,
+                is_rate=is_rate,
+                is_monetary=is_monetary,
+                emphasis="strong" if definition.kind in {"header", "total"} else "normal",
+                rate_decimals=rate_decimals,
+            )
+            compare_by_period[key] = comparison.cells + period_ytd.cells
 
         actual_values = tuple(actual_series[:through]) + (
             aggregate_value(actual_rows, actual_series, 1, through),
@@ -905,10 +920,10 @@ def _build_kpis(
     output: list[KpiReadModel] = []
     for definition in KPI_REGISTRY:
         key = definition.key
-        amount = actual[key][through - 1]
         annual_plan = _pnl_aggregate(key, plan[key], 1, 12, plan)
         ytd_plan = _pnl_aggregate(key, plan[key], 1, through, plan)
         ytd_actual = _pnl_aggregate(key, actual[key], 1, through, actual)
+        amount = ytd_actual
         progress = ratio_percent(ytd_actual, annual_plan)
         achievement = ratio_percent(ytd_actual, ytd_plan)
         delta = difference(ytd_actual, ytd_plan)

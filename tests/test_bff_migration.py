@@ -39,6 +39,7 @@ def test_migration_chain_is_additive_through_slice3_persistent_delete():
         "202608190003_pnl_reporting_viewer_year_bootstrap.sql",
         "202608210001_forecast_tariff_metadata_finalize_v11.sql",
         "202608210002_analysis_monthly_fx_idempotent_v11.sql",
+        "202608240001_model_delete_terminal_reference_cleanup.sql",
     ]
     assert SQL.startswith("-- trusted bff foundation")
     assert "begin;" in SQL and SQL.rstrip().endswith("commit;")

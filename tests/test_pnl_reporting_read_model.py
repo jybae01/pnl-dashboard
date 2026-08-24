@@ -319,15 +319,24 @@ def test_kpis_have_exact_order_latest_amount_ytd_definitions_and_tones():
     ]
     assert [kpi.key for kpi in report.kpis] == ["revenue", "operating_profit", "adjusted_operating_profit"]
     revenue, op, adjusted = report.kpis
-    assert (revenue.amount, revenue.amount_text) == (140, "0")
+    assert (revenue.amount, revenue.amount_text) == (840, "0")
     assert (revenue.annual_plan, revenue.ytd_plan, revenue.ytd_actual) == (1560, 780, 840)
     assert revenue.progress == pytest.approx(840 / 1560 * 100)
     assert revenue.achievement == pytest.approx(840 / 780 * 100)
     assert revenue.progress_text == "53.8%"
     assert revenue.achievement_text == "107.7%"
     assert revenue.tone == "favorable"
-    assert (op.amount, op.ytd_plan, op.ytd_actual, op.tone) == (38, 168, 228, "favorable")
-    assert (adjusted.amount, adjusted.ytd_plan, adjusted.ytd_actual, adjusted.tone) == (45, 240, 270, "favorable")
+    assert (op.amount, op.ytd_plan, op.ytd_actual, op.tone) == (228, 168, 228, "favorable")
+    assert (adjusted.amount, adjusted.ytd_plan, adjusted.ytd_actual, adjusted.tone) == (270, 240, 270, "favorable")
+
+
+@pytest.mark.parametrize("through", [1, 2, 6])
+def test_kpi_amounts_are_cumulative_actuals_and_match_display_text(through):
+    report = _report(through)
+    assert len(report.kpis) == 3
+    for kpi in report.kpis:
+        assert kpi.amount == kpi.ytd_actual
+        assert kpi.amount_text == format_monetary(kpi.ytd_actual)
 
 
 def test_progress_and_achievement_use_distinct_authoritative_denominators():
@@ -470,6 +479,80 @@ def test_pnl_registry_order_comparisons_ytd_rate_rows_and_ranges():
     assert ratio.cells[2].text.endswith("%p") and ratio.cells[3].text.endswith("%p")
     with pytest.raises(ValueError):
         custom_range_key(7, 6)
+
+
+def test_period_comparison_ytd_uses_each_selected_month_for_pnl_sga_and_products():
+    plan_revenue = _revenue_overrides([100, 200, 300, 400, 500, 600, 0, 0, 0, 0, 0, 0])
+    actual_revenue = _revenue_overrides([80, 220, 280, 420, 450, 550, 0, 0, 0, 0, 0, 0])
+
+    plan_sga = {
+        (SHEET_SGA, key, str(month)): 0
+        for key in SGA_VALUES
+        for month in range(1, 13)
+    }
+    actual_sga = dict(plan_sga)
+    plan_sga.update({(SHEET_SGA, "admin_labor", str(month)): value for month, value in enumerate([10, 20, 30, 40, 50, 60], 1)})
+    actual_sga.update({(SHEET_SGA, "admin_labor", str(month)): value for month, value in enumerate([5, 25, 35, 45, 55, 65], 1)})
+
+    plan_products = {}
+    actual_products = {}
+    for month, (plan_revenue_value, actual_revenue_value, plan_volume, actual_volume, plan_cogs, actual_cogs) in enumerate(
+        zip(
+            [100, 300],
+            [120, 240],
+            [10, 30],
+            [10, 20],
+            [20, 60],
+            [30, 72],
+        ),
+        1,
+    ):
+        plan_products.update({
+            (SHEET_PRODUCT_PNL, "SW", "revenue", str(month)): plan_revenue_value,
+            (SHEET_PRODUCT_PNL, "SW", "volume", str(month)): plan_volume,
+            (SHEET_PRODUCT_PNL, "SW", "cogs", str(month)): plan_cogs,
+            (SHEET_PRODUCT_PNL, "SW", "sga", str(month)): 0,
+        })
+        actual_products.update({
+            (SHEET_PRODUCT_PNL, "SW", "revenue", str(month)): actual_revenue_value,
+            (SHEET_PRODUCT_PNL, "SW", "volume", str(month)): actual_volume,
+            (SHEET_PRODUCT_PNL, "SW", "cogs", str(month)): actual_cogs,
+            (SHEET_PRODUCT_PNL, "SW", "sga", str(month)): 0,
+        })
+
+    report = _report(
+        6,
+        plan_overrides={**plan_revenue, **plan_sga, **plan_products},
+        actual_overrides={**actual_revenue, **actual_sga, **actual_products},
+    )
+
+    revenue = _row(report.pnl_rows, "revenue")
+    january_revenue = revenue.compare_by_period["2026-01"]
+    february_revenue = revenue.compare_by_period["2026-02"]
+    assert january_revenue[4].value == 100
+    assert january_revenue[5].value == 80
+    assert february_revenue[4].value == 300
+    assert february_revenue[5].value == 300
+    assert february_revenue[6].value == 0
+    assert february_revenue[7].value == 0
+    assert revenue.compare_by_period["2026-06"][4].value == revenue.ytd.plan == 2100
+    assert revenue.compare_by_period["2026-06"][5].value == revenue.ytd.actual == 2000
+    assert revenue.compare_by_period["2026-07"][4].value == 2100
+    assert revenue.compare_by_period["2026-07"][5].value is None
+
+    sga_total = _row(report.sga_rows, "sga_total")
+    assert sga_total.compare_by_period["2026-01"][4].value == 10
+    assert sga_total.compare_by_period["2026-02"][4].value == 30
+    assert sga_total.compare_by_period["2026-02"][5].value == 30
+
+    sw_rows = _segment(report, "SW").rows
+    sw_asp = _row(sw_rows, "asp")
+    sw_cogs_ratio = _row(sw_rows, "cogs_ratio")
+    assert sw_asp.compare_by_period["2026-01"][4].value == pytest.approx(10)
+    assert sw_asp.compare_by_period["2026-02"][4].value == pytest.approx(10)
+    assert sw_asp.compare_by_period["2026-02"][5].value == pytest.approx(12)
+    assert sw_cogs_ratio.compare_by_period["2026-02"][4].value == pytest.approx(20)
+    assert sw_cogs_ratio.compare_by_period["2026-02"][5].value == pytest.approx(102 / 360 * 100)
 
 
 def test_amount_row_plan_zero_has_null_variance_rate():
