@@ -18,7 +18,7 @@ export const Header: React.FC<HeaderProps> = ({ session, onLogout }) => {
 
           <div className="system-title-group">
             <span className="system-title">
-              NANOH2O 손익 분석 업무 시스템
+              손익 분석 업무 시스템
             </span>
             <span className="system-subtitle">
               Management Accounting & P&L Planning
