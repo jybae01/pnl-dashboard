@@ -59,18 +59,22 @@ class Gateway:
         lookup_values=(),
         recoverable=(),
         storage_required_values=(),
+        terminal_dependencies=(),
     ):
         self.models = deque(model_values)
         self.analyses = deque(analysis_values)
         self.lookups = deque(lookup_values)
         self.recoverable = tuple(recoverable)
         self.storage_requirements = deque(storage_required_values)
+        self.terminal_dependencies = tuple(terminal_dependencies)
         self.storage_deleted = []
         self.completed = []
+        self.terminal_dependency_completed = []
         self.failures = []
         self.events = []
         self.storage_failure = False
         self.complete_failure = False
+        self.terminal_dependency_complete_failure = False
 
     def prepare_model_delete(self, model_id):
         value = self.models.popleft()
@@ -79,6 +83,19 @@ class Gateway:
     def prepare_analysis_delete(self, job_id):
         value = self.analyses.popleft()
         return value(job_id) if callable(value) else value
+
+    def list_model_terminal_analysis_dependencies(self, model_id):
+        return self.terminal_dependencies
+
+    def complete_model_terminal_analysis_dependency(
+        self, model_id, job_id, storage_bucket, storage_path
+    ):
+        if self.terminal_dependency_complete_failure:
+            raise PersistentDeleteGatewayError("terminal cleanup response lost")
+        self.terminal_dependency_completed.append(
+            (model_id, job_id, storage_bucket, storage_path)
+        )
+        self.events.append("terminal_dependency_complete")
 
     def lookup_delete(self, resource_type, resource_id):
         value = self.lookups.popleft()
@@ -144,6 +161,111 @@ def test_model_delete_reports_terminal_result_storage_as_a_distinct_blocker():
     assert result.items[0].status == "BLOCKED_IN_USE"
     assert result.items[0].reason == "MODEL_ANALYSIS_STORAGE_CLEANUP_REQUIRED"
     assert result.items[0].reference_counts == {"analysis_storage_cleanup_required": 1}
+
+
+def test_model_delete_cleans_terminal_result_storage_then_retries_model_prepare():
+    result_path = f"models/{MODEL_2}/jobs/{JOB_1}/result.xlsx"
+    gateway = Gateway(
+        model_values=[
+            prepared(
+                MODEL_1,
+                status="BLOCKED_IN_USE",
+                path=None,
+                references={"analysis_storage_cleanup_required": 1},
+            ),
+            prepared(MODEL_1),
+        ],
+        terminal_dependencies=[
+            {
+                "job_id": JOB_1,
+                "owner_model_id": MODEL_2,
+                "storage_bucket": "pnl-models",
+                "storage_path": result_path,
+            }
+        ],
+    )
+
+    result = PersistentDeleteService(Sessions(), gateway).delete_models(
+        "admin", [MODEL_1]
+    )
+
+    assert result.deleted_count == 1
+    assert gateway.storage_deleted == [
+        ("pnl-models", result_path),
+        ("pnl-models", f"models/{MODEL_1}/source.xlsx"),
+    ]
+    assert gateway.terminal_dependency_completed == [
+        (MODEL_1, JOB_1, "pnl-models", result_path)
+    ]
+    assert gateway.completed == [("model", MODEL_1)]
+    assert gateway.events == [
+        "storage_absence_verified",
+        "terminal_dependency_complete",
+        "storage_absence_verified",
+        "receipt_complete",
+    ]
+
+
+def test_model_terminal_artifact_cleanup_failure_keeps_model_blocked_and_retryable():
+    result_path = f"models/{MODEL_2}/jobs/{JOB_1}/result.xlsx"
+    gateway = Gateway(
+        model_values=[
+            prepared(
+                MODEL_1,
+                status="BLOCKED_IN_USE",
+                path=None,
+                references={"analysis_storage_cleanup_required": 1},
+            )
+        ],
+        terminal_dependencies=[
+            {
+                "job_id": JOB_1,
+                "owner_model_id": MODEL_2,
+                "storage_bucket": "pnl-models",
+                "storage_path": result_path,
+            }
+        ],
+    )
+    gateway.storage_failure = True
+
+    result = PersistentDeleteService(Sessions(), gateway).delete_models(
+        "admin", [MODEL_1]
+    )
+
+    assert result.deleted_count == 0
+    assert result.blocked_count == 1
+    assert result.items[0].reason == "MODEL_ANALYSIS_STORAGE_CLEANUP_REQUIRED"
+    assert gateway.terminal_dependency_completed == []
+    assert gateway.completed == []
+
+
+def test_model_terminal_artifact_cleanup_rejects_unowned_path_before_storage_delete():
+    gateway = Gateway(
+        model_values=[
+            prepared(
+                MODEL_1,
+                status="BLOCKED_IN_USE",
+                path=None,
+                references={"analysis_storage_cleanup_required": 1},
+            )
+        ],
+        terminal_dependencies=[
+            {
+                "job_id": JOB_1,
+                "owner_model_id": MODEL_2,
+                "storage_bucket": "pnl-models",
+                "storage_path": f"models/{MODEL_1}/jobs/{JOB_1}/result.xlsx",
+            }
+        ],
+    )
+
+    result = PersistentDeleteService(Sessions(), gateway).delete_models(
+        "admin", [MODEL_1]
+    )
+
+    assert result.blocked_count == 1
+    assert gateway.storage_deleted == []
+    assert gateway.terminal_dependency_completed == []
 
 
 def test_analysis_delete_preserves_owner_identity_and_blocks_non_terminal():
@@ -307,6 +429,55 @@ def test_supabase_gateway_reads_receipt_storage_requirement_as_boolean():
     client = SimpleNamespace(rpc=lambda _name, _params: RpcResult(True))
     gateway = SupabasePersistentDeleteGateway(client)
     assert gateway.storage_required("analysis", JOB_1) is True
+
+
+def test_supabase_gateway_coordinates_terminal_model_dependency_cleanup():
+    result_path = f"models/{MODEL_2}/jobs/{JOB_1}/result.xlsx"
+    calls = []
+
+    class Client:
+        def rpc(self, name, params):
+            calls.append((name, params))
+            if name == "list_model_terminal_analysis_dependencies":
+                return RpcResult(
+                    [
+                        {
+                            "job_id": JOB_1,
+                            "owner_model_id": MODEL_2,
+                            "storage_bucket": "pnl-models",
+                            "storage_path": result_path,
+                        }
+                    ]
+                )
+            return RpcResult(True)
+
+    gateway = SupabasePersistentDeleteGateway(Client())
+    assert gateway.list_model_terminal_analysis_dependencies(MODEL_1) == (
+        {
+            "job_id": JOB_1,
+            "owner_model_id": MODEL_2,
+            "storage_bucket": "pnl-models",
+            "storage_path": result_path,
+        },
+    )
+    gateway.complete_model_terminal_analysis_dependency(
+        MODEL_1, JOB_1, "pnl-models", result_path
+    )
+    assert calls == [
+        (
+            "list_model_terminal_analysis_dependencies",
+            {"p_model_id": MODEL_1},
+        ),
+        (
+            "complete_model_terminal_analysis_dependency",
+            {
+                "p_model_id": MODEL_1,
+                "p_job_id": JOB_1,
+                "p_storage_bucket": "pnl-models",
+                "p_storage_path": result_path,
+            },
+        ),
+    ]
 
 
 def test_supabase_gateway_rejects_malformed_storage_requirement():

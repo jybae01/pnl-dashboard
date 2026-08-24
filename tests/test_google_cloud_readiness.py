@@ -282,10 +282,12 @@ def test_v1_production_migration_chain_and_runbook_are_explicit():
         "'cb8434fa0d99da8865359db8e4ed2679681af21be26d9ce2b48edf697380fde9'",
         "'202608240001_model_delete_terminal_reference_cleanup.sql' = "
         "'ae41b34b6d03f98f7d554348e9b38de54c4225eb0566b2afa0804fc5bcdb66ab'",
+        "'202608240002_model_delete_terminal_artifact_cleanup.sql' = "
+        "'c940e31d57ba9e911ea004f173e02465a7642e38e37c46156b83737ca1b4dc9d'",
     ]
 
-    assert len(manifest) == 28
-    assert manifest[-6:] == expected_pnl
+    assert len(manifest) == 29
+    assert manifest[-7:] == expected_pnl
     assert "202608090001_phase1_foundation.sql" in verifier
     assert "202608120001_demand_only_worker_lifecycle.sql" in verifier
     assert "20260815023857_persistent_delete_slice3.sql" in verifier
@@ -295,9 +297,9 @@ def test_v1_production_migration_chain_and_runbook_are_explicit():
     assert "Migration order mismatch" in verifier
     assert "normalizedLfHash" in verifier
     assert "normalizedCrlfHash" in verifier
-    assert "all 28 files in lexical order" in normalized
-    assert "expected count is 28" in normalized
-    assert "remote migration history proving 28/28" in normalized
+    assert "all 29 files in lexical order" in normalized
+    assert "expected count is 29" in normalized
+    assert "remote migration history proving 29/29" in normalized
     assert "read-only history/list operation" in normalized
     assert "future additive forward-fix migration" in normalized
     assert "Security Advisor" in runbook

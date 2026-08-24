@@ -48,4 +48,5 @@ def test_migration_chain_is_001_through_006_without_editing_prior_files():
         "202608210001_forecast_tariff_metadata_finalize_v11.sql",
         "202608210002_analysis_monthly_fx_idempotent_v11.sql",
         "202608240001_model_delete_terminal_reference_cleanup.sql",
+        "202608240002_model_delete_terminal_artifact_cleanup.sql",
     ]

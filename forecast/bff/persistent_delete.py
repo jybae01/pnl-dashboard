@@ -77,6 +77,18 @@ class PersistentDeleteGateway(Protocol):
 
     def prepare_analysis_delete(self, job_id: str) -> Mapping[str, Any]: ...
 
+    def list_model_terminal_analysis_dependencies(
+        self, model_id: str
+    ) -> Sequence[Mapping[str, Any]]: ...
+
+    def complete_model_terminal_analysis_dependency(
+        self,
+        model_id: str,
+        job_id: str,
+        storage_bucket: str | None,
+        storage_path: str | None,
+    ) -> None: ...
+
     def lookup_delete(self, resource_type: str, resource_id: str) -> Mapping[str, Any]: ...
 
     def list_recoverable(self, resource_type: str) -> Sequence[Mapping[str, Any]]: ...
@@ -125,6 +137,44 @@ class SupabasePersistentDeleteGateway:
 
     def prepare_analysis_delete(self, job_id: str) -> Mapping[str, Any]:
         return self._prepare("prepare_analysis_persistent_delete", "p_job_id", job_id)
+
+    def list_model_terminal_analysis_dependencies(
+        self, model_id: str
+    ) -> Sequence[Mapping[str, Any]]:
+        try:
+            response = self._client.rpc(
+                "list_model_terminal_analysis_dependencies",
+                {"p_model_id": model_id},
+            ).execute()
+            value = response.data if hasattr(response, "data") else response
+        except Exception as exc:
+            raise PersistentDeleteGatewayError(
+                "terminal analysis dependency list failed"
+            ) from exc
+        if not isinstance(value, list) or any(
+            not isinstance(row, Mapping) for row in value
+        ):
+            raise PersistentDeleteGatewayError(
+                "terminal analysis dependency list returned invalid data"
+            )
+        return tuple(dict(row) for row in value)
+
+    def complete_model_terminal_analysis_dependency(
+        self,
+        model_id: str,
+        job_id: str,
+        storage_bucket: str | None,
+        storage_path: str | None,
+    ) -> None:
+        self._receipt_rpc(
+            "complete_model_terminal_analysis_dependency",
+            {
+                "p_model_id": model_id,
+                "p_job_id": job_id,
+                "p_storage_bucket": storage_bucket,
+                "p_storage_path": storage_path,
+            },
+        )
 
     def lookup_delete(self, resource_type: str, resource_id: str) -> Mapping[str, Any]:
         return self._mapping_rpc(
@@ -356,11 +406,66 @@ class PersistentDeleteService:
         except Exception:
             return self._recover_after_prepare_error(resource_type, resource_id)
 
+        if (
+            resource_type == "model"
+            and status == "BLOCKED_IN_USE"
+            and _has_terminal_analysis_storage_cleanup(references)
+        ):
+            try:
+                self._cleanup_terminal_model_dependencies(resource_id)
+            except Exception:
+                # The model remains present and every not-yet-completed job/path
+                # association remains retryable. Keep the blocker truthful.
+                return _item(
+                    resource_id,
+                    status,
+                    "MODEL_ANALYSIS_STORAGE_CLEANUP_REQUIRED",
+                    references,
+                    replayed,
+                )
+            try:
+                retried = self._gateway.prepare_model_delete(resource_id)
+                retried_prepared = _validated_prepare(
+                    resource_type, resource_id, retried
+                )
+            except Exception:
+                return self._recover_after_prepare_error(resource_type, resource_id)
+            return self._result_from_prepared(
+                resource_type,
+                resource_id,
+                retried_prepared,
+            )
+
         return self._result_from_prepared(
             resource_type,
             resource_id,
             (status, owner_model_id, bucket, path, references, replayed),
         )
+
+    def _cleanup_terminal_model_dependencies(self, model_id: str) -> None:
+        rows = self._gateway.list_model_terminal_analysis_dependencies(model_id)
+        if not rows:
+            raise PersistentDeleteGatewayError(
+                "terminal analysis dependency list was unexpectedly empty"
+            )
+        seen_job_ids: set[str] = set()
+        for row in rows:
+            job_id, owner_model_id, bucket, path = _validated_terminal_dependency(
+                model_id, row
+            )
+            if job_id in seen_job_ids:
+                raise PersistentDeleteGatewayError(
+                    "terminal analysis dependency list contains duplicate jobs"
+                )
+            seen_job_ids.add(job_id)
+            if path is not None:
+                self._gateway.delete_storage_object(bucket, path)
+            self._gateway.complete_model_terminal_analysis_dependency(
+                model_id,
+                job_id,
+                bucket,
+                path,
+            )
 
     def _recover_after_prepare_error(
         self, resource_type: str, resource_id: str
@@ -568,6 +673,51 @@ def _validated_prepare(
         if status != "DELETED":
             raise PersistentDeleteGatewayError("blocked delete exposed storage data")
     return status, owner_model_id, bucket, path, safe_references, replayed
+
+
+def _has_terminal_analysis_storage_cleanup(references: Mapping[str, Any]) -> bool:
+    count = references.get("analysis_storage_cleanup_required")
+    return isinstance(count, int) and not isinstance(count, bool) and count > 0
+
+
+def _validated_terminal_dependency(
+    model_id: str,
+    value: Mapping[str, Any],
+) -> tuple[str, str, str | None, str | None]:
+    if not isinstance(value, Mapping):
+        raise PersistentDeleteGatewayError(
+            "terminal analysis dependency is invalid"
+        )
+    try:
+        job_id = str(uuid.UUID(str(value.get("job_id"))))
+        owner_model_id = str(uuid.UUID(str(value.get("owner_model_id"))))
+    except (TypeError, ValueError, AttributeError) as exc:
+        raise PersistentDeleteGatewayError(
+            "terminal analysis dependency identity is invalid"
+        ) from exc
+    bucket = value.get("storage_bucket")
+    path = value.get("storage_path")
+    if bucket is not None and not isinstance(bucket, str):
+        raise PersistentDeleteGatewayError(
+            "terminal analysis dependency bucket is invalid"
+        )
+    if path is not None and not isinstance(path, str):
+        raise PersistentDeleteGatewayError(
+            "terminal analysis dependency path is invalid"
+        )
+    if (bucket is None) != (path is None):
+        raise PersistentDeleteGatewayError(
+            "terminal analysis dependency storage pair is invalid"
+        )
+    if path is not None:
+        _require_owned_storage_path(
+            "analysis",
+            job_id,
+            owner_model_id,
+            bucket,
+            path,
+        )
+    return job_id, owner_model_id, bucket, path
 
 
 def _require_resource_id(value: Mapping[str, Any]) -> str:

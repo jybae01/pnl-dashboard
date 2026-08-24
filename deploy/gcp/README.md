@@ -182,7 +182,7 @@ both legacy refs. Before applying SQL, pin the exact V1 chain:
 ./deploy/gcp/verify-v1-migrations.ps1
 ```
 
-The verifier requires all 28 files in lexical order and their frozen SHA-256
+The verifier requires all 29 files in lexical order and their frozen SHA-256
 digests, including `20260815023857_persistent_delete_slice3.sql`,
 `20260815050758_persistent_delete_recovery_slice3a.sql`,
 `20260815053855_persistent_delete_status_classification_slice3a.sql`, and
@@ -197,19 +197,21 @@ metadata finalization) ->
 `202608210002_analysis_monthly_fx_idempotent_v11.sql` (v1.1 monthly sales-FX
 idempotent submission boundary) ->
 `202608240001_model_delete_terminal_reference_cleanup.sql` (model deletion
-terminal-reference cleanup). The verifier's expected count is 28, and a
-passing result must report `migration_count` 28 with
-`202608240001_model_delete_terminal_reference_cleanup.sql` as the latest migration.
+terminal-reference cleanup) ->
+`202608240002_model_delete_terminal_artifact_cleanup.sql` (verified terminal
+analysis artifact cleanup). The verifier's expected count is 29, and a
+passing result must report `migration_count` 29 with
+`202608240002_model_delete_terminal_artifact_cleanup.sql` as the latest migration.
 
 Before any separately approved staging apply, inspect the authenticated remote
 migration inventory with a read-only history/list operation and reconcile it
-against these exact 28 files; this verification step must not apply migrations.
+against these exact 29 files; this verification step must not apply migrations.
 Apply the same exact migrations once to a new empty Production project through
 the authenticated Supabase management channel. Do not use a staging dump, skip
 a file, edit a committed migration, or apply manual SQL. Never modify an already
 applied committed migration; make any database correction as a future additive
 forward-fix migration. Before any Google deployment, capture remote migration
-history proving 28/28 with no gap or
+history proving 29/29 with no gap or
 duplicate, then verify RLS/ACL, SECURITY DEFINER search paths, pgmq, private
 `pnl-models`, shared sessions and lockout, publication, audit, and Worker
 lifecycle catalogs. A Security Advisor warning or remote-history mismatch blocks
