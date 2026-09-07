@@ -141,6 +141,26 @@ export function calculateAdjustmentExpectedAmount(baseline: number, adjustment: 
   return baseline + parseAdjustmentAmount(adjustment);
 }
 
+export function calculateAdjustmentFromTargetAmount(baseline: number, targetAmount: string): string {
+  const normalized = targetAmount.replace(/,/g, '').trim();
+  if (normalized === '') return '';
+  const parsed = Number(normalized);
+  return Number.isFinite(parsed) ? String(parsed - baseline) : normalized;
+}
+
+export function calculateEntryAdjustmentFromTargetAmount(
+  baseline: number,
+  targetAmount: string,
+  existingAdjustmentExcludingEntry: number,
+): string {
+  const totalAdjustment = calculateAdjustmentFromTargetAmount(baseline, targetAmount);
+  if (totalAdjustment === '') return '';
+  const parsed = Number(totalAdjustment);
+  return Number.isFinite(parsed)
+    ? String(parsed - existingAdjustmentExcludingEntry)
+    : totalAdjustment;
+}
+
 function formatKrwAmount(value: number | undefined): string {
   return typeof value === 'number' && Number.isFinite(value) ? value.toLocaleString('ko-KR') : '—';
 }
@@ -1472,7 +1492,7 @@ export const ForecastGenerationView: React.FC<ForecastGenerationViewProps> = ({
             </div>}
             <div className="forecast-workflow__adjustment-grid">
               <section className="forecast-workflow__input-section forecast-workflow__adjustment-span forecast-workflow__adjustment-node--mfg-table" aria-labelledby="forecast-manufacturing-adjustments-title">
-                <div className="forecast-workflow__input-heading"><div><h3 id="forecast-manufacturing-adjustments-title">제조경비 조정액</h3><p>적용월별 제조 계정의 기존 조정 의미를 그대로 유지합니다.</p></div><span className="forecast-workflow__unit-badge">(단위: 원)</span></div>
+                <div className="forecast-workflow__input-heading"><div><h3 id="forecast-manufacturing-adjustments-title">제조경비 조정액</h3><p>실적금액을 입력하면 계획 대비 조정액을 자동 계산합니다.</p></div><span className="forecast-workflow__unit-badge">(단위: 원)</span></div>
                 <div className="forecast-workflow__table-scroll">
                   <table className="forecast-workflow__input-table forecast-workflow__cost-table">
                     <thead><tr className="forecast-workflow__header-row--center"><th scope="col" className="forecast-workflow__cell--center">적용월</th><th scope="col" className="forecast-workflow__cell--center">구분</th><th scope="col" className="forecast-workflow__cell--center">계정명</th><th scope="col" className="forecast-workflow__cell--number">계획</th><th scope="col" className="forecast-workflow__cell--number">예상금액(자동)</th><th scope="col" className="forecast-workflow__cell--number">조정액</th><th scope="col" className="forecast-workflow__cell--action">조정</th></tr></thead>
@@ -1527,15 +1547,17 @@ export const ForecastGenerationView: React.FC<ForecastGenerationViewProps> = ({
                                   <div className="forecast-workflow__inline-drawer-body">
                                     <div className="forecast-workflow__drawer-readonly-grid">
                                       <label>계획<output aria-label={`${rowMonth}월 ${item.display_name} 제조경비 계획`} data-readonly="true">{baselineDisplay}</output></label>
-                                      <label>예상금액(자동)<output aria-label={`${rowMonth}월 ${item.display_name} 제조경비 예상금액`} data-readonly="true">{baseline === undefined ? '—' : formatKrwAmount(calculateAdjustmentExpectedAmount(baseline, mfgDraftAmount))}</output></label>
+                                      <label>조정액(자동)<output aria-label={`${rowMonth}월 ${item.display_name} 제조경비 자동 조정액`} data-readonly="true">{formatKrwAmount(parseAdjustmentAmount(mfgDraftAmount))}</output></label>
                                     </div>
                                     <label className="forecast-workflow__drawer-field">
-                                      <span>조정액 (KRW)</span>
+                                      <span>실적금액 (KRW)</span>
                                       <FormattedNumericInput
-                                        disabled={advancedControlsDisabled}
-                                        ariaLabel={`${rowMonth}월 ${item.display_name} 제조경비 조정액`}
-                                        value={mfgDraftAmount}
-                                        onChange={setMfgDraftAmount}
+                                        disabled={advancedControlsDisabled || baseline === undefined}
+                                        ariaLabel={`${rowMonth}월 ${item.display_name} 제조경비 실적금액`}
+                                        value={baseline === undefined ? '' : String(calculateAdjustmentExpectedAmount(baseline, mfgDraftAmount))}
+                                        onChange={(value) => {
+                                          if (baseline !== undefined) setMfgDraftAmount(calculateAdjustmentFromTargetAmount(baseline, value));
+                                        }}
                                       />
                                     </label>
                                     <label className="forecast-workflow__drawer-field forecast-workflow__drawer-field--reason">
@@ -1582,7 +1604,7 @@ export const ForecastGenerationView: React.FC<ForecastGenerationViewProps> = ({
               </section>
               <section className="forecast-workflow__input-section forecast-workflow__adjustment-span forecast-workflow__adjustment-node--sga-table" aria-labelledby="forecast-sga-adjustments-title">
                 <div className="forecast-workflow__input-heading">
-                  <div><h3 id="forecast-sga-adjustments-title">판관비 조정액</h3><p>적용월별 판관비 계정의 기존 조정 의미를 그대로 유지합니다.</p></div>
+                  <div><h3 id="forecast-sga-adjustments-title">판관비 조정액</h3><p>일반관리비는 실적금액 입력 시 계획 대비 조정액을 자동 계산하며, 판매비는 기존 조정액 입력 방식을 유지합니다.</p></div>
                   <div className="forecast-workflow__heading-right">
                     <div className="forecast-workflow__tab-pill-group" role="tablist" aria-label="판관비 구분">
                       <button type="button" role="tab" aria-selected={sgaTab === 'selling'} className={`forecast-workflow__tab-pill ${sgaTab === 'selling' ? 'is-active' : ''}`} onClick={() => setSgaTab('selling')}>판매비</button>
@@ -1614,6 +1636,8 @@ export const ForecastGenerationView: React.FC<ForecastGenerationViewProps> = ({
                         const draftAggregate = isEditing
                           ? adjNum - editedEntryAmount + parseAdjustmentAmount(sgaDraftAmount)
                           : adjNum;
+                        const otherSgaAdjustments = adjNum - editedEntryAmount;
+                        const isGeneralAdmin = item.section === 'general_admin';
                         return (
                           <React.Fragment key={item.adjustment_key}>
                             <tr>
@@ -1656,15 +1680,25 @@ export const ForecastGenerationView: React.FC<ForecastGenerationViewProps> = ({
                                     <div className="forecast-workflow__inline-drawer-body">
                                         <div className="forecast-workflow__drawer-readonly-grid">
                                           <label>계획<output aria-label={`${rowMonth}월 ${item.display_name} 판관비 계획`} data-readonly="true">{baselineDisplay}</output></label>
-                                          <label>예상금액(자동)<output aria-label={`${rowMonth}월 ${item.display_name} 판관비 예상금액`} data-readonly="true">{baseline === undefined ? '—' : formatKrwAmount(baseline + draftAggregate)}</output></label>
+                                          <label>{isGeneralAdmin ? '조정액(자동)' : '예상금액(자동)'}<output aria-label={isGeneralAdmin ? `${rowMonth}월 ${item.display_name} 일반관리비 자동 조정액` : `${rowMonth}월 ${item.display_name} 판관비 예상금액`} data-readonly="true">{baseline === undefined ? '—' : formatKrwAmount(isGeneralAdmin ? draftAggregate : baseline + draftAggregate)}</output></label>
                                         </div>
                                         <label className="forecast-workflow__drawer-field">
-                                          <span>조정액 (KRW)</span>
+                                          <span>{isGeneralAdmin ? '실적금액 (KRW)' : '조정액 (KRW)'}</span>
                                           <FormattedNumericInput
-                                            disabled={advancedControlsDisabled}
-                                            ariaLabel={`${rowMonth}월 ${item.display_name} 판관비 조정액`}
-                                            value={sgaDraftAmount}
-                                            onChange={setSgaDraftAmount}
+                                            disabled={advancedControlsDisabled || (isGeneralAdmin && baseline === undefined)}
+                                            ariaLabel={isGeneralAdmin ? `${rowMonth}월 ${item.display_name} 일반관리비 실적금액` : `${rowMonth}월 ${item.display_name} 판관비 조정액`}
+                                            value={isGeneralAdmin && baseline !== undefined ? String(baseline + draftAggregate) : sgaDraftAmount}
+                                            onChange={(value) => {
+                                              if (!isGeneralAdmin || baseline === undefined) {
+                                                setSgaDraftAmount(value);
+                                                return;
+                                              }
+                                              setSgaDraftAmount(calculateEntryAdjustmentFromTargetAmount(
+                                                baseline,
+                                                value,
+                                                otherSgaAdjustments,
+                                              ));
+                                            }}
                                           />
                                         </label>
                                         <label className="forecast-workflow__drawer-field forecast-workflow__drawer-field--reason">

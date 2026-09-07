@@ -300,8 +300,10 @@ def test_customer_freight_is_once_tariff_separate_and_material_policy_is_preserv
     response = build_analysis_presentation(RESULT_ID, presentation_row(), PROVENANCE, ("1",))
     by_code = {effect.code: effect for effect in response.effects}
     assert "transport" not in by_code
-    assert by_code["sales_price"].profit_effect == 8.0
-    transport = next(row for row in by_code["sales_price"].drilldown.rows if "운반비" in row.label)
+    assert by_code["sales_price"].profit_effect == 5.0
+    assert all("운반비" not in row.label for row in by_code["sales_price"].drilldown.rows)
+    assert by_code["sga_variable"].profit_effect == 6.0
+    transport = next(row for row in by_code["sga_variable"].drilldown.rows if "운반비" in row.label)
     assert transport.profit_effect == 3.0
     assert by_code["tariff"].profit_effect == -1.0
     material = by_code["material_total"].drilldown.rows
@@ -315,6 +317,7 @@ def test_drilldown_preserves_authoritative_sga_and_manufacturing_sections():
     by_code = {effect.code: effect for effect in response.effects}
     assert {row.label: row.section for row in by_code["sga_variable"].drilldown.rows} == {
         "시장비": "selling",
+        "고객배송 운반비": "selling",
     }
     assert {row.label: row.section for row in by_code["sga_fixed"].drilldown.rows} == {
         "급여": "general_admin",
