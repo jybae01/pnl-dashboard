@@ -1604,7 +1604,7 @@ export const ForecastGenerationView: React.FC<ForecastGenerationViewProps> = ({
               </section>
               <section className="forecast-workflow__input-section forecast-workflow__adjustment-span forecast-workflow__adjustment-node--sga-table" aria-labelledby="forecast-sga-adjustments-title">
                 <div className="forecast-workflow__input-heading">
-                  <div><h3 id="forecast-sga-adjustments-title">판관비 조정액</h3><p>일반관리비는 실적금액 입력 시 계획 대비 조정액을 자동 계산하며, 판매비는 기존 조정액 입력 방식을 유지합니다.</p></div>
+                  <div><h3 id="forecast-sga-adjustments-title">판관비 조정액</h3><p>판매비와 일반관리비는 실적금액(총액)을 입력하면 계획 대비 조정액을 자동 계산합니다.</p></div>
                   <div className="forecast-workflow__heading-right">
                     <div className="forecast-workflow__tab-pill-group" role="tablist" aria-label="판관비 구분">
                       <button type="button" role="tab" aria-selected={sgaTab === 'selling'} className={`forecast-workflow__tab-pill ${sgaTab === 'selling' ? 'is-active' : ''}`} onClick={() => setSgaTab('selling')}>판매비</button>
@@ -1637,7 +1637,6 @@ export const ForecastGenerationView: React.FC<ForecastGenerationViewProps> = ({
                           ? adjNum - editedEntryAmount + parseAdjustmentAmount(sgaDraftAmount)
                           : adjNum;
                         const otherSgaAdjustments = adjNum - editedEntryAmount;
-                        const isGeneralAdmin = item.section === 'general_admin';
                         return (
                           <React.Fragment key={item.adjustment_key}>
                             <tr>
@@ -1679,21 +1678,17 @@ export const ForecastGenerationView: React.FC<ForecastGenerationViewProps> = ({
                                     </div>
                                     <div className="forecast-workflow__inline-drawer-body">
                                         <div className="forecast-workflow__drawer-readonly-grid">
-                                          <label>계획<output aria-label={`${rowMonth}월 ${item.display_name} 판관비 계획`} data-readonly="true">{baselineDisplay}</output></label>
-                                          <label>{isGeneralAdmin ? '조정액(자동)' : '예상금액(자동)'}<output aria-label={isGeneralAdmin ? `${rowMonth}월 ${item.display_name} 일반관리비 자동 조정액` : `${rowMonth}월 ${item.display_name} 판관비 예상금액`} data-readonly="true">{baseline === undefined ? '—' : formatKrwAmount(isGeneralAdmin ? draftAggregate : baseline + draftAggregate)}</output></label>
+                                          <label>계획<output aria-label={`${rowMonth}월 ${item.display_name} ${sgaSectionLabel(item.section)} 계획`} data-readonly="true">{baselineDisplay}</output></label>
+                                          <label>조정액(자동)<output aria-label={`${rowMonth}월 ${item.display_name} ${sgaSectionLabel(item.section)} 자동 조정액`} data-readonly="true">{baseline === undefined ? '—' : formatKrwAmount(draftAggregate)}</output></label>
                                         </div>
                                         <label className="forecast-workflow__drawer-field">
-                                          <span>{isGeneralAdmin ? '실적금액 (KRW)' : '조정액 (KRW)'}</span>
+                                          <span>실적금액 (KRW)</span>
                                           <FormattedNumericInput
-                                            disabled={advancedControlsDisabled || (isGeneralAdmin && baseline === undefined)}
-                                            ariaLabel={isGeneralAdmin ? `${rowMonth}월 ${item.display_name} 일반관리비 실적금액` : `${rowMonth}월 ${item.display_name} 판관비 조정액`}
-                                            value={isGeneralAdmin && baseline !== undefined ? String(baseline + draftAggregate) : sgaDraftAmount}
+                                            disabled={advancedControlsDisabled || baseline === undefined}
+                                            ariaLabel={`${rowMonth}월 ${item.display_name} ${sgaSectionLabel(item.section)} 실적금액`}
+                                            value={baseline === undefined ? '' : String(calculateAdjustmentExpectedAmount(baseline, draftAggregate.toString()))}
                                             onChange={(value) => {
-                                              if (!isGeneralAdmin || baseline === undefined) {
-                                                setSgaDraftAmount(value);
-                                                return;
-                                              }
-                                              setSgaDraftAmount(calculateEntryAdjustmentFromTargetAmount(
+                                              if (baseline !== undefined) setSgaDraftAmount(calculateEntryAdjustmentFromTargetAmount(
                                                 baseline,
                                                 value,
                                                 otherSgaAdjustments,
@@ -1754,7 +1749,7 @@ export const ForecastGenerationView: React.FC<ForecastGenerationViewProps> = ({
                         checked={selectedMfgKeys.size === mfgAdjustedList.length}
                         onChange={(event) => setSelectedMfgKeys(event.target.checked ? new Set(mfgAdjustedList.map((item) => item.selectionKey)) : new Set())}
                       /></th>
-                      <th scope="col" className="forecast-workflow__cell--center">적용월</th><th scope="col" className="forecast-workflow__cell--center">계정명</th><th scope="col" className="forecast-workflow__cell--number">계획</th><th scope="col" className="forecast-workflow__cell--number">예상금액</th><th scope="col" className="forecast-workflow__cell--number">조정액</th><th scope="col" className="forecast-workflow__cell--reason">사유</th><th scope="col" className="forecast-workflow__cell--action">수정</th>
+                      <th scope="col" className="forecast-workflow__cell--center">적용월</th><th scope="col" className="forecast-workflow__cell--center">계정명</th><th scope="col" className="forecast-workflow__cell--number">계획</th><th scope="col" className="forecast-workflow__cell--number">예상금액(자동)</th><th scope="col" className="forecast-workflow__cell--number">조정액</th><th scope="col" className="forecast-workflow__cell--reason">사유</th><th scope="col" className="forecast-workflow__cell--action">수정</th>
                     </tr></thead>
                     <tbody>{mfgAdjustedList.map((item) => {
                       const row = item.entry;
@@ -1827,7 +1822,7 @@ export const ForecastGenerationView: React.FC<ForecastGenerationViewProps> = ({
                         checked={selectedSgaKeys.size === sgaAdjustedList.length}
                         onChange={(event) => setSelectedSgaKeys(event.target.checked ? new Set(sgaAdjustedList.map((item) => item.selectionKey)) : new Set())}
                       /></th>
-                      <th scope="col" className="forecast-workflow__cell--center">적용월</th><th scope="col" className="forecast-workflow__cell--center">구분</th><th scope="col" className="forecast-workflow__cell--center">계정명</th><th scope="col" className="forecast-workflow__cell--number">계획</th><th scope="col" className="forecast-workflow__cell--number">예상금액</th><th scope="col" className="forecast-workflow__cell--number">조정액</th><th scope="col" className="forecast-workflow__cell--reason">사유</th><th scope="col" className="forecast-workflow__cell--action">수정</th>
+                      <th scope="col" className="forecast-workflow__cell--center">적용월</th><th scope="col" className="forecast-workflow__cell--center">구분</th><th scope="col" className="forecast-workflow__cell--center">계정명</th><th scope="col" className="forecast-workflow__cell--number">계획</th><th scope="col" className="forecast-workflow__cell--number">예상금액(자동)</th><th scope="col" className="forecast-workflow__cell--number">조정액</th><th scope="col" className="forecast-workflow__cell--reason">사유</th><th scope="col" className="forecast-workflow__cell--action">수정</th>
                     </tr></thead>
                     <tbody>{sgaAdjustedList.map((item) => {
                       const baseline = item.metadata.monthly_baseline_amounts?.[String(item.month)];

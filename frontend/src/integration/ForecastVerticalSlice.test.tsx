@@ -461,7 +461,7 @@ describe('Forecast React vertical slice', () => {
     fireEvent.click(screen.getByText(/비용 및 원가 조정/));
     fireEvent.click(screen.getByRole('button', { name: '7월 전력비 조정' }));
     fireEvent.click(screen.getByRole('button', { name: '7월 제품 폐기손실 조정' }));
-    const manufacturingDrawer = screen.getByLabelText('7월 전력비 제조경비 조정액').closest('.forecast-workflow__inline-drawer');
+    const manufacturingDrawer = screen.getByLabelText('7월 전력비 제조경비 실적금액').closest('.forecast-workflow__inline-drawer');
     const cogsDrawer = screen.getByLabelText('7월 제품 폐기손실 매출원가 조정액').closest('.forecast-workflow__inline-drawer');
     expect(manufacturingDrawer).not.toBeNull();
     expect(cogsDrawer).not.toBeNull();
@@ -630,14 +630,14 @@ describe('Forecast React vertical slice', () => {
     await waitForForecastReady();
     fireEvent.click(screen.getByText(/비용 및 원가 조정/));
     fireEvent.click(screen.getByRole('button', { name: '7월 전력비 조정' }));
-    fireEvent.change(screen.getByLabelText('7월 전력비 제조경비 조정액'), { target: { value: '-456789' } });
+    fireEvent.change(screen.getByLabelText('7월 전력비 제조경비 실적금액'), { target: { value: String(monthlyBaselineAmounts['7'] - 456789) } });
     fireEvent.change(screen.getByLabelText('7월 전력비 제조경비 조정 사유'), { target: { value: '전력 사유' } });
-    fireEvent.click(screen.getByRole('button', { name: '등록' }));
+    fireEvent.click(within(screen.getByLabelText('7월 전력비 제조경비 실적금액').closest('.forecast-workflow__inline-drawer') as HTMLElement).getByRole('button', { name: '등록' }));
     expect(screen.getByText(/제조경비 조정 내역 \(1건\)/)).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: '7월 운송비 조정' }));
-    fireEvent.change(screen.getByLabelText('7월 운송비 판관비 조정액'), { target: { value: '567890' } });
+    fireEvent.change(screen.getByLabelText('7월 운송비 판매비 실적금액'), { target: { value: String(monthlyBaselineAmounts['7'] + 567890) } });
     fireEvent.change(screen.getByLabelText('7월 운송비 판관비 조정 사유'), { target: { value: '운송 사유' } });
-    fireEvent.click(screen.getByRole('button', { name: '등록' }));
+    fireEvent.click(within(screen.getByLabelText('7월 운송비 판매비 실적금액').closest('.forecast-workflow__inline-drawer') as HTMLElement).getByRole('button', { name: '등록' }));
     fireEvent.change(screen.getByLabelText('7월 원재료 조정액'), { target: { value: '11' } });
     fireEvent.change(screen.getByLabelText('7월 계획 북미·남미 매출'), { target: { value: '700' } });
     expect(screen.queryByLabelText(/신사업 상품원가 산출 모드/)).not.toBeInTheDocument();
@@ -646,13 +646,13 @@ describe('Forecast React vertical slice', () => {
     expect(screen.getByRole('combobox', { name: '운송비 판관비 적용월' })).toHaveValue('7');
     expect(screen.getByRole('combobox', { name: '제품 폐기손실 매출원가 적용월' })).toHaveValue('7');
     fireEvent.click(screen.getByRole('button', { name: '8월 전력비 조정' }));
-    fireEvent.change(screen.getByLabelText('8월 전력비 제조경비 조정액'), { target: { value: '12' } });
+    fireEvent.change(screen.getByLabelText('8월 전력비 제조경비 실적금액'), { target: { value: String(monthlyBaselineAmounts['8'] + 12) } });
     fireEvent.click(screen.getByRole('button', { name: '등록' }));
     expect(screen.getByRole('region', { name: '제조경비 조정 내역 (2건)' })).toHaveTextContent(/2026-07.*2026-08/);
     fireEvent.change(screen.getByRole('combobox', { name: '운송비 판관비 적용월' }), { target: { value: '8' } });
     expect(screen.getByRole('combobox', { name: '전력비 제조경비 적용월' })).toHaveValue('8');
     fireEvent.click(screen.getByRole('button', { name: '8월 운송비 조정' }));
-    fireEvent.change(screen.getByLabelText('8월 운송비 판관비 조정액'), { target: { value: '-34' } });
+    fireEvent.change(screen.getByLabelText('8월 운송비 판매비 실적금액'), { target: { value: String(monthlyBaselineAmounts['8'] - 34) } });
     fireEvent.click(screen.getByRole('button', { name: '등록' }));
     expect(screen.getByRole('region', { name: '판관비 조정 내역 (2건)' })).toHaveTextContent(/2026-07.*2026-08/);
     fireEvent.change(screen.getByRole('combobox', { name: '원재료 관세 환급 적용월' }), { target: { value: '8' } });
@@ -701,12 +701,12 @@ describe('Forecast React vertical slice', () => {
     fireEvent.click(screen.getByText(/비용 및 원가 조정/));
 
     fireEvent.click(screen.getByRole('button', { name: '7월 전력비 조정' }));
-    fireEvent.change(screen.getByLabelText('7월 전력비 제조경비 조정액'), { target: { value: '10' } });
-    fireEvent.click(within(screen.getByLabelText('7월 전력비 제조경비 조정액').closest('.forecast-workflow__inline-drawer') as HTMLElement).getByRole('button', { name: '등록' }));
+    fireEvent.change(screen.getByLabelText('7월 전력비 제조경비 실적금액'), { target: { value: String(monthlyBaselineAmounts['7'] + 10) } });
+    fireEvent.click(within(screen.getByLabelText('7월 전력비 제조경비 실적금액').closest('.forecast-workflow__inline-drawer') as HTMLElement).getByRole('button', { name: '등록' }));
     fireEvent.change(screen.getByRole('combobox', { name: '전력비 제조경비 적용월' }), { target: { value: '8' } });
     fireEvent.click(screen.getByRole('button', { name: '8월 전력비 조정' }));
-    fireEvent.change(screen.getByLabelText('8월 전력비 제조경비 조정액'), { target: { value: '20' } });
-    fireEvent.click(within(screen.getByLabelText('8월 전력비 제조경비 조정액').closest('.forecast-workflow__inline-drawer') as HTMLElement).getByRole('button', { name: '등록' }));
+    fireEvent.change(screen.getByLabelText('8월 전력비 제조경비 실적금액'), { target: { value: String(monthlyBaselineAmounts['8'] + 20) } });
+    fireEvent.click(within(screen.getByLabelText('8월 전력비 제조경비 실적금액').closest('.forecast-workflow__inline-drawer') as HTMLElement).getByRole('button', { name: '등록' }));
 
     const summary = screen.getByRole('region', { name: '제조경비 조정 내역 (2건)' });
     fireEvent.click(within(summary).getByRole('checkbox', { name: '7월 전력비 제조경비 조정 선택' }));
@@ -785,7 +785,7 @@ describe('Forecast React vertical slice', () => {
     expect(screen.queryByText('월별 입력 JSON')).not.toBeInTheDocument();
   });
 
-  it('keeps the selling-freight base drawer manual and serializes its isolated registered value', async () => {
+  it('keeps the selling-freight total-input drawer and serializes its isolated registered adjustment', async () => {
     const fetchMock = vi.fn()
       .mockResolvedValueOnce(response(modelPayload()))
       .mockResolvedValueOnce(response(metadataPayload()))
@@ -800,14 +800,15 @@ describe('Forecast React vertical slice', () => {
     fireEvent.click(screen.getByRole('button', { name: '7월 운송비 조정' }));
     expect(screen.queryByText('자동 산출/제안 내역')).not.toBeInTheDocument();
     expect(screen.queryByLabelText('판매비 운반비 자동 산출 제안 내역')).not.toBeInTheDocument();
-    const freightAmountInput = screen.getByLabelText('7월 운송비 판관비 조정액') as HTMLInputElement;
+    const freightAmountInput = screen.getByLabelText('7월 운송비 판매비 실적금액') as HTMLInputElement;
     const drawerBody = freightAmountInput.closest('.forecast-workflow__inline-drawer-body') as HTMLElement;
     expect(drawerBody.querySelector('.forecast-workflow__drawer-editor')).not.toBeInTheDocument();
     expect(drawerBody.children).toHaveLength(4);
-    expect(freightAmountInput.value).toBe('0');
-    fireEvent.change(freightAmountInput, { target: { value: '81500' } });
+    const sellingPlan = monthlyBaselineAmounts['7'];
+    expect(freightAmountInput).toHaveValue(sellingPlan.toLocaleString('ko-KR'));
+    fireEvent.change(freightAmountInput, { target: { value: String(sellingPlan + 81500) } });
     fireEvent.blur(freightAmountInput);
-    expect(freightAmountInput).toHaveValue('81,500');
+    expect(freightAmountInput).toHaveValue((sellingPlan + 81500).toLocaleString('ko-KR'));
     expect(getComputedStyle(freightAmountInput).textAlign).toBe('right');
     const reasonInput = screen.getByLabelText('7월 운송비 판관비 조정 사유');
     expect(reasonInput).toHaveAttribute('placeholder', '조정 사유를 입력하세요');
@@ -818,9 +819,9 @@ describe('Forecast React vertical slice', () => {
     expect(screen.getByRole('button', { name: '7월 운송비 조정' })).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole('button', { name: '7월 운송비 조정' }));
-    fireEvent.change(screen.getByLabelText('7월 운송비 판관비 조정액'), { target: { value: '81500' } });
+    fireEvent.change(screen.getByLabelText('7월 운송비 판매비 실적금액'), { target: { value: String(sellingPlan + 81500) } });
     fireEvent.change(screen.getByLabelText('7월 운송비 판관비 조정 사유'), { target: { value: '관세 및 신사업 운반비 반영' } });
-    const drawer = screen.getByLabelText('7월 운송비 판관비 조정액').closest('.forecast-workflow__inline-drawer') as HTMLElement;
+    const drawer = screen.getByLabelText('7월 운송비 판매비 실적금액').closest('.forecast-workflow__inline-drawer') as HTMLElement;
     fireEvent.click(within(drawer).getByRole('button', { name: '등록' }));
     expect(screen.getByText(/판관비 조정 내역 \(1건\)/)).toBeInTheDocument();
     expect(screen.getByRole('button', { name: '7월 운송비 수정' })).toBeInTheDocument();
@@ -995,18 +996,24 @@ describe('Forecast React vertical slice', () => {
     expect(manufacturingRow.children[6]).toHaveTextContent('조정');
     fireEvent.click(screen.getByRole('button', { name: '7월 전력비 조정' }));
     const planOutput = screen.getByLabelText('7월 전력비 제조경비 계획');
-    const expectedOutput = screen.getByLabelText('7월 전력비 제조경비 예상금액');
+    const adjustmentOutput = screen.getByLabelText('7월 전력비 제조경비 자동 조정액');
+    const actualInput = screen.getByLabelText('7월 전력비 제조경비 실적금액');
     expect(planOutput.tagName).toBe('OUTPUT');
     expect(planOutput).toHaveAttribute('data-readonly', 'true');
     expect(planOutput).toHaveTextContent(julyPlan);
-    fireEvent.change(screen.getByLabelText('7월 전력비 제조경비 조정액'), { target: { value: '1250' } });
+    expect(adjustmentOutput.tagName).toBe('OUTPUT');
+    expect(adjustmentOutput).toHaveAttribute('data-readonly', 'true');
+    expect(adjustmentOutput).toHaveTextContent('0');
+    expect(actualInput).toHaveValue(julyPlan);
+    fireEvent.change(actualInput, { target: { value: String(monthlyBaselineAmounts['7'] + 1250) } });
     expect(planOutput).toHaveTextContent(julyPlan);
+    expect(adjustmentOutput).toHaveTextContent('1,250');
     const julyExpected = calculateAdjustmentExpectedAmount(monthlyBaselineAmounts['7'], '1250').toLocaleString('ko-KR');
-    expect(expectedOutput).toHaveTextContent(julyExpected);
     fireEvent.click(screen.getByRole('button', { name: '등록' }));
     expect(screen.getByRole('region', { name: '제조경비 조정 내역 (1건)' })).toHaveTextContent(julyExpected);
     fireEvent.click(screen.getByRole('button', { name: '7월 전력비 수정' }));
-    fireEvent.change(screen.getByLabelText('7월 전력비 제조경비 조정액'), { target: { value: '9999' } });
+    expect(screen.getByLabelText('7월 전력비 제조경비 실적금액')).toHaveValue(julyExpected);
+    fireEvent.change(screen.getByLabelText('7월 전력비 제조경비 실적금액'), { target: { value: String(monthlyBaselineAmounts['7'] + 9999) } });
     fireEvent.click(screen.getByRole('button', { name: '취소' }));
     expect(screen.getByRole('region', { name: '제조경비 조정 내역 (1건)' })).toHaveTextContent(julyExpected);
     selectAdjustmentMonth(8);
@@ -1066,8 +1073,8 @@ describe('Forecast React vertical slice', () => {
     await waitForForecastReady();
     fireEvent.click(screen.getByText(/비용 및 원가 조정/));
     fireEvent.click(screen.getByRole('button', { name: '7월 전력비 조정' }));
-    fireEvent.change(screen.getByLabelText('7월 전력비 제조경비 조정액'), { target: { value: '10' } });
-    fireEvent.click(within(screen.getByLabelText('7월 전력비 제조경비 조정액').closest('.forecast-workflow__inline-drawer') as HTMLElement).getByRole('button', { name: '등록' }));
+    fireEvent.change(screen.getByLabelText('7월 전력비 제조경비 실적금액'), { target: { value: String(monthlyBaselineAmounts['7'] + 10) } });
+    fireEvent.click(within(screen.getByLabelText('7월 전력비 제조경비 실적금액').closest('.forecast-workflow__inline-drawer') as HTMLElement).getByRole('button', { name: '등록' }));
     selectAdjustmentMonth(8);
     fireEvent.change(screen.getByLabelText('8월 원재료 조정액'), { target: { value: '80' } });
     selectAdjustmentMonth(9);
@@ -1112,8 +1119,8 @@ describe('Forecast React vertical slice', () => {
     fireEvent.click(screen.getByText(/비용 및 원가 조정/));
     selectAdjustmentMonth(8);
     fireEvent.click(screen.getByRole('button', { name: '8월 전력비 조정' }));
-    fireEvent.change(screen.getByLabelText('8월 전력비 제조경비 조정액'), { target: { value: '0.0' } });
-    fireEvent.click(within(screen.getByLabelText('8월 전력비 제조경비 조정액').closest('.forecast-workflow__inline-drawer') as HTMLElement).getByRole('button', { name: '등록' }));
+    fireEvent.change(screen.getByLabelText('8월 전력비 제조경비 실적금액'), { target: { value: String(monthlyBaselineAmounts['8']) } });
+    fireEvent.click(within(screen.getByLabelText('8월 전력비 제조경비 실적금액').closest('.forecast-workflow__inline-drawer') as HTMLElement).getByRole('button', { name: '등록' }));
     expect(screen.queryByText(/제조경비 조정 내역 \(1건\)/)).not.toBeInTheDocument();
     fireEvent.change(screen.getByLabelText('8월 IX 포장 단가'), { target: { value: '380.0' } });
     fireEvent.click(screen.getByRole('radio', { name: '구매비 예상 금액' }));
@@ -1142,7 +1149,8 @@ describe('Forecast React vertical slice', () => {
         unit: 'KRW',
         category: 'sga',
         section: 'general_admin',
-      }])));
+      }])))
+      .mockResolvedValueOnce(response(successPayload()));
     vi.stubGlobal('fetch', fetchMock);
     render(<ForecastGenerationView />);
     await waitForForecastReady();
@@ -1168,6 +1176,27 @@ describe('Forecast React vertical slice', () => {
     expect(sellingRow.children[5]).toHaveClass('forecast-workflow__cell--number');
     expect(sellingRow.children[6]).toHaveClass('forecast-workflow__cell--action');
 
+    const sellingPlan = monthlyBaselineAmounts['7'];
+    const sellingPlanDisplay = sellingPlan.toLocaleString('ko-KR');
+    fireEvent.click(within(sga).getByRole('button', { name: '7월 운송비 조정' }));
+    const sellingPlanOutput = screen.getByLabelText('7월 운송비 판매비 계획');
+    const sellingAdjustmentOutput = screen.getByLabelText('7월 운송비 판매비 자동 조정액');
+    const sellingActualInput = screen.getByLabelText('7월 운송비 판매비 실적금액');
+    expect(sellingPlanOutput.tagName).toBe('OUTPUT');
+    expect(sellingPlanOutput).toHaveAttribute('data-readonly', 'true');
+    expect(sellingPlanOutput).toHaveTextContent(sellingPlanDisplay);
+    expect(sellingAdjustmentOutput.tagName).toBe('OUTPUT');
+    expect(sellingAdjustmentOutput).toHaveAttribute('data-readonly', 'true');
+    expect(sellingAdjustmentOutput).toHaveTextContent('0');
+    expect(sellingActualInput).toHaveValue(sellingPlanDisplay);
+    expect(sellingActualInput).not.toBeDisabled();
+    fireEvent.change(sellingActualInput, { target: { value: String(sellingPlan + 250) } });
+    expect(sellingAdjustmentOutput).toHaveTextContent('250');
+    fireEvent.change(screen.getByLabelText('7월 운송비 판관비 조정 사유'), { target: { value: '판매비 총액 입력' } });
+    fireEvent.click(within(sellingActualInput.closest('.forecast-workflow__inline-drawer') as HTMLElement).getByRole('button', { name: '등록' }));
+    expect(sellingRow.children[4]).toHaveTextContent((sellingPlan + 250).toLocaleString('ko-KR'));
+    expect(sellingRow.children[5]).toHaveTextContent('+250');
+
     fireEvent.click(within(sga).getByRole('tab', { name: '일반관리비' }));
     const adminRow = within(sga).getByText('지급수수료').closest('tr') as HTMLTableRowElement;
     expect(adminRow.children).toHaveLength(7);
@@ -1178,6 +1207,36 @@ describe('Forecast React vertical slice', () => {
     expect(adminRow.children[4]).toHaveTextContent(monthlyBaselineAmounts['7'].toLocaleString('ko-KR'));
     expect(adminRow.children[5]).toHaveTextContent('0');
     expect(adminRow.children[6]).toHaveTextContent('조정');
+
+    const adminPlan = monthlyBaselineAmounts['7'];
+    const adminPlanDisplay = adminPlan.toLocaleString('ko-KR');
+    fireEvent.click(within(sga).getByRole('button', { name: '7월 지급수수료 조정' }));
+    const adminPlanOutput = screen.getByLabelText('7월 지급수수료 일반관리비 계획');
+    const adminAdjustmentOutput = screen.getByLabelText('7월 지급수수료 일반관리비 자동 조정액');
+    const adminActualInput = screen.getByLabelText('7월 지급수수료 일반관리비 실적금액');
+    expect(adminPlanOutput.tagName).toBe('OUTPUT');
+    expect(adminPlanOutput).toHaveAttribute('data-readonly', 'true');
+    expect(adminPlanOutput).toHaveTextContent(adminPlanDisplay);
+    expect(adminAdjustmentOutput.tagName).toBe('OUTPUT');
+    expect(adminAdjustmentOutput).toHaveAttribute('data-readonly', 'true');
+    expect(adminActualInput).toHaveValue(adminPlanDisplay);
+    expect(adminActualInput).not.toBeDisabled();
+    fireEvent.change(adminActualInput, { target: { value: String(adminPlan - 100) } });
+    expect(adminAdjustmentOutput).toHaveTextContent('-100');
+    fireEvent.change(screen.getByLabelText('7월 지급수수료 판관비 조정 사유'), { target: { value: '일반관리비 총액 입력' } });
+    fireEvent.click(within(adminActualInput.closest('.forecast-workflow__inline-drawer') as HTMLElement).getByRole('button', { name: '등록' }));
+    expect(adminRow.children[4]).toHaveTextContent((adminPlan - 100).toLocaleString('ko-KR'));
+    expect(adminRow.children[5]).toHaveTextContent('-100');
+
+    const registered = screen.getByRole('region', { name: '판관비 조정 내역 (2건)' });
+    expect(within(registered).getAllByRole('columnheader').map((cell) => cell.textContent)).toContain('예상금액(자동)');
+    fireEvent.click(screen.getByRole('button', { name: '추정 모형 생성' }));
+    await screen.findByText('추정 모형 생성 완료');
+    const body = JSON.parse(String((fetchMock.mock.calls[2][1] as RequestInit).body));
+    expect(body.months[0].sga_adjustments).toEqual([
+      { adjustment_key: 'sga-selling', amount: 250, reason: '판매비 총액 입력' },
+      { adjustment_key: 'sga-admin', amount: -100, reason: '일반관리비 총액 입력' },
+    ]);
   });
 
   it('edits a manufacturing registered entry in place and preserves it on cancel', async () => {
@@ -1189,30 +1248,31 @@ describe('Forecast React vertical slice', () => {
     await waitForForecastReady();
     fireEvent.click(screen.getByText(/비용 및 원가 조정/));
 
+    const julyManufacturingPlan = monthlyBaselineAmounts['7'];
     fireEvent.click(screen.getByRole('button', { name: '7월 전력비 조정' }));
-    fireEvent.change(screen.getByLabelText('7월 전력비 제조경비 조정액'), { target: { value: '1000' } });
+    fireEvent.change(screen.getByLabelText('7월 전력비 제조경비 실적금액'), { target: { value: String(julyManufacturingPlan + 1000) } });
     fireEvent.change(screen.getByLabelText('7월 전력비 제조경비 조정 사유'), { target: { value: '최초 사유' } });
-    fireEvent.click(within(screen.getByLabelText('7월 전력비 제조경비 조정액').closest('.forecast-workflow__inline-drawer') as HTMLElement).getByRole('button', { name: '등록' }));
+    fireEvent.click(within(screen.getByLabelText('7월 전력비 제조경비 실적금액').closest('.forecast-workflow__inline-drawer') as HTMLElement).getByRole('button', { name: '등록' }));
 
     const registered = screen.getByRole('region', { name: '제조경비 조정 내역 (1건)' });
     registered.querySelectorAll('thead th').forEach((header) => {
       expect(header.closest('tr')).toHaveClass('forecast-workflow__header-row--center');
     });
     fireEvent.click(within(registered).getByRole('button', { name: '수정' }));
-    expect(screen.getByLabelText('7월 전력비 제조경비 조정액')).toHaveValue('1,000');
+    expect(screen.getByLabelText('7월 전력비 제조경비 실적금액')).toHaveValue((julyManufacturingPlan + 1000).toLocaleString('ko-KR'));
     expect(screen.getByLabelText('7월 전력비 제조경비 조정 사유')).toHaveValue('최초 사유');
-    fireEvent.change(screen.getByLabelText('7월 전력비 제조경비 조정액'), { target: { value: '2000' } });
+    fireEvent.change(screen.getByLabelText('7월 전력비 제조경비 실적금액'), { target: { value: String(julyManufacturingPlan + 2000) } });
     fireEvent.change(screen.getByLabelText('7월 전력비 제조경비 조정 사유'), { target: { value: '수정 사유' } });
-    fireEvent.click(within(screen.getByLabelText('7월 전력비 제조경비 조정액').closest('.forecast-workflow__inline-drawer') as HTMLElement).getByRole('button', { name: '등록' }));
+    fireEvent.click(within(screen.getByLabelText('7월 전력비 제조경비 실적금액').closest('.forecast-workflow__inline-drawer') as HTMLElement).getByRole('button', { name: '등록' }));
     expect(screen.getByRole('region', { name: '제조경비 조정 내역 (1건)' })).toHaveTextContent(/\+2,000.*수정 사유/);
 
     fireEvent.click(within(screen.getByRole('region', { name: '제조경비 조정 내역 (1건)' })).getByRole('button', { name: '수정' }));
-    fireEvent.change(screen.getByLabelText('7월 전력비 제조경비 조정액'), { target: { value: '3000' } });
-    fireEvent.click(within(screen.getByLabelText('7월 전력비 제조경비 조정액').closest('.forecast-workflow__inline-drawer') as HTMLElement).getByRole('button', { name: '취소' }));
+    fireEvent.change(screen.getByLabelText('7월 전력비 제조경비 실적금액'), { target: { value: String(julyManufacturingPlan + 3000) } });
+    fireEvent.click(within(screen.getByLabelText('7월 전력비 제조경비 실적금액').closest('.forecast-workflow__inline-drawer') as HTMLElement).getByRole('button', { name: '취소' }));
     expect(screen.getByRole('region', { name: '제조경비 조정 내역 (1건)' })).toHaveTextContent(/\+2,000.*수정 사유/);
   });
 
-  it('keeps manual SG&A adjustment separate from Backend-authoritative monthly tariff inputs', async () => {
+  it('uses selling total input while keeping Backend-authoritative monthly tariff inputs separate', async () => {
     const fetchMock = vi.fn()
       .mockResolvedValueOnce(response(modelPayload()))
       .mockResolvedValueOnce(response(metadataPayload()))
@@ -1224,9 +1284,10 @@ describe('Forecast React vertical slice', () => {
     fireEvent.change(screen.getByLabelText('7월 계획 북미·남미 매출'), { target: { value: '500000' } });
     fireEvent.change(screen.getByLabelText('7월 추정 북미·남미 매출'), { target: { value: '1000000' } });
     fireEvent.click(screen.getByRole('button', { name: '7월 운송비 조정' }));
-    fireEvent.change(screen.getByLabelText('7월 운송비 판관비 조정액'), { target: { value: '-5000' } });
+    const sellingPlan = monthlyBaselineAmounts['7'];
+    fireEvent.change(screen.getByLabelText('7월 운송비 판매비 실적금액'), { target: { value: String(sellingPlan - 5000) } });
     fireEvent.change(screen.getByLabelText('7월 운송비 판관비 조정 사유'), { target: { value: '일반 운반비 조정' } });
-    fireEvent.click(within(screen.getByLabelText('7월 운송비 판관비 조정액').closest('.forecast-workflow__inline-drawer') as HTMLElement).getByRole('button', { name: '등록' }));
+    fireEvent.click(within(screen.getByLabelText('7월 운송비 판매비 실적금액').closest('.forecast-workflow__inline-drawer') as HTMLElement).getByRole('button', { name: '등록' }));
     const registered = screen.getByRole('region', { name: '판관비 조정 내역 (1건)' });
     expect(registered).toHaveTextContent(/2026-07.*-5,000.*일반 운반비 조정/);
     expect(within(registered).queryByText(/북미·남미 관세/)).not.toBeInTheDocument();
