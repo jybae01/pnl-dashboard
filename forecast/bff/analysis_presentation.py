@@ -48,12 +48,12 @@ MANUFACTURING_VARIABLE_ACCOUNTS = (
 EFFECT_METADATA = {
     "sales_quantity": ("판매수량", "INTERNAL", "Base 판매단가·매출총이익률 기준의 판매수량 효과"),
     "sales_mix": ("제품 Mix", "INTERNAL", "제품군 기준의 판매 Mix 효과"),
-    "sales_price": ("판매단가", "INTERNAL", "표시 판매단가와 고객배송 운반비 효과를 정확히 한 번 포함"),
+    "sales_price": ("판매단가", "INTERNAL", "표시 판매단가 효과; 고객배송 운반비 효과는 변동 판관비로 분류"),
     "sales_fx": ("매출환율", "EXTERNAL", "KRW/USD 매출환율 효과"),
     "material_total": ("원재료", "COST", "부직포 가격·JPY 환율·기타 원부재료의 결정론적 합계"),
     "manufacturing_realized": ("제조경비", "COST", "전공정/후공정 제조경비 발생효과; 재고실현율 multiplier 미적용"),
     "inventory_timing": ("재고·원가 반영시차", "COST", "Gross Inventory Timing - Core Manufactured COGS overlap"),
-    "sga_variable": ("변동 판관비", "COST", "고객배송 운반비와 관세를 제외한 변동 판관비"),
+    "sga_variable": ("변동 판관비", "COST", "고객배송 운반비 효과를 포함하고 관세를 제외한 변동 판관비"),
     "sga_fixed": ("고정 판관비", "COST", "고객배송 운반비와 관세를 제외한 고정 판관비"),
     "tariff": ("관세", "EXTERNAL", "별도 관세 효과"),
 }
@@ -298,10 +298,21 @@ def build_analysis_presentation(
         amounts, material, inventory, manufacturing_accounts, sga_accounts
     )
 
+    # Presentation policy only: keep the persisted deterministic analysis result
+    # unchanged, but classify customer-delivery transport under variable SG&A.
+    # Moving the same amount from sales price to variable SG&A preserves the
+    # operating-profit bridge and avoids double counting.
+    presentation_amounts = dict(amounts)
+    transport_effect = _number(sales_totals.get("transport_effect"))
+    presentation_amounts["sales_price"] -= transport_effect
+    presentation_amounts["sga_variable"] += transport_effect
+    if not _close(sum(presentation_amounts.values()), effects_total):
+        raise _integrity()
+
     effects = tuple(
         _effect_response(
             code,
-            amounts[code],
+            presentation_amounts[code],
             sales_rows=sales_rows,
             sales_totals=sales_totals,
             material=material,
@@ -477,20 +488,6 @@ def _drilldown(
             for group in [str(source.get("product_group"))]
             if group in PRODUCT_LABELS
         ]
-        if code == "sales_price":
-            rows.append(AnalysisDrilldownRowResponse(
-                row_id="sales_price:customer_delivery_transport",
-                label="고객배송 운반비",
-                unit="KRW",
-                baseline=_number(sales_totals.get("baseline_transport_ex_tariff")),
-                comparison=_number(sales_totals.get("comparison_transport_ex_tariff")),
-                delta=(
-                    _number(sales_totals.get("comparison_transport_ex_tariff"))
-                    - _number(sales_totals.get("baseline_transport_ex_tariff"))
-                ),
-                profit_effect=_number(sales_totals.get("transport_effect")),
-                note="수량/원단위 분해 없이 판매단가 Effect에 한 번 반영",
-            ))
         return AnalysisDrilldownResponse("sales", bool(rows), tuple(rows), None if rows else "세부행 없음")
     if code == "material_total":
         component_specs = (
@@ -548,12 +545,27 @@ def _drilldown(
         return AnalysisDrilldownResponse("inventory", True, rows)
     if code in {"sga_variable", "sga_fixed"}:
         classification = "variable" if code == "sga_variable" else "fixed"
-        rows = tuple(
+        rows = [
             _account_row("sga", source, "profit_effect")
             for source in sga_accounts
             if source.get("classification") == classification
-        )
-        return AnalysisDrilldownResponse("sga", bool(rows), rows, None if rows else "판관비 계정 세부 payload 없음")
+        ]
+        if code == "sga_variable":
+            rows.append(AnalysisDrilldownRowResponse(
+                row_id="sga:customer_delivery_transport",
+                label="고객배송 운반비",
+                unit="KRW",
+                baseline=_number(sales_totals.get("baseline_transport_ex_tariff")),
+                comparison=_number(sales_totals.get("comparison_transport_ex_tariff")),
+                delta=(
+                    _number(sales_totals.get("comparison_transport_ex_tariff"))
+                    - _number(sales_totals.get("baseline_transport_ex_tariff"))
+                ),
+                profit_effect=_number(sales_totals.get("transport_effect")),
+                note="고객배송 운반비 효과를 변동 판관비로 분류",
+                section="selling",
+            ))
+        return AnalysisDrilldownResponse("sga", bool(rows), tuple(rows), None if rows else "판관비 계정 세부 payload 없음")
     if code == "tariff":
         rows = tuple(
             _account_row("tariff", source, "profit_effect")
