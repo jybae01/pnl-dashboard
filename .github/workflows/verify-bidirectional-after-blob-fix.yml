@@ -26,12 +26,34 @@ jobs:
       - name: Install frontend dependencies
         working-directory: frontend
         run: npm ci
-      - name: Run Forecast vertical-slice regression
+      - name: Repeat Forecast vertical-slice regression twice
         working-directory: frontend
-        run: npm test -- ForecastVerticalSlice.test.tsx
-      - name: Run full frontend suite
+        shell: bash
+        run: |
+          set +e
+          codes=()
+          for i in 1 2; do
+            echo "===== FORECAST RUN $i ====="
+            npm test -- ForecastVerticalSlice.test.tsx
+            codes+=("$?")
+          done
+          set -e
+          echo "FORECAST_EXIT_CODES=${codes[*]}"
+          test "${codes[*]}" = "0 0"
+      - name: Repeat full frontend suite twice
         working-directory: frontend
-        run: npm test
+        shell: bash
+        run: |
+          set +e
+          codes=()
+          for i in 1 2; do
+            echo "===== FULL RUN $i ====="
+            npm test
+            codes+=("$?")
+          done
+          set -e
+          echo "FULL_EXIT_CODES=${codes[*]}"
+          test "${codes[*]}" = "0 0"
       - name: Lint
         working-directory: frontend
         run: npm run lint
