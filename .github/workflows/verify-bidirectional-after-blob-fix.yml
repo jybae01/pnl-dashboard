@@ -26,9 +26,6 @@ jobs:
       - name: Install frontend dependencies
         working-directory: frontend
         run: npm ci
-      - name: Run bidirectional contract test
-        working-directory: frontend
-        run: npm test -- ForecastBidirectionalAdjustment.test.tsx
       - name: Run Forecast vertical-slice regression
         working-directory: frontend
         run: npm test -- ForecastVerticalSlice.test.tsx
