@@ -1,17 +1,18 @@
-name: Apply bidirectional adjustment input fix
+name: Verify bidirectional adjustment input
 
 on:
   push:
     branches:
       - agent/fix-bidirectional-adjustment-input
     paths:
+      - frontend/**
       - .github/workflows/apply-bidirectional-adjustment-fix.yml
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
-  patch-and-verify:
+  verify:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -26,171 +27,6 @@ jobs:
           node-version: 20
           cache: npm
           cache-dependency-path: frontend/package-lock.json
-
-      - name: Apply focused UI patch
-        shell: bash
-        run: |
-          python - <<'PY'
-          from pathlib import Path
-
-          path = Path('frontend/src/views/ForecastGenerationView.tsx')
-          lines = path.read_text(encoding='utf-8').splitlines()
-
-          def find_one(predicate, label, start=0, end=None):
-              upper = len(lines) if end is None else end
-              matches = [i for i in range(start, upper) if predicate(lines[i])]
-              if len(matches) != 1:
-                  raise SystemExit(f'{label}: expected exactly 1 match, got {len(matches)}')
-              return matches[0]
-
-          mfg_heading = find_one(
-              lambda line: 'id="forecast-manufacturing-adjustments-title"' in line and '실적금액을 입력하면 계획 대비 조정액을 자동 계산합니다.' in line,
-              'manufacturing helper copy',
-          )
-          lines[mfg_heading] = lines[mfg_heading].replace(
-              '실적금액을 입력하면 계획 대비 조정액을 자동 계산합니다.',
-              '실적금액 또는 조정액 중 어느 쪽을 입력해도 다른 금액을 자동 계산합니다.',
-          )
-
-          mfg_adjustment = find_one(
-              lambda line: '조정액(자동)<output' in line and '제조경비 자동 조정액' in line,
-              'manufacturing adjustment field',
-          )
-          indent = lines[mfg_adjustment][:len(lines[mfg_adjustment]) - len(lines[mfg_adjustment].lstrip())]
-          lines[mfg_adjustment:mfg_adjustment + 1] = [
-              indent + '<label>조정액 (KRW)<FormattedNumericInput',
-              indent + '  disabled={advancedControlsDisabled}',
-              indent + '  ariaLabel={`${rowMonth}월 ${item.display_name} 제조경비 조정액`}',
-              indent + '  value={mfgDraftAmount}',
-              indent + '  onChange={setMfgDraftAmount}',
-              indent + '/></label>',
-          ]
-
-          sga_start = find_one(lambda line: 'forecast-workflow__adjustment-node--sga-table' in line, 'SGA section start')
-          sga_end = find_one(
-              lambda line: 'forecast-workflow__adjustment-node--mfg-list' in line,
-              'SGA section end',
-              start=sga_start + 1,
-          )
-          sga_heading = find_one(
-              lambda line: 'id="forecast-sga-adjustments-title"' in line and '판매비와 일반관리비는 실적금액(총액)을 입력하면 계획 대비 조정액을 자동 계산합니다.' in line,
-              'SGA helper copy',
-              start=sga_start,
-              end=sga_end,
-          )
-          lines[sga_heading] = lines[sga_heading].replace(
-              '판매비와 일반관리비는 실적금액(총액)을 입력하면 계획 대비 조정액을 자동 계산합니다.',
-              '실적금액 또는 조정액 중 어느 쪽을 입력해도 다른 금액을 자동 계산합니다.',
-          )
-
-          sga_top = find_one(
-              lambda line: '조정액(자동)<output' in line and 'sgaSectionLabel(item.section)' in line,
-              'SGA top amount field',
-              start=sga_start,
-              end=sga_end,
-          )
-          indent = lines[sga_top][:len(lines[sga_top]) - len(lines[sga_top].lstrip())]
-          lines[sga_top:sga_top + 1] = [
-              indent + "<label>{item.section === 'selling' ? '실적금액 (KRW)' : '조정액 (KRW)'}",
-              indent + "  {item.section === 'selling' ? <FormattedNumericInput",
-              indent + '    disabled={advancedControlsDisabled || baseline === undefined}',
-              indent + '    ariaLabel={`${rowMonth}월 ${item.display_name} ${sgaSectionLabel(item.section)} 실적금액`}',
-              indent + "    value={baseline === undefined ? '' : String(calculateAdjustmentExpectedAmount(baseline, draftAggregate.toString()))}",
-              indent + '    onChange={(value) => {',
-              indent + '      if (baseline !== undefined) setSgaDraftAmount(calculateEntryAdjustmentFromTargetAmount(',
-              indent + '        baseline,',
-              indent + '        value,',
-              indent + '        otherSgaAdjustments,',
-              indent + '      ));',
-              indent + '    }}',
-              indent + '  /> : <FormattedNumericInput',
-              indent + '    disabled={advancedControlsDisabled}',
-              indent + '    ariaLabel={`${rowMonth}월 ${item.display_name} ${sgaSectionLabel(item.section)} 조정액`}',
-              indent + '    value={sgaDraftAmount}',
-              indent + '    onChange={setSgaDraftAmount}',
-              indent + '  />}',
-              indent + '</label>',
-          ]
-
-          sga_start = find_one(lambda line: 'forecast-workflow__adjustment-node--sga-table' in line, 'SGA section start after patch')
-          sga_end = find_one(
-              lambda line: 'forecast-workflow__adjustment-node--mfg-list' in line,
-              'SGA section end after patch',
-              start=sga_start + 1,
-          )
-          sga_actual_span = find_one(
-              lambda line: '<span>실적금액 (KRW)</span>' in line,
-              'SGA lower actual field',
-              start=sga_start,
-              end=sga_end,
-          )
-          label_start = sga_actual_span - 1
-          if '<label className="forecast-workflow__drawer-field">' not in lines[label_start]:
-              raise SystemExit('SGA lower field: label start not found')
-          label_end = next((i for i in range(sga_actual_span + 1, sga_end) if lines[i].strip() == '</label>'), None)
-          if label_end is None:
-              raise SystemExit('SGA lower field: label end not found')
-          indent = lines[label_start][:len(lines[label_start]) - len(lines[label_start].lstrip())]
-          lines[label_start:label_end + 1] = [
-              indent + '<label className="forecast-workflow__drawer-field">',
-              indent + "  <span>{item.section === 'selling' ? '조정액 (KRW)' : '실적금액 (KRW)'}</span>",
-              indent + "  {item.section === 'selling' ? <FormattedNumericInput",
-              indent + '    disabled={advancedControlsDisabled}',
-              indent + '    ariaLabel={`${rowMonth}월 ${item.display_name} ${sgaSectionLabel(item.section)} 조정액`}',
-              indent + '    value={sgaDraftAmount}',
-              indent + '    onChange={setSgaDraftAmount}',
-              indent + '  /> : <FormattedNumericInput',
-              indent + '    disabled={advancedControlsDisabled || baseline === undefined}',
-              indent + '    ariaLabel={`${rowMonth}월 ${item.display_name} ${sgaSectionLabel(item.section)} 실적금액`}',
-              indent + "    value={baseline === undefined ? '' : String(calculateAdjustmentExpectedAmount(baseline, draftAggregate.toString()))}",
-              indent + '    onChange={(value) => {',
-              indent + '      if (baseline !== undefined) setSgaDraftAmount(calculateEntryAdjustmentFromTargetAmount(',
-              indent + '        baseline,',
-              indent + '        value,',
-              indent + '        otherSgaAdjustments,',
-              indent + '      ));',
-              indent + '    }}',
-              indent + '  />}',
-              indent + '</label>',
-          ]
-
-          text = '\n'.join(lines) + '\n'
-          if '제조경비 자동 조정액' in text:
-              raise SystemExit('manufacturing adjustment is still read-only')
-          if '조정액(자동)<output' in text:
-              raise SystemExit('an adjustment field is still read-only')
-          path.write_text(text, encoding='utf-8')
-
-          integration_path = Path('frontend/src/integration/ForecastVerticalSlice.test.tsx')
-          integration = integration_path.read_text(encoding='utf-8')
-
-          replacements = [
-              (
-                  "expect(screen.getByLabelText('7월 사무관리비 일반관리비 자동 조정액')).toHaveTextContent('100');",
-                  "expect(screen.getByLabelText('7월 사무관리비 일반관리비 조정액')).toHaveValue('100');",
-                  1,
-                  'general-admin adjustment assertion',
-              ),
-              (
-                  "expect(screen.getByLabelText('7월 운반비 판관비 예상금액')).toHaveTextContent('1,300');",
-                  "expect(screen.getByLabelText('7월 운반비 판매비 실적금액')).toHaveValue('1,300');",
-                  2,
-                  'selling actual-total assertions',
-              ),
-              (
-                  "expect(screen.getByLabelText('1월 제조간접비 제조경비 자동 조정액')).toHaveTextContent('100');",
-                  "expect(screen.getByLabelText('1월 제조간접비 제조경비 조정액')).toHaveValue('100');",
-                  1,
-                  'manufacturing adjustment assertion',
-              ),
-          ]
-          for old, new, expected_count, label in replacements:
-              count = integration.count(old)
-              if count != expected_count:
-                  raise SystemExit(f'{label}: expected {expected_count} stale assertion(s), got {count}')
-              integration = integration.replace(old, new)
-          integration_path.write_text(integration, encoding='utf-8')
-          PY
 
       - name: Install frontend dependencies
         working-directory: frontend
@@ -211,13 +47,3 @@ jobs:
       - name: Build
         working-directory: frontend
         run: npm run build
-
-      - name: Commit verified patch
-        shell: bash
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add frontend/src/views/ForecastGenerationView.tsx frontend/src/integration/ForecastVerticalSlice.test.tsx
-          git diff --cached --check
-          git commit -m "fix: restore bidirectional forecast adjustment input"
-          git push origin HEAD:agent/fix-bidirectional-adjustment-input
