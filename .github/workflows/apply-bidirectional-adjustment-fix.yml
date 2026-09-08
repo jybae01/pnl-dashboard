@@ -58,12 +58,12 @@ jobs:
           )
           indent = lines[mfg_adjustment][:len(lines[mfg_adjustment]) - len(lines[mfg_adjustment].lstrip())]
           lines[mfg_adjustment:mfg_adjustment + 1] = [
-              f'{indent}<label>조정액 (KRW)<FormattedNumericInput',
-              f'{indent}  disabled={{advancedControlsDisabled}}',
-              f'{indent}  ariaLabel={{`${{rowMonth}}월 ${{item.display_name}} 제조경비 조정액`}}',
-              f'{indent}  value={{mfgDraftAmount}}',
-              f'{indent}  onChange={{setMfgDraftAmount}}',
-              f'{indent}/></label>',
+              indent + '<label>조정액 (KRW)<FormattedNumericInput',
+              indent + '  disabled={advancedControlsDisabled}',
+              indent + '  ariaLabel={`${rowMonth}월 ${item.display_name} 제조경비 조정액`}',
+              indent + '  value={mfgDraftAmount}',
+              indent + '  onChange={setMfgDraftAmount}',
+              indent + '/></label>',
           ]
 
           sga_start = find_one(
@@ -94,28 +94,27 @@ jobs:
           )
           indent = lines[sga_top][:len(lines[sga_top]) - len(lines[sga_top].lstrip())]
           lines[sga_top:sga_top + 1] = [
-              f"{indent}<label>{{item.section === 'selling' ? '실적금액 (KRW)' : '조정액 (KRW)'}}",
-              f"{indent}  {{item.section === 'selling' ? <FormattedNumericInput",
-              f'{indent}    disabled={{advancedControlsDisabled || baseline === undefined}}',
-              f'{indent}    ariaLabel={{`${{rowMonth}}월 ${{item.display_name}} ${{sgaSectionLabel(item.section)}} 실적금액`}}',
-              f"{indent}    value={{baseline === undefined ? '' : String(calculateAdjustmentExpectedAmount(baseline, draftAggregate.toString()))}}",
-              f'{indent}    onChange={{(value) => {{',
-              f'{indent}      if (baseline !== undefined) setSgaDraftAmount(calculateEntryAdjustmentFromTargetAmount(',
-              f'{indent}        baseline,',
-              f'{indent}        value,',
-              f'{indent}        otherSgaAdjustments,',
-              f'{indent}      ));',
-              f'{indent}    }}}}',
-              f'{indent}  /> : <FormattedNumericInput',
-              f'{indent}    disabled={{advancedControlsDisabled}}',
-              f'{indent}    ariaLabel={{`${{rowMonth}}월 ${{item.display_name}} ${{sgaSectionLabel(item.section)}} 조정액`}}',
-              f'{indent}    value={{sgaDraftAmount}}',
-              f'{indent}    onChange={{setSgaDraftAmount}}',
-              f'{indent}  />}}',
-              f'{indent}</label>',
+              indent + "<label>{item.section === 'selling' ? '실적금액 (KRW)' : '조정액 (KRW)'}",
+              indent + "  {item.section === 'selling' ? <FormattedNumericInput",
+              indent + '    disabled={advancedControlsDisabled || baseline === undefined}',
+              indent + '    ariaLabel={`${rowMonth}월 ${item.display_name} ${sgaSectionLabel(item.section)} 실적금액`}',
+              indent + "    value={baseline === undefined ? '' : String(calculateAdjustmentExpectedAmount(baseline, draftAggregate.toString()))}",
+              indent + '    onChange={(value) => {',
+              indent + '      if (baseline !== undefined) setSgaDraftAmount(calculateEntryAdjustmentFromTargetAmount(',
+              indent + '        baseline,',
+              indent + '        value,',
+              indent + '        otherSgaAdjustments,',
+              indent + '      ));',
+              indent + '    }}',
+              indent + '  /> : <FormattedNumericInput',
+              indent + '    disabled={advancedControlsDisabled}',
+              indent + '    ariaLabel={`${rowMonth}월 ${item.display_name} ${sgaSectionLabel(item.section)} 조정액`}',
+              indent + '    value={sgaDraftAmount}',
+              indent + '    onChange={setSgaDraftAmount}',
+              indent + '  />}',
+              indent + '</label>',
           ]
 
-          # Recalculate SGA bounds after inserting the top field.
           sga_start = find_one(lambda line: 'forecast-workflow__adjustment-node--sga-table' in line, 'SGA section start after patch')
           sga_end = find_one(lambda line: 'forecast-workflow__adjustment-node--mfg-list' in line, 'SGA section end after patch', start=sga_start + 1)
           sga_actual_span = find_one(
@@ -132,33 +131,33 @@ jobs:
               raise SystemExit('SGA lower field: label end not found')
           indent = lines[label_start][:len(lines[label_start]) - len(lines[label_start].lstrip())]
           lines[label_start:label_end + 1] = [
-              f'{indent}<label className="forecast-workflow__drawer-field">',
-              f"{indent}  <span>{{item.section === 'selling' ? '조정액 (KRW)' : '실적금액 (KRW)'}}</span>",
-              f"{indent}  {{item.section === 'selling' ? <FormattedNumericInput",
-              f'{indent}    disabled={{advancedControlsDisabled}}',
-              f'{indent}    ariaLabel={{`${{rowMonth}}월 ${{item.display_name}} ${{sgaSectionLabel(item.section)}} 조정액`}}',
-              f'{indent}    value={{sgaDraftAmount}}',
-              f'{indent}    onChange={{setSgaDraftAmount}}',
-              f'{indent}  /> : <FormattedNumericInput',
-              f'{indent}    disabled={{advancedControlsDisabled || baseline === undefined}}',
-              f'{indent}    ariaLabel={{`${{rowMonth}}월 ${{item.display_name}} ${{sgaSectionLabel(item.section)}} 실적금액`}}',
-              f"{indent}    value={{baseline === undefined ? '' : String(calculateAdjustmentExpectedAmount(baseline, draftAggregate.toString()))}}",
-              f'{indent}    onChange={{(value) => {{',
-              f'{indent}      if (baseline !== undefined) setSgaDraftAmount(calculateEntryAdjustmentFromTargetAmount(',
-              f'{indent}        baseline,',
-              f'{indent}        value,',
-              f'{indent}        otherSgaAdjustments,',
-              f'{indent}      ));',
-              f'{indent}    }}}}',
-              f'{indent}  />}}',
-              f'{indent}</label>',
+              indent + '<label className="forecast-workflow__drawer-field">',
+              indent + "  <span>{item.section === 'selling' ? '조정액 (KRW)' : '실적금액 (KRW)'}</span>",
+              indent + "  {item.section === 'selling' ? <FormattedNumericInput",
+              indent + '    disabled={advancedControlsDisabled}',
+              indent + '    ariaLabel={`${rowMonth}월 ${item.display_name} ${sgaSectionLabel(item.section)} 조정액`}',
+              indent + '    value={sgaDraftAmount}',
+              indent + '    onChange={setSgaDraftAmount}',
+              indent + '  /> : <FormattedNumericInput',
+              indent + '    disabled={advancedControlsDisabled || baseline === undefined}',
+              indent + '    ariaLabel={`${rowMonth}월 ${item.display_name} ${sgaSectionLabel(item.section)} 실적금액`}',
+              indent + "    value={baseline === undefined ? '' : String(calculateAdjustmentExpectedAmount(baseline, draftAggregate.toString()))}",
+              indent + '    onChange={(value) => {',
+              indent + '      if (baseline !== undefined) setSgaDraftAmount(calculateEntryAdjustmentFromTargetAmount(',
+              indent + '        baseline,',
+              indent + '        value,',
+              indent + '        otherSgaAdjustments,',
+              indent + '      ));',
+              indent + '    }}',
+              indent + '  />}',
+              indent + '</label>',
           ]
 
           text = '\n'.join(lines) + '\n'
           if '제조경비 자동 조정액' in text:
               raise SystemExit('manufacturing adjustment is still read-only')
-          if '자동 조정액' in text and 'sgaSectionLabel(item.section)' in text:
-              raise SystemExit('SGA adjustment may still be read-only')
+          if '조정액(자동)<output' in text:
+              raise SystemExit('an adjustment field is still read-only')
           path.write_text(text, encoding='utf-8')
 
           test_path = Path('frontend/src/views/ForecastBidirectionalAdjustment.test.tsx')
