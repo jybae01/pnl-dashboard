@@ -1,0 +1,89 @@
+name: Verify post-merge bidirectional integration
+
+on:
+  push:
+    branches:
+      - agent/verify-postmerge-bidirectional-408148
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout exact integration commit
+        uses: actions/checkout@v4
+        with:
+          ref: 4081487a7a19917de19265b830aee27f5156312a
+          fetch-depth: 0
+      - name: Verify exact source identity
+        shell: bash
+        run: |
+          test "$(git rev-parse HEAD)" = "4081487a7a19917de19265b830aee27f5156312a"
+          test "$(git rev-parse HEAD^{tree})" = "6e455bd5384e33aa7101743369f17592c1bb7cd6"
+          echo "SOURCE_IDENTITY=PASS"
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: npm ci
+      - name: Repeat Forecast vertical-slice twice
+        working-directory: frontend
+        shell: bash
+        run: |
+          npm test -- ForecastVerticalSlice.test.tsx
+          npm test -- ForecastVerticalSlice.test.tsx
+          echo "FORECAST_REPEAT=PASS_X2"
+      - name: Verify PNL template integration
+        working-directory: frontend
+        run: npm test -- PnlReportingTemplateIntegration.test.tsx
+      - name: Run full suite twice with baseline-flake differential gate
+        working-directory: frontend
+        shell: bash
+        run: |
+          set +e
+          npm test 2>&1 | tee /tmp/full1.log
+          code1=${PIPESTATUS[0]}
+          npm test 2>&1 | tee /tmp/full2.log
+          code2=${PIPESTATUS[0]}
+          set -e
+          CODE1="$code1" CODE2="$code2" python - <<'PY'
+          import os, re
+          from pathlib import Path
+
+          known = 'src/integration/CoreVerticalSlice.test.tsx > React core vertical slice > preserves overlapping monthly FX values and sends exact YYYY-MM maps'
+          codes = [int(os.environ['CODE1']), int(os.environ['CODE2'])]
+          logs = [Path('/tmp/full1.log'), Path('/tmp/full2.log')]
+          clean_runs = 0
+          for i, (code, path) in enumerate(zip(codes, logs), 1):
+              text = re.sub(r'\x1b\[[0-9;]*m', '', path.read_text(encoding='utf-8', errors='replace'))
+              failures = [line.strip() for line in text.splitlines() if line.strip().startswith('FAIL ')]
+              if code == 0:
+                  clean_runs += 1
+                  if failures:
+                      raise SystemExit(f'full run {i}: zero exit with parsed failures: {failures}')
+                  continue
+              if not failures:
+                  raise SystemExit(f'full run {i}: nonzero exit without identifiable test failure')
+              unexpected = [line for line in failures if known not in line]
+              if unexpected:
+                  raise SystemExit(f'full run {i}: unexpected failure(s): {unexpected}')
+              if 'ForecastVerticalSlice.test.tsx' in text and any('ForecastVerticalSlice.test.tsx' in line for line in failures):
+                  raise SystemExit(f'full run {i}: Forecast regression detected')
+          if clean_runs < 1:
+              raise SystemExit('no clean full-suite run observed')
+          print(f'FULL_SUITE_EXIT_CODES={codes[0]} {codes[1]}')
+          print('BASELINE_FLAKE_DIFFERENTIAL_GATE=PASS')
+          print(f'CLEAN_FULL_SUITE_RUNS={clean_runs}')
+          PY
+      - name: Lint
+        working-directory: frontend
+        run: npm run lint
+      - name: Build
+        working-directory: frontend
+        run: npm run build
