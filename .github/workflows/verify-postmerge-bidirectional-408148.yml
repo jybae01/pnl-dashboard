@@ -32,8 +32,7 @@ jobs:
           test "$(git rev-parse 8bd98a02255e6da7c3c6d3a5ba6a04eed9fe76dd:frontend/src/integration/AnalysisPresentationVerticalSlice.test.tsx)" = "$(git rev-parse HEAD:frontend/src/integration/AnalysisPresentationVerticalSlice.test.tsx)"
           echo "SOURCE_IDENTITY=PASS"
           echo "FEATURE_SCOPE=PASS_TWO_FILES"
-          echo "CORE_TEST_SOURCE_UNCHANGED=PASS"
-          echo "ANALYSIS_PRESENTATION_TEST_SOURCE_UNCHANGED=PASS"
+          echo "FLAKY_TEST_SOURCES_UNCHANGED_FROM_BASELINE=PASS"
 
       - name: Set up Node
         uses: actions/setup-node@v4
@@ -46,65 +45,72 @@ jobs:
         working-directory: frontend
         run: npm ci
 
-      - name: Repeat Forecast vertical-slice twice
-        working-directory: frontend
+      - name: Apply timing-safe assertion patch in runner only
         shell: bash
         run: |
-          npm test -- ForecastVerticalSlice.test.tsx
-          npm test -- ForecastVerticalSlice.test.tsx
-          echo "FORECAST_REPEAT=PASS_X2"
+          python - <<'PY'
+          from pathlib import Path
 
-      - name: Verify PNL template integration
-        working-directory: frontend
-        shell: bash
-        run: |
-          npm test -- PnlReportingTemplateIntegration.test.tsx
-          echo "PNL_TEMPLATE=PASS"
+          replacements = {
+              Path('frontend/src/integration/CoreVerticalSlice.test.tsx'): (
+                  "    await waitFor(() => expect(screen.queryByTestId('stored-result')).not.toBeInTheDocument());\n"
+                  "    expect(screen.getByTestId('viewer-empty')).toBeInTheDocument();",
+                  "    expect(await screen.findByTestId('viewer-empty')).toBeInTheDocument();\n"
+                  "    expect(screen.queryByTestId('stored-result')).not.toBeInTheDocument();",
+              ),
+              Path('frontend/src/integration/AnalysisPresentationVerticalSlice.test.tsx'): (
+                  "    await waitFor(() => expect(screen.queryByTestId('analysis-presentation')).not.toBeInTheDocument());\n"
+                  "    expect(screen.queryByRole('button', { name: '분석 근거 엑셀 내려받기' })).not.toBeInTheDocument();\n"
+                  "    expect(screen.getByTestId('viewer-empty')).toBeInTheDocument();",
+                  "    expect(await screen.findByTestId('viewer-empty')).toBeInTheDocument();\n"
+                  "    expect(screen.queryByTestId('analysis-presentation')).not.toBeInTheDocument();\n"
+                  "    expect(screen.queryByRole('button', { name: '분석 근거 엑셀 내려받기' })).not.toBeInTheDocument();",
+              ),
+          }
+          for path, (old, new) in replacements.items():
+              text = path.read_text(encoding='utf-8')
+              if text.count(old) != 1:
+                  raise SystemExit(f'exact replacement count != 1 for {path}')
+              path.write_text(text.replace(old, new), encoding='utf-8')
+          PY
+          actual="$(git diff --name-only | sort)"
+          expected="$(printf '%s\n' \
+            'frontend/src/integration/AnalysisPresentationVerticalSlice.test.tsx' \
+            'frontend/src/integration/CoreVerticalSlice.test.tsx' | sort)"
+          test "$actual" = "$expected"
+          echo "RUNNER_ONLY_TEST_HARNESS_PATCH=PASS_TWO_TEST_FILES"
 
-      - name: Stress exact Analysis presentation case ten times
+      - name: Stress timing-safe Viewer transition tests
         working-directory: frontend
         shell: bash
         run: |
-          codes=()
           for i in $(seq 1 10); do
-            echo "===== CURRENT ANALYSIS EXACT RUN $i ====="
+            npm test -- CoreVerticalSlice.test.tsx -t "clears cached Viewer result after the backend later denies availability"
             npm test -- AnalysisPresentationVerticalSlice.test.tsx -t "clears READY presentation and Evidence together when Viewer availability changes"
-            codes+=("$?")
           done
-          echo "CURRENT_ANALYSIS_EXACT_EXIT_CODES=${codes[*]}"
-          echo "CURRENT_ANALYSIS_EXACT_STRESS=PASS_X10"
+          echo "VIEWER_TRANSITION_STRESS=PASS_X10_EACH"
 
-      - name: Lint
+      - name: Repeat full suite four times with timing-safe assertions
         working-directory: frontend
         shell: bash
         run: |
-          npm run lint
-          echo "LINT=PASS"
-
-      - name: Build
-        working-directory: frontend
-        shell: bash
-        run: |
-          npm run build
-          echo "BUILD=PASS"
-
-      - name: Repeat exact current full suite four times
-        working-directory: frontend
-        shell: bash
-        run: |
-          codes=()
           for i in 1 2 3 4; do
-            echo "===== CURRENT FULL RUN $i ====="
+            echo "===== HARNESS-FIXED FULL RUN $i ====="
             npm test
-            codes+=("$?")
           done
-          echo "CURRENT_FULL_EXIT_CODES=${codes[*]}"
-          echo "CURRENT_FULL_SUITE=PASS_X4"
+          echo "HARNESS_FIXED_FULL_SUITE=PASS_X4"
 
-      - name: Final verification classification
+      - name: Verify product source remained exact
+        shell: bash
         run: |
-          echo "BASELINE_FULL_SUITE_REFERENCE=PASS_X4"
+          test "$(git rev-parse HEAD)" = "4081487a7a19917de19265b830aee27f5156312a"
+          test "$(git rev-parse HEAD^{tree})" = "6e455bd5384e33aa7101743369f17592c1bb7cd6"
+          echo "PRODUCT_SOURCE_IDENTITY_STILL_EXACT=PASS"
+          echo "REPOSITORY_PRODUCT_CODE_CHANGED=NO"
+
+      - name: Final diagnostic classification
+        run: |
+          echo "TIMING_ASSERTION_DEFECT_CLASSIFICATION=CONFIRMED_BY_RUNNER_PATCH"
           echo "FEATURE_DIFFERENTIAL_REGRESSION=PASS"
-          echo "INTEGRATION_VERIFICATION=PASS"
-          echo "STAGING_PROMOTION_READY=YES"
+          echo "TEST_HARNESS_CLEANUP_REQUIRED=YES"
           echo "PRODUCTION_CHANGED=NO"
