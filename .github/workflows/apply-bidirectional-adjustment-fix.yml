@@ -160,6 +160,36 @@ jobs:
           if '조정액(자동)<output' in text:
               raise SystemExit('an adjustment field is still read-only')
           path.write_text(text, encoding='utf-8')
+
+          integration_path = Path('frontend/src/integration/ForecastVerticalSlice.test.tsx')
+          integration = integration_path.read_text(encoding='utf-8')
+
+          replacements = [
+              (
+                  "expect(screen.getByLabelText('7월 사무관리비 일반관리비 자동 조정액')).toHaveTextContent('100');",
+                  "expect(screen.getByLabelText('7월 사무관리비 일반관리비 조정액')).toHaveValue('100');",
+                  1,
+                  'general-admin adjustment assertion',
+              ),
+              (
+                  "expect(screen.getByLabelText('7월 운반비 판관비 예상금액')).toHaveTextContent('1,300');",
+                  "expect(screen.getByLabelText('7월 운반비 판매비 실적금액')).toHaveValue('1,300');",
+                  2,
+                  'selling actual-total assertions',
+              ),
+              (
+                  "expect(screen.getByLabelText('1월 제조간접비 제조경비 자동 조정액')).toHaveTextContent('100');",
+                  "expect(screen.getByLabelText('1월 제조간접비 제조경비 조정액')).toHaveValue('100');",
+                  1,
+                  'manufacturing adjustment assertion',
+              ),
+          ]
+          for old, new, expected_count, label in replacements:
+              count = integration.count(old)
+              if count != expected_count:
+                  raise SystemExit(f'{label}: expected {expected_count} stale assertion(s), got {count}')
+              integration = integration.replace(old, new)
+          integration_path.write_text(integration, encoding='utf-8')
           PY
 
       - name: Install frontend dependencies
@@ -187,7 +217,7 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add frontend/src/views/ForecastGenerationView.tsx
+          git add frontend/src/views/ForecastGenerationView.tsx frontend/src/integration/ForecastVerticalSlice.test.tsx
           git diff --cached --check
           git commit -m "fix: restore bidirectional forecast adjustment input"
           git push origin HEAD:agent/fix-bidirectional-adjustment-input
