@@ -567,9 +567,9 @@ describe('analysis presentation vertical slice', () => {
     expect(await screen.findByTestId('analysis-presentation')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: '분석 근거 엑셀 내려받기' })).toBeInTheDocument();
     fireEvent.change(screen.getByLabelText('분석 결과 선택'), { target: { value: OTHER_RESULT } });
-    await waitFor(() => expect(screen.queryByTestId('analysis-presentation')).not.toBeInTheDocument());
+    expect(await screen.findByTestId('viewer-empty')).toBeInTheDocument();
+    expect(screen.queryByTestId('analysis-presentation')).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: '분석 근거 엑셀 내려받기' })).not.toBeInTheDocument();
-    expect(screen.getByTestId('viewer-empty')).toBeInTheDocument();
   });
 
   it('does not let an older Viewer response overwrite the latest Result', async () => {

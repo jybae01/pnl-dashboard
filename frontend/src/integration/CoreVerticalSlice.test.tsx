@@ -260,6 +260,7 @@ describe('React core vertical slice', () => {
     vi.stubGlobal('fetch', fetchMock);
     render(<CoreAnalysisView role="admin" />);
     expect(await screen.findByText('분석 조건 설정')).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByLabelText('기준 모형 (Baseline)')).toHaveValue(BASE));
 
     const start = screen.getByLabelText('시작 월') as HTMLInputElement;
     expect(start).toHaveValue('01');
@@ -333,8 +334,8 @@ describe('React core vertical slice', () => {
     render(<CoreAnalysisView role="viewer" />);
     expect(await screen.findByTestId('stored-result')).toBeInTheDocument();
     fireEvent.change(screen.getByLabelText('분석 결과 선택'), { target: { value: OTHER_RESULT } });
-    await waitFor(() => expect(screen.queryByTestId('stored-result')).not.toBeInTheDocument());
-    expect(screen.getByTestId('viewer-empty')).toBeInTheDocument();
+    expect(await screen.findByTestId('viewer-empty')).toBeInTheDocument();
+    expect(screen.queryByTestId('stored-result')).not.toBeInTheDocument();
   });
 
   it('reuses the same idempotency key after a lost submit response', async () => {
