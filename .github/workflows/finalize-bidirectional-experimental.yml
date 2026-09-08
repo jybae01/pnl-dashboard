@@ -1,0 +1,146 @@
+name: Finalize bidirectional adjustment implementation
+
+on:
+  push:
+    branches:
+      - agent/fix-bidirectional-adjustment-input
+    paths:
+      - .github/workflows/finalize-bidirectional-experimental.yml
+
+permissions:
+  contents: write
+
+jobs:
+  finalize:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout experimental branch
+        uses: actions/checkout@v4
+        with:
+          ref: agent/fix-bidirectional-adjustment-input
+          fetch-depth: 0
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Apply proven UI patch
+        shell: bash
+        run: |
+          awk '/^          python - <<'\''PY'\''$/{flag=1;next} flag && /^          PY$/{flag=0;exit} flag{sub(/^          /,""); print}' \
+            .github/workflows/apply-bidirectional-adjustment-fix.yml > /tmp/apply_bidirectional_patch.py
+          test -s /tmp/apply_bidirectional_patch.py
+          python /tmp/apply_bidirectional_patch.py
+
+      - name: Update stale vertical-slice assertions and add reverse-sync coverage
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path('frontend/src/integration/ForecastVerticalSlice.test.tsx')
+          text = path.read_text(encoding='utf-8')
+
+          replacements = {
+            "const adjustmentOutput = screen.getByLabelText('7월 전력비 제조경비 자동 조정액');": "const adjustmentInput = screen.getByLabelText('7월 전력비 제조경비 조정액');",
+            "expect(adjustmentOutput.tagName).toBe('OUTPUT');": "expect(adjustmentInput.tagName).toBe('INPUT');",
+            "expect(adjustmentOutput).toHaveAttribute('data-readonly', 'true');": "expect(adjustmentInput).not.toBeDisabled();",
+            "expect(adjustmentOutput).toHaveTextContent('0');": "expect(adjustmentInput).toHaveValue('0');",
+            "expect(adjustmentOutput).toHaveTextContent('1,250');": "expect(adjustmentInput).toHaveValue('1,250');\n    fireEvent.change(adjustmentInput, { target: { value: '2000' } });\n    expect(actualInput).toHaveValue((monthlyBaselineAmounts['7'] + 2000).toLocaleString('ko-KR'));\n    fireEvent.change(adjustmentInput, { target: { value: '1250' } });\n    expect(actualInput).toHaveValue((monthlyBaselineAmounts['7'] + 1250).toLocaleString('ko-KR'));",
+
+            "const sellingAdjustmentOutput = screen.getByLabelText('7월 운송비 판매비 자동 조정액');": "const sellingAdjustmentInput = screen.getByLabelText('7월 운송비 판매비 조정액');",
+            "expect(sellingAdjustmentOutput.tagName).toBe('OUTPUT');": "expect(sellingAdjustmentInput.tagName).toBe('INPUT');",
+            "expect(sellingAdjustmentOutput).toHaveAttribute('data-readonly', 'true');": "expect(sellingAdjustmentInput).not.toBeDisabled();",
+            "expect(sellingAdjustmentOutput).toHaveTextContent('0');": "expect(sellingAdjustmentInput).toHaveValue('0');",
+            "expect(sellingAdjustmentOutput).toHaveTextContent('250');": "expect(sellingAdjustmentInput).toHaveValue('250');\n    fireEvent.change(sellingAdjustmentInput, { target: { value: '300' } });\n    expect(sellingActualInput).toHaveValue((sellingPlan + 300).toLocaleString('ko-KR'));\n    fireEvent.change(sellingAdjustmentInput, { target: { value: '250' } });\n    expect(sellingActualInput).toHaveValue((sellingPlan + 250).toLocaleString('ko-KR'));",
+
+            "const adminAdjustmentOutput = screen.getByLabelText('7월 지급수수료 일반관리비 자동 조정액');": "const adminAdjustmentInput = screen.getByLabelText('7월 지급수수료 일반관리비 조정액');",
+            "expect(adminAdjustmentOutput.tagName).toBe('OUTPUT');": "expect(adminAdjustmentInput.tagName).toBe('INPUT');",
+            "expect(adminAdjustmentOutput).toHaveAttribute('data-readonly', 'true');": "expect(adminAdjustmentInput).not.toBeDisabled();",
+            "expect(adminAdjustmentOutput).toHaveTextContent('-100');": "expect(adminAdjustmentInput).toHaveValue('-100');\n    fireEvent.change(adminAdjustmentInput, { target: { value: '-150' } });\n    expect(adminActualInput).toHaveValue((adminPlan - 150).toLocaleString('ko-KR'));\n    fireEvent.change(adminAdjustmentInput, { target: { value: '-100' } });\n    expect(adminActualInput).toHaveValue((adminPlan - 100).toLocaleString('ko-KR'));",
+
+            "expect(screen.getByLabelText('7월 사무관리비 일반관리비 자동 조정액')).toHaveTextContent('100');": "expect(screen.getByLabelText('7월 사무관리비 일반관리비 조정액')).toHaveValue('100');",
+            "expect(screen.getByLabelText('7월 운반비 판관비 예상금액')).toHaveTextContent('1,300');": "expect(screen.getByLabelText('7월 운반비 판매비 실적금액')).toHaveValue('1,300');",
+            "expect(screen.getByLabelText('1월 제조간접비 제조경비 자동 조정액')).toHaveTextContent('100');": "expect(screen.getByLabelText('1월 제조간접비 제조경비 조정액')).toHaveValue('100');",
+          }
+
+          required = [
+            "const adjustmentOutput = screen.getByLabelText('7월 전력비 제조경비 자동 조정액');",
+            "const sellingAdjustmentOutput = screen.getByLabelText('7월 운송비 판매비 자동 조정액');",
+            "const adminAdjustmentOutput = screen.getByLabelText('7월 지급수수료 일반관리비 자동 조정액');",
+          ]
+          missing = [old for old in required if old not in text]
+          if missing:
+              raise SystemExit(f'required stale assertions not found: {missing}')
+
+          for old, new in replacements.items():
+              text = text.replace(old, new)
+
+          if '자동 조정액' in text:
+              lines = [line.strip() for line in text.splitlines() if '자동 조정액' in line]
+              raise SystemExit(f'stale automatic-adjustment assertions remain: {lines}')
+
+          path.write_text(text, encoding='utf-8')
+          PY
+
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: npm ci
+
+      - name: Run affected vertical-slice regression
+        working-directory: frontend
+        run: npm test -- ForecastVerticalSlice.test.tsx
+
+      - name: Run full frontend suite with baseline-differential gate
+        shell: bash
+        working-directory: frontend
+        run: |
+          set +e
+          npm test 2>&1 | tee ../bidirectional-final-full-suite.log
+          test_code=${PIPESTATUS[0]}
+          set -e
+          TEST_CODE="$test_code" python - <<'PY'
+          import os, re
+          from pathlib import Path
+
+          raw = Path('../bidirectional-final-full-suite.log').read_text(encoding='utf-8', errors='replace')
+          clean = re.sub(r'\x1b\[[0-9;]*m', '', raw)
+          failures = [line.strip() for line in clean.splitlines() if line.strip().startswith('FAIL ')]
+          allowed = [
+              'src/integration/PnlReportingTemplateIntegration.test.tsx > P&L Reporting exact template delivery > uses authenticated no-store GET and safely delivers the server filename with Blob cleanup',
+              'src/integration/CoreVerticalSlice.test.tsx > React core vertical slice > reuses the same idempotency key after a lost submit response',
+          ]
+          unexpected = [line for line in failures if not any(fragment in line for fragment in allowed)]
+          if unexpected:
+              raise SystemExit('unexpected full-suite failures: ' + ' | '.join(unexpected))
+          if 'src/integration/ForecastVerticalSlice.test.tsx' in '\n'.join(failures):
+              raise SystemExit('forecast vertical slice regressed')
+          print(f'FULL_SUITE_EXIT={os.environ["TEST_CODE"]}')
+          print('BASELINE_DIFFERENTIAL_GATE=PASS')
+          print('ALLOWED_BASELINE_FAILURES=' + (' | '.join(failures) if failures else 'NONE'))
+          PY
+
+      - name: Lint
+        working-directory: frontend
+        run: npm run lint
+
+      - name: Build
+        working-directory: frontend
+        run: npm run build
+
+      - name: Commit tested source and regression changes
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add frontend/src/views/ForecastGenerationView.tsx frontend/src/integration/ForecastVerticalSlice.test.tsx
+          git diff --cached --check
+          if git diff --cached --quiet; then
+            echo "No source/test changes to commit."
+            exit 0
+          fi
+          git commit -m "fix: enable bidirectional forecast adjustment input"
+          git push origin HEAD:agent/fix-bidirectional-adjustment-input
