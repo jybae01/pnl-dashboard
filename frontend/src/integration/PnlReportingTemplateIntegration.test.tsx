@@ -34,7 +34,7 @@ afterEach(() => {
 
 describe('P&L Reporting exact template delivery', () => {
   it('uses authenticated no-store GET and safely delivers the server filename with Blob cleanup', async () => {
-    const createObjectURL = vi.fn(() => 'blob:pnl-reporting-template');
+    const createObjectURL = vi.fn((_blob: Blob) => 'blob:pnl-reporting-template');
     const revokeObjectURL = vi.fn();
     vi.stubGlobal('URL', { ...URL, createObjectURL, revokeObjectURL });
     let clicked: { filename: string; hidden: boolean; connected: boolean } | null = null;
@@ -57,7 +57,11 @@ describe('P&L Reporting exact template delivery', () => {
     expect(String(input)).toBe('/api/admin/pnl-reporting/template');
     expect(init).toMatchObject({ method: 'GET', credentials: 'include', cache: 'no-store' });
     expect(new Headers(init?.headers).has('X-CSRF-Token')).toBe(false);
-    expect(createObjectURL).toHaveBeenCalledWith(expect.any(Blob));
+    expect(createObjectURL).toHaveBeenCalledTimes(1);
+    const [downloadBlob] = createObjectURL.mock.calls[0];
+    expect(Object.prototype.toString.call(downloadBlob)).toBe('[object Blob]');
+    expect(downloadBlob.type).toBe(XLSX_MIME);
+    expect(downloadBlob.size).toBeGreaterThan(0);
     expect(clicked).toEqual({ filename: 'PNL_REPORTING_TEMPLATE_V1.xlsx', hidden: true, connected: true });
     expect(document.querySelector('a[download]')).not.toBeInTheDocument();
     expect(revokeObjectURL).toHaveBeenCalledWith('blob:pnl-reporting-template');
