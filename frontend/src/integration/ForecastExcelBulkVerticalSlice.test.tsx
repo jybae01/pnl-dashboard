@@ -127,7 +127,11 @@ describe('Forecast Excel bulk input vertical slice', () => {
     fireEvent.change(screen.getByLabelText('7월 SW400 MCM 수량'), { target: { value: '77' } });
     fireEvent.click(screen.getByText(/비용 및 원가 조정/));
     fireEvent.click(await screen.findByRole('button', { name: '7월 전력비 조정' }));
-    fireEvent.change(screen.getByLabelText('7월 전력비 제조경비 조정액'), { target: { value: '-66' } });
+    const manufacturingPlan = monthlyBaselineAmounts['7'];
+    const manufacturingPlanOutput = screen.getByLabelText('7월 전력비 제조경비 계획');
+    expect(manufacturingPlanOutput).toHaveAttribute('data-readonly', 'true');
+    expect(manufacturingPlanOutput).toHaveTextContent(manufacturingPlan.toLocaleString('ko-KR'));
+    fireEvent.change(screen.getByLabelText('7월 전력비 제조경비 실적금액'), { target: { value: String(manufacturingPlan - 66) } });
     fireEvent.click(screen.getByRole('button', { name: '등록' }));
     expect(screen.getByText(/제조경비 조정 내역 \(1건\)/)).toBeInTheDocument();
     upload();

@@ -52,6 +52,31 @@ export function displayCells(cells: PnlDisplayCell[] | undefined, expected: numb
   return Array.from({ length: expected }, () => ({ value: null, text: '—', tone: 'neutral' as const, emphasis: 'normal' as const }));
 }
 
+/**
+ * Presentation-only numeric normalization for the reporting UI.
+ * Amounts/quantities are rounded to whole numbers with thousands separators.
+ * Percentages and percentage-point values retain exactly one decimal place.
+ */
+export function formatReportingDisplayText(text: string | null | undefined): string {
+  if (text === null || text === undefined) return '—';
+  const trimmed = text.trim();
+  if (trimmed === '' || trimmed === '—') return trimmed || '—';
+
+  const match = trimmed.match(/^([+-]?)([\d,]+(?:\.\d+)?)(%p|%)?$/);
+  if (!match) return text;
+
+  const [, explicitSign, numericText, suffix = ''] = match;
+  const parsed = Number(numericText.replace(/,/g, ''));
+  if (!Number.isFinite(parsed)) return text;
+
+  const isPercent = suffix === '%' || suffix === '%p';
+  const formatted = parsed.toLocaleString('ko-KR', isPercent
+    ? { minimumFractionDigits: 1, maximumFractionDigits: 1 }
+    : { minimumFractionDigits: 0, maximumFractionDigits: 0 });
+  const sign = explicitSign === '-' ? '-' : explicitSign === '+' ? '+' : '';
+  return `${sign}${formatted}${suffix}`;
+}
+
 export function ReportingValueCell({ cell }: { cell: PnlDisplayCell }) {
-  return <td className={`text-right pnl-report__tabular pnl-report__value--${cell.tone ?? 'neutral'}`} data-emphasis={cell.emphasis ?? 'normal'}>{cell.text}</td>;
+  return <td className={`text-right pnl-report__tabular pnl-report__value--${cell.tone ?? 'neutral'}`} data-emphasis={cell.emphasis ?? 'normal'}>{formatReportingDisplayText(cell.text)}</td>;
 }
