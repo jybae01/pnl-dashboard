@@ -1,6 +1,7 @@
 import { Award, BarChart2, DollarSign, Table, TrendingUp } from 'lucide-react';
 import { useState } from 'react';
 import type { PnlMonthlyDataRow, PnlMonthlyTrendSlot } from '../../types/pnlReporting';
+import { formatReportingDisplayText } from './ReportingTableControls';
 
 type ProfitMode = 'OP_PROFIT' | 'ADJ_OP_PROFIT' | 'DATA_TABLE';
 
@@ -80,7 +81,7 @@ export function MonthlyTrendChart({ data, dataRows }: MonthlyTrendChartProps) {
           {[0, .33, .66, 1].map((ratio) => {
             const y = revenueTop + revenueHeight * (1 - ratio);
             const label = Math.round((revenueMaximum * ratio) / WON_PER_MILLION / 1000) * 1000;
-            return <g key={ratio}><line x1={LEFT} y1={y} x2={SVG_WIDTH - RIGHT} y2={y} stroke="#f1f5f9" strokeWidth="1" /><text data-axis-label="amount" x={LEFT - 8} y={y + 3.5} textAnchor="end" fontSize="11" fill="#94a3b8">{label.toLocaleString()}</text></g>;
+            return <g key={ratio}><line x1={LEFT} y1={y} x2={SVG_WIDTH - RIGHT} y2={y} stroke="#f1f5f9" strokeWidth="1" /><text data-axis-label="amount" x={LEFT - 8} y={y + 3.5} textAnchor="end" fontSize="11" fill="#94a3b8">{label.toLocaleString('ko-KR', { maximumFractionDigits: 0 })}</text></g>;
           })}
           <line x1={LEFT} y1={revenueBottom} x2={SVG_WIDTH - RIGHT} y2={revenueBottom} stroke="#cbd5e1" strokeWidth="1" />
           {data.map((slot, index) => {
@@ -92,7 +93,7 @@ export function MonthlyTrendChart({ data, dataRows }: MonthlyTrendChartProps) {
               {plan && <rect data-series="plan" x={groupStart} y={plan.y} width={BAR_WIDTH} height={plan.height} fill="url(#pnl-revenue-plan)" stroke="#94a3b8" strokeWidth=".6" rx="2" />}
               {actual && <>
                 <rect data-series="actual" x={groupStart + BAR_WIDTH + BAR_GAP} y={actual.y} width={BAR_WIDTH} height={actual.height} fill="url(#pnl-revenue-actual)" stroke="#1d4ed8" strokeWidth=".6" rx="2" />
-                {slot.actualRevenueText && <text x={groupStart + BAR_WIDTH + BAR_GAP + BAR_WIDTH / 2} y={actual.y - 5} textAnchor="middle" fontSize="11" fontWeight="700" fill="#1d4ed8">{slot.actualRevenueText}</text>}
+                {slot.actualRevenueText && <text x={groupStart + BAR_WIDTH + BAR_GAP + BAR_WIDTH / 2} y={actual.y - 5} textAnchor="middle" fontSize="11" fontWeight="700" fill="#1d4ed8">{formatReportingDisplayText(slot.actualRevenueText)}</text>}
               </>}
               <text data-axis-label="month" x={x + columnWidth / 2} y={revenueBottom + 17} textAnchor="middle" fontSize="11.5" fontWeight="600" fill="#475569">{slot.label}</text>
             </g>;
@@ -123,7 +124,7 @@ export function MonthlyTrendChart({ data, dataRows }: MonthlyTrendChartProps) {
       {profitMode === 'DATA_TABLE' ? <div className="pnl-report__chart-scroll">
         <table className="pnl-report__financial-table pnl-report__monthly-table" data-column-count={data.length + 1}>
           <thead><tr><th>손익 지표</th>{data.map((slot) => <th key={slot.periodKey}>{slot.label}</th>)}</tr></thead>
-          <tbody>{dataRows.map((row) => <tr key={row.key} data-row-key={row.key} data-tone={row.tone}><td>{row.label}</td>{data.map((slot, index) => <td className="pnl-report__tabular" key={slot.periodKey}>{row.cells[index]?.text ?? '—'}</td>)}</tr>)}</tbody>
+          <tbody>{dataRows.map((row) => <tr key={row.key} data-row-key={row.key} data-tone={row.tone}><td>{row.label}</td>{data.map((slot, index) => <td className="pnl-report__tabular" key={slot.periodKey}>{formatReportingDisplayText(row.cells[index]?.text ?? '—')}</td>)}</tr>)}</tbody>
         </table>
       </div> : <div className="pnl-report__chart-scroll">
         <svg className="pnl-report__trend-svg" viewBox="0 0 920 275" role="img" aria-label="월별 영업이익 계획 실적 막대와 실적 이익률 복합 차트">
@@ -135,12 +136,12 @@ export function MonthlyTrendChart({ data, dataRows }: MonthlyTrendChartProps) {
           {marginPath && <path data-series="actual-margin" data-last-period-key={lastActualMarginPeriod} d={marginPath} fill="none" stroke={profitMode === 'ADJ_OP_PROFIT' ? '#0d9488' : '#ea580c'} strokeWidth="2.2" />}
           {actualMarginPoints.map((point) => <g key={point.slot.periodKey}>
             <circle data-series="actual-margin-point" data-period-key={point.slot.periodKey} cx={point.x} cy={point.y} r="3.5" fill="#fff" stroke={profitMode === 'ADJ_OP_PROFIT' ? '#0d9488' : '#ea580c'} strokeWidth="2" />
-            <text x={point.x} y={point.y - 5.5} textAnchor="middle" fontSize="11" fontWeight="800" fill={profitMode === 'ADJ_OP_PROFIT' ? '#0f766e' : '#c2410c'}>{profitMode === 'ADJ_OP_PROFIT' ? point.slot.actualAdjustedOperatingMarginText : point.slot.actualOperatingMarginText}</text>
+            <text x={point.x} y={point.y - 5.5} textAnchor="middle" fontSize="11" fontWeight="800" fill={profitMode === 'ADJ_OP_PROFIT' ? '#0f766e' : '#c2410c'}>{formatReportingDisplayText(profitMode === 'ADJ_OP_PROFIT' ? point.slot.actualAdjustedOperatingMarginText : point.slot.actualOperatingMarginText)}</text>
           </g>)}
           {[0, .33, .66, 1].map((ratio) => {
             const y = profitTop + profitHeight * (1 - ratio);
             const label = Math.round((profitMaximum * ratio) / WON_PER_MILLION / 100) * 100;
-            return <g key={ratio}><line x1={LEFT} y1={y} x2={SVG_WIDTH - RIGHT} y2={y} stroke="#f1f5f9" strokeWidth="1" /><text data-axis-label="amount" x={LEFT - 8} y={y + 3.5} textAnchor="end" fontSize="11" fill="#94a3b8">{label.toLocaleString()}</text></g>;
+            return <g key={ratio}><line x1={LEFT} y1={y} x2={SVG_WIDTH - RIGHT} y2={y} stroke="#f1f5f9" strokeWidth="1" /><text data-axis-label="amount" x={LEFT - 8} y={y + 3.5} textAnchor="end" fontSize="11" fill="#94a3b8">{label.toLocaleString('ko-KR', { maximumFractionDigits: 0 })}</text></g>;
           })}
           <line x1={LEFT} y1={profitBottom} x2={SVG_WIDTH - RIGHT} y2={profitBottom} stroke="#cbd5e1" strokeWidth="1" />
           {data.map((slot, index) => {
@@ -155,7 +156,7 @@ export function MonthlyTrendChart({ data, dataRows }: MonthlyTrendChartProps) {
               {plan && <rect data-series="plan" x={groupStart} y={plan.y} width={BAR_WIDTH} height={plan.height} fill="url(#pnl-profit-plan)" stroke="#94a3b8" strokeWidth=".6" rx="2" />}
               {actual && <>
                 <rect data-series="actual" x={groupStart + BAR_WIDTH + BAR_GAP} y={actual.y} width={BAR_WIDTH} height={actual.height} fill={profitMode === 'ADJ_OP_PROFIT' ? 'url(#pnl-profit-adjusted)' : 'url(#pnl-profit-actual)'} stroke={profitMode === 'ADJ_OP_PROFIT' ? '#0f766e' : '#c2410c'} strokeWidth=".6" rx="2" />
-                {actualText && <text x={groupStart + BAR_WIDTH + BAR_GAP + BAR_WIDTH / 2} y={actual.y - 5} textAnchor="middle" fontSize="11" fontWeight="700" fill={profitMode === 'ADJ_OP_PROFIT' ? '#0f766e' : '#c2410c'}>{actualText}</text>}
+                {actualText && <text x={groupStart + BAR_WIDTH + BAR_GAP + BAR_WIDTH / 2} y={actual.y - 5} textAnchor="middle" fontSize="11" fontWeight="700" fill={profitMode === 'ADJ_OP_PROFIT' ? '#0f766e' : '#c2410c'}>{formatReportingDisplayText(actualText)}</text>}
               </>}
               <text data-axis-label="month" x={x + columnWidth / 2} y={profitBottom + 17} textAnchor="middle" fontSize="11.5" fontWeight="600" fill="#475569">{slot.label}</text>
             </g>;
