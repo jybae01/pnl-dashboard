@@ -1,0 +1,59 @@
+name: Diagnose bidirectional full frontend suite
+
+on:
+  push:
+    branches:
+      - agent/fix-bidirectional-adjustment-input
+    paths:
+      - .github/workflows/diagnose-bidirectional-full-suite.yml
+
+permissions:
+  contents: read
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: agent/fix-bidirectional-adjustment-input
+          fetch-depth: 0
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Reuse experimental UI patch
+        shell: bash
+        run: |
+          awk '/^          python - <<'\''PY'\''$/{flag=1;next} flag && /^          PY$/{flag=0;exit} flag{sub(/^          /,""); print}' \
+            .github/workflows/apply-bidirectional-adjustment-fix.yml > /tmp/apply_bidirectional_patch.py
+          test -s /tmp/apply_bidirectional_patch.py
+          python /tmp/apply_bidirectional_patch.py
+
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: npm ci
+
+      - name: Capture full frontend test output
+        shell: bash
+        working-directory: frontend
+        run: |
+          set +e
+          npm test 2>&1 | tee ../bidirectional-full-suite.log
+          code=${PIPESTATUS[0]}
+          echo "$code" > ../bidirectional-full-suite-exit-code.txt
+          exit 0
+
+      - name: Upload diagnostic output
+        uses: actions/upload-artifact@v4
+        with:
+          name: bidirectional-full-suite-diagnostic
+          path: |
+            bidirectional-full-suite.log
+            bidirectional-full-suite-exit-code.txt
+          if-no-files-found: error
