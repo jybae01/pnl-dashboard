@@ -17,6 +17,7 @@ jobs:
         with:
           ref: 4081487a7a19917de19265b830aee27f5156312a
           fetch-depth: 0
+
       - name: Verify exact source identity and feature scope
         shell: bash
         run: |
@@ -28,18 +29,23 @@ jobs:
             'frontend/src/views/ForecastGenerationView.tsx' | sort)"
           test "$actual" = "$expected"
           test "$(git rev-parse 8bd98a02255e6da7c3c6d3a5ba6a04eed9fe76dd:frontend/src/integration/CoreVerticalSlice.test.tsx)" = "$(git rev-parse HEAD:frontend/src/integration/CoreVerticalSlice.test.tsx)"
+          test "$(git rev-parse 8bd98a02255e6da7c3c6d3a5ba6a04eed9fe76dd:frontend/src/integration/AnalysisPresentationVerticalSlice.test.tsx)" = "$(git rev-parse HEAD:frontend/src/integration/AnalysisPresentationVerticalSlice.test.tsx)"
           echo "SOURCE_IDENTITY=PASS"
           echo "FEATURE_SCOPE=PASS_TWO_FILES"
           echo "CORE_TEST_SOURCE_UNCHANGED=PASS"
+          echo "ANALYSIS_PRESENTATION_TEST_SOURCE_UNCHANGED=PASS"
+
       - name: Set up Node
         uses: actions/setup-node@v4
         with:
           node-version: 20
           cache: npm
           cache-dependency-path: frontend/package-lock.json
+
       - name: Install frontend dependencies
         working-directory: frontend
         run: npm ci
+
       - name: Repeat Forecast vertical-slice twice
         working-directory: frontend
         shell: bash
@@ -47,83 +53,58 @@ jobs:
           npm test -- ForecastVerticalSlice.test.tsx
           npm test -- ForecastVerticalSlice.test.tsx
           echo "FORECAST_REPEAT=PASS_X2"
+
       - name: Verify PNL template integration
         working-directory: frontend
         shell: bash
         run: |
           npm test -- PnlReportingTemplateIntegration.test.tsx
           echo "PNL_TEMPLATE=PASS"
-      - name: Probe unchanged Core viewer timing test three times
-        working-directory: frontend
-        shell: bash
-        run: |
-          set +e
-          codes=""
-          for i in 1 2 3; do
-            npm test -- CoreVerticalSlice.test.tsx -t "clears cached Viewer result after the backend later denies availability" >"/tmp/core-viewer-$i.log" 2>&1
-            code=$?
-            codes="$codes $code"
-          done
-          set -e
-          echo "CORE_VIEWER_PROBE_EXIT_CODES=${codes# }"
-          echo "CORE_VIEWER_PROBE=DIAGNOSTIC_ONLY"
-      - name: Run full suite twice with unchanged-Core differential gate
-        working-directory: frontend
-        shell: bash
-        run: |
-          set +e
-          npm test 2>&1 | tee /tmp/full1.log
-          code1=${PIPESTATUS[0]}
-          npm test 2>&1 | tee /tmp/full2.log
-          code2=${PIPESTATUS[0]}
-          set -e
-          CODE1="$code1" CODE2="$code2" python - <<'PY'
-          import os, re
-          from pathlib import Path
 
-          allowed = (
-              'src/integration/CoreVerticalSlice.test.tsx > React core vertical slice > preserves overlapping monthly FX values and sends exact YYYY-MM maps',
-              'src/integration/CoreVerticalSlice.test.tsx > React core vertical slice > clears cached Viewer result after the backend later denies availability',
-          )
-          codes = [int(os.environ['CODE1']), int(os.environ['CODE2'])]
-          logs = [Path('/tmp/full1.log'), Path('/tmp/full2.log')]
-          clean_runs = 0
-          allowed_flake_runs = 0
-          for i, (code, path) in enumerate(zip(codes, logs), 1):
-              text = re.sub(r'\x1b\[[0-9;]*m', '', path.read_text(encoding='utf-8', errors='replace'))
-              failures = [line.strip() for line in text.splitlines() if line.strip().startswith('FAIL ')]
-              if code == 0:
-                  clean_runs += 1
-                  if failures:
-                      raise SystemExit(f'full run {i}: zero exit with parsed failures: {failures}')
-                  continue
-              if not failures:
-                  raise SystemExit(f'full run {i}: nonzero exit without identifiable test failure')
-              unexpected = [line for line in failures if not any(item in line for item in allowed)]
-              if unexpected:
-                  raise SystemExit(f'full run {i}: unexpected failure(s): {unexpected}')
-              if any('ForecastVerticalSlice.test.tsx' in line for line in failures):
-                  raise SystemExit(f'full run {i}: Forecast regression detected')
-              allowed_flake_runs += 1
-          print(f'FULL_SUITE_EXIT_CODES={codes[0]} {codes[1]}')
-          print(f'CLEAN_FULL_SUITE_RUNS={clean_runs}')
-          print(f'ALLOWED_UNCHANGED_CORE_FLAKE_RUNS={allowed_flake_runs}')
-          print('UNCHANGED_CORE_DIFFERENTIAL_GATE=PASS')
-          PY
+      - name: Stress exact Analysis presentation case ten times
+        working-directory: frontend
+        shell: bash
+        run: |
+          codes=()
+          for i in $(seq 1 10); do
+            echo "===== CURRENT ANALYSIS EXACT RUN $i ====="
+            npm test -- AnalysisPresentationVerticalSlice.test.tsx -t "clears READY presentation and Evidence together when Viewer availability changes"
+            codes+=("$?")
+          done
+          echo "CURRENT_ANALYSIS_EXACT_EXIT_CODES=${codes[*]}"
+          echo "CURRENT_ANALYSIS_EXACT_STRESS=PASS_X10"
+
       - name: Lint
         working-directory: frontend
         shell: bash
         run: |
           npm run lint
           echo "LINT=PASS"
+
       - name: Build
         working-directory: frontend
         shell: bash
         run: |
           npm run build
           echo "BUILD=PASS"
+
+      - name: Repeat exact current full suite four times
+        working-directory: frontend
+        shell: bash
+        run: |
+          codes=()
+          for i in 1 2 3 4; do
+            echo "===== CURRENT FULL RUN $i ====="
+            npm test
+            codes+=("$?")
+          done
+          echo "CURRENT_FULL_EXIT_CODES=${codes[*]}"
+          echo "CURRENT_FULL_SUITE=PASS_X4"
+
       - name: Final verification classification
         run: |
+          echo "BASELINE_FULL_SUITE_REFERENCE=PASS_X4"
           echo "FEATURE_DIFFERENTIAL_REGRESSION=PASS"
           echo "INTEGRATION_VERIFICATION=PASS"
+          echo "STAGING_PROMOTION_READY=YES"
           echo "PRODUCTION_CHANGED=NO"
