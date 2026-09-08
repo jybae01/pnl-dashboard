@@ -9,6 +9,9 @@ import {
 
 const BASE = '11111111-1111-4111-8111-111111111111';
 const baseline = 1_000_000;
+const monthlyBaselineAmounts = Object.fromEntries(
+  Array.from({ length: 12 }, (_, index) => [String(index + 1), baseline]),
+);
 const modelPayload = { models: [{
   model_id: BASE,
   display_name: 'Base',
@@ -22,10 +25,10 @@ const modelPayload = { models: [{
 }] };
 const metadataPayload = {
   base_model_id: BASE,
-  manufacturing: [{ adjustment_key: 'mfg-energy', display_name: '전력비', unit: 'KRW', category: 'manufacturing', section: null, monthly_baseline_amounts: { '7': baseline } }],
+  manufacturing: [{ adjustment_key: 'mfg-energy', display_name: '전력비', unit: 'KRW', category: 'manufacturing', section: null, monthly_baseline_amounts: monthlyBaselineAmounts }],
   sga: [
-    { adjustment_key: 'sga-selling', display_name: '운송비', unit: 'KRW', category: 'sga', section: 'selling', monthly_baseline_amounts: { '7': baseline } },
-    { adjustment_key: 'sga-admin', display_name: '사무비', unit: 'KRW', category: 'sga', section: 'general_admin', monthly_baseline_amounts: { '7': baseline } },
+    { adjustment_key: 'sga-selling', display_name: '운송비', unit: 'KRW', category: 'sga', section: 'selling', monthly_baseline_amounts: monthlyBaselineAmounts },
+    { adjustment_key: 'sga-admin', display_name: '사무비', unit: 'KRW', category: 'sga', section: 'general_admin', monthly_baseline_amounts: monthlyBaselineAmounts },
   ],
   reason_max_length: 500,
   dto_version: '1',
@@ -39,6 +42,7 @@ async function ready() {
   await screen.findByRole('heading', { name: '추정 산출' });
   await waitFor(() => expect(screen.getByRole('button', { name: '모형 적용' })).not.toBeDisabled());
   fireEvent.click(screen.getByRole('button', { name: '모형 적용' }));
+  await waitFor(() => expect(screen.getByRole('button', { name: '추정 모형 생성' })).not.toBeDisabled());
   fireEvent.click(screen.getByText('비용 및 원가 조정'));
 }
 
