@@ -44,51 +44,28 @@ jobs:
         run: |
           python - <<'PY'
           from pathlib import Path
-
           core = Path('frontend/src/integration/CoreVerticalSlice.test.tsx')
           text = core.read_text(encoding='utf-8')
-
-          old_fx = """    expect(await screen.findByText('분석 조건 설정')).toBeInTheDocument();
-
-    const start = screen.getByLabelText('시작 월') as HTMLInputElement;
-"""
-          new_fx = """    expect(await screen.findByText('분석 조건 설정')).toBeInTheDocument();
-    await waitFor(() => expect(screen.getByLabelText('기준 모형 (Baseline)')).toHaveValue(BASE));
-
-    const start = screen.getByLabelText('시작 월') as HTMLInputElement;
-"""
+          old_fx = "    expect(await screen.findByText('분석 조건 설정')).toBeInTheDocument();\n\n    const start = screen.getByLabelText('시작 월') as HTMLInputElement;\n"
+          new_fx = "    expect(await screen.findByText('분석 조건 설정')).toBeInTheDocument();\n    await waitFor(() => expect(screen.getByLabelText('기준 모형 (Baseline)')).toHaveValue(BASE));\n\n    const start = screen.getByLabelText('시작 월') as HTMLInputElement;\n"
           if text.count(old_fx) != 1:
               raise SystemExit(f'Core FX anchor count={text.count(old_fx)}')
           text = text.replace(old_fx, new_fx)
-
-          old_viewer = """    await waitFor(() => expect(screen.queryByTestId('stored-result')).not.toBeInTheDocument());
-    expect(screen.getByTestId('viewer-empty')).toBeInTheDocument();
-"""
-          new_viewer = """    expect(await screen.findByTestId('viewer-empty')).toBeInTheDocument();
-    expect(screen.queryByTestId('stored-result')).not.toBeInTheDocument();
-"""
+          old_viewer = "    await waitFor(() => expect(screen.queryByTestId('stored-result')).not.toBeInTheDocument());\n    expect(screen.getByTestId('viewer-empty')).toBeInTheDocument();\n"
+          new_viewer = "    expect(await screen.findByTestId('viewer-empty')).toBeInTheDocument();\n    expect(screen.queryByTestId('stored-result')).not.toBeInTheDocument();\n"
           if text.count(old_viewer) != 1:
               raise SystemExit(f'Core Viewer anchor count={text.count(old_viewer)}')
           core.write_text(text.replace(old_viewer, new_viewer), encoding='utf-8')
-
           analysis = Path('frontend/src/integration/AnalysisPresentationVerticalSlice.test.tsx')
           text = analysis.read_text(encoding='utf-8')
-          old_analysis = """    await waitFor(() => expect(screen.queryByTestId('analysis-presentation')).not.toBeInTheDocument());
-    expect(screen.queryByRole('button', { name: '분석 근거 엑셀 내려받기' })).not.toBeInTheDocument();
-    expect(screen.getByTestId('viewer-empty')).toBeInTheDocument();
-"""
-          new_analysis = """    expect(await screen.findByTestId('viewer-empty')).toBeInTheDocument();
-    expect(screen.queryByTestId('analysis-presentation')).not.toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: '분석 근거 엑셀 내려받기' })).not.toBeInTheDocument();
-"""
+          old_analysis = "    await waitFor(() => expect(screen.queryByTestId('analysis-presentation')).not.toBeInTheDocument());\n    expect(screen.queryByRole('button', { name: '분석 근거 엑셀 내려받기' })).not.toBeInTheDocument();\n    expect(screen.getByTestId('viewer-empty')).toBeInTheDocument();\n"
+          new_analysis = "    expect(await screen.findByTestId('viewer-empty')).toBeInTheDocument();\n    expect(screen.queryByTestId('analysis-presentation')).not.toBeInTheDocument();\n    expect(screen.queryByRole('button', { name: '분석 근거 엑셀 내려받기' })).not.toBeInTheDocument();\n"
           if text.count(old_analysis) != 1:
               raise SystemExit(f'Analysis Viewer anchor count={text.count(old_analysis)}')
           analysis.write_text(text.replace(old_analysis, new_analysis), encoding='utf-8')
           PY
           actual="$(git diff --name-only | sort)"
-          expected="$(printf '%s\n' \
-            'frontend/src/integration/AnalysisPresentationVerticalSlice.test.tsx' \
-            'frontend/src/integration/CoreVerticalSlice.test.tsx' | sort)"
+          expected="$(printf '%s\n' 'frontend/src/integration/AnalysisPresentationVerticalSlice.test.tsx' 'frontend/src/integration/CoreVerticalSlice.test.tsx' | sort)"
           test "$actual" = "$expected"
           echo "TEST_ONLY_PATCH_SCOPE=PASS_TWO_FILES"
 
@@ -140,9 +117,7 @@ jobs:
         run: |
           git rm .github/workflows/fix-flaky-core-analysis-timing.yml
           actual="$(git diff --name-only 4081487a7a19917de19265b830aee27f5156312a | sort)"
-          expected="$(printf '%s\n' \
-            'frontend/src/integration/AnalysisPresentationVerticalSlice.test.tsx' \
-            'frontend/src/integration/CoreVerticalSlice.test.tsx' | sort)"
+          expected="$(printf '%s\n' 'frontend/src/integration/AnalysisPresentationVerticalSlice.test.tsx' 'frontend/src/integration/CoreVerticalSlice.test.tsx' | sort)"
           test "$actual" = "$expected"
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
