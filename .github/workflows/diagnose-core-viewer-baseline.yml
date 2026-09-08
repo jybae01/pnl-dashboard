@@ -1,4 +1,4 @@
-name: Diagnose baseline Core viewer flake
+name: Diagnose baseline analysis and Core timing flakes
 
 on:
   push:
@@ -31,29 +31,46 @@ jobs:
       - name: Install frontend dependencies
         working-directory: frontend
         run: npm ci
-      - name: Repeat CoreVerticalSlice five times
+      - name: Probe exact Analysis presentation test ten times
         working-directory: frontend
         shell: bash
         run: |
           set +e
           codes=()
-          for i in 1 2 3 4 5; do
-            echo "===== BASELINE CORE RUN $i ====="
-            npm test -- CoreVerticalSlice.test.tsx
+          for i in $(seq 1 10); do
+            echo "===== BASELINE ANALYSIS EXACT RUN $i ====="
+            npm test -- AnalysisPresentationVerticalSlice.test.tsx -t "clears READY presentation and Evidence together when Viewer availability changes"
             codes+=("$?")
           done
           set -e
-          echo "BASELINE_CORE_EXIT_CODES=${codes[*]}"
-      - name: Repeat baseline full suite twice
+          echo "BASELINE_ANALYSIS_EXACT_EXIT_CODES=${codes[*]}"
+      - name: Probe exact Core FX test ten times
         working-directory: frontend
         shell: bash
         run: |
           set +e
           codes=()
-          for i in 1 2; do
+          for i in $(seq 1 10); do
+            echo "===== BASELINE CORE FX EXACT RUN $i ====="
+            npm test -- CoreVerticalSlice.test.tsx -t "preserves overlapping monthly FX values and sends exact YYYY-MM maps"
+            codes+=("$?")
+          done
+          set -e
+          echo "BASELINE_CORE_FX_EXACT_EXIT_CODES=${codes[*]}"
+      - name: Repeat baseline full suite four times
+        working-directory: frontend
+        shell: bash
+        run: |
+          set +e
+          codes=()
+          for i in 1 2 3 4; do
             echo "===== BASELINE FULL RUN $i ====="
             npm test
             codes+=("$?")
           done
           set -e
           echo "BASELINE_FULL_EXIT_CODES=${codes[*]}"
+      - name: Baseline diagnostic completed
+        run: |
+          echo "PRODUCT_CODE_CHANGED=NO"
+          echo "DIAGNOSTIC_ONLY=YES"
