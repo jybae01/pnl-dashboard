@@ -1,0 +1,59 @@
+name: Diagnose baseline Core viewer flake
+
+on:
+  push:
+    branches:
+      - agent/diagnose-core-viewer-baseline
+
+permissions:
+  contents: read
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout exact pre-feature integration baseline
+        uses: actions/checkout@v4
+        with:
+          ref: 8bd98a02255e6da7c3c6d3a5ba6a04eed9fe76dd
+          fetch-depth: 0
+      - name: Verify baseline identity
+        shell: bash
+        run: |
+          test "$(git rev-parse HEAD)" = "8bd98a02255e6da7c3c6d3a5ba6a04eed9fe76dd"
+          echo "BASELINE_IDENTITY=PASS"
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: npm ci
+      - name: Repeat CoreVerticalSlice five times
+        working-directory: frontend
+        shell: bash
+        run: |
+          set +e
+          codes=()
+          for i in 1 2 3 4 5; do
+            echo "===== BASELINE CORE RUN $i ====="
+            npm test -- CoreVerticalSlice.test.tsx
+            codes+=("$?")
+          done
+          set -e
+          echo "BASELINE_CORE_EXIT_CODES=${codes[*]}"
+      - name: Repeat baseline full suite twice
+        working-directory: frontend
+        shell: bash
+        run: |
+          set +e
+          codes=()
+          for i in 1 2; do
+            echo "===== BASELINE FULL RUN $i ====="
+            npm test
+            codes+=("$?")
+          done
+          set -e
+          echo "BASELINE_FULL_EXIT_CODES=${codes[*]}"
