@@ -124,7 +124,7 @@ export function formatNumericPresentation(value: string): string {
   if (trimmed === '') return '';
   const parsed = Number(trimmed.replace(/,/g, ''));
   return Number.isFinite(parsed)
-    ? parsed.toLocaleString('ko-KR', { maximumFractionDigits: 12 })
+    ? parsed.toLocaleString('ko-KR', { maximumFractionDigits: 0 })
     : value;
 }
 
@@ -162,7 +162,9 @@ export function calculateEntryAdjustmentFromTargetAmount(
 }
 
 function formatKrwAmount(value: number | undefined): string {
-  return typeof value === 'number' && Number.isFinite(value) ? value.toLocaleString('ko-KR') : '—';
+  return typeof value === 'number' && Number.isFinite(value)
+    ? value.toLocaleString('ko-KR', { maximumFractionDigits: 0 })
+    : '—';
 }
 
 interface PercentageInputProps {
@@ -210,9 +212,14 @@ function PercentageInput({ value, disabled, ariaLabel, onChange }: PercentageInp
 function FormattedNumericInput({ value, disabled, ariaLabel, onChange }: PercentageInputProps) {
   const [displayValue, setDisplayValue] = useState(() => formatNumericPresentation(value));
   const focusedRef = useRef(false);
+  const canonicalValueRef = useRef(parseFormattedNumericInput(value));
 
   useEffect(() => {
-    if (!focusedRef.current) setDisplayValue(formatNumericPresentation(value));
+    if (!focusedRef.current) {
+      const canonical = parseFormattedNumericInput(value);
+      canonicalValueRef.current = canonical;
+      setDisplayValue(formatNumericPresentation(canonical));
+    }
   }, [value]);
 
   return <input
@@ -228,12 +235,19 @@ function FormattedNumericInput({ value, disabled, ariaLabel, onChange }: Percent
       event.currentTarget.select();
     }}
     onChange={(event) => {
-      setDisplayValue(event.target.value);
-      onChange(parseFormattedNumericInput(event.target.value));
+      const canonical = parseFormattedNumericInput(event.target.value);
+      canonicalValueRef.current = canonical;
+      const isIntermediate = canonical === '' || canonical === '-';
+      setDisplayValue(isIntermediate
+        ? canonical
+        : Number.isFinite(Number(canonical))
+          ? formatNumericPresentation(canonical)
+          : event.target.value);
+      onChange(canonical);
     }}
     onBlur={(event) => {
       focusedRef.current = false;
-      const canonical = parseFormattedNumericInput(event.currentTarget.value);
+      const canonical = canonicalValueRef.current || parseFormattedNumericInput(event.currentTarget.value);
       onChange(canonical);
       setDisplayValue(formatNumericPresentation(canonical));
     }}
@@ -1366,8 +1380,8 @@ export const ForecastGenerationView: React.FC<ForecastGenerationViewProps> = ({
             <div><span>검증 이슈 / 주의</span><strong>{excelPreview.issues.length}건</strong></div>
           </div>
           <div className="forecast-workflow__preview-units" aria-label="단위별 입력 요약">
-            {excelPreview.sales_summary.map((summary) => <div key={`sales-${summary.unit}`}><span>{summary.unit === 'm' ? 'FS 판매' : summary.unit === 'PCS' ? '완제품 판매' : summary.unit === 'L' ? 'IX 판매' : '기타 판매'}</span><strong>{summary.quantity_total.toLocaleString('ko-KR')} {summary.unit}</strong><small>{summary.row_count}건</small></div>)}
-            {excelPreview.production_summary.map((summary) => <div key={`production-${summary.unit}`}><span>{summary.unit === 'm' ? '전공정 생산' : '후공정 생산'}</span><strong>{summary.quantity_total.toLocaleString('ko-KR')} {summary.unit}</strong><small>{summary.row_count}건</small></div>)}
+            {excelPreview.sales_summary.map((summary) => <div key={`sales-${summary.unit}`}><span>{summary.unit === 'm' ? 'FS 판매' : summary.unit === 'PCS' ? '완제품 판매' : summary.unit === 'L' ? 'IX 판매' : '기타 판매'}</span><strong>{summary.quantity_total.toLocaleString('ko-KR', { maximumFractionDigits: 0 })} {summary.unit}</strong><small>{summary.row_count}건</small></div>)}
+            {excelPreview.production_summary.map((summary) => <div key={`production-${summary.unit}`}><span>{summary.unit === 'm' ? '전공정 생산' : '후공정 생산'}</span><strong>{summary.quantity_total.toLocaleString('ko-KR', { maximumFractionDigits: 0 })} {summary.unit}</strong><small>{summary.row_count}건</small></div>)}
           </div>
           {excelPreview.issues.length > 0 && <div className="forecast-workflow__issue-table-wrap">
             <table className="forecast-workflow__issue-table">
@@ -1519,7 +1533,7 @@ export const ForecastGenerationView: React.FC<ForecastGenerationViewProps> = ({
                               fontWeight: hasAdjustment ? 700 : 400,
                               color: adjNum > 0 ? '#047857' : adjNum < 0 ? '#b91c1c' : undefined,
                             }}>
-                              {hasAdjustment ? (adjNum > 0 ? `+${adjNum.toLocaleString('ko-KR')}` : adjNum.toLocaleString('ko-KR')) : '0'}
+                              {hasAdjustment ? (adjNum > 0 ? `+${adjNum.toLocaleString('ko-KR', { maximumFractionDigits: 0 })}` : adjNum.toLocaleString('ko-KR', { maximumFractionDigits: 0 })) : '0'}
                             </td>
                             <td className="forecast-workflow__cell--action">
                               <button
@@ -1649,7 +1663,7 @@ export const ForecastGenerationView: React.FC<ForecastGenerationViewProps> = ({
                                 fontWeight: hasAdjustment ? 700 : 400,
                                 color: adjNum > 0 ? '#047857' : adjNum < 0 ? '#b91c1c' : undefined,
                               }}>
-                                {hasAdjustment ? (adjNum > 0 ? `+${adjNum.toLocaleString('ko-KR')}` : adjNum.toLocaleString('ko-KR')) : '0'}
+                                {hasAdjustment ? (adjNum > 0 ? `+${adjNum.toLocaleString('ko-KR', { maximumFractionDigits: 0 })}` : adjNum.toLocaleString('ko-KR', { maximumFractionDigits: 0 })) : '0'}
                               </td>
                               <td className="forecast-workflow__cell--action">
                                 <button
@@ -1772,9 +1786,9 @@ export const ForecastGenerationView: React.FC<ForecastGenerationViewProps> = ({
                           /></td>
                           <td className="forecast-workflow__cell--center"><span className="forecast-workflow__month-badge">{monthLabel(item.month)}</span></td>
                           <th scope="row" className="forecast-workflow__cell--center">{item.display_name}</th>
-                          <td className="forecast-workflow__cell--number">{typeof baseline === 'number' && Number.isFinite(baseline) ? baseline.toLocaleString('ko-KR') : '—'}</td>
-                          <td className="forecast-workflow__cell--number">{typeof baseline === 'number' && Number.isFinite(baseline) ? calculateAdjustmentExpectedAmount(baseline, row.amount).toLocaleString('ko-KR') : '—'}</td>
-                          <td className={`forecast-workflow__cell--number ${amount > 0 ? 'is-positive' : amount < 0 ? 'is-negative' : ''}`}>{amount > 0 ? `+${amount.toLocaleString('ko-KR')}` : amount.toLocaleString('ko-KR')}</td>
+                          <td className="forecast-workflow__cell--number">{typeof baseline === 'number' && Number.isFinite(baseline) ? baseline.toLocaleString('ko-KR', { maximumFractionDigits: 0 }) : '—'}</td>
+                          <td className="forecast-workflow__cell--number">{typeof baseline === 'number' && Number.isFinite(baseline) ? calculateAdjustmentExpectedAmount(baseline, row.amount).toLocaleString('ko-KR', { maximumFractionDigits: 0 }) : '—'}</td>
+                          <td className={`forecast-workflow__cell--number ${amount > 0 ? 'is-positive' : amount < 0 ? 'is-negative' : ''}`}>{amount > 0 ? `+${amount.toLocaleString('ko-KR', { maximumFractionDigits: 0 })}` : amount.toLocaleString('ko-KR', { maximumFractionDigits: 0 })}</td>
                           <td className="forecast-workflow__cell--reason"><div className="forecast-workflow__reason-cell">
                             <span className="forecast-workflow__reason-text" title={row.reason}>{row.reason || '(사유 미입력)'}</span>
                             {row.reason.length > 20 && <button type="button" className="forecast-workflow__btn-expand-reason" onClick={() => toggleExpandedReason(reasonKey)}>{reasonExpanded ? '접기' : '자세히'}</button>}
@@ -1808,8 +1822,8 @@ export const ForecastGenerationView: React.FC<ForecastGenerationViewProps> = ({
                     <span className="forecast-workflow__account-summary-badge">계정 합계</span>
                     <span className="forecast-workflow__month-badge">{monthLabel(summary.month)}</span>
                     <strong className="forecast-workflow__account-summary-name">{summary.metadata.display_name}</strong>
-                    <span className="forecast-workflow__account-summary-amount">조정액 합계: <strong>{summary.total > 0 ? '+' : ''}{summary.total.toLocaleString('ko-KR')}원</strong></span>
-                    <span className="forecast-workflow__account-summary-expected">최종 예상금액: <strong>{summary.baseline === undefined ? '—' : `${(summary.baseline + summary.total).toLocaleString('ko-KR')}원`}</strong></span>
+                    <span className="forecast-workflow__account-summary-amount">조정액 합계: <strong>{summary.total > 0 ? '+' : ''}{summary.total.toLocaleString('ko-KR', { maximumFractionDigits: 0 })}원</strong></span>
+                    <span className="forecast-workflow__account-summary-expected">최종 예상금액: <strong>{summary.baseline === undefined ? '—' : `${(summary.baseline + summary.total).toLocaleString('ko-KR', { maximumFractionDigits: 0 })}원`}</strong></span>
                   </div>)}
                 </div>}
                 {sgaAdjustedList.length > 0 ? <div className="forecast-workflow__summary-table-wrap">
@@ -1846,9 +1860,9 @@ export const ForecastGenerationView: React.FC<ForecastGenerationViewProps> = ({
                           <td className="forecast-workflow__cell--center"><span className="forecast-workflow__month-badge">{monthLabel(item.month)}</span></td>
                           <td className="forecast-workflow__cell--center"><span className={`forecast-workflow__section-badge forecast-workflow__section-badge--${item.metadata.section === 'selling' ? 'selling' : 'admin'}`}>{sgaSectionLabel(item.metadata.section)}</span></td>
                           <th scope="row" className="forecast-workflow__cell--center"><span className="forecast-workflow__summary-account">{item.metadata.display_name}</span><small className="forecast-workflow__summary-source">({item.sourceLabel})</small></th>
-                          <td className="forecast-workflow__cell--number">{typeof baseline === 'number' && Number.isFinite(baseline) ? baseline.toLocaleString('ko-KR') : '—'}</td>
-                          <td className="forecast-workflow__cell--number">{typeof baseline === 'number' && Number.isFinite(baseline) ? calculateAdjustmentExpectedAmount(baseline, accountAggregateAmount).toLocaleString('ko-KR') : '—'}</td>
-                          <td className={`forecast-workflow__cell--number ${amount > 0 ? 'is-positive' : amount < 0 ? 'is-negative' : ''}`}>{amount > 0 ? `+${amount.toLocaleString('ko-KR')}` : amount.toLocaleString('ko-KR')}</td>
+                          <td className="forecast-workflow__cell--number">{typeof baseline === 'number' && Number.isFinite(baseline) ? baseline.toLocaleString('ko-KR', { maximumFractionDigits: 0 }) : '—'}</td>
+                          <td className="forecast-workflow__cell--number">{typeof baseline === 'number' && Number.isFinite(baseline) ? calculateAdjustmentExpectedAmount(baseline, accountAggregateAmount).toLocaleString('ko-KR', { maximumFractionDigits: 0 }) : '—'}</td>
+                          <td className={`forecast-workflow__cell--number ${amount > 0 ? 'is-positive' : amount < 0 ? 'is-negative' : ''}`}>{amount > 0 ? `+${amount.toLocaleString('ko-KR', { maximumFractionDigits: 0 })}` : amount.toLocaleString('ko-KR', { maximumFractionDigits: 0 })}</td>
                           <td className="forecast-workflow__cell--reason"><div className="forecast-workflow__reason-cell">
                             <span className="forecast-workflow__reason-text" title={item.reason}>{item.reason || '(사유 미입력)'}</span>
                             {item.reason.length > 20 && <button type="button" className="forecast-workflow__btn-expand-reason" onClick={() => toggleExpandedReason(reasonKey)}>{reasonExpanded ? '접기' : '자세히'}</button>}
@@ -1883,7 +1897,7 @@ export const ForecastGenerationView: React.FC<ForecastGenerationViewProps> = ({
                           <th scope="row" className="forecast-workflow__cell--center">{item.displayName}</th>
                           <td className="forecast-workflow__cell--number" data-contract-missing="cogs-baseline">—</td>
                           <td className="forecast-workflow__cell--number" data-contract-missing="cogs-baseline">—</td>
-                          <td className={`forecast-workflow__cell--number ${numericAmount > 0 ? 'is-positive' : numericAmount < 0 ? 'is-negative' : ''}`}>{hasAdjustment ? (numericAmount > 0 ? `+${numericAmount.toLocaleString('ko-KR')}` : numericAmount.toLocaleString('ko-KR')) : '0'}</td>
+                          <td className={`forecast-workflow__cell--number ${numericAmount > 0 ? 'is-positive' : numericAmount < 0 ? 'is-negative' : ''}`}>{hasAdjustment ? (numericAmount > 0 ? `+${numericAmount.toLocaleString('ko-KR', { maximumFractionDigits: 0 })}` : numericAmount.toLocaleString('ko-KR', { maximumFractionDigits: 0 })) : '0'}</td>
                           <td className="forecast-workflow__cell--action"><button
                             type="button"
                             className={`forecast-workflow__btn-adjust ${hasAdjustment ? 'is-active' : ''}`}
@@ -1951,7 +1965,7 @@ export const ForecastGenerationView: React.FC<ForecastGenerationViewProps> = ({
                           <td className="forecast-workflow__summary-check"><input type="checkbox" aria-label={`${item.month}월 ${item.displayName} 매출원가 조정 선택`} disabled={controlsDisabled} checked={selectedCogsKeys.has(item.selectionKey)} onChange={(event) => setSelectedCogsKeys((current) => { const next = new Set(current); if (event.target.checked) next.add(item.selectionKey); else next.delete(item.selectionKey); return next; })} /></td>
                           <td className="forecast-workflow__cell--center"><span className="forecast-workflow__month-badge">{monthLabel(item.month)}</span></td>
                           <th scope="row" className="forecast-workflow__cell--center">{item.displayName}</th>
-                          <td className={`forecast-workflow__cell--number ${numericAmount > 0 ? 'is-positive' : numericAmount < 0 ? 'is-negative' : ''}`}>{numericAmount > 0 ? `+${numericAmount.toLocaleString('ko-KR')}` : numericAmount.toLocaleString('ko-KR')}</td>
+                          <td className={`forecast-workflow__cell--number ${numericAmount > 0 ? 'is-positive' : numericAmount < 0 ? 'is-negative' : ''}`}>{numericAmount > 0 ? `+${numericAmount.toLocaleString('ko-KR', { maximumFractionDigits: 0 })}` : numericAmount.toLocaleString('ko-KR', { maximumFractionDigits: 0 })}</td>
                           <td className="forecast-workflow__cell--number" data-contract-missing="cogs-baseline">—</td>
                           <td className="forecast-workflow__cell--reason"><div className="forecast-workflow__reason-cell"><span className="forecast-workflow__reason-text" title={reason}>{reason || '(사유 미입력)'}</span>{reason.length > 20 && <button type="button" className="forecast-workflow__btn-expand-reason" onClick={() => toggleExpandedReason(reasonKey)}>{reasonExpanded ? '접기' : '자세히'}</button>}</div></td>
                           <td className="forecast-workflow__cell--action"><button type="button" className="forecast-workflow__btn-mini" disabled={controlsDisabled} onClick={() => { setCogsInputMonths((current) => ({ ...current, [item.key]: item.month })); openCogsEditor(item.key, item.month, amount, reason); }}>수정</button></td>
