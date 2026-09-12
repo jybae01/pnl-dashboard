@@ -134,7 +134,19 @@ def sessions():
 
 
 def request():
-    return AnalysisSubmitRequest(BASE, COMP, 1, 6, 1480, 1500, "demand-only")
+    return AnalysisSubmitRequest(
+        baseline_model_id=BASE,
+        comparison_model_id=COMP,
+        start_month=1,
+        end_month=6,
+        idempotency_key="demand-only",
+        baseline_sales_fx_monthly={
+            f"2026-{month:02d}": 1480.0 for month in range(1, 7)
+        },
+        comparison_sales_fx_monthly={
+            f"2026-{month:02d}": 1500.0 for month in range(1, 7)
+        },
+    )
 
 
 def test_analysis_durable_enqueue_precedes_wake_and_cold_state_is_explicit():
