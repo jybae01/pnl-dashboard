@@ -278,6 +278,9 @@ class SalesEffectsTest(unittest.TestCase):
         config = AnalysisConfig.load(CONFIG)
         zero = scenario(
             "zero",
+            # Keep a zero-quantity product row so the current monthly-FX
+            # contract has one valid FX value on each side of the test calls.
+            products=[ProductRecord("2026-05", "SW", "SW", sales_qty=0, sales_amount=1, sales_fx=1)],
             sga_expenses=[ExpenseRecord("2026-05", "판매비_운반비", 0, "sga")],
         )
         result = calculate_sales_effects(zero, zero, config)
@@ -286,6 +289,7 @@ class SalesEffectsTest(unittest.TestCase):
 
         nonzero = scenario(
             "nonzero",
+            products=[ProductRecord("2026-05", "SW", "SW", sales_qty=0, sales_amount=1, sales_fx=1)],
             sga_expenses=[ExpenseRecord("2026-05", "판매비_운반비", 1, "sga")],
         )
         with self.assertRaisesRegex(ValueError, "운반비가 존재하지만.*판매수량이 0"):
@@ -293,7 +297,7 @@ class SalesEffectsTest(unittest.TestCase):
 
         negative = scenario(
             "negative",
-            products=[ProductRecord("2026-05", "SW", "SW", sales_qty=-1)],
+            products=[ProductRecord("2026-05", "SW", "SW", sales_qty=-1, sales_fx=1)],
         )
         with self.assertRaisesRegex(ValueError, "총 환산 판매수량이 음수"):
             calculate_sales_effects(negative, zero, config)
