@@ -168,54 +168,106 @@ class GoldenAnalysisAdapter:
             )
         return 0.0
 
-    def _material_cost(self, workbook: Any, column: str, spec: dict[str, Any]) -> float:
-        total = sum(
-            self._number(workbook.value(f"{column}{row}"))
-            for row in spec.get("direct_material_rows", ())
-        )
-        for term in spec.get("front_material_terms", ()):
-            source_quantity = self._number(
-                workbook.value(f"{column}{term['source_production_row']}")
-            )
-            if not source_quantity:
-                continue
-            source_amount = sum(
-                self._number(workbook.value(f"{column}{row}"))
-                for row in term.get("source_pool_amount_rows", ())
-            )
-            if "source_material_amount_row" in term:
-                source_amount += self._number(
-                    workbook.value(f"{column}{term['source_material_amount_row']}")
+    def _material_source_components(
+        self,
+        workbook: Any,
+        column: str,
+        group: str,
+        spec: dict[str, Any],
+    ) -> tuple[float, tuple[dict[str, Any], ...]]:
+        """Read raw cells used to construct one canonical material group.
+
+        Finished-product material is assembled from the semantic source map:
+        one common front amount/basis, product-specific input
+        length/adjustment/production quantity, and the product's mapped back
+        total cells.  The back pair already contains any MCM purchase amount,
+        so MCM is not added through a second path.
+        """
+
+        material = self.adapter["material"]
+        source_map = material.get("raw_material_sources", {})
+        components: list[dict[str, Any]] = []
+
+        def read(
+            role: str,
+            row: int,
+            *,
+            product_code: str = "",
+            term_id: str = "",
+        ) -> float:
+            address = f"Data!{column}{int(row)}"
+            value = self._number(workbook.value(f"{column}{int(row)}"))
+            components.append({
+                "role": role,
+                "product_code": product_code,
+                "term_id": term_id,
+                "source": address,
+                "value": value,
+            })
+            return value
+
+        if str(group).upper() == "FS":
+            total = 0.0
+            for row in spec.get("direct_material_rows", ()):
+                total += read(
+                    "direct", int(row), product_code="FS", term_id="FS:direct"
                 )
-            allocation_ratio = (
-                self._number(workbook.value(
-                    f"{column}{term['source_allocation_ratio_row']}"
-                ))
-                if term.get("source_allocation_ratio_row") else 1.0
+            return total, tuple(components)
+
+        front_amount_row = int(source_map.get("front_amount_row") or 0)
+        front_basis_row = int(source_map.get("front_production_basis_row") or 0)
+        product_sources = source_map.get("finished_product_components", {})
+        if not front_amount_row or not front_basis_row:
+            raise ValueError(
+                "raw material front amount and production basis rows are required"
             )
-            source_unit = source_amount * allocation_ratio / source_quantity
-            adjustment = self._number(
-                workbook.value(f"{column}{term['adjustment_row']}")
+
+        total = 0.0
+        for product_code, product_source in product_sources.items():
+            if str(product_source.get("product_group") or "") != str(group):
+                continue
+            product_code = str(product_code)
+            term_id = f"{product_code}:front"
+            front_amount = read(
+                "front_amount", front_amount_row,
+                product_code=product_code, term_id=term_id,
             )
-            total += (
-                self._number(workbook.value(f"{column}{term['production_row']}"))
-                * self._number(workbook.value(f"{column}{term['input_length_row']}"))
-                * source_unit
-                * adjustment
+            front_basis = read(
+                "front_production_basis", front_basis_row,
+                product_code=product_code, term_id=term_id,
             )
-        for term in spec.get("back_material_terms", ()):
-            allocation_ratio = self._number(
-                workbook.value(f"{column}{term['allocation_ratio_row']}")
+            production = read(
+                "production_quantity", int(product_source["production_row"]),
+                product_code=product_code, term_id=term_id,
             )
-            pool_amount = sum(
-                self._number(workbook.value(f"{column}{row}"))
-                for row in term.get("pool_amount_rows", ())
+            input_length = read(
+                "input_length", int(product_source["input_length_row"]),
+                product_code=product_code, term_id=term_id,
             )
-            total += allocation_ratio * pool_amount
-        total += sum(
-            self._number(workbook.value(f"{column}{row}"))
-            for row in spec.get("mcm_material_rows", ())
-        )
+            adjustment = read(
+                "adjustment", int(product_source["adjustment_row"]),
+                product_code=product_code, term_id=term_id,
+            )
+            front_unit_cost = front_amount / front_basis if front_basis else 0.0
+            total += front_unit_cost * input_length * adjustment * production
+            for row in product_source.get("back_total_rows", ()):
+                total += read(
+                    "back_total_component", int(row),
+                    product_code=product_code,
+                    term_id=f"{product_code}:back",
+                )
+        return total, tuple(components)
+
+    def _material_cost(
+        self,
+        workbook: Any,
+        column: str,
+        spec: dict[str, Any],
+        group: str = "",
+    ) -> float:
+        """Return the normalized raw-material cost for one canonical group."""
+
+        total, _ = self._material_source_components(workbook, column, group, spec)
         return total
 
     @staticmethod
@@ -223,27 +275,26 @@ class GoldenAnalysisAdapter:
         return "+".join(f"Data!{column}{int(row)}" for row in rows)
 
     @staticmethod
-    def _material_source_rows(spec: dict[str, Any]) -> list[int]:
+    def _material_source_rows(
+        spec: dict[str, Any],
+        source_map: Mapping[str, Any] | None = None,
+    ) -> list[int]:
         """Return every mapped Golden row that contributes to material cost.
 
         The returned addresses are evidence metadata only.  The engine still
         consumes canonical values and never depends on a Golden row number.
         """
         rows: list[int] = [int(row) for row in spec.get("direct_material_rows", ())]
-        for term in spec.get("front_material_terms", ()):
-            for key in (
-                "source_production_row", "source_material_amount_row",
-                "source_allocation_ratio_row", "adjustment_row",
-                "production_row", "input_length_row",
-            ):
-                if term.get(key):
-                    rows.append(int(term[key]))
-            rows.extend(int(row) for row in term.get("source_pool_amount_rows", ()))
-        for term in spec.get("back_material_terms", ()):
-            if term.get("allocation_ratio_row"):
-                rows.append(int(term["allocation_ratio_row"]))
-            rows.extend(int(row) for row in term.get("pool_amount_rows", ()))
-        rows.extend(int(row) for row in spec.get("mcm_material_rows", ()))
+        source_map = source_map or {}
+        if source_map.get("front_amount_row"):
+            rows.append(int(source_map["front_amount_row"]))
+        if source_map.get("front_production_basis_row"):
+            rows.append(int(source_map["front_production_basis_row"]))
+        for product_source in source_map.get("finished_product_components", {}).values():
+            for key in ("production_row", "input_length_row", "adjustment_row"):
+                if product_source.get(key):
+                    rows.append(int(product_source[key]))
+            rows.extend(int(row) for row in product_source.get("back_total_rows", ()))
         return sorted(set(rows))
 
     def _inventory_source_validation(
@@ -393,7 +444,47 @@ class GoldenAnalysisAdapter:
                 * self._number(workbook.value(f"{column}{term['input_length_row']}"))
                 for term in spec.get("nonwoven_input_terms", ())
             )
-            raw_material_cost = self._material_cost(workbook, column, spec)
+            nonwoven_input_components = tuple(
+                component
+                for term_index, term in enumerate(
+                    spec.get("nonwoven_input_terms", ()), 1
+                )
+                for component in (
+                    {
+                        "role": "sales_quantity",
+                        "term_id": f"nonwoven:{group}:{term_index}",
+                        "source": f"Data!{column}{int(term['sales_quantity_row'])}",
+                        "value": self._number(
+                            workbook.value(
+                                f"{column}{int(term['sales_quantity_row'])}"
+                            )
+                        ),
+                    },
+                    {
+                        "role": "input_length",
+                        "term_id": f"nonwoven:{group}:{term_index}",
+                        "source": f"Data!{column}{int(term['input_length_row'])}",
+                        "value": self._number(
+                            workbook.value(
+                                f"{column}{int(term['input_length_row'])}"
+                            )
+                        ),
+                    },
+                )
+            )
+            raw_material_cost, raw_material_components = self._material_source_components(
+                workbook, column, group, spec
+            )
+            raw_material_source = " | ".join(dict.fromkeys(
+                str(component["source"])
+                for component in raw_material_components
+                if component.get("source")
+            ))
+            nonwoven_input_source = " | ".join(dict.fromkeys(
+                str(component["source"])
+                for component in nonwoven_input_components
+                if component.get("source")
+            ))
             is_length = unit_basis.upper() == "LENGTH"
             records.append(ProductRecord(
                 year_month=f"{year:04d}-{month:02d}",
@@ -424,9 +515,7 @@ class GoldenAnalysisAdapter:
                 production_source=self._source_reference(
                     column, list(production_rows)
                 ),
-                raw_material_cost_source=self._source_reference(
-                    column, self._material_source_rows(spec)
-                ),
+                raw_material_cost_source=raw_material_source,
                 nonwoven_cost_source=(
                     f"Data!{column}{front_process['nonwoven_amount_row']}"
                     if group == "FS" else ""
@@ -435,16 +524,14 @@ class GoldenAnalysisAdapter:
                     f"Data!{column}{front_process['nonwoven_quantity_row']}"
                     if group == "FS" else ""
                 ),
-                nonwoven_input_source=" + ".join(
-                    f"Data!{column}{int(term['sales_quantity_row'])}*"
-                    f"Data!{column}{int(term['input_length_row'])}"
-                    for term in spec.get("nonwoven_input_terms", ())
-                ),
+                nonwoven_input_source=nonwoven_input_source,
                 sales_fx_source=sales_fx_source,
                 jpy_fx_source=f"Data!{column}{material['jpy_fx_row']}",
                 source_validation_status="SOURCE_MAPPED",
                 production_components=production_components,
                 mcm_components=mcm_components,
+                raw_material_components=raw_material_components,
+                nonwoven_input_components=nonwoven_input_components,
             ))
             if mcm_quantity:
                 records.append(ProductRecord(
@@ -893,6 +980,115 @@ class GoldenAnalysisAdapter:
         comparison: AdaptedGoldenScenario,
     ) -> dict[str, Any]:
         result = calculate_material_effects(baseline.scenario, comparison.scenario)
+
+        def rows_for(
+            adapted: AdaptedGoldenScenario,
+            month: str,
+            group: str | None = None,
+        ) -> list[ProductRecord]:
+            return [
+                row for row in adapted.scenario.products
+                if row.year_month == month
+                and (group is None or row.product_group == group)
+                and row.material_applicable_flag
+            ]
+
+        def material_components(
+            adapted: AdaptedGoldenScenario,
+            month: str,
+            group: str,
+        ) -> list[dict[str, Any]]:
+            return [
+                dict(component)
+                for row in rows_for(adapted, month, group)
+                for component in row.raw_material_components
+            ]
+
+        def output_components(
+            adapted: AdaptedGoldenScenario,
+            month: str,
+            group: str,
+        ) -> list[dict[str, Any]]:
+            return [
+                {
+                    "role": "production_basis",
+                    "source": source,
+                    "value": value,
+                }
+                for row in rows_for(adapted, month, group)
+                for source, value in row.production_components
+            ]
+
+        # The generic calculator remains responsible for all numerical effect
+        # semantics.  This adapter-only enrichment carries the raw component
+        # identities/value pairs needed to rebuild the Evidence formulas.
+        for detail in result.details:
+            month = str(detail.get("period") or "")
+            group = str(detail.get("product_group") or "")
+            detail["base_material_source_components"] = material_components(
+                baseline, month, group
+            )
+            detail["comparison_material_source_components"] = material_components(
+                comparison, month, group
+            )
+            detail["base_output_source_components"] = output_components(
+                baseline, month, group
+            )
+            detail["comparison_output_source_components"] = output_components(
+                comparison, month, group
+            )
+
+        def nonwoven_components(
+            adapted: AdaptedGoldenScenario,
+            month: str,
+            *,
+            include_input: bool,
+        ) -> list[dict[str, Any]]:
+            components: list[dict[str, Any]] = []
+            seen_roles: set[str] = set()
+            for row in rows_for(adapted, month):
+                if row.nonwoven_cost_source and "cost" not in seen_roles:
+                    components.append({
+                        "role": "cost",
+                        "term_id": "nonwoven:cost",
+                        "source": row.nonwoven_cost_source,
+                        "value": row.nonwoven_cost,
+                    })
+                    seen_roles.add("cost")
+                if row.nonwoven_output_source and "output" not in seen_roles:
+                    output_value = (
+                        row.nonwoven_output_length
+                        if row.nonwoven_output_length is not None
+                        else row.sap_length
+                    )
+                    components.append({
+                        "role": "output",
+                        "term_id": "nonwoven:output",
+                        "source": row.nonwoven_output_source,
+                        "value": output_value,
+                    })
+                    seen_roles.add("output")
+                if row.jpy_fx_source and "jpy_fx" not in seen_roles:
+                    components.append({
+                        "role": "jpy_fx",
+                        "term_id": "nonwoven:jpy_fx",
+                        "source": row.jpy_fx_source,
+                        "value": row.effective_jpy_fx,
+                    })
+                    seen_roles.add("jpy_fx")
+                if include_input:
+                    components.extend(dict(component) for component in row.nonwoven_input_components)
+            return components
+
+        for detail in result.nonwoven_details:
+            month = str(detail.get("period") or "")
+            detail["base_source_components"] = nonwoven_components(
+                baseline, month, include_input=False
+            )
+            detail["comparison_source_components"] = nonwoven_components(
+                comparison, month, include_input=True
+            )
+
         groups: list[dict[str, Any]] = []
         for group in sorted(result.by_product_group_details):
             detail = result.by_product_group_details.get(group)

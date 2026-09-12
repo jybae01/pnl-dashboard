@@ -273,6 +273,47 @@
         "component_amount_rows": [685, 694, 697],
         "total_amount_row": 699
       },
+      "raw_material_sources": {
+        "front_amount_row": 211,
+        "front_production_basis_row": 128,
+        "finished_product_components": {
+          "SW400": {
+            "product_group": "SW",
+            "production_row": 897,
+            "input_length_row": 580,
+            "adjustment_row": 956,
+            "back_total_rows": [899, 900]
+          },
+          "SW440": {
+            "product_group": "SW",
+            "production_row": 904,
+            "input_length_row": 583,
+            "adjustment_row": 957,
+            "back_total_rows": [906, 907]
+          },
+          "BW400": {
+            "product_group": "BW",
+            "production_row": 911,
+            "input_length_row": 586,
+            "adjustment_row": 958,
+            "back_total_rows": [913, 914]
+          },
+          "BW440": {
+            "product_group": "BW",
+            "production_row": 918,
+            "input_length_row": 589,
+            "adjustment_row": 959,
+            "back_total_rows": [920, 921]
+          },
+          "LC": {
+            "product_group": "LC",
+            "production_row": 925,
+            "input_length_row": 592,
+            "adjustment_row": 960,
+            "back_total_rows": [927, 928]
+          }
+        }
+      },
       "groups": {
         "SW": {
           "unit_basis": "PCS",
@@ -284,12 +325,12 @@
             {"sales_quantity_row": 38, "input_length_row": 41}
           ],
           "front_material_terms": [
-            {"production_row": 897, "input_length_row": 580, "source_pool_amount_rows": [211], "source_allocation_ratio_row": 273, "source_production_row": 119, "adjustment_row": 956},
-            {"production_row": 904, "input_length_row": 583, "source_pool_amount_rows": [211], "source_allocation_ratio_row": 273, "source_production_row": 119, "adjustment_row": 957}
+            {"product_code": "SW400", "production_row": 897, "input_length_row": 580, "adjustment_row": 956},
+            {"product_code": "SW440", "production_row": 904, "input_length_row": 583, "adjustment_row": 957}
           ],
           "back_material_terms": [
-            {"allocation_ratio_row": 788, "pool_amount_rows": [699]},
-            {"allocation_ratio_row": 789, "pool_amount_rows": [699]}
+            {"product_code": "SW400", "back_total_rows": [899, 900]},
+            {"product_code": "SW440", "back_total_rows": [906, 907]}
           ],
           "mcm_material_rows": [900, 907],
           "direct_material_rows": []
@@ -304,12 +345,12 @@
             {"sales_quantity_row": 50, "input_length_row": 53}
           ],
           "front_material_terms": [
-            {"production_row": 911, "input_length_row": 586, "source_pool_amount_rows": [211], "source_allocation_ratio_row": 274, "source_production_row": 122, "adjustment_row": 958},
-            {"production_row": 918, "input_length_row": 589, "source_pool_amount_rows": [211], "source_allocation_ratio_row": 274, "source_production_row": 122, "adjustment_row": 959}
+            {"product_code": "BW400", "production_row": 911, "input_length_row": 586, "adjustment_row": 958},
+            {"product_code": "BW440", "production_row": 918, "input_length_row": 589, "adjustment_row": 959}
           ],
           "back_material_terms": [
-            {"allocation_ratio_row": 790, "pool_amount_rows": [699]},
-            {"allocation_ratio_row": 791, "pool_amount_rows": [699]}
+            {"product_code": "BW400", "back_total_rows": [913, 914]},
+            {"product_code": "BW440", "back_total_rows": [920, 921]}
           ],
           "mcm_material_rows": [914, 921],
           "direct_material_rows": []
@@ -323,10 +364,10 @@
             {"sales_quantity_row": 56, "input_length_row": 59}
           ],
           "front_material_terms": [
-            {"production_row": 925, "input_length_row": 592, "source_pool_amount_rows": [211], "source_allocation_ratio_row": 274, "source_production_row": 122, "adjustment_row": 960}
+            {"product_code": "LC", "production_row": 925, "input_length_row": 592, "adjustment_row": 960}
           ],
           "back_material_terms": [
-            {"allocation_ratio_row": 792, "pool_amount_rows": [699]}
+            {"product_code": "LC", "back_total_rows": [927, 928]}
           ],
           "mcm_material_rows": [],
           "direct_material_rows": []

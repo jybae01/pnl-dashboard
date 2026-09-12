@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime, timezone
 import math
+import re
 from typing import Any, Iterable, Mapping
 
 from openpyxl import Workbook
@@ -39,6 +40,13 @@ PERCENT_FORMAT = '0.0%'
 
 THIN_BORDER = Border(bottom=Side(style="thin", color=BORDER))
 TOTAL_BORDER = Border(top=Side(style="thin", color=NAVY))
+
+_SINGLE_CELL_SOURCE_RE = re.compile(
+    r"^(?:'[^']+'|[A-Za-z_][\w ]*)!\$?[A-Z]{1,3}\$?\d+$"
+)
+_SOURCE_CELL_TOKEN_RE = re.compile(
+    r"(?:'[^']+'|[A-Za-z_][\w ]*)!\$?[A-Z]{1,3}\$?\d+"
+)
 
 
 def _number(value: Any) -> float | None:
@@ -80,6 +88,127 @@ def _sheet_ref(sheet: str, cell: str, *, absolute: bool = False) -> str:
 
 def _formula_ref(sheet: str, cell: str, *, absolute: bool = True) -> str:
     return _sheet_ref(sheet, cell, absolute=absolute)[1:]
+
+
+def is_single_cell_source_reference(value: Any) -> bool:
+    """Return whether a model source names exactly one workbook cell."""
+
+    return bool(_SINGLE_CELL_SOURCE_RE.fullmatch(str(value or "").strip()))
+
+
+def _validate_model_source_pair(source: Any, value: Any, *, side: str, key: str) -> None:
+    source_text = str(source or "").strip()
+    number = _number(value)
+    if source_text and not is_single_cell_source_reference(source_text):
+        raise ValueError(
+            f"MODEL_SOURCE {key} {side} source must be one original workbook cell: "
+            f"{source_text!r}"
+        )
+    if source_text and number is None:
+        raise ValueError(
+            f"MODEL_SOURCE {key} {side} source has no raw numeric value: {source_text!r}"
+        )
+    if not source_text and number is not None:
+        raise ValueError(
+            f"MODEL_SOURCE {key} {side} numeric value has no source cell"
+        )
+
+
+def _source_cells(value: Any) -> list[str]:
+    text = str(value or "").strip()
+    if not text:
+        return []
+    if is_single_cell_source_reference(text):
+        return [text]
+    cells = _SOURCE_CELL_TOKEN_RE.findall(text)
+    if not cells:
+        return []
+    remainder = _SOURCE_CELL_TOKEN_RE.sub("", text)
+    if not re.fullmatch(r"[\s,|]+", remainder):
+        return []
+    return cells
+
+
+def _source_reader(source: Any) -> Any:
+    if source is None:
+        return None
+    if hasattr(source, "value"):
+        return source.value
+    try:
+        from .workbook import GoldenWorkbook
+
+        return GoldenWorkbook(source).value
+    except (OSError, TypeError, ValueError):
+        return None
+
+
+def _read_source_values(source_cells: Iterable[str], source: Any) -> list[float] | None:
+    reader = source if callable(source) else _source_reader(source)
+    if reader is None:
+        return None
+    values: list[float] = []
+    for reference in source_cells:
+        sheet, cell = reference.split("!", 1)
+        # GoldenWorkbook is intentionally scoped to the model Data sheet.
+        if sheet.strip("'").replace("''", "'") != "Data":
+            return None
+        raw_value = reader(cell.replace("$", ""))
+        value = _number(raw_value)
+        if value is None:
+            # The adapter's canonical numeric read treats a genuinely blank
+            # source cell as zero; preserve that normalization for readback.
+            if raw_value in (None, ""):
+                value = 0.0
+            else:
+                return None
+        values.append(value)
+    return values
+
+
+def validate_source_registry_readback(
+    registry: SourceRegistry,
+    *,
+    baseline_workbook: Any = None,
+    comparison_workbook: Any = None,
+) -> int:
+    """Validate MODEL_SOURCE values against their original workbook cells.
+
+    The check is intentionally optional for stored-result exports that do not
+    retain the original workbook paths.  When a workbook is supplied, every
+    direct source cell is read back through the same workbook adapter used by
+    the analysis and must match the value copied to ``90_원본값``.
+    """
+
+    readers = {
+        "baseline": _source_reader(baseline_workbook),
+        "comparison": _source_reader(comparison_workbook),
+    }
+    checked = 0
+    for row in registry.rows:
+        if row.hardcode_class != "MODEL_SOURCE":
+            continue
+        for side, source, expected in (
+            ("baseline", row.baseline_source, row.baseline_value),
+            ("comparison", row.comparison_source, row.comparison_value),
+        ):
+            source_text = str(source or "").strip()
+            reader = readers[side]
+            if not source_text or reader is None:
+                continue
+            actual_values = _read_source_values([source_text], reader)
+            if not actual_values:
+                raise ValueError(
+                    f"MODEL_SOURCE {row.key} {side} source cell cannot be read: {source_text!r}"
+                )
+            actual = actual_values[0]
+            tolerance = max(1e-6, abs(expected or 0.0) * 1e-9)
+            if expected is None or not math.isclose(actual, expected, rel_tol=0.0, abs_tol=tolerance):
+                raise ValueError(
+                    f"MODEL_SOURCE {row.key} {side} readback mismatch: "
+                    f"{source_text} expected {expected!r}, got {actual!r}"
+                )
+            checked += 1
+    return checked
 
 
 def _join_sum(parts: Iterable[str]) -> str:
@@ -139,6 +268,13 @@ class SourceRegistry:
         hardcode_class: str = "MODEL_SOURCE",
         group: str | None = None,
     ) -> SourceRow:
+        if hardcode_class == "MODEL_SOURCE":
+            _validate_model_source_pair(
+                baseline_source, baseline_value, side="baseline", key=key
+            )
+            _validate_model_source_pair(
+                comparison_source, comparison_value, side="comparison", key=key
+            )
         existing = self.by_key.get(key)
         baseline_number = _number(baseline_value)
         comparison_number = _number(comparison_value)
@@ -196,6 +332,14 @@ class SourceRegistry:
         return row
 
     def ref(self, key: str, side: str) -> str:
+        grouped = self.groups.get(key)
+        if grouped:
+            return _join_sum(
+                self._single_ref(item, side) for item in grouped
+            )[1:]
+        return self._single_ref(key, side)
+
+    def _single_ref(self, key: str, side: str) -> str:
         row = self.by_key[key].row
         column = "H" if side == "baseline" else "J"
         return _formula_ref("90_원본값", f"{column}{row}")
@@ -237,11 +381,97 @@ def _monthly_fx(
     return _number(sales.get(f"{side}_fx_krw_per_usd"))
 
 
+def _component_identity(component: Mapping[str, Any], index: int) -> tuple[str, str, str]:
+    return (
+        str(component.get("term_id") or f"component:{index}"),
+        str(component.get("role") or "component"),
+        str(component.get("source") or ""),
+    )
+
+
+def _component_map(value: Any) -> tuple[list[tuple[tuple[str, str, str], dict[str, Any]]], dict[tuple[str, str, str], dict[str, Any]]]:
+    ordered: list[tuple[tuple[str, str, str], dict[str, Any]]] = []
+    by_identity: dict[tuple[str, str, str], dict[str, Any]] = {}
+    for index, item in enumerate(_records(value), 1):
+        identity = _component_identity(item, index)
+        # Duplicate source entries with the same semantic role are kept
+        # distinct so each arithmetic term remains reconstructible.
+        if identity in by_identity:
+            identity = (*identity[:2], f"{identity[2]}#{index}")
+        by_identity[identity] = item
+        ordered.append((identity, item))
+    return ordered, by_identity
+
+
+def _register_raw_component_pairs(
+    registry: SourceRegistry,
+    *,
+    key_prefix: str,
+    category: str,
+    item: str,
+    basis: str,
+    period: str,
+    unit_by_role: Mapping[str, str] | None,
+    baseline_components: Any,
+    comparison_components: Any,
+    notes: str = "",
+) -> tuple[dict[tuple[str, str, str], str], list[tuple[tuple[str, str, str], dict[str, Any], dict[str, Any]]]]:
+    baseline_ordered, baseline_by_identity = _component_map(baseline_components)
+    comparison_ordered, comparison_by_identity = _component_map(comparison_components)
+    identities = [identity for identity, _ in baseline_ordered]
+    identities.extend(
+        identity for identity, _ in comparison_ordered if identity not in identities
+    )
+    keys: dict[tuple[str, str, str], str] = {}
+    paired: list[tuple[tuple[str, str, str], dict[str, Any], dict[str, Any]]] = []
+    for index, identity in enumerate(identities, 1):
+        baseline = baseline_by_identity.get(identity, {})
+        comparison = comparison_by_identity.get(identity, {})
+        baseline_source = str(baseline.get("source") or "")
+        comparison_source = str(comparison.get("source") or "")
+        baseline_value = baseline.get("value") if baseline else None
+        comparison_value = comparison.get("value") if comparison else None
+        hardcode_class = "MODEL_SOURCE"
+        if (
+            (baseline_source and not is_single_cell_source_reference(baseline_source))
+            or (comparison_source and not is_single_cell_source_reference(comparison_source))
+            or (not baseline_source and baseline_value is not None)
+            or (not comparison_source and comparison_value is not None)
+        ):
+            # Legacy/stored-result traces can contain a descriptive source and
+            # an already aggregated value.  Keep those as explicit inputs until
+            # a source-cell trace is available; new adapter traces use the
+            # MODEL_SOURCE branch above.
+            hardcode_class = "REQUEST_INPUT"
+        role = str((baseline or comparison).get("role") or "component")
+        key = f"{key_prefix}:{index}:{role}"
+        registry.add(
+            key,
+            category=category,
+            item=item,
+            basis=basis,
+            period=period,
+            unit=(unit_by_role or {}).get(role, ""),
+            baseline_source=baseline_source,
+            baseline_value=baseline_value,
+            comparison_source=comparison_source,
+            comparison_value=comparison_value,
+            notes=notes,
+            hardcode_class=hardcode_class,
+        )
+        keys[identity] = key
+        paired.append((identity, baseline, comparison))
+    return keys, paired
+
+
 def collect_reporting_sources(
     result: Mapping[str, Any],
     sales_rows: Iterable[Any],
     baseline_fx: float | None,
     comparison_fx: float | None,
+    *,
+    baseline_workbook: Any = None,
+    comparison_workbook: Any = None,
 ) -> tuple[SourceRegistry, dict[str, Any]]:
     registry = SourceRegistry()
     context: dict[str, Any] = {}
@@ -277,19 +507,74 @@ def collect_reporting_sources(
     context["pnl_rows"] = pnl_rows
     for item in pnl_rows:
         code = str(item.get("code") or "")
-        registry.add(
-            f"pnl:{code}",
-            category="손익",
-            item=str(item.get("item") or code),
-            basis=code,
-            period=period_label,
-            unit="원",
-            baseline_source=str(direct_refs.get(code) or "Golden P&L source"),
-            baseline_value=item.get("baseline"),
-            comparison_source=str(direct_refs.get(code) or "Golden P&L source"),
-            comparison_value=item.get("comparison"),
-            notes="원본 모형 P&L line",
-        )
+        reference = direct_refs.get(code)
+        baseline_cells = _source_cells(reference)
+        comparison_cells = _source_cells(reference)
+        baseline_values = _read_source_values(baseline_cells, baseline_workbook)
+        comparison_values = _read_source_values(comparison_cells, comparison_workbook)
+        if len(baseline_cells) == len(comparison_cells) == 1:
+            # The normalized single-period result already contains the raw
+            # value read from that cell, so a source workbook is optional.
+            baseline_values = [_number(item.get("baseline")) or 0.0]
+            comparison_values = [_number(item.get("comparison")) or 0.0]
+        aggregate_is_reconciled = bool(baseline_cells) and bool(comparison_cells)
+        if aggregate_is_reconciled:
+            aggregate_is_reconciled = (
+                baseline_values is not None
+                and comparison_values is not None
+                and math.isclose(
+                    sum(baseline_values),
+                    _number(item.get("baseline")) or 0.0,
+                    rel_tol=1e-9,
+                    abs_tol=1e-6,
+                )
+                and math.isclose(
+                    sum(comparison_values),
+                    _number(item.get("comparison")) or 0.0,
+                    rel_tol=1e-9,
+                    abs_tol=1e-6,
+                )
+            )
+        if aggregate_is_reconciled:
+            pnl_keys: list[str] = []
+            for index, (cell, baseline_value, comparison_value) in enumerate(
+                zip(baseline_cells, baseline_values or (), comparison_values or (), strict=True),
+                1,
+            ):
+                key = f"pnl:{code}" if index == 1 else f"pnl:{code}:{index}"
+                registry.add(
+                    key,
+                    category="손익",
+                    item=str(item.get("item") or code),
+                    basis=code,
+                    period=period_label,
+                    unit="원",
+                    baseline_source=cell,
+                    baseline_value=baseline_value,
+                    comparison_source=comparison_cells[index - 1],
+                    comparison_value=comparison_value,
+                    notes="원본 모형 P&L line raw component",
+                    group=f"pnl:{code}",
+                )
+                pnl_keys.append(key)
+        else:
+            # An export of a stored aggregate may not carry the source
+            # workbooks.  Keep that limitation explicit as an input rather
+            # than placing a comma/range expression in a MODEL_SOURCE row.
+            registry.add(
+                f"pnl:{code}",
+                category="손익",
+                item=str(item.get("item") or code),
+                basis=code,
+                period=period_label,
+                unit="원",
+                baseline_source=str(reference or "Stored P&L result"),
+                baseline_value=item.get("baseline"),
+                comparison_source=str(reference or "Stored P&L result"),
+                comparison_value=item.get("comparison"),
+                notes="구조화된 P&L 원천셀 trace가 없는 저장 결과",
+                hardcode_class="REQUEST_INPUT",
+            )
 
     sales = result.get("sales_analysis") or {}
     sales_trace = _records(sales.get("trace_rows") or [])
@@ -378,7 +663,7 @@ def collect_reporting_sources(
     for index, item in enumerate(new_business, 1):
         period = str(item.get("period") or period_label)
         keys: dict[str, str] = {}
-        for field, label, source_index in (("revenue", "매출", 1), ("cogs", "매출원가", 3)):
+        for field, label, source_index in (("revenue", "매출", 0), ("cogs", "매출원가", 1)):
             key = f"new_business:{period}:{index}:{field}"
             keys[field] = key
             registry.add(
@@ -409,6 +694,26 @@ def collect_reporting_sources(
         ):
             key = f"freight:{period}:{index}:{field}"
             keys[field] = key
+            if field == "freight_including_tariff":
+                baseline_source = _source_part(
+                    item.get("base_source_reference") or "Freight source/input", 0
+                )
+                comparison_source = _source_part(
+                    item.get("comparison_source_reference") or "Freight source/input", 0
+                )
+                hardcode_class = "MODEL_SOURCE"
+            else:
+                baseline_source = str(
+                    item.get("base_tariff_source_reference")
+                    or item.get("base_tariff_calculation_source")
+                    or "Scenario metadata tariff input"
+                )
+                comparison_source = str(
+                    item.get("comparison_tariff_source_reference")
+                    or item.get("comparison_tariff_calculation_source")
+                    or "Scenario metadata tariff input"
+                )
+                hardcode_class = "REQUEST_INPUT"
             registry.add(
                 key,
                 category="판매",
@@ -416,11 +721,12 @@ def collect_reporting_sources(
                 basis="운반비/관세",
                 period=period,
                 unit="원",
-                baseline_source=str(item.get("base_source_reference") or "Freight source/input"),
+                baseline_source=baseline_source,
                 baseline_value=item.get(f"base_{field}"),
-                comparison_source=str(item.get("comparison_source_reference") or "Freight source/input"),
+                comparison_source=comparison_source,
                 comparison_value=item.get(f"comparison_{field}"),
                 notes=str(item.get("freight_denominator_policy") or ""),
+                hardcode_class=hardcode_class,
             )
         freight_keys[f"{period}:{index}"] = keys
     context["freight_keys"] = freight_keys
@@ -429,71 +735,167 @@ def collect_reporting_sources(
     material_rows = _records(material.get("trace_rows") or [])
     context["material_rows"] = material_rows
     material_keys: dict[tuple[str, str], dict[str, str]] = {}
+    material_formula_groups: dict[tuple[str, str], dict[str, Any]] = {}
     for item in material_rows:
         period = str(item.get("period") or period_label)
         product = str(item.get("product_group") or "")
-        keys: dict[str, str] = {}
-        for field, label, unit, source_index in (
-            ("cost", "원재료 금액", "원", 0),
-            ("output", "생산/적용량", str(item.get("unit") or ""), 2),
-        ):
-            key = f"material:{period}:{product}:{field}"
-            keys[field] = key
+        group = {
+            "front": {},
+            "back": {},
+            "direct": [],
+            "output": [],
+            "legacy_cost_key": "",
+        }
+        baseline_components = item.get("base_material_source_components") or []
+        comparison_components = item.get("comparison_material_source_components") or []
+        component_keys, paired_components = _register_raw_component_pairs(
+            registry,
+            key_prefix=f"material:{period}:{product}:source",
+            category="원재료",
+            item=f"{product} 원재료 원천셀",
+            basis=product,
+            period=period,
+            unit_by_role={
+                "front_amount": "원",
+                "front_production_basis": str(item.get("unit") or ""),
+                "production_quantity": str(item.get("unit") or ""),
+                "input_length": "m",
+                "adjustment": "배율",
+                "back_total_component": "원",
+                "direct": "원",
+            },
+            baseline_components=baseline_components,
+            comparison_components=comparison_components,
+            notes=str(item.get("canonical_fields") or ""),
+        )
+        for identity, baseline_component, comparison_component in paired_components:
+            component = baseline_component or comparison_component
+            role = str(component.get("role") or "component")
+            term_id = str(component.get("term_id") or identity[0])
+            key = component_keys[identity]
+            if role == "back_total_component":
+                group["back"].setdefault(term_id, []).append(key)
+            elif role == "direct":
+                group["direct"].append(key)
+            elif role in {
+                "front_amount", "front_production_basis", "production_quantity",
+                "input_length", "adjustment",
+            }:
+                group["front"].setdefault(term_id, {})[role] = key
+
+        output_keys, _ = _register_raw_component_pairs(
+            registry,
+            key_prefix=f"material:{period}:{product}:output",
+            category="원재료",
+            item=f"{product} 생산기준 원천셀",
+            basis=product,
+            period=period,
+            unit_by_role={"production_basis": str(item.get("unit") or "")},
+            baseline_components=item.get("base_output_source_components") or [],
+            comparison_components=item.get("comparison_output_source_components") or [],
+            notes="material_effects production_basis denominator",
+        )
+        group["output"] = list(output_keys.values())
+
+        if not baseline_components and not comparison_components:
+            # Stored/legacy results may predate structured adapter components.
+            # Keep the value explicitly labelled as an input rather than
+            # presenting an aggregated source expression as MODEL_SOURCE.
+            legacy_key = f"material:{period}:{product}:legacy_cost"
             registry.add(
-                key,
+                legacy_key,
                 category="원재료",
-                item=f"{product} {label}",
+                item=f"{product} 원재료 금액(저장 결과)",
                 basis=product,
                 period=period,
-                unit=unit,
-                baseline_source=_source_part(item.get("base_source_reference") or "Material source", source_index),
-                baseline_value=item.get(f"base_{field}"),
-                comparison_source=_source_part(item.get("comparison_source_reference") or "Material source", source_index),
-                comparison_value=item.get(f"comparison_{field}"),
-                notes=str(item.get("canonical_fields") or ""),
+                unit="원",
+                baseline_source=str(item.get("base_source_reference") or "Stored material result"),
+                baseline_value=item.get("base_cost"),
+                comparison_source=str(item.get("comparison_source_reference") or "Stored material result"),
+                comparison_value=item.get("comparison_cost"),
+                notes="구조화된 원천셀 trace가 없는 저장 결과",
+                hardcode_class="REQUEST_INPUT",
             )
-        material_keys[(period, product)] = keys
+            group["legacy_cost_key"] = legacy_key
+        material_formula_groups[(period, product)] = group
+        material_keys[(period, product)] = {
+            "output": group["output"][0] if len(group["output"]) == 1 else "",
+        }
     context["material_keys"] = material_keys
+    context["material_formula_groups"] = material_formula_groups
 
     nonwoven_rows = _records(material.get("nonwoven_trace_rows") or [])
     context["nonwoven_rows"] = nonwoven_rows
-    nonwoven_keys: dict[str, dict[str, str]] = {}
+    nonwoven_keys: dict[str, dict[str, Any]] = {}
     for index, item in enumerate(nonwoven_rows, 1):
         period = str(item.get("period") or period_label)
-        keys: dict[str, str] = {}
-        for field, label, unit in (
-            ("cost", "부직포 금액", "원"),
-            ("output", "부직포 생산길이", "m"),
-            ("jpy_fx", "JPY 환율", "KRW/JPY"),
-        ):
-            key = f"nonwoven:{period}:{index}:{field}"
-            keys[field] = key
-            registry.add(
-                key,
-                category="원재료",
-                item=label,
-                basis="FS",
-                period=period,
-                unit=unit,
-                baseline_source=str(item.get("base_source_reference") or "Nonwoven source"),
-                baseline_value=item.get(f"base_{field}"),
-                comparison_source=str(item.get("comparison_source_reference") or "Nonwoven source"),
-                comparison_value=item.get(f"comparison_{field}"),
-                notes=str(item.get("canonical_fields") or ""),
-            )
-        input_key = f"nonwoven:{period}:{index}:comparison_input_length"
-        keys["comparison_input_length"] = input_key
-        registry.add(
-            input_key,
+        base_components = [
+            component for component in item.get("base_source_components") or []
+            if str(component.get("role") or "") in {"cost", "output", "jpy_fx"}
+        ]
+        comparison_components = [
+            component for component in item.get("comparison_source_components") or []
+            if str(component.get("role") or "") in {"cost", "output", "jpy_fx"}
+        ]
+        component_keys, paired_components = _register_raw_component_pairs(
+            registry,
+            key_prefix=f"nonwoven:{period}:{index}:source",
             category="원재료",
-            item="부직포 비교 적용길이",
+            item="부직포 원천셀",
             basis="FS",
             period=period,
-            unit="m",
-            comparison_source=str(item.get("comparison_source_reference") or "Nonwoven source"),
-            comparison_value=item.get("comparison_input_length"),
-            notes="JPY/price split 적용량",
+            unit_by_role={"cost": "원", "output": "m", "jpy_fx": "KRW/JPY"},
+            baseline_components=base_components,
+            comparison_components=comparison_components,
+            notes=str(item.get("canonical_fields") or ""),
         )
+        keys: dict[str, Any] = {"cost": [], "output": [], "jpy_fx": []}
+        for identity, baseline_component, comparison_component in paired_components:
+            component = baseline_component or comparison_component
+            role = str(component.get("role") or "")
+            if role in keys:
+                keys[role].append(component_keys[identity])
+
+        input_components = [
+            component for component in item.get("comparison_source_components") or []
+            if str(component.get("role") or "") in {"sales_quantity", "input_length"}
+        ]
+        input_keys, input_pairs = _register_raw_component_pairs(
+            registry,
+            key_prefix=f"nonwoven:{period}:{index}:input",
+            category="원재료",
+            item="부직포 비교 적용길이 원천셀",
+            basis="FS",
+            period=period,
+            unit_by_role={"sales_quantity": "PCS", "input_length": "m"},
+            baseline_components=[],
+            comparison_components=input_components,
+            notes="비교 판매수량 × 제품별 입력길이",
+        )
+        input_terms: dict[str, dict[str, str]] = {}
+        for identity, _, comparison_component in input_pairs:
+            component = comparison_component
+            term_id = str(component.get("term_id") or identity[0])
+            role = str(component.get("role") or "")
+            if role not in {"sales_quantity", "input_length"}:
+                continue
+            input_terms.setdefault(term_id, {})[role] = input_keys[identity]
+        keys["comparison_input_terms"] = input_terms
+        if not input_terms:
+            input_key = f"nonwoven:{period}:{index}:comparison_input_length"
+            registry.add(
+                input_key,
+                category="원재료",
+                item="부직포 비교 적용길이(저장 결과)",
+                basis="FS",
+                period=period,
+                unit="m",
+                comparison_source=str(item.get("comparison_source_reference") or "Stored nonwoven result"),
+                comparison_value=item.get("comparison_input_length"),
+                notes="구조화된 입력길이 원천셀 trace가 없는 저장 결과",
+                hardcode_class="REQUEST_INPUT",
+            )
+            keys["comparison_input_legacy_key"] = input_key
         nonwoven_keys[f"{period}:{index}"] = keys
     context["nonwoven_keys"] = nonwoven_keys
 
@@ -605,9 +1007,10 @@ def _collect_cost_sources(
             unit="%",
             baseline_source=ratio_source,
             baseline_value=item.get("front_ratio_base"),
-            comparison_source=ratio_source,
+            comparison_source="V1 policy: baseline ratio reused for comparison",
             comparison_value=item.get("front_ratio_comparison", item.get("front_ratio_base")),
             notes="기준 source ratio를 양쪽에 동일 적용하는 기존 정책 유지",
+            hardcode_class="POLICY_INPUT",
         )
         manufacturing_keys[f"{period}:{index}"] = {"amount": amount_key, "ratio": ratio_key}
     context["manufacturing_keys"] = manufacturing_keys
@@ -668,6 +1071,14 @@ def _collect_cost_sources(
         period = str(item.get("period") or period_label)
         product = str(item.get("product_group") or "")
         key = f"core:{period}:{product}:cogs"
+        baseline_source = str(
+            item.get("base_core_cogs_source_reference") or "Core COGS source"
+        )
+        hardcode_class = (
+            "MODEL_SOURCE"
+            if is_single_cell_source_reference(baseline_source)
+            else "REQUEST_INPUT"
+        )
         registry.add(
             key,
             category="재고/원가",
@@ -675,11 +1086,16 @@ def _collect_cost_sources(
             basis=product,
             period=period,
             unit="원",
-            baseline_source=str(item.get("base_core_cogs_source_reference") or "Core COGS source"),
+            baseline_source=baseline_source,
             baseline_value=item.get("base_core_manufactured_cogs"),
-            comparison_source=str(item.get("comparison_core_cogs_source_reference") or "Core COGS source"),
+            comparison_source=(
+                str(item.get("comparison_core_cogs_source_reference") or "")
+                if item.get("comparison_core_manufactured_cogs") is not None
+                else ""
+            ),
             comparison_value=None,
             notes="Quantity/Mix overlap 계산의 기준 COGS source",
+            hardcode_class=hardcode_class,
         )
         core_keys[(period, product)] = key
     context["core_keys"] = core_keys
@@ -1239,6 +1655,82 @@ def write_sales_sheet(
     return cells
 
 
+def _material_cost_formula(
+    registry: SourceRegistry,
+    group: Mapping[str, Any],
+    side: str,
+) -> str:
+    parts: list[str] = []
+    for term in group.get("front", {}).values():
+        refs = {
+            role: registry.ref(key, side)
+            for role, key in term.items()
+            if key
+        }
+        required = (
+            "front_amount", "front_production_basis", "production_quantity",
+            "input_length", "adjustment",
+        )
+        if all(role in refs for role in required):
+            parts.append(
+                "IFERROR(("
+                f"{refs['front_amount']}/{refs['front_production_basis']}"
+                f")*{refs['input_length']}*{refs['adjustment']}*"
+                f"{refs['production_quantity']},0)"
+            )
+    for back_sources in group.get("back", {}).values():
+        refs = [registry.ref(key, side) for key in back_sources if key]
+        if refs:
+            parts.append(_join_sum(refs)[1:])
+    parts.extend(
+        registry.ref(key, side)
+        for key in group.get("direct", ())
+        if key
+    )
+    if not parts:
+        legacy_key = str(group.get("legacy_cost_key") or "")
+        return f"={registry.ref(legacy_key, side)}/1000" if legacy_key else "=0"
+    return f"=SUM({','.join(parts)})/1000"
+
+
+def _material_output_formula(
+    registry: SourceRegistry,
+    group: Mapping[str, Any],
+    side: str,
+) -> str:
+    refs = [registry.ref(key, side) for key in group.get("output", ()) if key]
+    return _join_sum(refs) if refs else "=0"
+
+
+def _nonwoven_component_formula(
+    registry: SourceRegistry,
+    keys: Mapping[str, Any],
+    side: str,
+    role: str,
+) -> str:
+    refs = [registry.ref(key, side) for key in keys.get(role, ()) if key]
+    return _join_sum(refs) if refs else "=0"
+
+
+def _nonwoven_input_formula(
+    registry: SourceRegistry,
+    keys: Mapping[str, Any],
+) -> str:
+    parts: list[str] = []
+    for term in keys.get("comparison_input_terms", {}).values():
+        quantity = term.get("sales_quantity")
+        input_length = term.get("input_length")
+        if quantity and input_length:
+            parts.append(
+                f"{registry.ref(quantity, 'comparison')}*"
+                f"{registry.ref(input_length, 'comparison')}"
+            )
+    if parts:
+        return f"=SUM({','.join(parts)})"
+    legacy_key = str(keys.get("comparison_input_legacy_key") or "")
+    return f"={registry.ref(legacy_key, 'comparison')}" if legacy_key else "=0"
+
+
 def write_cost_sheet(
     ws: Any,
     registry: SourceRegistry,
@@ -1293,21 +1785,21 @@ def write_cost_sheet(
     row += 1
     material_start = row
     material_rows = list(context.get("material_rows") or [])
-    material_keys = dict(context.get("material_keys") or {})
+    material_formula_groups = dict(context.get("material_formula_groups") or {})
     sales_rows = dict(sales_cells.get("_sales_table_rows") or {})
     for item in material_rows:
         period = str(item.get("period") or "선택기간")
         product = str(item.get("product_group") or "")
-        keys = material_keys[(period, product)]
+        material_group = material_formula_groups.get((period, product), {})
         sales_row = sales_rows.get((period, product))
         current = row
         ws.cell(current, 1, product)
         ws.cell(current, 2, item.get("unit"))
         ws.cell(current, 3, period)
-        ws.cell(current, 4, f"={registry.ref(keys['cost'], 'baseline')}/1000")
-        ws.cell(current, 5, f"={registry.ref(keys['cost'], 'comparison')}/1000")
-        ws.cell(current, 6, f"={registry.ref(keys['output'], 'baseline')}")
-        ws.cell(current, 7, f"={registry.ref(keys['output'], 'comparison')}")
+        ws.cell(current, 4, _material_cost_formula(registry, material_group, "baseline"))
+        ws.cell(current, 5, _material_cost_formula(registry, material_group, "comparison"))
+        ws.cell(current, 6, _material_output_formula(registry, material_group, "baseline"))
+        ws.cell(current, 7, _material_output_formula(registry, material_group, "comparison"))
         ws.cell(current, 8, f"={_formula_ref('03_판매근거', f'F{sales_row}')}" if sales_row else "=0")
         ws.cell(current, 9, f"=IFERROR(D{current}*1000/F{current},0)")
         ws.cell(current, 10, f"=IFERROR(E{current}*1000/G{current},0)")
@@ -1340,13 +1832,13 @@ def write_cost_sheet(
         keys = nonwoven_keys[f"{period}:{index}"]
         current = row
         ws.cell(current, 1, period)
-        ws.cell(current, 2, f"={registry.ref(keys['cost'], 'baseline')}/1000")
-        ws.cell(current, 3, f"={registry.ref(keys['cost'], 'comparison')}/1000")
-        ws.cell(current, 4, f"={registry.ref(keys['output'], 'baseline')}")
-        ws.cell(current, 5, f"={registry.ref(keys['output'], 'comparison')}")
-        ws.cell(current, 6, f"={registry.ref(keys['comparison_input_length'], 'comparison')}")
-        ws.cell(current, 7, f"={registry.ref(keys['jpy_fx'], 'baseline')}")
-        ws.cell(current, 8, f"={registry.ref(keys['jpy_fx'], 'comparison')}")
+        ws.cell(current, 2, f"{_nonwoven_component_formula(registry, keys, 'baseline', 'cost')}/1000")
+        ws.cell(current, 3, f"{_nonwoven_component_formula(registry, keys, 'comparison', 'cost')}/1000")
+        ws.cell(current, 4, _nonwoven_component_formula(registry, keys, "baseline", "output"))
+        ws.cell(current, 5, _nonwoven_component_formula(registry, keys, "comparison", "output"))
+        ws.cell(current, 6, _nonwoven_input_formula(registry, keys))
+        ws.cell(current, 7, _nonwoven_component_formula(registry, keys, "baseline", "jpy_fx"))
+        ws.cell(current, 8, _nonwoven_component_formula(registry, keys, "comparison", "jpy_fx"))
         ws.cell(current, 9, f"=IFERROR(B{current}*1000/D{current},0)")
         ws.cell(current, 10, f"=IFERROR(C{current}*1000/E{current},0)")
         ws.cell(current, 11, f"=(I{current}-J{current})*F{current}/1000")
@@ -1942,11 +2434,24 @@ def audit_reporting_workbook(workbook: Workbook) -> dict[str, Any]:
         raise ValueError("gridlines must be hidden")
     if any(workbook[name].page_setup.fitToWidth != 1 for name in REPORT_SHEETS):
         raise ValueError("print fit-to-width contract failure")
-    source_entries: dict[tuple[str, str, float], list[str]] = {}
+    source_entries: dict[tuple[str, str], dict[float, list[str]]] = {}
     derived_source_literals: list[str] = []
     source = workbook["90_원본값"]
     for row in range(6, source.max_row + 1):
         hardcode_class = str(source[f"L{row}"].value or "")
+        if hardcode_class == "MODEL_SOURCE":
+            _validate_model_source_pair(
+                source[f"G{row}"].value,
+                source[f"H{row}"].value,
+                side="baseline",
+                key=str(source[f"A{row}"].value or row),
+            )
+            _validate_model_source_pair(
+                source[f"I{row}"].value,
+                source[f"J{row}"].value,
+                side="comparison",
+                key=str(source[f"A{row}"].value or row),
+            )
         if hardcode_class not in {"MODEL_SOURCE", "REQUEST_INPUT", "POLICY_INPUT"}:
             for value_column in ("H", "J"):
                 value = source[f"{value_column}{row}"].value
@@ -1962,13 +2467,17 @@ def audit_reporting_workbook(workbook: Workbook) -> dict[str, Any]:
             source_text = str(source_reference)
             if not any(marker in source_text for marker in ("Data!", "Analysis request input", "config/")):
                 continue
-            key = (side, source_text, float(value))
-            source_entries.setdefault(key, []).append(f"{value_column}{row}")
-    source_duplicates = {
-        key: cells for key, cells in source_entries.items() if len(cells) > 1
+            source_key = (side, source_text)
+            source_entries.setdefault(source_key, {}).setdefault(
+                float(value), []
+            ).append(f"{value_column}{row}")
+    source_conflicts = {
+        key: values
+        for key, values in source_entries.items()
+        if len(values) > 1
     }
-    if source_duplicates:
-        raise ValueError(f"duplicated source/input values: {source_duplicates}")
+    if source_conflicts:
+        raise ValueError(f"conflicting source/input readbacks: {source_conflicts}")
     hard_coded_derived_count = sum(len(cells) for cells in hard_coded_numeric.values()) + len(derived_source_literals)
     if hard_coded_derived_count:
         raise ValueError(
@@ -1986,8 +2495,18 @@ def audit_reporting_workbook(workbook: Workbook) -> dict[str, Any]:
             if isinstance(cell.value, (int, float)) and not isinstance(cell.value, bool)
         ),
         "hard_coded_derived_duplicates": hard_coded_derived_count,
+        "model_source_count": sum(
+            1
+            for row in range(6, source.max_row + 1)
+            if source[f"L{row}"].value == "MODEL_SOURCE"
+        ),
         "derived_source_literal_count": len(derived_source_literals),
-        "duplicated_source_values": len(source_duplicates),
+        "duplicated_source_values": sum(
+            sum(len(cells) for cells in values.values()) - 1
+            for values in source_entries.values()
+            if len(values) == 1
+        ),
+        "conflicting_source_values": len(source_conflicts),
         "formula_error_count": len(formula_errors),
     }
 
@@ -1998,6 +2517,8 @@ def build_reporting_workbook(
     sales_rows: Iterable[Any],
     baseline_fx: float | None,
     comparison_fx: float | None,
+    baseline_workbook: Any = None,
+    comparison_workbook: Any = None,
 ) -> Workbook:
     workbook = Workbook()
     workbook.remove(workbook.active)
@@ -2008,7 +2529,17 @@ def build_reporting_workbook(
     for name in REPORT_SHEETS:
         workbook.create_sheet(name)
     registry, context = collect_reporting_sources(
-        result, sales_rows, baseline_fx, comparison_fx
+        result,
+        sales_rows,
+        baseline_fx,
+        comparison_fx,
+        baseline_workbook=baseline_workbook,
+        comparison_workbook=comparison_workbook,
+    )
+    validate_source_registry_readback(
+        registry,
+        baseline_workbook=baseline_workbook,
+        comparison_workbook=comparison_workbook,
     )
     write_source_sheet(workbook["90_원본값"], registry)
     sales_cells = write_sales_sheet(workbook["03_판매근거"], registry, context)

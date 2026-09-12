@@ -83,6 +83,24 @@ describe('forecast direct-input adapter', () => {
     expect(adapted.value?.[0].new_business_goods_cogs).toBeUndefined();
   });
 
+  it('keeps manufacturing and SGA adjustment defaults blank while serializing comma and negative values canonically', () => {
+    const month = createForecastMonthFormState(7, metadata);
+    expect(month.manufacturingAdjustments['mfg-energy']).toEqual({ amount: '', reason: '' });
+    expect(month.sgaAdjustments['sga-selling']).toEqual({ amount: '', reason: '' });
+
+    month.manufacturingAdjustments['mfg-energy'] = { amount: '-1,250,000', reason: '제조 조정' };
+    month.sgaAdjustments['sga-selling'] = { amount: '2,500,000', reason: '판매비 조정' };
+    const adapted = adaptForecastInput([7], { 7: month }, metadata);
+
+    expect(adapted.error).toBe('');
+    expect(adapted.value?.[0].manufacturing_adjustments).toEqual([{
+      adjustment_key: 'mfg-energy', amount: -1_250_000, reason: '제조 조정',
+    }]);
+    expect(adapted.value?.[0].sga_adjustments).toEqual([{
+      adjustment_key: 'sga-selling', amount: 2_500_000, reason: '판매비 조정',
+    }]);
+  });
+
   it('rejects blank, negative, and non-finite editing values instead of coercing them to zero', () => {
     const blank = createForecastMonthFormState(7);
     blank.sales.SW400.quantity = '';
@@ -113,6 +131,27 @@ describe('forecast direct-input adapter', () => {
     expect(next[8].month).toBe(8);
     expect(next[8].sales.LC.quantity).toBe('0');
     expect(next[8].production['back:SW'].quantity).toBe('0');
+  });
+
+  it('rehydrates persisted manufacturing and SGA adjustments without changing their canonical payload', () => {
+    const persisted = createForecastMonthFormState(7, metadata);
+    persisted.manufacturingAdjustments['mfg-energy'] = { amount: '-1,250,000', reason: '제조 재조회' };
+    persisted.sgaAdjustments['sga-selling'] = { amount: '2,500,000', reason: '판매비 재조회' };
+
+    const rehydrated = ensureForecastMonths({ 7: persisted }, [7, 8], metadata);
+    expect(rehydrated[7].manufacturingAdjustments['mfg-energy']).toEqual({
+      amount: '-1,250,000', reason: '제조 재조회',
+    });
+    expect(rehydrated[7].sgaAdjustments['sga-selling']).toEqual({
+      amount: '2,500,000', reason: '판매비 재조회',
+    });
+    const payload = adaptForecastInput([7], rehydrated, metadata);
+    expect(payload.value?.[0].manufacturing_adjustments).toEqual([{
+      adjustment_key: 'mfg-energy', amount: -1_250_000, reason: '제조 재조회',
+    }]);
+    expect(payload.value?.[0].sga_adjustments).toEqual([{
+      adjustment_key: 'sga-selling', amount: 2_500_000, reason: '판매비 재조회',
+    }]);
   });
 
   it('round-trips opaque adjustment keys and scalar advanced fields without deriving amounts', () => {

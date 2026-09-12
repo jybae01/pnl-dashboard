@@ -1710,12 +1710,14 @@ def build_comparison_audit_workbook(
     Excel formulas for auditability.  The historical technical-sheet writers
     remain available for compatibility tests but are not emitted here.
     """
-    _ = (sales_totals, baseline_path, comparison_path, mapping_path)
+    _ = (sales_totals, mapping_path)
     workbook = build_reporting_workbook(
         result=result,
         sales_rows=sales_rows,
         baseline_fx=baseline_fx,
         comparison_fx=comparison_fx,
+        baseline_workbook=baseline_path,
+        comparison_workbook=comparison_path,
     )
 
     output = BytesIO()

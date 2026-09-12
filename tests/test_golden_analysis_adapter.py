@@ -65,6 +65,9 @@ def _build_workbook(path, *, comparison: bool = False) -> None:
     put(208, 1_000)
     put(209, 0)
     put(211, 10_000, 12_000)
+    # Finished-product front unit cost is the mapped front amount divided by
+    # the mapped front production basis; allocation-ratio rows are unrelated.
+    put(128, 1_000, 1_000)
     put(425, 100)
     put(426, 1_000, 1_200)
     put(430, 0)
@@ -128,7 +131,7 @@ def _build_workbook(path, *, comparison: bool = False) -> None:
     for row in (790, 791, 792):
         put(row, 0)
     for row, base, target in (
-        (900, 50, 50), (907, 50, 50),
+        (899, 0, 0), (900, 50, 50), (906, 0, 0), (907, 50, 50),
     ):
         put(row, base, target)
 
@@ -204,12 +207,12 @@ def test_adapter_calculates_material_three_part_identity_from_golden_cells(tmp_p
     result = adapter.material_analysis(base, comparison)
     sw = next(row for row in result["product_groups"] if row["product_group"] == "SW")
 
-    assert sw["baseline_unit_cost"] == 14
-    assert sw["comparison_unit_cost"] == 17
-    assert sw["total"] == -270
+    assert sw["baseline_unit_cost"] == 11
+    assert sw["comparison_unit_cost"] == 13
+    assert sw["total"] == -180
     assert sw["nonwoven_price_ex_fx"] == 0
     assert sw["nonwoven_jpy"] == -180
-    assert sw["materials_ex_nonwoven"] == -90
+    assert sw["materials_ex_nonwoven"] == 0
     assert sw["total"] == (
         sw["nonwoven_price_ex_fx"]
         + sw["nonwoven_jpy"]
@@ -227,6 +230,43 @@ def test_adapter_calculates_material_three_part_identity_from_golden_cells(tmp_p
     assert nonwoven_trace["canonical_fields"].endswith("jpy_fx_krw_per_jpy")
     assert "mcm" not in str(result).lower()
     assert "yield" not in str(result).lower()
+
+
+def test_finished_product_material_uses_front_basis_and_back_pairs_once(tmp_path):
+    path = tmp_path / "raw-material.xlsx"
+    _build_workbook(path)
+    workbook = load_workbook(path)
+    sheet = workbook["Data"]
+    # Make the old pool/allocation route visibly disagree with the mapped
+    # product cells.  It must not affect the normalized finished-product cost.
+    sheet["E699"] = 999_999
+    sheet["E273"] = 0.99
+    sheet["E788"] = 0.99
+    sheet["E789"] = 0.01
+    workbook.save(path)
+
+    adapted = _adapter().build(GoldenWorkbook(path), _meta("base"), (1,))
+    sw = next(row for row in adapted.scenario.products if row.product_code == "SW_CORE")
+
+    # (10,000 / 1,000) * (60 + 40) + (50 + 50); E900/E907 are included in
+    # their back pairs and must not be added again as standalone MCM costs.
+    assert sw.raw_material_cost == 1_100
+    assert "Data!E699" not in sw.raw_material_cost_source
+    roles = {(item["role"], item["source"]) for item in sw.raw_material_components}
+    assert {
+        ("front_amount", "Data!E211"),
+        ("front_production_basis", "Data!E128"),
+        ("production_quantity", "Data!E897"),
+        ("input_length", "Data!E580"),
+        ("adjustment", "Data!E956"),
+        ("back_total_component", "Data!E899"),
+        ("back_total_component", "Data!E900"),
+        ("production_quantity", "Data!E904"),
+        ("input_length", "Data!E583"),
+        ("adjustment", "Data!E957"),
+        ("back_total_component", "Data!E906"),
+        ("back_total_component", "Data!E907"),
+    } <= roles
 
 
 def test_adapter_maps_inventory_ledger_production_quantity_and_amount_sources(tmp_path):

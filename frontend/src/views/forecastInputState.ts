@@ -129,7 +129,7 @@ const businessProductionValues = () => Object.fromEntries(
 );
 
 const adjustmentValues = (items: readonly ForecastAdjustmentMetadataDto[]) => Object.fromEntries(
-  items.map(({ adjustment_key }) => [adjustment_key, { amount: '0', reason: '' }]),
+  items.map(({ adjustment_key }) => [adjustment_key, { amount: '', reason: '' }]),
 );
 
 function advancedValues(metadata?: ForecastInputMetadataDto): ForecastAdvancedFormState {
@@ -180,7 +180,7 @@ function mergeAdjustmentValues(
 ): Record<string, ForecastAdjustmentFormValue> {
   const next = { ...current };
   items.forEach(({ adjustment_key }) => {
-    if (!next[adjustment_key]) next[adjustment_key] = { amount: '0', reason: '' };
+    if (!next[adjustment_key]) next[adjustment_key] = { amount: '', reason: '' };
   });
   return next;
 }
@@ -353,7 +353,7 @@ function parseNumber(
 ): ParsedValue {
   const trimmed = (value ?? '').trim();
   if (trimmed === '') return { value: options.defaultValue };
-  const parsed = Number(trimmed);
+  const parsed = Number(trimmed.replace(/,/g, ''));
   const valid = Number.isFinite(parsed)
     && (options.allowNegative || parsed >= 0)
     && (!options.strictlyPositive || parsed > 0)

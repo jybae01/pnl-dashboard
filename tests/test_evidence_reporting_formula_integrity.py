@@ -10,7 +10,13 @@ from openpyxl import load_workbook
 
 from forecast.analysis_export import build_comparison_audit_workbook
 from forecast.comparison import GenericComparisonEngine, PeriodOption
-from forecast.evidence_reporting import audit_reporting_workbook, collect_reporting_sources
+from forecast.evidence_reporting import (
+    SourceRegistry,
+    audit_reporting_workbook,
+    collect_reporting_sources,
+    is_single_cell_source_reference,
+    validate_source_registry_readback,
+)
 
 try:
     from tests.test_golden_analysis_adapter import _build_workbook, _meta
@@ -363,6 +369,134 @@ def test_production_weighted_formula_uses_amount_sum_over_quantity_sum(tmp_path)
         back["baseline_quantity"],
         sum(by_group[group]["baseline_quantity"] for group in ("FS", "SW", "BW", "LC")),
     }
+
+
+def test_model_source_cells_are_single_raw_cells_and_material_arithmetic_is_formula_based(tmp_path):
+    baseline = tmp_path / "baseline.xlsx"
+    comparison = tmp_path / "comparison.xlsx"
+    _build_workbook(baseline, comparison=False)
+    _build_workbook(comparison, comparison=True)
+    result = GenericComparisonEngine(ROOT / "config" / "model_mapping.json").compare(
+        _meta("base"), baseline, _meta("comparison"), comparison,
+        PeriodOption("M2026_01", "2026-01", (1,), "사용자정의"),
+        baseline_sales_fx=1_400.0, comparison_sales_fx=1_450.0,
+    )
+    payload = build_comparison_audit_workbook(
+        result=asdict(result),
+        sales_rows=result.sales_analysis["rows"],
+        sales_totals=result.sales_analysis["totals"],
+        baseline_fx=1_400.0,
+        comparison_fx=1_450.0,
+        baseline_path=baseline,
+        comparison_path=comparison,
+        mapping_path=ROOT / "config" / "model_mapping.json",
+    )
+    workbook = load_workbook(BytesIO(payload), data_only=False)
+    source = workbook["90_원본값"]
+    model_rows = [
+        row for row in range(6, source.max_row + 1)
+        if source[f"L{row}"].value == "MODEL_SOURCE"
+    ]
+    assert model_rows
+    for row in model_rows:
+        for column in ("G", "I"):
+            reference = source[f"{column}{row}"].value
+            if reference:
+                assert is_single_cell_source_reference(reference)
+                assert not any(token in str(reference) for token in ("+", "-", "*", "/", "SUM", "AVERAGE"))
+    ratio_rows = [
+        row for row in range(6, source.max_row + 1)
+        if str(source[f"A{row}"].value or "").startswith("manufacturing:")
+        and ":ratio:" in str(source[f"A{row}"].value or "")
+    ]
+    assert ratio_rows
+    assert all(source[f"L{row}"].value == "POLICY_INPUT" for row in ratio_rows)
+    assert all(
+        source[f"I{row}"].value == "V1 policy: baseline ratio reused for comparison"
+        for row in ratio_rows
+    )
+    assert not any(
+        "Data!E699" in str(source[f"{column}{row}"].value or "")
+        for row in range(6, source.max_row + 1)
+        for column in ("G", "I")
+        if str(source[f"A{row}"].value or "").startswith("material:")
+    )
+    cost = workbook["04_원가근거"]
+    material_rows = [
+        row for row in range(1, cost.max_row + 1)
+        if cost[f"A{row}"].value in {"SW", "BW", "LC", "FS"}
+    ]
+    assert material_rows
+    assert all(
+        isinstance(cost[f"D{row}"].value, str)
+        and cost[f"D{row}"].value.startswith("=")
+        and isinstance(cost[f"E{row}"].value, str)
+        and cost[f"E{row}"].value.startswith("=")
+        for row in material_rows
+    )
+
+
+def test_source_registry_rejects_derived_model_sources_and_checks_readback(tmp_path):
+    registry = SourceRegistry()
+    with pytest.raises(ValueError, match="one original workbook cell"):
+        registry.add(
+            "bad",
+            category="원재료",
+            item="bad",
+            baseline_source="Data!E211+Data!E128",
+            baseline_value=10,
+            comparison_source="Data!E211",
+            comparison_value=10,
+        )
+
+    baseline = tmp_path / "baseline.xlsx"
+    comparison = tmp_path / "comparison.xlsx"
+    _build_workbook(baseline, comparison=False)
+    _build_workbook(comparison, comparison=True)
+    registry.add(
+        "raw",
+        category="원재료",
+        item="raw",
+        baseline_source="Data!E211",
+        baseline_value=10_000,
+        comparison_source="Data!E211",
+        comparison_value=12_000,
+    )
+    assert validate_source_registry_readback(
+        registry, baseline_workbook=baseline, comparison_workbook=comparison
+    ) == 2
+
+    same_reference_wrong_comparison = SourceRegistry()
+    same_reference_wrong_comparison.add(
+        "ratio",
+        category="제조",
+        item="전공정 배부율",
+        baseline_source="Data!E345",
+        baseline_value=0.5,
+        comparison_source="Data!E345",
+        comparison_value=0.5,
+    )
+    with pytest.raises(ValueError, match="comparison readback mismatch"):
+        validate_source_registry_readback(
+            same_reference_wrong_comparison,
+            baseline_workbook=baseline,
+            comparison_workbook=comparison,
+        )
+
+    mismatch = SourceRegistry()
+    mismatch.add(
+        "raw",
+        category="원재료",
+        item="raw",
+        baseline_source="Data!E211",
+        baseline_value=1,
+        comparison_source="Data!E211",
+        comparison_value=12_000,
+    )
+    with pytest.raises(ValueError, match="readback mismatch"):
+        validate_source_registry_readback(
+            mismatch, baseline_workbook=baseline, comparison_workbook=comparison
+        )
 
 
 @pytest.mark.parametrize("invalid_cogs", [None, float("nan"), float("inf"), "not-a-number"])

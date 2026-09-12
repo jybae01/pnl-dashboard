@@ -54,6 +54,11 @@ class ProductRecord:
     source_validation_status: str = "UNVALIDATED"
     production_components: tuple[tuple[str, float], ...] = ()
     mcm_components: tuple[tuple[str, float], ...] = ()
+    # Evidence-only raw source components.  These fields carry workbook cell
+    # identities and their raw values without making the calculation engine
+    # aware of workbook row numbers or changing material-effect semantics.
+    raw_material_components: tuple[dict[str, Any], ...] = ()
+    nonwoven_input_components: tuple[dict[str, Any], ...] = ()
 
     @property
     def sales_basis(self) -> float:

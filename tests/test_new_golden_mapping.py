@@ -60,6 +60,46 @@ class NewGoldenModelMappingTests(unittest.TestCase):
         )
         self.assertEqual(self.mapping["special_rows"]["lc_unit_cost"], 936)
 
+    def test_raw_material_source_identity_uses_product_pairs_and_only_new_adjustments(self):
+        material = self.mapping["analysis_adapter"]["material"]
+        sources = material["raw_material_sources"]
+        self.assertEqual(sources["front_amount_row"], 211)
+        self.assertEqual(sources["front_production_basis_row"], 128)
+        self.assertEqual(
+            {
+                code: (
+                    spec["product_group"],
+                    spec["input_length_row"],
+                    spec["adjustment_row"],
+                    spec["back_total_rows"],
+                )
+                for code, spec in sources["finished_product_components"].items()
+            },
+            {
+                "SW400": ("SW", 580, 956, [899, 900]),
+                "SW440": ("SW", 583, 957, [906, 907]),
+                "BW400": ("BW", 586, 958, [913, 914]),
+                "BW440": ("BW", 589, 959, [920, 921]),
+                "LC": ("LC", 592, 960, [927, 928]),
+            },
+        )
+        self.assertNotIn(
+            "pool_amount_rows",
+            {
+                key
+                for term in material["groups"]["SW"].get("back_material_terms", [])
+                for key in term
+            },
+        )
+        self.assertNotIn(
+            "source_allocation_ratio_row",
+            {
+                key
+                for term in material["groups"]["SW"].get("front_material_terms", [])
+                for key in term
+            },
+        )
+
 
 if __name__ == "__main__":
     unittest.main()
