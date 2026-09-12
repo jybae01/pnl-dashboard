@@ -7,6 +7,7 @@ import {
   calculateEntryAdjustmentFromTargetAmount,
   ForecastGenerationView,
   formatCanonicalRatioAsPercentage,
+  formatAdjustmentInputValue,
   formatNumericPresentation,
   parseFormattedNumericInput,
   parsePercentageToCanonicalRatio,
@@ -891,6 +892,14 @@ describe('Forecast React vertical slice', () => {
     expect(formatCanonicalRatioAsPercentage(parsePercentageToCanonicalRatio('10.0%'))).toBe('10.0');
     expect(formatNumericPresentation('12000000')).toBe('12,000,000');
     expect(parseFormattedNumericInput('12,000,000')).toBe('12000000');
+  });
+
+  it('keeps explicit zero adjustments visible when a reason makes them semantic input', () => {
+    expect(formatAdjustmentInputValue('0')).toBe('');
+    expect(formatAdjustmentInputValue('0', '')).toBe('');
+    expect(formatAdjustmentInputValue('0', '명시적 0원')).toBe('0');
+    expect(formatAdjustmentInputValue('0', '  명시적 0원  ')).toBe('0');
+    expect(formatAdjustmentInputValue('0', '\uC0AC\uC720')).toBe('0');
   });
 
   it('uses authoritative monthly plans in read-only plan/expected columns and preserves the mockup reference form hierarchy', async () => {

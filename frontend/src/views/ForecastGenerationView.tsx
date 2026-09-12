@@ -169,11 +169,11 @@ function formatKrwAmount(value: number | undefined): string {
     : '—';
 }
 
-function formatAdjustmentInputValue(value: string): string {
+export function formatAdjustmentInputValue(value: string, reason = ''): string {
   const normalized = value.replace(/,/g, '').trim();
   if (normalized === '' || normalized === '-') return value;
   const parsed = Number(normalized);
-  return Number.isFinite(parsed) && parsed === 0 ? '' : value;
+  return Number.isFinite(parsed) && parsed === 0 && reason.trim() === '' ? '' : value;
 }
 
 interface PercentageInputProps {
@@ -1593,7 +1593,7 @@ export const ForecastGenerationView: React.FC<ForecastGenerationViewProps> = ({
                                        <FormattedNumericInput
                                          disabled={advancedControlsDisabled}
                                          ariaLabel={`${rowMonth}월 ${item.display_name} 제조경비 조정액 (KRW)`}
-                                         value={formatAdjustmentInputValue(mfgDraftAmount)}
+                                         value={formatAdjustmentInputValue(mfgDraftAmount, mfgDraftReason)}
                                          onChange={setMfgDraftAmount}
                                        />
                                      </label>
@@ -1749,7 +1749,7 @@ export const ForecastGenerationView: React.FC<ForecastGenerationViewProps> = ({
                                           <FormattedNumericInput
                                             disabled={advancedControlsDisabled}
                                             ariaLabel={`${rowMonth}월 ${item.display_name} ${sgaSectionLabel(item.section)} 조정액 (KRW)`}
-                                            value={formatAdjustmentInputValue(sgaDraftAmount)}
+                                            value={formatAdjustmentInputValue(sgaDraftAmount, sgaDraftReason)}
                                             onChange={setSgaDraftAmount}
                                           />
                                         </label>
