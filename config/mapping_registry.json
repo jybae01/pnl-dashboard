@@ -1,10 +1,10 @@
 {
   "schema_version": "1",
   "config_key": "model_mapping",
-  "active_version": "analysis-v1.2.1",
+  "active_version": "analysis-v1.2.2",
   "versions": [
     {
-      "version": "analysis-v1.2.1",
+      "version": "analysis-v1.2.2",
       "status": "published",
       "file": "model_mapping.json",
       "content_hash": "c2c758c5cc839d69154cd0ac36bbbb49c792bc76d62686621915e8db00b2fbd7",
