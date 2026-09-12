@@ -338,6 +338,75 @@ class EvidenceWorkbookTraceabilityTests(unittest.TestCase):
             self.assertEqual(audit["formula_error_count"], 0)
             self.assertEqual(audit["hard_coded_derived_duplicates"], 0)
 
+    def test_stored_result_prefers_single_cell_sga_trace_value_over_aggregate(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            baseline = root / "base.xlsx"
+            comparison = root / "comparison.xlsx"
+            _build_workbook(baseline, comparison=False)
+            _build_workbook(comparison, comparison=True)
+            result = GenericComparisonEngine(
+                ROOT / "config" / "model_mapping.json"
+            ).compare(
+                _meta("base"), baseline, _meta("comparison"), comparison,
+                PeriodOption("M2026_01", "2026-01", (1,), "사용자정의"),
+                baseline_sales_fx=1_400.0, comparison_sales_fx=1_450.0,
+            )
+            stored = asdict(result)
+            trace = next(
+                row for row in stored["sga_monthly_trace"]
+                if row.get("base_source_reference")
+                and "|" not in row["base_source_reference"]
+            )
+            source_row = next(
+                row for row in stored["sga_accounts"]
+                if int(row["row"]) == int(trace["row"])
+            )
+            trace_baseline = float(trace["baseline_amount"])
+            trace_comparison = float(trace["comparison_amount"])
+            source_row["baseline_amount"] = trace_baseline + 1_000_000_000
+            source_row["comparison_amount"] = trace_comparison + 2_000_000_000
+
+            # No original workbook paths: this is the stored-result export
+            # path where sga_accounts must not override a monthly trace value.
+            payload = build_comparison_audit_workbook(
+                result=stored,
+                sales_rows=stored["sales_analysis"]["rows"],
+                sales_totals=stored["sales_analysis"]["totals"],
+                baseline_fx=1_400.0,
+                comparison_fx=1_450.0,
+                mapping_path=ROOT / "config" / "model_mapping.json",
+            )
+
+            workbook = load_workbook(BytesIO(payload), data_only=False)
+            audit = audit_reporting_workbook(workbook)
+            self.assertEqual(audit["conflicting_source_values"], 0)
+            source = workbook["90_원본값"]
+            source_matches = [
+                row for row in range(6, source.max_row + 1)
+                if source[f"G{row}"].value == trace["base_source_reference"]
+                and source[f"L{row}"].value == "MODEL_SOURCE"
+            ]
+            self.assertEqual(len(source_matches), 1)
+            source_match = source_matches[0]
+            self.assertTrue(is_single_cell_source_reference(source[f"G{source_match}"].value))
+            self.assertTrue(is_single_cell_source_reference(source[f"I{source_match}"].value))
+            self.assertEqual(source[f"H{source_match}"].value, trace_baseline)
+            self.assertEqual(source[f"J{source_match}"].value, trace_comparison)
+
+            cost = workbook["04_원가근거"]
+            cost_rows = [
+                row for row in range(1, cost.max_row + 1)
+                if cost[f"A{row}"].value == "2026-01"
+                and cost[f"C{row}"].value == trace["display_account"]
+            ]
+            self.assertEqual(len(cost_rows), 1)
+            for column in ("E", "F"):
+                formula = cost[f"{column}{cost_rows[0]}"].value
+                self.assertIsInstance(formula, str)
+                self.assertTrue(formula.startswith("="))
+                self.assertIn("'90_원본값'!", formula)
+
     def test_formula_workbook_has_no_value_only_regression(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

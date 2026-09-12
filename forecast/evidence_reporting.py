@@ -232,6 +232,13 @@ def _sga_source_components(
     for reference in references:
         values = _read_source_values([reference], source_workbook)
         value = values[0] if values else None
+        if value is None and source_workbook is None and len(references) == 1:
+            # A persisted monthly trace already carries the exact value for
+            # this one source cell.  Prefer it over sga_accounts, whose
+            # amounts are period aggregates and can span several months.
+            value = _number(item.get(aggregate_key))
+            if value is None and side == "baseline":
+                value = _number(item.get("base_amount"))
         if value is None:
             value = _sga_stored_component_value(reference, side, sga_account_rows)
         components.append({"source": reference, "value": value, "role": "amount"})
