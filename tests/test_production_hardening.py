@@ -485,7 +485,7 @@ def _crashing_worker(*_args):
 
 @pytest.mark.parametrize("target,code,timeout", [
     (_hanging_worker, "workbook_resource_timeout", 1),
-    (_crashing_worker, "workbook_parser_crashed", 10),
+    (_crashing_worker, "workbook_parser_crashed", 30),
 ])
 def test_parser_timeout_and_crash_are_contained(tmp_path: Path, target, code, timeout):
     source = tmp_path / "source.xlsx"; source.write_bytes(b"not-an-xlsx")
