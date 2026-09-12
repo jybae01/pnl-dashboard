@@ -165,6 +165,88 @@ def _read_source_values(source_cells: Iterable[str], source: Any) -> list[float]
     return values
 
 
+def _source_row_number(reference: str) -> int | None:
+    match = _SOURCE_CELL_TOKEN_RE.fullmatch(str(reference or "").strip())
+    if not match:
+        return None
+    digits = re.search(r"\d+$", reference)
+    return int(digits.group(0)) if digits else None
+
+
+def _sga_stored_component_value(
+    source: str,
+    side: str,
+    sga_account_rows: Iterable[Mapping[str, Any]],
+) -> float | None:
+    row_number = _source_row_number(source)
+    if row_number is None:
+        return None
+    value_key = "baseline_amount" if side == "baseline" else "comparison_amount"
+    for item in sga_account_rows:
+        try:
+            if int(item.get("row") or 0) != row_number:
+                continue
+        except (TypeError, ValueError):
+            continue
+        value = _number(item.get(value_key, item.get("amount")))
+        if value is not None:
+            return value
+    return None
+
+
+def _sga_source_components(
+    item: Mapping[str, Any],
+    *,
+    side: str,
+    sga_account_rows: Iterable[Mapping[str, Any]],
+    source_workbook: Any = None,
+) -> list[dict[str, Any]]:
+    """Return one raw component per SGA source cell.
+
+    Current comparison results retain individual source-row amounts in
+    ``sga_accounts`` even when ``sga_monthly_trace`` aggregates same-named
+    accounts across sections.  Read an original workbook first when one is
+    supplied so monthly source cells keep their exact values.  For a stored
+    result without the original workbook, use the retained row-level evidence
+    and only use the trace aggregate for a genuinely single-cell source.
+    """
+
+    source_key = "base_source_reference" if side == "baseline" else "comparison_source_reference"
+    aggregate_key = "baseline_amount" if side == "baseline" else "comparison_amount"
+    structured = _records(item.get(f"{side}_source_components") or [])
+    if structured:
+        return [
+            {
+                "source": str(component.get("source") or ""),
+                "value": component.get("value"),
+                "role": str(component.get("role") or "amount"),
+            }
+            for component in structured
+            if component.get("source")
+        ]
+
+    references = _source_cells(item.get(source_key))
+    if not references:
+        return []
+    components: list[dict[str, Any]] = []
+    for reference in references:
+        values = _read_source_values([reference], source_workbook)
+        value = values[0] if values else None
+        if value is None:
+            value = _sga_stored_component_value(reference, side, sga_account_rows)
+        components.append({"source": reference, "value": value, "role": "amount"})
+    if any(component["value"] is None for component in components):
+        if len(components) == 1:
+            aggregate = _number(item.get(aggregate_key, item.get("base_amount")))
+            if aggregate is not None:
+                components[0]["value"] = aggregate
+        else:
+            raise ValueError(
+                f"SG&A source components are unavailable for {item.get('account') or 'unknown account'}"
+            )
+    return components
+
+
 def validate_source_registry_readback(
     registry: SourceRegistry,
     *,
@@ -899,7 +981,14 @@ def collect_reporting_sources(
         nonwoven_keys[f"{period}:{index}"] = keys
     context["nonwoven_keys"] = nonwoven_keys
 
-    _collect_cost_sources(result, registry, context, period_label)
+    _collect_cost_sources(
+        result,
+        registry,
+        context,
+        period_label,
+        baseline_workbook=baseline_workbook,
+        comparison_workbook=comparison_workbook,
+    )
     return registry, context
 
 
@@ -908,6 +997,9 @@ def _collect_cost_sources(
     registry: SourceRegistry,
     context: dict[str, Any],
     period_label: str,
+    *,
+    baseline_workbook: Any = None,
+    comparison_workbook: Any = None,
 ) -> None:
     manufacturing = result.get("manufacturing_analysis") or {}
     manufacturing_rows = _records(manufacturing.get("trace_rows") or [])
@@ -1153,29 +1245,99 @@ def _collect_cost_sources(
     if not sga_rows:
         sga_rows = _records(result.get("sga_accounts") or [])
     context["sga_rows"] = sga_rows
+    sga_account_rows = _records(result.get("sga_accounts") or [])
     sga_keys: dict[str, str] = {}
     sga_key_list: list[str] = []
+    sga_formula_groups: dict[str, dict[str, Any]] = {}
     for index, item in enumerate(sga_rows, 1):
         period = str(item.get("period") or period_label)
         account = str(item.get("display_account") or item.get("account") or f"계정 {index}")
-        key = f"sga:{period}:{index}:amount"
-        registry.add(
-            key,
-            category="판관비",
-            item=account,
-            basis=str(item.get("classification") or ""),
-            period=period,
-            unit="원",
-            baseline_source=str(item.get("base_source_reference") or item.get("source_reference") or "SG&A source"),
-            baseline_value=item.get("base_amount", item.get("baseline_amount")),
-            comparison_source=str(item.get("comparison_source_reference") or item.get("source_reference") or "SG&A source"),
-            comparison_value=item.get("comparison_amount"),
-            notes=str(item.get("bridge_position") or ""),
+        baseline_components = _sga_source_components(
+            item,
+            side="baseline",
+            sga_account_rows=sga_account_rows,
+            source_workbook=baseline_workbook,
         )
-        sga_keys[f"{period}:{index}"] = key
-        sga_key_list.append(key)
+        comparison_components = _sga_source_components(
+            item,
+            side="comparison",
+            sga_account_rows=sga_account_rows,
+            source_workbook=comparison_workbook,
+        )
+        baseline_by_source = {
+            component["source"]: component for component in baseline_components
+        }
+        comparison_by_source = {
+            component["source"]: component for component in comparison_components
+        }
+        source_order = list(baseline_by_source)
+        source_order.extend(
+            source for source in comparison_by_source if source not in source_order
+        )
+        component_keys: dict[str, str] = {}
+        for component_index, source in enumerate(source_order, 1):
+            baseline_component = baseline_by_source.get(source, {})
+            comparison_component = comparison_by_source.get(source, {})
+            key = f"sga:{period}:{index}:amount:{component_index}"
+            registry.add(
+                key,
+                category="판관비",
+                item=f"{account} 원천셀",
+                basis=str(item.get("classification") or ""),
+                period=period,
+                unit="원",
+                baseline_source=str(baseline_component.get("source") or ""),
+                baseline_value=baseline_component.get("value"),
+                comparison_source=str(comparison_component.get("source") or ""),
+                comparison_value=comparison_component.get("value"),
+                notes=str(item.get("bridge_position") or ""),
+            )
+            component_keys[source] = key
+        if not source_order:
+            # A direct-input/stored result row with no workbook source has no
+            # MODEL_SOURCE identity to expose.  Retain the existing explicit
+            # input representation for that non-workbook case only.
+            key = f"sga:{period}:{index}:amount"
+            registry.add(
+                key,
+                category="판관비",
+                item=account,
+                basis=str(item.get("classification") or ""),
+                period=period,
+                unit="원",
+                baseline_source=str(item.get("base_source_reference") or item.get("source_reference") or "SG&A input"),
+                baseline_value=item.get("base_amount", item.get("baseline_amount")),
+                comparison_source=str(item.get("comparison_source_reference") or item.get("source_reference") or "SG&A input"),
+                comparison_value=item.get("comparison_amount"),
+                notes=str(item.get("bridge_position") or ""),
+                hardcode_class="REQUEST_INPUT",
+            )
+            component_keys["__legacy__"] = key
+        group_key = f"{period}:{index}"
+        sga_formula_groups[group_key] = {
+            "baseline": (
+                [
+                    component_keys[source]
+                    for source in source_order
+                    if source in baseline_by_source
+                ]
+                if source_order else [component_keys["__legacy__"]]
+            ),
+            "comparison": (
+                [
+                    component_keys[source]
+                    for source in source_order
+                    if source in comparison_by_source
+                ]
+                if source_order else [component_keys["__legacy__"]]
+            ),
+        }
+        first_key = next(iter(component_keys.values()))
+        sga_keys[group_key] = first_key
+        sga_key_list.append(first_key)
     context["sga_keys"] = sga_keys
     context["sga_key_list"] = sga_key_list
+    context["sga_formula_groups"] = sga_formula_groups
 
 
 def _apply_workbook_font(ws: Any) -> None:
@@ -1731,6 +1893,15 @@ def _nonwoven_input_formula(
     return f"={registry.ref(legacy_key, 'comparison')}" if legacy_key else "=0"
 
 
+def _sga_amount_formula(
+    registry: SourceRegistry,
+    group: Mapping[str, Any],
+    side: str,
+) -> str:
+    keys = [str(key) for key in group.get(side, ()) if key]
+    return _join_sum(f"{registry.ref(key, side)}/1000" for key in keys)
+
+
 def write_cost_sheet(
     ws: Any,
     registry: SourceRegistry,
@@ -2116,9 +2287,12 @@ def write_cost_sheet(
     sga_rows = list(context.get("sga_rows") or [])
     sga_keys = dict(context.get("sga_keys") or {})
     sga_key_list = list(context.get("sga_key_list") or [])
+    sga_formula_groups = dict(context.get("sga_formula_groups") or {})
     for index, item in enumerate(sga_rows, 1):
         period = str(item.get("period") or "선택기간")
-        key = sga_keys.get(f"{period}:{index}") or sga_key_list[index - 1]
+        group_key = f"{period}:{index}"
+        group = sga_formula_groups.get(group_key, {})
+        key = sga_keys.get(group_key) or sga_key_list[index - 1]
         current = row
         classification = str(item.get("classification") or "")
         bridge_position = str(item.get("bridge_position") or "")
@@ -2126,8 +2300,8 @@ def write_cost_sheet(
         ws.cell(current, 2, item.get("section"))
         ws.cell(current, 3, item.get("display_account") or item.get("account"))
         ws.cell(current, 4, classification)
-        ws.cell(current, 5, f"={registry.ref(key, 'baseline')}/1000")
-        ws.cell(current, 6, f"={registry.ref(key, 'comparison')}/1000")
+        ws.cell(current, 5, _sga_amount_formula(registry, group, "baseline") if group else f"={registry.ref(key, 'baseline')}/1000")
+        ws.cell(current, 6, _sga_amount_formula(registry, group, "comparison") if group else f"={registry.ref(key, 'comparison')}/1000")
         ws.cell(current, 7, f'=IF(OR(H{current}="판매효과",H{current}="외부효과/관세",D{current}="transport",D{current}="tariff"),0,E{current}-F{current})')
         ws.cell(current, 8, bridge_position)
         ws.cell(current, 9, "운반비/관세는 판매 Effect에서만 반영")

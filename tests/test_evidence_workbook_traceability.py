@@ -11,7 +11,11 @@ from openpyxl import load_workbook
 
 from forecast.analysis_export import build_comparison_audit_workbook
 from forecast.comparison import GenericComparisonEngine, PeriodOption
-from forecast.evidence_reporting import REPORT_SHEETS, audit_reporting_workbook
+from forecast.evidence_reporting import (
+    REPORT_SHEETS,
+    audit_reporting_workbook,
+    is_single_cell_source_reference,
+)
 
 try:
     from tests.test_golden_analysis_adapter import _build_workbook, _meta
@@ -49,6 +53,18 @@ def _build_three_month_sentinel_workbook(path: Path, *, comparison: bool) -> Non
         sheet[f"{column}1733"] = revenue
         sheet[f"{column}1734"] = cogs
         sheet[f"{column}9"] = 12.0 + month / 100.0
+    workbook.save(path)
+
+
+def _build_same_account_sga_workbook(path: Path, *, comparison: bool) -> None:
+    _build_workbook(path, comparison=comparison)
+    workbook = load_workbook(path)
+    sheet = workbook["Data"]
+    # The two rows deliberately share an account label while remaining in the
+    # selling and general-admin sections.  The comparison trace must retain
+    # both original cells instead of exposing a composite MODEL_SOURCE.
+    for row in (1170, 1198):
+        sheet[f"C{row}"] = "shared_sga_account"
     workbook.save(path)
 
 
@@ -256,6 +272,71 @@ class EvidenceWorkbookTraceabilityTests(unittest.TestCase):
         self.assertEqual(source[f"H{fx_row}"].value, 1_000.0)
         self.assertEqual(source[f"J{fx_row}"].value, 1_100.0)
         self.assertEqual(source[f"H{fx_row}"].number_format, "#,##0.00")
+
+    def test_stored_result_decomposes_same_account_sga_sources(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            baseline = root / "base.xlsx"
+            comparison = root / "comparison.xlsx"
+            _build_same_account_sga_workbook(baseline, comparison=False)
+            _build_same_account_sga_workbook(comparison, comparison=True)
+            result = GenericComparisonEngine(
+                ROOT / "config" / "model_mapping.json"
+            ).compare(
+                _meta("base"), baseline, _meta("comparison"), comparison,
+                PeriodOption("M2026_01", "2026-01", (1,), "사용자정의"),
+                baseline_sales_fx=1_400.0, comparison_sales_fx=1_450.0,
+            )
+            composite = next(
+                row for row in result.sga_monthly_trace
+                if row["account"] == "shared_sga_account"
+            )
+            self.assertIn(" | ", composite["base_source_reference"])
+            self.assertIn(" | ", composite["comparison_source_reference"])
+
+            # This is the persisted-result shape used by the BFF history
+            # exporter: no original workbook paths are supplied.
+            payload = build_comparison_audit_workbook(
+                result=asdict(result),
+                sales_rows=result.sales_analysis["rows"],
+                sales_totals=result.sales_analysis["totals"],
+                baseline_fx=1_400.0,
+                comparison_fx=1_450.0,
+                mapping_path=ROOT / "config" / "model_mapping.json",
+            )
+
+            workbook = load_workbook(BytesIO(payload), data_only=False)
+            source = workbook["90_원본값"]
+            model_sources = [
+                source.cell(row, column).value
+                for row in range(6, source.max_row + 1)
+                if source.cell(row, 12).value == "MODEL_SOURCE"
+                for column in (7, 9)
+                if source.cell(row, column).value
+            ]
+            self.assertTrue(model_sources)
+            self.assertTrue(all(
+                is_single_cell_source_reference(value)
+                and not any(operator in str(value) for operator in ("+", "|", "*", "/"))
+                for value in model_sources
+            ))
+
+            cost = workbook["04_원가근거"]
+            cost_rows = [
+                row for row in range(1, cost.max_row + 1)
+                if cost[f"C{row}"].value == "shared_sga_account"
+            ]
+            self.assertEqual(len(cost_rows), 1)
+            cost_row = cost_rows[0]
+            for column in ("E", "F"):
+                formula = cost[f"{column}{cost_row}"].value
+                self.assertIsInstance(formula, str)
+                self.assertTrue(formula.startswith("=SUM("))
+                self.assertEqual(formula.count("'90_원본값'!"), 2)
+
+            audit = audit_reporting_workbook(workbook)
+            self.assertEqual(audit["formula_error_count"], 0)
+            self.assertEqual(audit["hard_coded_derived_duplicates"], 0)
 
     def test_formula_workbook_has_no_value_only_regression(self):
         with tempfile.TemporaryDirectory() as directory:
