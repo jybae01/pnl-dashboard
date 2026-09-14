@@ -1260,7 +1260,7 @@ def _collect_cost_sources(
         period = str(item.get("period") or period_label)
         account = str(item.get("display_account") or item.get("account") or f"계정 {index}")
         raw_classification = str(item.get("classification") or "")
-        is_transport = raw_classification == "transport" or "운반" in account
+        is_transport = raw_classification == "transport"
         is_tariff = raw_classification == "tariff" or "관세" in account
         if is_transport:
             classification = "transport"
@@ -1270,7 +1270,7 @@ def _collect_cost_sources(
             bridge_position = str(item.get("bridge_position") or "외부효과/관세")
         else:
             classification = raw_classification
-            bridge_position = str(item.get("bridge_position") or "")
+            bridge_position = "고정 판관비" if raw_classification == "fixed" else str(item.get("bridge_position") or "")
         baseline_components = _sga_source_components(
             item,
             side="baseline",
@@ -2391,7 +2391,7 @@ def write_cost_sheet(
         current = row
         raw_classification = str(item.get("classification") or "")
         account_name = str(item.get("display_account") or item.get("account") or "")
-        is_transport = raw_classification == "transport" or "운반" in account_name
+        is_transport = raw_classification == "transport"
         is_tariff = raw_classification == "tariff" or "관세" in account_name
         if is_transport:
             classification = "transport"
@@ -2403,7 +2403,7 @@ def write_cost_sheet(
             policy_text = "관세는 판매 Effect(03_판매근거)에서 반영"
         else:
             classification = raw_classification
-            bridge_position = str(item.get("bridge_position") or "")
+            bridge_position = "고정 판관비" if raw_classification == "fixed" else str(item.get("bridge_position") or "")
             policy_text = "일반 계정 증감"
 
         ws.cell(current, 1, period)

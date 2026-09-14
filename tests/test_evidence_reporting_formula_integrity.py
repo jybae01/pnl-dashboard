@@ -578,7 +578,8 @@ def test_cost_sheet_c1_sga_transport_classification_and_bridge_invariants(tmp_pa
     )
     c1_end = var_sum_row - 1
 
-    transport_rows = []
+    selling_transport_rows = []
+    admin_freight_rows = []
     fixed_rows = []
     variable_rows = []
 
@@ -589,19 +590,53 @@ def test_cost_sheet_c1_sga_transport_classification_and_bridge_invariants(tmp_pa
         profit_formula = str(cost[f"G{row}"].value or "")
         policy = str(cost[f"I{row}"].value or "")
 
-        if "운반" in account or classification == "transport":
-            transport_rows.append(row)
-            assert classification == "transport", f"Row {row} account {account} must be transport"
+        if classification == "transport":
+            selling_transport_rows.append(row)
+            assert "판매" in account or "운반" in account
             assert bridge_pos == "변동 판관비", f"Row {row} account {account} must have bridge_position '변동 판관비'"
             assert profit_formula.startswith("=IF(OR(D"), f"Row {row} profit formula must use IF(OR(D..."
             assert "C-2" in policy, f"Row {row} policy must mention C-2"
         elif classification == "fixed":
             fixed_rows.append(row)
+            assert bridge_pos == "고정 판관비", f"Row {row} account {account} must have bridge_position '고정 판관비'"
+            assert profit_formula.startswith("=IF(OR(D"), f"Row {row} profit formula must use IF(OR(D..."
+            if "운반" in account:
+                admin_freight_rows.append(row)
+                assert "일반" in account, f"Admin freight row {row} must be from general admin section"
+                assert policy == "일반 계정 증감", f"Admin freight row {row} policy must be general account delta"
         elif classification == "variable":
             variable_rows.append(row)
 
-    # Must have discovered both selling and general transport accounts
-    assert len(transport_rows) >= 2, "Expected at least 2 transport rows (selling + general admin)"
+    # Scope 1 — Selling Freight (판매비_운반비): customer delivery freight reclassified to transport
+    assert len(selling_transport_rows) == 1, f"Expected exactly 1 selling transport row, found {len(selling_transport_rows)}"
+    selling_row = selling_transport_rows[0]
+    assert "판매" in str(cost[f"C{selling_row}"].value or "")
+    assert cost[f"D{selling_row}"].value == "transport"
+    assert cost[f"H{selling_row}"].value == "변동 판관비"
+
+    # Scope 2 — General Admin Freight (일반관리비_운반비 / 일반_운반비): ordinary fixed SG&A
+    assert len(admin_freight_rows) == 1, f"Expected exactly 1 general admin freight row, found {len(admin_freight_rows)}"
+    admin_row = admin_freight_rows[0]
+    assert "일반" in str(cost[f"C{admin_row}"].value or "")
+    assert cost[f"D{admin_row}"].value == "fixed"
+    assert cost[f"H{admin_row}"].value == "고정 판관비"
+    assert c1_start <= admin_row <= c1_end
+
+    # Scope 3 — Manufacturing Freight (원재료운반비 / 원자재운반비): stays in manufacturing section, NOT in C-1
+    c1_accounts = [str(cost[f"C{r}"].value or "") for r in range(c1_start, c1_end + 1)]
+    assert not any("원자재운반" in acc or "원재료운반" in acc for acc in c1_accounts), (
+        "Manufacturing freight must not be in C-1 SG&A transport"
+    )
+    mfg_freight_rows = [
+        r for r in range(1, c1_header)
+        if any(kw in str(cost[f"B{r}"].value or "") for kw in ("원자재운반비", "원재료운반비"))
+        or any(kw in str(cost[f"C{r}"].value or "") for kw in ("원자재운반비", "원재료운반비"))
+    ]
+    assert mfg_freight_rows, "Expected manufacturing freight row in manufacturing expense section"
+    mfg_row = mfg_freight_rows[0]
+    mfg_classification = str(cost[f"C{mfg_row}"].value or cost[f"D{mfg_row}"].value or "")
+    assert "variable" in mfg_classification, f"Manufacturing freight row {mfg_row} must be variable, got {mfg_classification}"
+
     assert fixed_rows, "Expected at least one non-transport fixed row"
     assert variable_rows, "Expected at least one non-transport variable row"
 
