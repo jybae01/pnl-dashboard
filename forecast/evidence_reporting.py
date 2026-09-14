@@ -1788,9 +1788,9 @@ def write_sales_sheet(
     summary_specs = [
         ("sales_quantity", "판매수량 효과", f"=SUM({pool_quantity_range})+SUM({nb_revenue_range})", "신사업 Revenue Effect 포함"),
         ("sales_mix", "제품 Mix 효과", f"=SUM({pool_mix_range})", "Pool별 canonical Mix"),
-        ("displayed_sales_price", "표시 판매가격 효과", f"=SUM({driver_price_range})+SUM({nb_gp_range})", "운반비 제외 price"),
-        ("freight_adjustment", "고객배송 운반비 효과", f"=SUM({freight_effect_range})", "sales_price 내부 1회"),
-        ("sales_price", "판매가격 효과", f"=C{summary_start + 2}+C{summary_start + 3}", "Displayed Price + Freight"),
+        ("displayed_sales_price", "표시 판매단가 효과", f"=SUM({driver_price_range})+SUM({nb_gp_range})", "운반비 제외 순수단가"),
+        ("freight_adjustment", "고객배송 운반비 효과", f"=SUM({freight_effect_range})", "Bridge 귀속 = 변동 판관비 효과"),
+        ("sales_price", "판매단가 효과", f"=C{summary_start + 2}", "순수 판매단가 효과 (운반비 제외)"),
         ("sales_fx", "매출환율 효과", f"=SUM({driver_fx_range})", "symmetric FX split"),
         ("tariff", "관세 효과", f"=SUM({tariff_range})", "운반비와 분리"),
     ]
@@ -1821,6 +1821,9 @@ def write_sales_sheet(
     )
     cells["_sales_table_rows"] = sales_table_rows
     cells["_pool_rows"] = pool_rows
+    cells["_freight_start"] = freight_start
+    cells["_freight_end"] = freight_end
+    cells["_freight_formula_rows"] = freight_formula_rows
     return cells
 
 
@@ -1918,7 +1921,7 @@ def write_cost_sheet(
     _write_report_title(
         ws,
         "04_원가근거",
-        "원재료·생산수량/가중평균 생산단가·제조경비·재고시차·판관비 근거",
+        "원재료·제조경비·재고시차·판관비 근거",
         last_column=24,
         unit_legend="단위: 금액 천원 / 단가 원/PCS·원/m / 수량 PCS·m / 비율 %",
     )
@@ -1939,11 +1942,11 @@ def write_cost_sheet(
         "sga_fixed": "고정 판관비 효과",
     }
     effect_policies = {
-        "material_total": "JPY child 포함; Bridge additive 1회",
+        "material_total": "JPY child 포함; Bridge additive 1회 (A-3 계층 검증)",
         "manufacturing_realized": "Volume + Unit + Fixed; multiplier 미적용",
         "inventory_timing": "Gross - Core Quantity/Mix overlap",
-        "sga_variable": "운반비·관세 제외",
-        "sga_fixed": "운반비·관세 제외",
+        "sga_variable": "고객배송 운반비 포함 (일반 변동 판관비 + 운반비; C-3 계통 검증)",
+        "sga_fixed": "고정 판관비 계정 합계",
     }
     for code, current in summary_rows.items():
         ws.cell(current, 1, code)
@@ -1953,8 +1956,14 @@ def write_cost_sheet(
         ws.cell(current, 3).number_format = MONEY_FORMAT
         _style_total_row(ws, current, 1, 5)
 
-    row = _section(ws, max(summary_rows.values()) + 3, "A. 원재료", 12)
+    # ----------------------------------------------------
+    # Major Section A: A. 원재료 효과
+    # ----------------------------------------------------
+    row = _section(ws, max(summary_rows.values()) + 3, "A. 원재료 효과", 14)
     material_header = row
+
+    # A-1. 제품군별 원부재료 효과
+    row = _section(ws, row + 2, "A-1. 제품군별 원부재료 효과", 12)
     _headers(ws, row, [
         "제품군", "단위", "기간", "기준 금액", "비교 금액", "기준 생산/적용량",
         "비교 생산/적용량", "비교 판매 적용량", "기준 원단위", "비교 원단위",
@@ -1995,7 +2004,8 @@ def write_cost_sheet(
     _style_total_row(ws, row, 1, 12)
     row += 3
 
-    row = _section(ws, row, "A-1. 부직포 JPY / 가격 분해 (material_total의 non-additive child)", 14)
+    # A-2. 부직포 JPY / 가격 분해
+    row = _section(ws, row, "A-2. 부직포 JPY / 가격 분해 (material_total의 non-additive child)", 14)
     _headers(ws, row, [
         "기간", "기준 금액", "비교 금액", "기준 생산길이", "비교 생산길이",
         "비교 적용길이", "기준 JPY FX", "비교 JPY FX", "기준 단가", "비교 단가",
@@ -2036,66 +2046,70 @@ def write_cost_sheet(
     ws.cell(row, 13).number_format = MONEY_FORMAT
     ws.cell(row, 14).number_format = MONEY_FORMAT
     _style_total_row(ws, row, 1, 14)
-    nonwoven_summary_row = row
     row += 3
 
-    row = _section(ws, row, "B. 생산수량 / 가중평균 생산단가", 12)
-    production_header = row
-    _headers(ws, row, [
-        "공정", "Basis", "단위", "기준 수량", "비교 수량", "수량 차이",
-        "기준 생산금액", "비교 생산금액", "기준 가중평균 단가", "비교 가중평균 단가",
-        "단가 차이", "산식/Source",
-    ])
+    # A-3. 원재료 효과 계층 및 JPY 분해 검증
+    row = _section(ws, row, "A-3. 원재료 효과 계층 및 JPY 분해 검증", 7)
+    _headers(ws, row, ["구분", "항목", "산식 / 근거", "금액", "단위", "허용오차", "상태"])
     row += 1
-    production_start = row
-    production_groups = dict(context.get("production_groups") or {})
-    production_rows = list(context.get("production_rows") or [])
-    production_output_rows: dict[str, int] = {}
-    for item in production_rows:
-        product = str(item.get("production_basis") or "")
-        unit = str(item.get("unit") or "")
-        groups = production_groups.get((product, unit), {"quantity": [], "amount": []})
-        current = row
-        production_output_rows[product] = current
-        ws.cell(current, 1, item.get("process"))
-        ws.cell(current, 2, product)
-        ws.cell(current, 3, unit)
-        ws.cell(current, 4, _join_sum(registry.ref(key, "baseline") for key in groups.get("quantity", ())))
-        ws.cell(current, 5, _join_sum(registry.ref(key, "comparison") for key in groups.get("quantity", ())))
-        ws.cell(current, 6, f"=E{current}-D{current}")
-        ws.cell(current, 7, _join_sum(f"{registry.ref(key, 'baseline')}/1000" for key in groups.get("amount", ())))
-        ws.cell(current, 8, _join_sum(f"{registry.ref(key, 'comparison')}/1000" for key in groups.get("amount", ())))
-        ws.cell(current, 9, f'=IF(D{current}=0,"",G{current}*1000/D{current})')
-        ws.cell(current, 10, f'=IF(E{current}=0,"",H{current}*1000/E{current})')
-        ws.cell(current, 11, f'=IF(OR(I{current}="",J{current}=""),"",J{current}-I{current})')
-        ws.cell(current, 12, item.get("aggregation_basis"))
-        for column in range(4, 12):
-            ws.cell(current, column).number_format = MONEY_FORMAT if column in {7, 8} else UNIT_COST_FORMAT
-        row += 1
-    back_row = row
-    ws.cell(back_row, 1, "후공정 합계")
-    ws.cell(back_row, 2, "SW+BW+LC")
-    ws.cell(back_row, 3, "PCS")
-    back_component_rows = [production_output_rows[group] for group in ("SW", "BW", "LC") if group in production_output_rows]
-    ws.cell(back_row, 4, _join_sum(f"D{current}" for current in back_component_rows))
-    ws.cell(back_row, 5, _join_sum(f"E{current}" for current in back_component_rows))
-    ws.cell(back_row, 6, f"=E{back_row}-D{back_row}")
-    ws.cell(back_row, 7, _join_sum(f"G{current}" for current in back_component_rows))
-    ws.cell(back_row, 8, _join_sum(f"H{current}" for current in back_component_rows))
-    ws.cell(back_row, 9, f'=IF(D{back_row}=0,"",G{back_row}*1000/D{back_row})')
-    ws.cell(back_row, 10, f'=IF(E{back_row}=0,"",H{back_row}*1000/E{back_row})')
-    ws.cell(back_row, 11, f'=IF(OR(I{back_row}="",J{back_row}=""),"",J{back_row}-I{back_row})')
-    ws.cell(back_row, 12, "Σ SW/BW/LC 생산금액 ÷ Σ SW/BW/LC 생산수량")
-    for column in range(4, 12):
-        ws.cell(back_row, column).number_format = MONEY_FORMAT if column in {7, 8} else UNIT_COST_FORMAT
-    _style_data_rows(ws, production_start, back_row, 12)
-    _style_total_row(ws, back_row, 1, 12)
-    ws.cell(back_row + 1, 1, "* 생산 수량과 금액: 수불부 기준")
-    ws.cell(back_row + 1, 1).font = Font(name=FONT_NAME, size=9, italic=True, color=MUTED)
-    ws.merge_cells(start_row=back_row + 1, start_column=1, end_row=back_row + 1, end_column=12)
-    row = back_row + 4
+    mat_recon_start = row
 
-    row = _section(ws, row, "C. 제조경비", 24)
+    ws.cell(row, 1, "원재료 분해")
+    ws.cell(row, 2, "부직포 외 원재료 효과")
+    ws.cell(row, 3, "원부재료 총효과 - 부직포 가격 효과 - 부직포 엔화환율 효과")
+    ws.cell(row, 4, f"={material_total_cell}-{price_ex_fx_cell}-{jpy_total_cell}")
+    ws.cell(row, 5, "천원")
+    ws.cell(row, 4).number_format = MONEY_FORMAT
+    mat_other_row = row
+    row += 1
+
+    ws.cell(row, 1, "원재료 분해")
+    ws.cell(row, 2, "부직포 가격 효과(환율 제외)")
+    ws.cell(row, 3, "A-2 환율 제외 Effect 합계")
+    ws.cell(row, 4, f"={price_ex_fx_cell}")
+    ws.cell(row, 5, "천원")
+    ws.cell(row, 4).number_format = MONEY_FORMAT
+    mat_nonwoven_price_row = row
+    row += 1
+
+    ws.cell(row, 1, "원재료 분해")
+    ws.cell(row, 2, "부직포 엔화환율 효과")
+    ws.cell(row, 3, "A-2 JPY Effect 합계")
+    ws.cell(row, 4, f"={jpy_total_cell}")
+    ws.cell(row, 5, "천원")
+    ws.cell(row, 4).number_format = MONEY_FORMAT
+    mat_nonwoven_jpy_row = row
+    row += 1
+
+    ws.cell(row, 1, "원재료 계층 합계")
+    ws.cell(row, 2, "원재료 효과 총계")
+    ws.cell(row, 3, f"=D{mat_other_row}+D{mat_nonwoven_price_row}+D{mat_nonwoven_jpy_row}")
+    ws.cell(row, 4, f"=D{mat_other_row}+D{mat_nonwoven_price_row}+D{mat_nonwoven_jpy_row}")
+    ws.cell(row, 5, "천원")
+    ws.cell(row, 4).number_format = MONEY_FORMAT
+    mat_hierarchy_total_row = row
+    row += 1
+
+    ws.cell(row, 1, "정합성 검증")
+    ws.cell(row, 2, "Material decomposition difference")
+    ws.cell(row, 3, f"={material_total_cell}-D{mat_hierarchy_total_row}")
+    ws.cell(row, 4, f"={material_total_cell}-D{mat_hierarchy_total_row}")
+    ws.cell(row, 5, "천원")
+    ws.cell(row, 6, f"={registry.ref('policy:reconciliation_tolerance', 'baseline')}/1000")
+    ws.cell(row, 7, f'=IF(ABS(D{row})<=F{row},"PASS","CHECK")')
+    for col in (4, 6):
+        ws.cell(row, col).number_format = MONEY_FORMAT
+    ws.cell(row, 7).alignment = Alignment(horizontal="center", vertical="center")
+    mat_diff_row = row
+    _style_data_rows(ws, mat_recon_start, mat_hierarchy_total_row, 7)
+    _style_total_row(ws, mat_hierarchy_total_row, 1, 7)
+    _style_total_row(ws, mat_diff_row, 1, 7)
+    row += 3
+
+    # ----------------------------------------------------
+    # Major Section B: B. 제조경비 효과
+    # ----------------------------------------------------
+    row = _section(ws, row, "B. 제조경비 효과", 24)
     _headers(ws, row, [
         "기간", "기준 전공정 활동", "비교 전공정 활동", "기준 후공정 활동",
         "비교 후공정 활동", "기준 외주 후공정 활동", "비교 외주 후공정 활동",
@@ -2127,7 +2141,8 @@ def write_cost_sheet(
     activity_end = row - 1
     _style_data_rows(ws, activity_start, activity_end, 9)
     row += 2
-    manufacturing_header = row
+
+    # Manufacturing accounts table
     _headers(ws, row, [
         "기간", "계정", "구분", "기준 금액", "비교 금액", "손익 차이", "기준 전공정 비율", "비교 적용비율",
         "기준 전공정 배부", "비교 전공정 배부", "기준 후공정 배부", "비교 후공정 배부",
@@ -2201,14 +2216,71 @@ def write_cost_sheet(
     _style_total_row(ws, row, 1, 24)
     row += 3
 
-    row = _section(ws, row, "D. 재고 / 원가 반영시차", 17)
+    # B-2. 생산수량 / 가중평균 생산단가
+    row = _section(ws, row, "B-2. 생산수량 / 가중평균 생산단가", 12)
+    _headers(ws, row, [
+        "공정", "Basis", "단위", "기준 수량", "비교 수량", "수량 차이",
+        "기준 생산금액", "비교 생산금액", "기준 가중평균 단가", "비교 가중평균 단가",
+        "단가 차이", "산식/Source",
+    ])
+    row += 1
+    production_start = row
+    production_groups = dict(context.get("production_groups") or {})
+    production_rows = list(context.get("production_rows") or [])
+    production_output_rows: dict[str, int] = {}
+    for item in production_rows:
+        product = str(item.get("production_basis") or "")
+        unit = str(item.get("unit") or "")
+        groups = production_groups.get((product, unit), {"quantity": [], "amount": []})
+        current = row
+        production_output_rows[product] = current
+        ws.cell(current, 1, item.get("process"))
+        ws.cell(current, 2, product)
+        ws.cell(current, 3, unit)
+        ws.cell(current, 4, _join_sum(registry.ref(key, "baseline") for key in groups.get("quantity", ())))
+        ws.cell(current, 5, _join_sum(registry.ref(key, "comparison") for key in groups.get("quantity", ())))
+        ws.cell(current, 6, f"=E{current}-D{current}")
+        ws.cell(current, 7, _join_sum(f"{registry.ref(key, 'baseline')}/1000" for key in groups.get("amount", ())))
+        ws.cell(current, 8, _join_sum(f"{registry.ref(key, 'comparison')}/1000" for key in groups.get("amount", ())))
+        ws.cell(current, 9, f'=IF(D{current}=0,"",G{current}*1000/D{current})')
+        ws.cell(current, 10, f'=IF(E{current}=0,"",H{current}*1000/E{current})')
+        ws.cell(current, 11, f'=IF(OR(I{current}="",J{current}=""),"",J{current}-I{current})')
+        ws.cell(current, 12, item.get("aggregation_basis"))
+        for column in range(4, 12):
+            ws.cell(current, column).number_format = MONEY_FORMAT if column in {7, 8} else UNIT_COST_FORMAT
+        row += 1
+    back_row = row
+    ws.cell(back_row, 1, "후공정 합계")
+    ws.cell(back_row, 2, "SW+BW+LC")
+    ws.cell(back_row, 3, "PCS")
+    back_component_rows = [production_output_rows[group] for group in ("SW", "BW", "LC") if group in production_output_rows]
+    ws.cell(back_row, 4, _join_sum(f"D{current}" for current in back_component_rows))
+    ws.cell(back_row, 5, _join_sum(f"E{current}" for current in back_component_rows))
+    ws.cell(back_row, 6, f"=E{back_row}-D{back_row}")
+    ws.cell(back_row, 7, _join_sum(f"G{current}" for current in back_component_rows))
+    ws.cell(back_row, 8, _join_sum(f"H{current}" for current in back_component_rows))
+    ws.cell(back_row, 9, f'=IF(D{back_row}=0,"",G{back_row}*1000/D{back_row})')
+    ws.cell(back_row, 10, f'=IF(E{back_row}=0,"",H{back_row}*1000/E{back_row})')
+    ws.cell(back_row, 11, f'=IF(OR(I{back_row}="",J{back_row}=""),"",J{back_row}-I{back_row})')
+    ws.cell(back_row, 12, "Σ SW/BW/LC 생산금액 ÷ Σ SW/BW/LC 생산수량")
+    for column in range(4, 12):
+        ws.cell(back_row, column).number_format = MONEY_FORMAT if column in {7, 8} else UNIT_COST_FORMAT
+    _style_data_rows(ws, production_start, back_row, 12)
+    _style_total_row(ws, back_row, 1, 12)
+    ws.cell(back_row + 1, 1, "* 생산 수량과 금액: 수불부 기준")
+    ws.cell(back_row + 1, 1).font = Font(name=FONT_NAME, size=9, italic=True, color=MUTED)
+    ws.merge_cells(start_row=back_row + 1, start_column=1, end_row=back_row + 1, end_column=12)
+    row = back_row + 4
+
+    # B-3. 재고 / 원가 반영시차
+    row = _section(ws, row, "B-3. 재고 / 원가 반영시차", 17)
+    inventory_header = row
     _headers(ws, row, [
         "공식 계산", "기준", "비교", "손익효과", "정책",
         "기간", "Pool", "제품군", "단위", "기준 수량", "비교 수량",
         "Pool 기준수량", "Pool 비교수량", "기준 Core COGS", "기준 COGS/단위",
         "Quantity Overlap", "Mix Overlap",
     ])
-    inventory_header = row
     row += 1
     inventory_rows: dict[str, int] = {}
     for canonical, label in (
@@ -2283,8 +2355,12 @@ def write_cost_sheet(
     _style_total_row(ws, inventory_total, 1, 5)
     row = max(row, core_detail_end + 1) + 2
 
-    row = _section(ws, row, "E. 판관비", 9)
-    sga_header = row
+    # ----------------------------------------------------
+    # Major Section C: C. 판관비 효과
+    # ----------------------------------------------------
+    row = _section(ws, row, "C. 판관비 효과", 9)
+    # C-1. 판관비 계정별 효과
+    row = _section(ws, row + 2, "C-1. 판관비 계정별 효과", 9)
     _headers(ws, row, [
         "기간", "구역", "계정", "구분", "기준 금액", "비교 금액", "손익효과",
         "Bridge 위치", "정책",
@@ -2302,16 +2378,26 @@ def write_cost_sheet(
         key = sga_keys.get(group_key) or sga_key_list[index - 1]
         current = row
         classification = str(item.get("classification") or "")
-        bridge_position = str(item.get("bridge_position") or "")
+        account_name = str(item.get("display_account") or item.get("account") or "")
+        is_transport = classification == "transport" or "운반" in account_name
+        is_tariff = classification == "tariff" or "관세" in account_name
+        bridge_position = "변동 판관비" if is_transport else str(item.get("bridge_position") or "")
+        if is_transport:
+            policy_text = "고객배송 운반비는 C-2 산식으로 별도 산출하여 변동 판관비에 가산"
+        elif is_tariff:
+            policy_text = "관세는 판매 Effect(03_판매근거)에서 반영"
+        else:
+            policy_text = "일반 계정 증감"
+
         ws.cell(current, 1, period)
         ws.cell(current, 2, item.get("section"))
-        ws.cell(current, 3, item.get("display_account") or item.get("account"))
+        ws.cell(current, 3, account_name)
         ws.cell(current, 4, classification)
         ws.cell(current, 5, _sga_amount_formula(registry, group, "baseline") if group else f"={registry.ref(key, 'baseline')}/1000")
         ws.cell(current, 6, _sga_amount_formula(registry, group, "comparison") if group else f"={registry.ref(key, 'comparison')}/1000")
-        ws.cell(current, 7, f'=IF(OR(H{current}="판매효과",H{current}="외부효과/관세",D{current}="transport",D{current}="tariff"),0,E{current}-F{current})')
+        ws.cell(current, 7, f'=IF(OR(D{current}="transport",D{current}="tariff",H{current}="외부효과/관세"),0,E{current}-F{current})')
         ws.cell(current, 8, bridge_position)
-        ws.cell(current, 9, "운반비/관세는 판매 Effect에서만 반영")
+        ws.cell(current, 9, policy_text)
         for column in (5, 6, 7):
             ws.cell(current, column).number_format = MONEY_FORMAT
         row += 1
@@ -2319,20 +2405,104 @@ def write_cost_sheet(
     _style_data_rows(ws, sga_start, sga_end, 9)
     sga_variable_row = row
     sga_fixed_row = row + 1
-    ws.cell(sga_variable_row, 1, "변동 판관비 효과")
+    ws.cell(sga_variable_row, 1, "일반 변동 판관비 합계")
     ws.cell(sga_variable_row, 7, f'=SUMIF(D{sga_start}:D{sga_end},"variable",G{sga_start}:G{sga_end})')
     ws.cell(sga_fixed_row, 1, "고정 판관비 효과")
     ws.cell(sga_fixed_row, 7, f'=SUMIF(D{sga_start}:D{sga_end},"fixed",G{sga_start}:G{sga_end})')
     for target in (sga_variable_row, sga_fixed_row):
         ws.cell(target, 7).number_format = MONEY_FORMAT
         _style_total_row(ws, target, 1, 9)
+    row += 3
+
+    # C-2. 고객배송 운반비 산출 근거 (03_판매근거 연동)
+    row = _section(ws, row, "C-2. 고객배송 운반비 산출 근거 (03_판매근거 연동)", 8)
+    _headers(ws, row, [
+        "기간", "기준 운반비(관세제외)", "비교 운반비(관세제외)", "기준 환산수량",
+        "비교 환산수량", "기준 단가", "비교 단가", "운반비 효과",
+    ])
+    row += 1
+    c2_start = row
+    freight_formula_rows = list(sales_cells.get("_freight_formula_rows") or [])
+    for f_row in freight_formula_rows:
+        current = row
+        ws.cell(current, 1, f"={_formula_ref('03_판매근거', f'A{f_row}')}")
+        ws.cell(current, 2, f"={_formula_ref('03_판매근거', f'F{f_row}')}")
+        ws.cell(current, 3, f"={_formula_ref('03_판매근거', f'G{f_row}')}")
+        ws.cell(current, 4, f"={_formula_ref('03_판매근거', f'H{f_row}')}")
+        ws.cell(current, 5, f"={_formula_ref('03_판매근거', f'I{f_row}')}")
+        ws.cell(current, 6, f"={_formula_ref('03_판매근거', f'J{f_row}')}")
+        ws.cell(current, 7, f"={_formula_ref('03_판매근거', f'K{f_row}')}")
+        ws.cell(current, 8, f"={_formula_ref('03_판매근거', f'L{f_row}')}")
+        for column in range(2, 9):
+            ws.cell(current, column).number_format = UNIT_COST_FORMAT if column in {4, 5, 6, 7} else MONEY_FORMAT
+        row += 1
+    c2_end = row - 1
+    _style_data_rows(ws, c2_start, c2_end, 8)
+    c2_total_row = row
+    ws.cell(c2_total_row, 1, "고객배송 운반비 합계")
+    if c2_end >= c2_start:
+        ws.cell(c2_total_row, 8, f"=SUM(H{c2_start}:H{c2_end})")
+    else:
+        ws.cell(c2_total_row, 8, f"={_sheet_ref('03_판매근거', str(sales_cells['freight_adjustment']))}")
+    ws.cell(c2_total_row, 8).number_format = MONEY_FORMAT
+    _style_total_row(ws, c2_total_row, 1, 8)
+    customer_freight_total_cell = f"H{c2_total_row}"
+    row += 3
+
+    # C-3. 변동 판관비 계통 및 정합성 검증
+    row = _section(ws, row, "C-3. 변동 판관비 계통 및 정합성 검증", 7)
+    _headers(ws, row, ["구분", "항목", "산식 / 근거", "금액", "단위", "허용오차", "상태"])
+    row += 1
+    c3_start = row
+
+    ws.cell(row, 1, "변동 판관비 구성")
+    ws.cell(row, 2, "일반 변동 판관비")
+    ws.cell(row, 3, "C-1 일반 변동 판관비 합계")
+    ws.cell(row, 4, f"=G{sga_variable_row}")
+    ws.cell(row, 5, "천원")
+    ws.cell(row, 4).number_format = MONEY_FORMAT
+    c3_gen_var_row = row
+    row += 1
+
+    ws.cell(row, 1, "변동 판관비 구성")
+    ws.cell(row, 2, "고객배송 운반비")
+    ws.cell(row, 3, "C-2 고객배송 운반비 합계 (03_판매근거 연동)")
+    ws.cell(row, 4, f"={customer_freight_total_cell}")
+    ws.cell(row, 5, "천원")
+    ws.cell(row, 4).number_format = MONEY_FORMAT
+    c3_freight_row = row
+    row += 1
+
+    ws.cell(row, 1, "변동 판관비 총계")
+    ws.cell(row, 2, "변동 판관비 (고객배송 운반비 포함)")
+    ws.cell(row, 3, f"=D{c3_gen_var_row}+D{c3_freight_row}")
+    ws.cell(row, 4, f"=D{c3_gen_var_row}+D{c3_freight_row}")
+    ws.cell(row, 5, "천원")
+    ws.cell(row, 4).number_format = MONEY_FORMAT
+    c3_total_row = row
+    row += 1
+
+    ws.cell(row, 1, "정합성 검증")
+    ws.cell(row, 2, "변동 판관비 정합성 차이")
+    ws.cell(row, 3, f"=D{c3_total_row}-(D{c3_gen_var_row}+D{c3_freight_row})")
+    ws.cell(row, 4, f"=D{c3_total_row}-(D{c3_gen_var_row}+D{c3_freight_row})")
+    ws.cell(row, 5, "천원")
+    ws.cell(row, 6, f"={registry.ref('policy:reconciliation_tolerance', 'baseline')}/1000")
+    ws.cell(row, 7, f'=IF(ABS(D{row})<=F{row},"PASS","CHECK")')
+    for col in (4, 6):
+        ws.cell(row, col).number_format = MONEY_FORMAT
+    ws.cell(row, 7).alignment = Alignment(horizontal="center", vertical="center")
+    c3_diff_row = row
+    _style_data_rows(ws, c3_start, c3_total_row, 7)
+    _style_total_row(ws, c3_total_row, 1, 7)
+    _style_total_row(ws, c3_diff_row, 1, 7)
 
     # Canonical summary references are written last so each Effect has one calculation cell.
     summary_formulas = {
-        "material_total": f"={material_total_cell}",
+        "material_total": f"=D{mat_hierarchy_total_row}",
         "manufacturing_realized": f"=X{manufacturing_total_row}",
         "inventory_timing": f"=D{inventory_total}",
-        "sga_variable": f"=G{sga_variable_row}",
+        "sga_variable": f"=D{c3_total_row}",
         "sga_fixed": f"=G{sga_fixed_row}",
     }
     for code, formula in summary_formulas.items():
@@ -2344,6 +2514,8 @@ def write_cost_sheet(
     _group_detail_rows(ws, manufacturing_start, manufacturing_end)
     _group_detail_rows(ws, core_detail_start, core_detail_end)
     _group_detail_rows(ws, sga_start, sga_end)
+    if c2_end >= c2_start:
+        _group_detail_rows(ws, c2_start, c2_end)
     ws.row_breaks.append(Break(id=inventory_header - 2))
 
     _set_widths(ws, {
@@ -2396,29 +2568,30 @@ def write_effect_sheet(
 
     row = _section(ws, pnl_start + 3, "손익 영향 요인", 6)
     _headers(ws, row, [
-        "그룹", "Effect", "금액", "단위", "Canonical Detail Cell", "", "Effect Code",
+        "그룹", "Effect", "금액", "단위", "Canonical Detail Cell", "비고", "Effect Code",
     ])
     effect_start = row + 1
     effect_specs = [
-        ("매출", "sales_quantity", "판매수량", "03_판매근거", str(sales_cells["sales_quantity"])),
-        ("매출", "sales_mix", "Mix", "03_판매근거", str(sales_cells["sales_mix"])),
-        ("매출", "sales_price", "판매가격", "03_판매근거", str(sales_cells["sales_price"])),
-        ("매출", "sales_fx", "매출환율", "03_판매근거", str(sales_cells["sales_fx"])),
-        ("매출", "tariff", "관세", "03_판매근거", str(sales_cells["tariff"])),
-        ("원재료", "material_total", "원부재료", "04_원가근거", cost_cells["material_total"]),
-        ("제조", "manufacturing_realized", "제조경비", "04_원가근거", cost_cells["manufacturing_realized"]),
-        ("제조", "inventory_timing", "재고/원가 반영시차", "04_원가근거", cost_cells["inventory_timing"]),
-        ("판관비", "sga_variable", "변동 판관비", "04_원가근거", cost_cells["sga_variable"]),
-        ("판관비", "sga_fixed", "고정 판관비", "04_원가근거", cost_cells["sga_fixed"]),
+        ("A. 판매", "sales_quantity", "판매수량", "03_판매근거", str(sales_cells["sales_quantity"]), "신사업 Revenue Effect 포함"),
+        ("A. 판매", "sales_mix", "Mix", "03_판매근거", str(sales_cells["sales_mix"]), "Pool별 canonical Mix"),
+        ("A. 판매", "sales_price", "판매단가", "03_판매근거", str(sales_cells["sales_price"]), "순수 판매단가 효과 (운반비 제외)"),
+        ("A. 판매", "sales_fx", "매출환율", "03_판매근거", str(sales_cells["sales_fx"]), "symmetric FX split"),
+        ("A. 판매", "tariff", "관세", "03_판매근거", str(sales_cells["tariff"]), "관세 효과 (03_판매근거)"),
+        ("B. 원가", "material_total", "원부재료", "04_원가근거", cost_cells["material_total"], "JPY child 포함; A-3 계층 검증"),
+        ("B. 원가", "manufacturing_realized", "제조경비", "04_원가근거", cost_cells["manufacturing_realized"], "Volume + Unit + Fixed"),
+        ("B. 원가", "inventory_timing", "재고/원가 반영시차", "04_원가근거", cost_cells["inventory_timing"], "Gross - Core Quantity/Mix overlap"),
+        ("C. 판관비", "sga_variable", "변동 판관비", "04_원가근거", cost_cells["sga_variable"], "고객배송 운반비 포함 (일반 변동 판관비 + 운반비)"),
+        ("C. 판관비", "sga_fixed", "고정 판관비", "04_원가근거", cost_cells["sga_fixed"], "고정 판관비 계정 합계"),
     ]
     effect_cells: dict[str, str] = {}
-    for index, (group, code, label, sheet, cell) in enumerate(effect_specs):
+    for index, (group, code, label, sheet, cell, note) in enumerate(effect_specs):
         current = effect_start + index
         ws.cell(current, 1, group)
         ws.cell(current, 2, label)
         ws.cell(current, 3, _sheet_ref(sheet, cell))
         ws.cell(current, 4, "천원")
         ws.cell(current, 5, f"{sheet}!{cell}")
+        ws.cell(current, 6, note)
         ws.cell(current, 7, code)
         ws.cell(current, 3).number_format = MONEY_FORMAT
         effect_cells[code] = f"C{current}"
@@ -2454,7 +2627,7 @@ def write_effect_sheet(
     _style_total_row(ws, check, 1, 6)
 
     _set_widths(ws, {
-        "A": 28, "B": 24, "C": 14, "D": 10, "E": 26, "F": 10, "G": 25,
+        "A": 28, "B": 24, "C": 14, "D": 10, "E": 26, "F": 28, "G": 25,
     })
     ws.column_dimensions["G"].hidden = True
     _finish_sheet(
@@ -2524,16 +2697,16 @@ def write_summary_sheet(
     row = _section(ws, first + len(summary_items) + 2, "손익 영향 요인", 8)
     _headers(ws, row, ["그룹", "Effect", "금액", "단위", "그룹", "Effect", "금액", "단위"])
     effects = [
-        ("매출", "판매수량", "sales_quantity"),
-        ("매출", "Mix", "sales_mix"),
-        ("매출", "판매가격", "sales_price"),
-        ("매출", "매출환율", "sales_fx"),
-        ("매출", "관세", "tariff"),
-        ("원재료", "원부재료", "material_total"),
-        ("제조", "제조경비", "manufacturing_realized"),
-        ("제조", "재고/원가 반영시차", "inventory_timing"),
-        ("판관비", "변동 판관비", "sga_variable"),
-        ("판관비", "고정 판관비", "sga_fixed"),
+        ("A. 판매", "판매수량", "sales_quantity"),
+        ("A. 판매", "Mix", "sales_mix"),
+        ("A. 판매", "판매단가", "sales_price"),
+        ("A. 판매", "매출환율", "sales_fx"),
+        ("A. 판매", "관세", "tariff"),
+        ("B. 원가", "원부재료", "material_total"),
+        ("B. 원가", "제조경비", "manufacturing_realized"),
+        ("B. 원가", "재고/원가 반영시차", "inventory_timing"),
+        ("C. 판관비", "변동 판관비", "sga_variable"),
+        ("C. 판관비", "고정 판관비", "sga_fixed"),
         ("기타", "기타 요인", "residual"),
     ]
     effect_start = row + 1

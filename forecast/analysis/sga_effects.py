@@ -51,7 +51,7 @@ def calculate_sga_effects(
                     "comparison_amount": comparison_amount,
                     "delta": comparison_amount - baseline_amount,
                     "profit_effect": 0.0,
-                    "bridge_position": "판매효과",
+                    "bridge_position": "변동 판관비",
                 })
                 continue
             effect = baseline_amount - comparison_amount

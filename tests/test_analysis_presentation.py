@@ -25,12 +25,12 @@ def presentation_row() -> dict:
     effects = {
         "sales_quantity": 10.0,
         "sales_mix": -2.0,
-        "sales_price": 8.0,
+        "sales_price": 5.0,
         "sales_fx": 4.0,
         "material_total": -5.0,
         "manufacturing_realized": 6.0,
         "inventory_timing": 2.0,
-        "sga_variable": 3.0,
+        "sga_variable": 6.0,
         "sga_fixed": 4.0,
         "tariff": -1.0,
     }
@@ -141,7 +141,7 @@ def presentation_row() -> dict:
                 "mix_effect": -2.0,
                 "displayed_sales_price_effect": 5.0,
                 "pure_price_effect": 5.0,
-                "sales_price_effect": 8.0,
+                "sales_price_effect": 5.0,
                 "sales_fx_effect": 4.0,
                 "baseline_transport_ex_tariff": 20.0,
                 "comparison_transport_ex_tariff": 17.0,

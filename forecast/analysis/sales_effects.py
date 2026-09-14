@@ -524,12 +524,10 @@ def calculate_sales_effects(
 
     result.transport_quantity = 0.0
     result.transport_unit = result.transport_effect
-    result.price = result.displayed_price + result.transport_effect
+    result.price = result.displayed_price
     for month in months:
         row = monthly_effects[month]
-        row["sales_price_effect"] = (
-            float(row["displayed_price_effect"]) + float(row["freight_effect"])
-        )
+        row["sales_price_effect"] = float(row["displayed_price_effect"])
         row["total_sales_effect"] = sum(
             float(row[key])
             for key in (

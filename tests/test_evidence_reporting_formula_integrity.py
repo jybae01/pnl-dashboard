@@ -126,7 +126,7 @@ def _sales_projection(result) -> dict[str, float]:
     return {
         "sales_quantity": quantity,
         "sales_mix": mix,
-        "sales_price": displayed_price + freight,
+        "sales_price": displayed_price,
         "sales_fx": sales_fx,
         "tariff": tariff,
     }
@@ -246,7 +246,27 @@ def _sga_projection(result) -> dict[str, float]:
         if str(row["bridge_position"]) in {"판매효과", "외부효과/관세"}:
             continue
         totals[classification] += _n(row["base_amount"]) - _n(row["comparison_amount"])
-    return {"sga_variable": totals["variable"], "sga_fixed": totals["fixed"]}
+    freight = 0.0
+    for row in result.sales_analysis["freight_trace_rows"]:
+        base_ex = _n(row["base_freight_including_tariff"]) - _n(row["base_tariff"])
+        comparison_ex = (
+            _n(row["comparison_freight_including_tariff"])
+            - _n(row["comparison_tariff"])
+        )
+        base_equivalent = (
+            _n(row["base_sw_pcs"]) + _n(row["base_bw_pcs"])
+            + _n(row["base_lc_pcs"]) + _n(row["base_fs_length"]) / 45
+        )
+        comparison_equivalent = (
+            _n(row["comparison_sw_pcs"]) + _n(row["comparison_bw_pcs"])
+            + _n(row["comparison_lc_pcs"]) + _n(row["comparison_fs_length"]) / 45
+        )
+        base_unit = base_ex / base_equivalent if base_equivalent else 0.0
+        comparison_unit = (
+            comparison_ex / comparison_equivalent if comparison_equivalent else 0.0
+        )
+        freight += (base_unit - comparison_unit) * comparison_equivalent
+    return {"sga_variable": totals["variable"] + freight, "sga_fixed": totals["fixed"]}
 
 
 def test_formula_projection_matches_backend_authoritative_result(tmp_path):
@@ -308,7 +328,7 @@ def test_formula_projection_matches_backend_authoritative_result(tmp_path):
     cost = workbook["04_원가근거"]
     manufacturing_section = next(
         row for row in range(1, cost.max_row + 1)
-        if cost[f"A{row}"].value == "C. 제조경비"
+        if cost[f"A{row}"].value == "B. 제조경비 효과"
     )
     activity_row = manufacturing_section + 2
     assert cost[f"D{activity_row}"].value.startswith("=")

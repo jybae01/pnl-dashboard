@@ -294,18 +294,13 @@ def build_analysis_presentation(
         raise _integrity()
     manufacturing_accounts = _sequence_of_mappings(result.get("manufacturing_accounts"))
     sga_accounts = _sequence_of_mappings(result.get("sga_accounts"))
+    transport_effect = _number(sales_totals.get("transport_effect"))
     _validate_cost_effects(
-        amounts, material, inventory, manufacturing_accounts, sga_accounts
+        amounts, material, inventory, manufacturing_accounts, sga_accounts,
+        transport_effect=transport_effect,
     )
 
-    # Presentation policy only: keep the persisted deterministic analysis result
-    # unchanged, but classify customer-delivery transport under variable SG&A.
-    # Moving the same amount from sales price to variable SG&A preserves the
-    # operating-profit bridge and avoids double counting.
     presentation_amounts = dict(amounts)
-    transport_effect = _number(sales_totals.get("transport_effect"))
-    presentation_amounts["sales_price"] -= transport_effect
-    presentation_amounts["sga_variable"] += transport_effect
     if not _close(sum(presentation_amounts.values()), effects_total):
         raise _integrity()
 
@@ -784,7 +779,7 @@ def _validate_sales_effects(amounts: Mapping[str, float], totals: Mapping[str, A
     ):
         raise _integrity()
     displayed = totals.get("displayed_sales_price_effect")
-    if displayed is not None and not _close(_number(displayed) + transport, amounts["sales_price"]):
+    if displayed is not None and not _close(_number(displayed), amounts["sales_price"]):
         raise _integrity()
 
 
@@ -794,6 +789,7 @@ def _validate_cost_effects(
     inventory: Mapping[str, Any],
     manufacturing_accounts: tuple[Mapping[str, Any], ...],
     sga_accounts: tuple[Mapping[str, Any], ...],
+    transport_effect: float = 0.0,
 ) -> None:
     if material.get("total") is not None and not _close(_number(material.get("total")), amounts["material_total"]):
         raise _integrity()
@@ -861,14 +857,14 @@ def _validate_cost_effects(
     ):
         raise _integrity()
     for classification, code in (("variable", "sga_variable"), ("fixed", "sga_fixed")):
-        if not _close(
-            sum(
-                _number(row.get("profit_effect"))
-                for row in sga_accounts
-                if row.get("classification") == classification
-            ),
-            amounts[code],
-        ):
+        expected = sum(
+            _number(row.get("profit_effect"))
+            for row in sga_accounts
+            if row.get("classification") == classification
+        )
+        if code == "sga_variable":
+            expected += _number(transport_effect)
+        if not _close(expected, amounts[code]):
             raise _integrity()
     if any(
         not _close(_number(row.get("profit_effect")), 0.0)

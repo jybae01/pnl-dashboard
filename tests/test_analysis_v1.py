@@ -60,12 +60,12 @@ class SalesEffectsTest(unittest.TestCase):
         result = calculate_sales_effects(base, comp, config)
         self.assertAlmostEqual(result.quantity, 140.0)
         self.assertAlmostEqual(result.mix, 110.0)
-        self.assertAlmostEqual(result.price, 216.0)
+        self.assertAlmostEqual(result.price, 240.0)
         self.assertAlmostEqual(result.tariff, -10.0)
         self.assertAlmostEqual(result.transport_effect, -24.0)
         self.assertEqual(result.transport_quantity, 0.0)
         self.assertAlmostEqual(result.transport_unit, result.transport_effect)
-        self.assertAlmostEqual(result.price, result.displayed_price + result.transport_effect)
+        self.assertAlmostEqual(result.price, result.displayed_price)
         self.assertEqual({row["product_group"] for row in result.details}, {"SW", "BW"})
         pool = result.pool_details[0]
         self.assertEqual(pool["pool"], "PCS")
@@ -209,8 +209,8 @@ class SalesEffectsTest(unittest.TestCase):
         self.assertAlmostEqual(sales.transport_effect, -10.0)
         self.assertEqual(sales.transport_quantity, 0.0)
         self.assertAlmostEqual(sales.transport_unit, -10.0)
-        self.assertAlmostEqual(sales.price, -10.0)
-        self.assertAlmostEqual(sales.total, -10.0)
+        self.assertAlmostEqual(sales.price, 0.0)
+        self.assertAlmostEqual(sales.total, 0.0)
         self.assertEqual(sga.total, 0.0)
         self.assertEqual(sga.details[0]["profit_effect"], 0.0)
 
@@ -249,7 +249,7 @@ class SalesEffectsTest(unittest.TestCase):
         self.assertEqual(tariff.total, -13.0)
         self.assertAlmostEqual(combined.transport_effect, -10.0)
         self.assertEqual(combined.tariff, -13.0)
-        self.assertAlmostEqual(combined.total, -23.0)
+        self.assertAlmostEqual(combined.total, -13.0)
 
     def test_transport_pcs_pool_uses_sw_bw_lc_without_product_allocation(self):
         config = AnalysisConfig.load(CONFIG)
@@ -365,7 +365,7 @@ class SalesEffectsTest(unittest.TestCase):
             result.transport_effect,
             sum(float(row["freight_effect"]) for row in result.freight_details),
         )
-        self.assertEqual(result.price, result.displayed_price + result.transport_effect)
+        self.assertEqual(result.price, result.displayed_price)
 
 
 class MaterialEffectsTest(unittest.TestCase):
@@ -684,7 +684,7 @@ class SgaAndEngineTest(unittest.TestCase):
         self.assertEqual(transport["baseline_amount"], 100)
         self.assertEqual(transport["comparison_amount"], 150)
         self.assertEqual(transport["profit_effect"], 0)
-        self.assertEqual(transport["bridge_position"], "판매효과")
+        self.assertEqual(transport["bridge_position"], "변동 판관비")
 
     def test_direct_effect_reconciles_and_common_schema_contains_metadata(self):
         engine = AnalysisEngine(CONFIG)

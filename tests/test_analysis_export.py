@@ -175,7 +175,7 @@ def test_build_comparison_audit_workbook_uses_five_tab_formula_lineage(tmp_path)
     assert sales[f"C{sales_price_row}"].value.startswith("=")
 
     cost = workbook["04_원가근거"]
-    manufacturing_section = _row_with_value(cost, "A", "C. 제조경비")
+    manufacturing_section = _row_with_value(cost, "A", "B. 제조경비 효과")
     activity_row = manufacturing_section + 2
     assert cost[f"B{activity_row}"].value.startswith("=")
     assert "'90_원본값'!" in cost[f"B{activity_row}"].value

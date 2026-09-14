@@ -178,7 +178,7 @@ def analyze_residual_rca(
     assigned_sales = (
         effect_amounts.get("sales_quantity", 0.0)
         + effect_amounts.get("sales_mix", 0.0)
-        + displayed_price
+        + effect_amounts.get("sales_price", 0.0)
         + effect_amounts.get("sales_fx", 0.0)
     )
     assigned_manufactured = (
@@ -187,8 +187,7 @@ def analyze_residual_rca(
         + effect_amounts.get("inventory_timing", 0.0)
     )
     assigned_sga = (
-        freight
-        + effect_amounts.get("tariff", 0.0)
+        effect_amounts.get("tariff", 0.0)
         + effect_amounts.get("sga_variable", 0.0)
         + effect_amounts.get("sga_fixed", 0.0)
     )
@@ -200,7 +199,7 @@ def analyze_residual_rca(
             "comparison": _number(comparison_pnl.get("revenue")),
             "direct_effect": direct_sales,
             "assigned_canonical_effects": (
-                "sales_quantity + sales_mix + displayed_sales_price + sales_fx"
+                "sales_quantity + sales_mix + sales_price + sales_fx"
             ),
             "explained_subtotal": assigned_sales,
             "gap": direct_sales - assigned_sales,
@@ -262,7 +261,7 @@ def analyze_residual_rca(
             ),
             "direct_effect": direct_sga,
             "assigned_canonical_effects": (
-                "freight_adjustment + tariff + sga_variable + sga_fixed"
+                "tariff + sga_variable + sga_fixed"
             ),
             "explained_subtotal": assigned_sga,
             "gap": direct_sga - assigned_sga,

@@ -110,7 +110,7 @@ class AnalysisEngine:
         effects: list[dict[str, float | str]] = [
             {"code": "sales_quantity", "label": "판매수량 효과", "profit_effect": sales.quantity},
             {"code": "sales_mix", "label": "제품 Mix 효과", "profit_effect": sales.mix},
-            {"code": "sales_price", "label": "판매단가 효과(고객배송 운반비 효과 포함)", "profit_effect": sales.price},
+            {"code": "sales_price", "label": "판매단가 효과", "profit_effect": sales.price},
             {"code": "sales_fx", "label": "매출환율 효과", "profit_effect": sales.sales_fx},
             {"code": "tariff", "label": "관세 효과", "profit_effect": sales.tariff},
             {"code": "nonwoven_price_ex_fx", "label": "부직포 단가효과(환율 제외)", "profit_effect": material.nonwoven_price_ex_fx},
@@ -118,7 +118,7 @@ class AnalysisEngine:
             {"code": "materials_ex_nonwoven", "label": "부직포 제외 원재료 효과", "profit_effect": material.materials_ex_nonwoven},
             {"code": "manufacturing_realized", "label": "노무비·제조경비 효과", "profit_effect": manufacturing.realized_total},
             {"code": "inventory_timing", "label": "재고·원가 반영시차 효과", "profit_effect": inventory.inventory_timing_effect},
-            {"code": "sga_variable", "label": "변동 판관비 효과", "profit_effect": sga.variable},
+            {"code": "sga_variable", "label": "변동 판관비 효과", "profit_effect": sga.variable + sales.transport_effect},
             {"code": "sga_fixed", "label": "고정 판관비 효과", "profit_effect": sga.fixed},
             *direct,
         ]

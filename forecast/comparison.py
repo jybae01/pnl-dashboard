@@ -403,7 +403,7 @@ class GenericComparisonEngine:
                 },
                 {
                     "code": "sales_price",
-                    "factor": "판매단가 효과(고객배송 운반비 효과 포함)",
+                    "factor": "판매단가 효과",
                     "baseline": None,
                     "comparison": None,
                     "delta": None,
@@ -458,7 +458,10 @@ class GenericComparisonEngine:
                     "baseline": None,
                     "comparison": None,
                     "delta": None,
-                    "profit_effect": calculated_analysis_sga.variable,
+                    "profit_effect": (
+                        calculated_analysis_sga.variable
+                        + calculated_analysis_sales.transport_effect
+                    ),
                 },
                 {
                     "code": "sga_fixed",
@@ -777,7 +780,7 @@ class GenericComparisonEngine:
             if is_transport:
                 classification = "transport"
                 profit_effect = 0.0
-                bridge_position = "판매효과"
+                bridge_position = "변동 판관비"
             elif is_tariff:
                 classification = "tariff"
                 profit_effect = 0.0
