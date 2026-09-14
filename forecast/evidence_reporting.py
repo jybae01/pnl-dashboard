@@ -1259,6 +1259,18 @@ def _collect_cost_sources(
     for index, item in enumerate(sga_rows, 1):
         period = str(item.get("period") or period_label)
         account = str(item.get("display_account") or item.get("account") or f"계정 {index}")
+        raw_classification = str(item.get("classification") or "")
+        is_transport = raw_classification == "transport" or "운반" in account
+        is_tariff = raw_classification == "tariff" or "관세" in account
+        if is_transport:
+            classification = "transport"
+            bridge_position = "변동 판관비"
+        elif is_tariff:
+            classification = "tariff"
+            bridge_position = str(item.get("bridge_position") or "외부효과/관세")
+        else:
+            classification = raw_classification
+            bridge_position = str(item.get("bridge_position") or "")
         baseline_components = _sga_source_components(
             item,
             side="baseline",
@@ -1290,14 +1302,14 @@ def _collect_cost_sources(
                 key,
                 category="판관비",
                 item=f"{account} 원천셀",
-                basis=str(item.get("classification") or ""),
+                basis=classification,
                 period=period,
                 unit="원",
                 baseline_source=str(baseline_component.get("source") or ""),
                 baseline_value=baseline_component.get("value"),
                 comparison_source=str(comparison_component.get("source") or ""),
                 comparison_value=comparison_component.get("value"),
-                notes=str(item.get("bridge_position") or ""),
+                notes=bridge_position,
             )
             component_keys[source] = key
         if not source_order:
@@ -1309,14 +1321,14 @@ def _collect_cost_sources(
                 key,
                 category="판관비",
                 item=account,
-                basis=str(item.get("classification") or ""),
+                basis=classification,
                 period=period,
                 unit="원",
                 baseline_source=str(item.get("base_source_reference") or item.get("source_reference") or "SG&A input"),
                 baseline_value=item.get("base_amount", item.get("baseline_amount")),
                 comparison_source=str(item.get("comparison_source_reference") or item.get("source_reference") or "SG&A input"),
                 comparison_value=item.get("comparison_amount"),
-                notes=str(item.get("bridge_position") or ""),
+                notes=bridge_position,
                 hardcode_class="REQUEST_INPUT",
             )
             component_keys["__legacy__"] = key
@@ -2377,16 +2389,21 @@ def write_cost_sheet(
         group = sga_formula_groups.get(group_key, {})
         key = sga_keys.get(group_key) or sga_key_list[index - 1]
         current = row
-        classification = str(item.get("classification") or "")
+        raw_classification = str(item.get("classification") or "")
         account_name = str(item.get("display_account") or item.get("account") or "")
-        is_transport = classification == "transport" or "운반" in account_name
-        is_tariff = classification == "tariff" or "관세" in account_name
-        bridge_position = "변동 판관비" if is_transport else str(item.get("bridge_position") or "")
+        is_transport = raw_classification == "transport" or "운반" in account_name
+        is_tariff = raw_classification == "tariff" or "관세" in account_name
         if is_transport:
+            classification = "transport"
+            bridge_position = "변동 판관비"
             policy_text = "고객배송 운반비는 C-2 산식으로 별도 산출하여 변동 판관비에 가산"
         elif is_tariff:
+            classification = "tariff"
+            bridge_position = str(item.get("bridge_position") or "외부효과/관세")
             policy_text = "관세는 판매 Effect(03_판매근거)에서 반영"
         else:
+            classification = raw_classification
+            bridge_position = str(item.get("bridge_position") or "")
             policy_text = "일반 계정 증감"
 
         ws.cell(current, 1, period)

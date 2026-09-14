@@ -537,3 +537,94 @@ def test_legacy_missing_raw_cogs_fails_closed(invalid_cogs):
     }
     with pytest.raises(ValueError, match="legacy raw COGS is unavailable"):
         collect_reporting_sources(result, [], 1_400.0, 1_450.0)
+
+
+def test_cost_sheet_c1_sga_transport_classification_and_bridge_invariants(tmp_path):
+    baseline = tmp_path / "baseline.xlsx"
+    comparison = tmp_path / "comparison.xlsx"
+    _build_workbook(baseline, comparison=False)
+    _build_workbook(comparison, comparison=True)
+    result = GenericComparisonEngine(ROOT / "config" / "model_mapping.json").compare(
+        _meta("base"), baseline, _meta("comparison"), comparison,
+        PeriodOption("M2026_01", "2026-01", (1,), "사용자정의"),
+        baseline_sales_fx=1_400.0, comparison_sales_fx=1_450.0,
+    )
+    payload = build_comparison_audit_workbook(
+        result=asdict(result),
+        sales_rows=result.sales_analysis["rows"],
+        sales_totals=result.sales_analysis["totals"],
+        baseline_fx=1_400.0,
+        comparison_fx=1_450.0,
+        baseline_path=baseline,
+        comparison_path=comparison,
+        mapping_path=ROOT / "config" / "model_mapping.json",
+    )
+    workbook = load_workbook(BytesIO(payload), data_only=False)
+    cost = workbook["04_원가근거"]
+
+    # Locate C-1 section
+    c1_header = next(
+        row for row in range(1, cost.max_row + 1)
+        if "C-1. 판관비 계정별 효과" in str(cost[f"A{row}"].value or "")
+    )
+    c1_start = c1_header + 2
+    var_sum_row = next(
+        row for row in range(c1_start, cost.max_row + 1)
+        if str(cost[f"A{row}"].value or "").startswith("일반 변동 판관비 합계")
+    )
+    fixed_sum_row = next(
+        row for row in range(c1_start, cost.max_row + 1)
+        if str(cost[f"A{row}"].value or "").startswith("고정 판관비 효과")
+    )
+    c1_end = var_sum_row - 1
+
+    transport_rows = []
+    fixed_rows = []
+    variable_rows = []
+
+    for row in range(c1_start, c1_end + 1):
+        account = str(cost[f"C{row}"].value or "")
+        classification = str(cost[f"D{row}"].value or "")
+        bridge_pos = str(cost[f"H{row}"].value or "")
+        profit_formula = str(cost[f"G{row}"].value or "")
+        policy = str(cost[f"I{row}"].value or "")
+
+        if "운반" in account or classification == "transport":
+            transport_rows.append(row)
+            assert classification == "transport", f"Row {row} account {account} must be transport"
+            assert bridge_pos == "변동 판관비", f"Row {row} account {account} must have bridge_position '변동 판관비'"
+            assert profit_formula.startswith("=IF(OR(D"), f"Row {row} profit formula must use IF(OR(D..."
+            assert "C-2" in policy, f"Row {row} policy must mention C-2"
+        elif classification == "fixed":
+            fixed_rows.append(row)
+        elif classification == "variable":
+            variable_rows.append(row)
+
+    # Must have discovered both selling and general transport accounts
+    assert len(transport_rows) >= 2, "Expected at least 2 transport rows (selling + general admin)"
+    assert fixed_rows, "Expected at least one non-transport fixed row"
+    assert variable_rows, "Expected at least one non-transport variable row"
+
+    # Verify aggregation formulas
+    assert cost[f"G{var_sum_row}"].value == f'=SUMIF(D{c1_start}:D{c1_end},"variable",G{c1_start}:G{c1_end})'
+    assert cost[f"G{fixed_sum_row}"].value == f'=SUMIF(D{c1_start}:D{c1_end},"fixed",G{c1_start}:G{c1_end})'
+
+    # Verify C-3 integration
+    c3_total_row = next(
+        row for row in range(1, cost.max_row + 1)
+        if str(cost[f"A{row}"].value or "") == "변동 판관비 총계"
+    )
+    assert cost[f"D{c3_total_row}"].value.startswith("=D")
+
+    # Verify 02_손익영향 links
+    impact = workbook["02_손익영향"]
+    sga_var_row = next(
+        row for row in range(1, impact.max_row + 1)
+        if impact[f"G{row}"].value == "sga_variable"
+    )
+    sga_fixed_row = next(
+        row for row in range(1, impact.max_row + 1)
+        if impact[f"G{row}"].value == "sga_fixed"
+    )
+    assert impact[f"C{sga_var_row}"].value.startswith("='04_원가근거'!")
+    assert impact[f"C{sga_fixed_row}"].value.startswith("='04_원가근거'!")
