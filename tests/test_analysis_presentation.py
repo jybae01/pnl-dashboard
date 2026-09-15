@@ -647,3 +647,139 @@ def test_migration_009_is_narrow_additive_and_service_role_only():
     assert "to service_role" in sql
     assert "workbook_path" not in sql
     assert "claim_token" not in sql
+
+
+def test_case_a_manufacturing_account_raw_material_freight_v1():
+    """Case A: Manufacturing account: 원자재운반비 -> Presentation PASS."""
+    row = presentation_row()
+    accounts = row["result_payload"]["comparison_result"]["manufacturing_accounts"]
+    assert any(item["account"] == "원자재운반비" for item in accounts)
+    response = build_analysis_presentation(RESULT_ID, row, PROVENANCE, ("1",))
+    assert response is not None
+    mfg_effect = next(e for e in response.effects if e.code == "manufacturing_realized")
+    assert any("원자재운반비" in r.label for r in mfg_effect.drilldown.rows)
+
+
+def test_case_b_manufacturing_account_raw_material_freight_v2_alias():
+    """Case B: Manufacturing account: 원재료운반비 -> Presentation PASS."""
+    row = presentation_row()
+    accounts = row["result_payload"]["comparison_result"]["manufacturing_accounts"]
+    for item in accounts:
+        if item["account"] == "원자재운반비":
+            item["account"] = "원재료운반비"
+    response = build_analysis_presentation(RESULT_ID, row, PROVENANCE, ("1",))
+    assert response is not None
+    mfg_effect = next(e for e in response.effects if e.code == "manufacturing_realized")
+    assert any("원재료운반비" in r.label for r in mfg_effect.drilldown.rows)
+
+
+@pytest.mark.parametrize("missing_account", ["수도광열비", "소모품비", "외주가공비", "원자재운반비"])
+def test_case_c_canonical_or_freight_manufacturing_account_missing_fails(missing_account: str):
+    """Case C: Canonical variable manufacturing account missing unexpectedly -> Integrity FAIL."""
+    row = presentation_row()
+    accounts = row["result_payload"]["comparison_result"]["manufacturing_accounts"]
+    row["result_payload"]["comparison_result"]["manufacturing_accounts"] = [
+        item for item in accounts if item["account"] != missing_account
+    ]
+    with pytest.raises(BffError) as caught:
+        build_analysis_presentation(RESULT_ID, row, PROVENANCE, ("1",))
+    assert caught.value.code == ApiErrorCode.INPUT_INTEGRITY_MISMATCH
+
+
+def test_case_d_manufacturing_total_differs_from_sum_final_profit_effect():
+    """Case D: Manufacturing total differs from sum(final_profit_effect) -> Integrity FAIL."""
+    row = presentation_row()
+    effects = row["result_payload"]["comparison_result"]["effects"]
+    for e in effects:
+        if e["code"] == "manufacturing_realized":
+            e["profit_effect"] = 999.0
+    with pytest.raises(BffError) as caught:
+        build_analysis_presentation(RESULT_ID, row, PROVENANCE, ("1",))
+    assert caught.value.code == ApiErrorCode.INPUT_INTEGRITY_MISMATCH
+
+
+def test_case_e_customer_freight_release_invariants_preserved():
+    """Case E: Selling freight -> transport in Variable SG&A; Admin freight -> fixed in Fixed SG&A; Mfg freight -> Mfg variable."""
+    row = presentation_row()
+    sga = row["result_payload"]["comparison_result"]["sga_accounts"]
+    sga.append({
+        "row": 1210,
+        "account": "일반관리비 운반비",
+        "section": "일반관리비",
+        "classification": "fixed",
+        "baseline_amount": 5.0,
+        "comparison_amount": 4.0,
+        "delta": -1.0,
+        "profit_effect": 1.0,
+    })
+    for e in row["result_payload"]["comparison_result"]["effects"]:
+        if e["code"] == "sga_fixed":
+            e["profit_effect"] = 5.0
+    row["result_payload"]["comparison_result"]["effects_total"] = 30.0
+    row["result_payload"]["comparison_result"]["operating_profit_delta"] = 36.0
+    for p in row["result_payload"]["comparison_result"]["pnl"]:
+        if p["code"] == "operating_profit":
+            p["comparison"] = 136.0
+            p["delta"] = 36.0
+
+    response = build_analysis_presentation(RESULT_ID, row, PROVENANCE, ("1",))
+    by_code = {e.code: e for e in response.effects}
+
+    # 1. Selling freight -> classified as transport, rolled into sga_variable
+    var_drilldown = {r.label: r for r in by_code["sga_variable"].drilldown.rows}
+    assert "고객배송 운반비" in var_drilldown
+    assert var_drilldown["고객배송 운반비"].section == "selling"
+    assert var_drilldown["고객배송 운반비"].profit_effect == 3.0
+
+    # 2. General admin freight -> classified as fixed, rolled into sga_fixed
+    fixed_drilldown = {r.label: r for r in by_code["sga_fixed"].drilldown.rows}
+    assert "일반관리비 운반비" in fixed_drilldown
+    assert fixed_drilldown["일반관리비 운반비"].section == "general_admin"
+    assert fixed_drilldown["일반관리비 운반비"].profit_effect == 1.0
+
+    # 3. Manufacturing freight -> classified as variable, rolled into manufacturing_realized
+    mfg_drilldown = {r.label: r for r in by_code["manufacturing_realized"].drilldown.rows}
+    assert "원자재운반비" in mfg_drilldown
+    assert mfg_drilldown["원자재운반비"].section == "manufacturing"
+
+
+def test_case_f_sales_price_excludes_customer_freight():
+    """Case F: Sales Price strictly excludes customer freight."""
+    row = presentation_row()
+    response = build_analysis_presentation(RESULT_ID, row, PROVENANCE, ("1",))
+    by_code = {e.code: e for e in response.effects}
+    totals = row["result_payload"]["comparison_result"]["sales_analysis"]["totals"]
+    assert totals["displayed_sales_price_effect"] == 5.0
+    assert totals["transport_effect"] == 3.0
+    assert by_code["sales_price"].profit_effect == 5.0
+    assert all("운반비" not in r.label for r in by_code["sales_price"].drilldown.rows)
+
+
+def test_case_g_tariff_remains_separate():
+    """Case G: Tariff remains separate."""
+    row = presentation_row()
+    response = build_analysis_presentation(RESULT_ID, row, PROVENANCE, ("1",))
+    by_code = {e.code: e for e in response.effects}
+    assert "tariff" in by_code
+    assert by_code["tariff"].profit_effect == -1.0
+    tariff_drilldown = {r.label: r for r in by_code["tariff"].drilldown.rows}
+    assert "관세" in tariff_drilldown
+    assert tariff_drilldown["관세"].section == "selling"
+
+
+def test_worker_bundled_freight_payload_reconciles_to_pure_sales_price_and_variable_sga():
+    """Worker compatibility: Stored payload with bundled sales_price and unshifted sga_variable reconciles correctly."""
+    row = presentation_row()
+    effects = row["result_payload"]["comparison_result"]["effects"]
+    for e in effects:
+        if e["code"] == "sales_price":
+            e["profit_effect"] = 8.0
+        elif e["code"] == "sga_variable":
+            e["profit_effect"] = 3.0
+
+    response = build_analysis_presentation(RESULT_ID, row, PROVENANCE, ("1",))
+    by_code = {e.code: e for e in response.effects}
+    assert by_code["sales_price"].profit_effect == 5.0
+    assert by_code["sga_variable"].profit_effect == 6.0
+    assert sum(e.profit_effect for e in response.effects) == response.kpis.effects_total
+

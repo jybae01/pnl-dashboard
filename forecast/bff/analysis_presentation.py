@@ -38,11 +38,18 @@ EFFECT_ORDER = (
     "tariff",
 )
 
-MANUFACTURING_VARIABLE_ACCOUNTS = (
+MANUFACTURING_VARIABLE_CANONICAL_ACCOUNTS = (
     "수도광열비",
     "소모품비",
-    "원자재운반비",
     "외주가공비",
+)
+MANUFACTURING_FREIGHT_VARIABLE_ACCOUNTS = (
+    "원자재운반비",
+    "원재료운반비",
+)
+MANUFACTURING_VARIABLE_ACCOUNTS = (
+    *MANUFACTURING_VARIABLE_CANONICAL_ACCOUNTS,
+    *MANUFACTURING_FREIGHT_VARIABLE_ACCOUNTS,
 )
 
 EFFECT_METADATA = {
@@ -301,7 +308,26 @@ def build_analysis_presentation(
     )
 
     presentation_amounts = dict(amounts)
+    displayed = sales_totals.get("displayed_sales_price_effect")
+    if (
+        displayed is not None
+        and transport_effect != 0.0
+        and _close(_number(displayed) + transport_effect, presentation_amounts["sales_price"])
+    ):
+        presentation_amounts["sales_price"] -= transport_effect
+        presentation_amounts["sga_variable"] += transport_effect
+
     if not _close(sum(presentation_amounts.values()), effects_total):
+        raise _integrity()
+
+    if displayed is not None and not _close(_number(displayed), presentation_amounts["sales_price"]):
+        raise _integrity()
+    var_sga_base = sum(
+        _number(r.get("profit_effect"))
+        for r in sga_accounts
+        if r.get("classification") == "variable"
+    )
+    if not _close(var_sga_base + transport_effect, presentation_amounts["sga_variable"]):
         raise _integrity()
 
     effects = tuple(
@@ -765,7 +791,6 @@ def _validate_sales_effects(amounts: Mapping[str, float], totals: Mapping[str, A
     for code, key in (
         ("sales_quantity", "quantity_effect"),
         ("sales_mix", "mix_effect"),
-        ("sales_price", "sales_price_effect"),
         ("sales_fx", "sales_fx_effect"),
         ("tariff", "tariff_effect"),
     ):
@@ -779,7 +804,13 @@ def _validate_sales_effects(amounts: Mapping[str, float], totals: Mapping[str, A
     ):
         raise _integrity()
     displayed = totals.get("displayed_sales_price_effect")
-    if displayed is not None and not _close(_number(displayed), amounts["sales_price"]):
+    sales_price_effect = totals.get("sales_price_effect")
+    if displayed is not None:
+        matches_pure = _close(_number(displayed), amounts["sales_price"])
+        matches_bundled = _close(_number(displayed) + transport, amounts["sales_price"])
+        if not (matches_pure or matches_bundled):
+            raise _integrity()
+    elif sales_price_effect is not None and not _close(_number(sales_price_effect), amounts["sales_price"]):
         raise _integrity()
 
 
@@ -800,13 +831,18 @@ def _validate_cost_effects(
         sum(_number(value) for value in parts), amounts["material_total"]
     ):
         raise _integrity()
-    variable_matches = {
+    canonical_matches = {
         account: [row for row in manufacturing_accounts if row.get("account") == account]
-        for account in MANUFACTURING_VARIABLE_ACCOUNTS
+        for account in MANUFACTURING_VARIABLE_CANONICAL_ACCOUNTS
     }
+    freight_matches = [
+        row for row in manufacturing_accounts
+        if row.get("account") in MANUFACTURING_FREIGHT_VARIABLE_ACCOUNTS
+    ]
     if (
         not manufacturing_accounts
-        or any(len(rows) != 1 for rows in variable_matches.values())
+        or any(len(rows) != 1 for rows in canonical_matches.values())
+        or len(freight_matches) != 1
         or any(row.get("final_profit_effect") is None for row in manufacturing_accounts)
     ):
         raise _integrity()
@@ -856,16 +892,23 @@ def _validate_cost_effects(
         core_overlap,
     ):
         raise _integrity()
-    for classification, code in (("variable", "sga_variable"), ("fixed", "sga_fixed")):
-        expected = sum(
-            _number(row.get("profit_effect"))
-            for row in sga_accounts
-            if row.get("classification") == classification
-        )
-        if code == "sga_variable":
-            expected += _number(transport_effect)
-        if not _close(expected, amounts[code]):
-            raise _integrity()
+    sga_fixed_expected = sum(
+        _number(row.get("profit_effect"))
+        for row in sga_accounts
+        if row.get("classification") == "fixed"
+    )
+    if not _close(sga_fixed_expected, amounts["sga_fixed"]):
+        raise _integrity()
+
+    sga_var_base = sum(
+        _number(row.get("profit_effect"))
+        for row in sga_accounts
+        if row.get("classification") == "variable"
+    )
+    matches_shifted = _close(sga_var_base + _number(transport_effect), amounts["sga_variable"])
+    matches_unshifted = _close(sga_var_base, amounts["sga_variable"])
+    if not (matches_shifted or matches_unshifted):
+        raise _integrity()
     if any(
         not _close(_number(row.get("profit_effect")), 0.0)
         for row in sga_accounts
