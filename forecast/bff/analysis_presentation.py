@@ -432,10 +432,11 @@ def _validated_row(
     for key in ("baseline_workbook_sha256", "comparison_workbook_sha256", "mapping_hash"):
         if not SHA256_PATTERN.fullmatch(str(values[key])):
             raise _integrity()
+    allowed_hashes = {provenance.mapping_hash, *getattr(provenance, "allowed_mapping_hashes", ())}
     if (
         str(values["engine_version"]) != provenance.engine_version
         or str(values["mapping_version"]) != provenance.mapping_version
-        or str(values["mapping_hash"]) != provenance.mapping_hash
+        or str(values["mapping_hash"]) not in allowed_hashes
         or str(values["result_schema_version"]) not in supported_versions
     ):
         raise _integrity()

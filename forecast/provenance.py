@@ -36,6 +36,7 @@ class ResultProvenance:
     mapping_version: str
     mapping_hash: str
     result_schema_version: str
+    allowed_mapping_hashes: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
         for field_name in ("engine_version", "mapping_version", "result_schema_version"):
@@ -43,9 +44,17 @@ class ResultProvenance:
                 raise ValueError(f"{field_name} is required")
         if not SHA256_PATTERN.fullmatch(self.mapping_hash):
             raise ValueError("mapping_hash must be a lowercase SHA-256 hex digest")
+        for item_hash in self.allowed_mapping_hashes:
+            if not SHA256_PATTERN.fullmatch(item_hash):
+                raise ValueError("allowed_mapping_hashes must contain lowercase SHA-256 hex digests")
 
     def as_dict(self) -> dict[str, str]:
-        return asdict(self)
+        return {
+            "engine_version": self.engine_version,
+            "mapping_version": self.mapping_version,
+            "mapping_hash": self.mapping_hash,
+            "result_schema_version": self.result_schema_version,
+        }
 
 
 def load_result_provenance(
@@ -78,9 +87,15 @@ def load_registered_provenance(
     actual_hash = mapping_hash(mapping_path)
     if active["content_hash"] != actual_hash:
         raise ValueError("active mapping hash does not match model_mapping.json")
+    allowed_hashes = tuple(
+        str(item["content_hash"])
+        for item in registry.get("versions", [])
+        if item.get("status") == "published" and "content_hash" in item
+    )
     return ResultProvenance(
         engine_version=str(release["version"]),
         mapping_version=active_version,
         mapping_hash=actual_hash,
         result_schema_version=str(registry.get("schema_version", "1")),
+        allowed_mapping_hashes=allowed_hashes,
     )

@@ -80,7 +80,7 @@ class NewGoldenModelMappingTests(unittest.TestCase):
                 "SW440": ("SW", 583, 957, [906, 907]),
                 "BW400": ("BW", 586, 958, [913, 914]),
                 "BW440": ("BW", 589, 959, [920, 921]),
-                "LC": ("LC", 592, 960, [927, 928]),
+                "LC": ("LC", 592, 960, [927]),
             },
         )
         self.assertNotIn(

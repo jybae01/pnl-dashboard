@@ -310,7 +310,7 @@
             "production_row": 925,
             "input_length_row": 592,
             "adjustment_row": 960,
-            "back_total_rows": [927, 928]
+            "back_total_rows": [927]
           }
         }
       },
@@ -367,7 +367,7 @@
             {"product_code": "LC", "production_row": 925, "input_length_row": 592, "adjustment_row": 960}
           ],
           "back_material_terms": [
-            {"product_code": "LC", "back_total_rows": [927, 928]}
+            {"product_code": "LC", "back_total_rows": [927]}
           ],
           "mcm_material_rows": [],
           "direct_material_rows": []

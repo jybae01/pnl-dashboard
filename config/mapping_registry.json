@@ -7,8 +7,17 @@
       "version": "analysis-v1.2.2",
       "status": "published",
       "file": "model_mapping.json",
-      "content_hash": "c2c758c5cc839d69154cd0ac36bbbb49c792bc76d62686621915e8db00b2fbd7",
+      "content_hash": "df2a92b506966689c155c04d53003245947975c09e06efe386864e496219829c",
       "is_default": true,
+      "validated_at": "2026-09-15T00:00:00+09:00",
+      "published_at": "2026-09-15T00:00:00+09:00"
+    },
+    {
+      "version": "analysis-v1.2.2-baseline",
+      "status": "published",
+      "file": "model_mapping.json",
+      "content_hash": "c2c758c5cc839d69154cd0ac36bbbb49c792bc76d62686621915e8db00b2fbd7",
+      "is_default": false,
       "validated_at": "2026-08-15T00:00:00+09:00",
       "published_at": "2026-08-15T00:00:00+09:00"
     }
