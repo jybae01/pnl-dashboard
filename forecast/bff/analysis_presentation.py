@@ -534,7 +534,51 @@ def _drilldown(
         )
         return AnalysisDrilldownResponse("material", bool(rows), rows, None if rows else "원재료 세부 payload 없음")
     if code == "manufacturing_realized":
-        rows = tuple(_account_row("manufacturing", source, "final_profit_effect") for source in manufacturing_accounts)
+        labor_accounts = [
+            source for source in manufacturing_accounts
+            if source.get("current_cost_component") == "labor"
+            or (source.get("row") is not None and int(source["row"]) in range(289, 296))
+        ]
+        expense_accounts = [
+            source for source in manufacturing_accounts
+            if source not in labor_accounts
+        ]
+        if labor_accounts and expense_accounts:
+            labor_base = sum(_number(s.get("baseline_amount")) for s in labor_accounts)
+            labor_comp = sum(_number(s.get("comparison_amount")) for s in labor_accounts)
+            labor_effect = sum(_number(s.get("final_profit_effect")) for s in labor_accounts)
+            expense_base = sum(_number(s.get("baseline_amount")) for s in expense_accounts)
+            expense_comp = sum(_number(s.get("comparison_amount")) for s in expense_accounts)
+            expense_effect = sum(_number(s.get("final_profit_effect")) for s in expense_accounts)
+
+            rows = (
+                AnalysisDrilldownRowResponse(
+                    row_id="manufacturing:subtotal:labor",
+                    label="A. 노무비 소계",
+                    unit="KRW",
+                    baseline=labor_base,
+                    comparison=labor_comp,
+                    delta=labor_comp - labor_base,
+                    profit_effect=labor_effect,
+                    note="원천 모형 289행 노무비 계 일치",
+                    section="manufacturing",
+                ),
+                *(_account_row("manufacturing", source, "final_profit_effect") for source in labor_accounts),
+                AnalysisDrilldownRowResponse(
+                    row_id="manufacturing:subtotal:expense",
+                    label="B. 기타 제조경비 소계",
+                    unit="KRW",
+                    baseline=expense_base,
+                    comparison=expense_comp,
+                    delta=expense_comp - expense_base,
+                    profit_effect=expense_effect,
+                    note="원천 모형 296행 기타 제조경비 계 일치",
+                    section="manufacturing",
+                ),
+                *(_account_row("manufacturing", source, "final_profit_effect") for source in expense_accounts),
+            )
+        else:
+            rows = tuple(_account_row("manufacturing", source, "final_profit_effect") for source in manufacturing_accounts)
         return AnalysisDrilldownResponse("manufacturing", bool(rows), rows, None if rows else "제조경비 계정 세부 payload 없음")
     if code == "inventory_timing":
         rows = (

@@ -936,6 +936,9 @@ class GoldenAnalysisAdapter:
                     business_source=f"{section} / {account}",
                     amount_source=f"Data!{column}{int(source['row'])}",
                     source_validation_status="SOURCE_MAPPED",
+                    source_section=section,
+                    source_row=int(source["row"]),
+                    source_classification=str(source.get("source_classification") or ""),
                 ))
             external_tariff = (
                 0.0

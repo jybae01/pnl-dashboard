@@ -104,6 +104,9 @@ class ExpenseRecord:
     amount_source: str = ""
     front_ratio_source: str = ""
     source_validation_status: str = "UNVALIDATED"
+    source_section: str = ""
+    source_row: int | None = None
+    source_classification: str = ""
 
 
 @dataclass(frozen=True)

@@ -839,28 +839,44 @@ class GenericComparisonEngine:
         records that fed those results; it does not recalculate an SG&A effect.
         """
 
-        def indexed(scenario: Any) -> dict[tuple[str, str], list[Any]]:
-            output: dict[tuple[str, str], list[Any]] = {}
+        def record_key(record: Any) -> tuple[str, str, int | None, str]:
+            sec = getattr(record, "source_section", "")
+            if not sec and record.business_source and " / " in record.business_source:
+                sec = record.business_source.split(" / ", 1)[0].strip()
+            r_num = getattr(record, "source_row", None)
+            if r_num is None and record.amount_source:
+                m = re.search(r"(\d+)$", str(record.amount_source or ""))
+                if m:
+                    r_num = int(m.group(1))
+            return (str(record.year_month), sec, r_num, str(record.account))
+
+        def indexed(scenario: Any) -> dict[tuple[str, str, int | None, str], list[Any]]:
+            output: dict[tuple[str, str, int | None, str], list[Any]] = {}
             for record in scenario.sga_expenses:
-                output.setdefault((str(record.year_month), str(record.account)), []).append(
-                    record
-                )
+                output.setdefault(record_key(record), []).append(record)
             return output
 
         def source_rows(records: list[Any]) -> list[int]:
             rows: set[int] = set()
             for record in records:
+                r_num = getattr(record, "source_row", None)
+                if r_num is not None:
+                    rows.add(r_num)
+                    continue
                 match = re.search(r"(\d+)$", str(record.amount_source or ""))
                 if match:
                     rows.add(int(match.group(1)))
             return sorted(rows)
 
         def sections(records: list[Any]) -> list[str]:
-            return sorted({
-                str(record.business_source).split(" / ", 1)[0].strip()
-                for record in records
-                if str(record.business_source or "").strip()
-            })
+            output: set[str] = set()
+            for record in records:
+                sec = getattr(record, "source_section", "")
+                if sec:
+                    output.add(sec)
+                elif str(record.business_source or "").strip():
+                    output.add(str(record.business_source).split(" / ", 1)[0].strip())
+            return sorted(output)
 
         def raw_accounts(records: list[Any], fallback: str) -> list[str]:
             values = {
@@ -877,11 +893,31 @@ class GenericComparisonEngine:
             detail = dict(source)
             period = str(detail.get("month") or detail.get("period") or "")
             account = str(detail.get("account") or "")
-            left = baseline.get((period, account), [])
-            right = comparison.get((period, account), [])
+            section = str(detail.get("section") or "")
+            row_num = detail.get("row")
+            if row_num is not None and not isinstance(row_num, int):
+                try:
+                    row_num = int(row_num)
+                except (ValueError, TypeError):
+                    row_num = None
+
+            left = baseline.get((period, section, row_num, account), [])
+            right = comparison.get((period, section, row_num, account), [])
+            if not left and not right:
+                for (p, s, r, a), recs in baseline.items():
+                    if p == period and a == account:
+                        left.extend(recs)
+                for (p, s, r, a), recs in comparison.items():
+                    if p == period and a == account:
+                        right.extend(recs)
+
             records = [*left, *right]
             row_numbers = source_rows(records)
+            if not row_numbers and row_num is not None:
+                row_numbers = [row_num]
             section_values = sections(records)
+            if not section_values and section:
+                section_values = [section]
             account_values = raw_accounts(records, account)
             base_references = [
                 str(record.amount_source)
@@ -902,7 +938,7 @@ class GenericComparisonEngine:
                 "period": period,
                 "row": row_numbers[0] if len(row_numbers) == 1 else ", ".join(
                     str(value) for value in row_numbers
-                ),
+                ) if row_numbers else None,
                 "account": account,
                 "display_account": display_account,
                 "section": " / ".join(section_values),

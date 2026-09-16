@@ -287,12 +287,14 @@ class EvidenceWorkbookTraceabilityTests(unittest.TestCase):
                 PeriodOption("M2026_01", "2026-01", (1,), "사용자정의"),
                 baseline_sales_fx=1_400.0, comparison_sales_fx=1_450.0,
             )
-            composite = next(
+            shared_rows = [
                 row for row in result.sga_monthly_trace
                 if row["account"] == "shared_sga_account"
-            )
-            self.assertIn(" | ", composite["base_source_reference"])
-            self.assertIn(" | ", composite["comparison_source_reference"])
+            ]
+            self.assertEqual(len(shared_rows), 2)
+            self.assertEqual({row["section"] for row in shared_rows}, {"판매비", "일반관리비"})
+            self.assertTrue(all(" | " not in str(row["base_source_reference"]) for row in shared_rows))
+            self.assertTrue(all(" | " not in str(row["comparison_source_reference"]) for row in shared_rows))
 
             # This is the persisted-result shape used by the BFF history
             # exporter: no original workbook paths are supplied.
@@ -324,15 +326,14 @@ class EvidenceWorkbookTraceabilityTests(unittest.TestCase):
             cost = workbook["04_원가근거"]
             cost_rows = [
                 row for row in range(1, cost.max_row + 1)
-                if cost[f"C{row}"].value == "shared_sga_account"
+                if cost[f"C{row}"].value in {"판매_shared_sga_account", "일반_shared_sga_account", "shared_sga_account"}
             ]
-            self.assertEqual(len(cost_rows), 1)
-            cost_row = cost_rows[0]
-            for column in ("E", "F"):
-                formula = cost[f"{column}{cost_row}"].value
-                self.assertIsInstance(formula, str)
-                self.assertTrue(formula.startswith("=SUM("))
-                self.assertEqual(formula.count("'90_원본값'!"), 2)
+            self.assertEqual(len(cost_rows), 2)
+            for cost_row in cost_rows:
+                for column in ("E", "F"):
+                    formula = str(cost[f"{column}{cost_row}"].value or "")
+                    self.assertFalse(formula.startswith("=SUM("))
+                    self.assertEqual(formula.count("'90_원본값'!"), 1)
 
             audit = audit_reporting_workbook(workbook)
             self.assertEqual(audit["formula_error_count"], 0)
