@@ -117,7 +117,7 @@ class EvidenceDeliveryService:
     def _generate(self, result_id: str, row: Mapping[str, Any]) -> EvidenceArtifact:
         values = _validated_evidence_row(result_id, row, self._provenance, self._supported_versions)
         allowed_hashes = {self._provenance.mapping_hash, *getattr(self._provenance, "allowed_mapping_hashes", ())}
-        if values["mapping_hash"] not in allowed_hashes:
+        if values["mapping_hash"] not in allowed_hashes or mapping_hash(self._mapping_path) not in allowed_hashes:
             raise _integrity_failure()
         serialized_size = len(json.dumps(
             values["result_payload"], ensure_ascii=False, separators=(",", ":")
@@ -279,9 +279,10 @@ def _validated_evidence_row(
         if not SHA256_PATTERN.fullmatch(values[key]):
             raise _integrity_failure()
     allowed_hashes = {provenance.mapping_hash, *getattr(provenance, "allowed_mapping_hashes", ())}
+    allowed_versions = {provenance.mapping_version, *getattr(provenance, "allowed_mapping_versions", ())}
     if (
         str(values["engine_version"]) != provenance.engine_version
-        or str(values["mapping_version"]) != provenance.mapping_version
+        or str(values["mapping_version"]) not in allowed_versions
         or str(values["mapping_hash"]) not in allowed_hashes
         or str(values["result_schema_version"]) not in supported_versions
     ):

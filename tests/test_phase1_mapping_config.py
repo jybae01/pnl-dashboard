@@ -9,13 +9,15 @@ from forecast.mapping_config import LocalMappingConfigRepository, MappingStatus,
 from forecast.provenance import load_registered_provenance, mapping_hash
 
 
+
+
 ROOT = Path(__file__).resolve().parents[1]
 
 
 class Phase1MappingConfigTests(unittest.TestCase):
     def test_mapping_hash_matches_checked_in_registry(self):
         registry = json.loads((ROOT / "config" / "mapping_registry.json").read_text(encoding="utf-8"))
-        self.assertEqual(registry["active_version"], "analysis-v1.2.2")
+        self.assertEqual(registry["active_version"], "analysis-v1.2.3")
         active = next(item for item in registry["versions"] if item["version"] == registry["active_version"])
 
         self.assertEqual(mapping_hash(ROOT / "config" / active["file"]), active["content_hash"])
@@ -42,11 +44,15 @@ class Phase1MappingConfigTests(unittest.TestCase):
             ROOT / "config" / "release.json",
         )
 
-        self.assertEqual(provenance.mapping_version, "analysis-v1.2.2")
+        self.assertEqual(provenance.mapping_version, "analysis-v1.2.3")
         self.assertEqual(
             provenance.mapping_hash,
             mapping_hash(ROOT / "config" / "model_mapping.json"),
         )
+        self.assertIn("df2a92b506966689c155c04d53003245947975c09e06efe386864e496219829c", provenance.allowed_mapping_hashes)
+        self.assertIn("c2c758c5cc839d69154cd0ac36bbbb49c792bc76d62686621915e8db00b2fbd7", provenance.allowed_mapping_hashes)
+        self.assertIn("analysis-v1.2.3", provenance.allowed_mapping_versions)
+        self.assertIn("analysis-v1.2.2", provenance.allowed_mapping_versions)
 
     def test_local_repository_mirrors_versioned_publish_flow(self):
         with tempfile.TemporaryDirectory() as directory:

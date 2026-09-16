@@ -37,6 +37,7 @@ class ResultProvenance:
     mapping_hash: str
     result_schema_version: str
     allowed_mapping_hashes: tuple[str, ...] = ()
+    allowed_mapping_versions: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
         for field_name in ("engine_version", "mapping_version", "result_schema_version"):
@@ -47,6 +48,9 @@ class ResultProvenance:
         for item_hash in self.allowed_mapping_hashes:
             if not SHA256_PATTERN.fullmatch(item_hash):
                 raise ValueError("allowed_mapping_hashes must contain lowercase SHA-256 hex digests")
+        for item_version in self.allowed_mapping_versions:
+            if not str(item_version).strip():
+                raise ValueError("allowed_mapping_versions items must not be blank")
 
     def as_dict(self) -> dict[str, str]:
         return {
@@ -92,10 +96,16 @@ def load_registered_provenance(
         for item in registry.get("versions", [])
         if item.get("status") == "published" and "content_hash" in item
     )
+    allowed_versions = tuple(
+        str(item["version"])
+        for item in registry.get("versions", [])
+        if item.get("status") == "published" and "version" in item
+    )
     return ResultProvenance(
         engine_version=str(release["version"]),
         mapping_version=active_version,
         mapping_hash=actual_hash,
         result_schema_version=str(registry.get("schema_version", "1")),
         allowed_mapping_hashes=allowed_hashes,
+        allowed_mapping_versions=allowed_versions,
     )

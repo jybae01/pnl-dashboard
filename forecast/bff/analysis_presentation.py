@@ -433,9 +433,10 @@ def _validated_row(
         if not SHA256_PATTERN.fullmatch(str(values[key])):
             raise _integrity()
     allowed_hashes = {provenance.mapping_hash, *getattr(provenance, "allowed_mapping_hashes", ())}
+    allowed_versions = {provenance.mapping_version, *getattr(provenance, "allowed_mapping_versions", ())}
     if (
         str(values["engine_version"]) != provenance.engine_version
-        or str(values["mapping_version"]) != provenance.mapping_version
+        or str(values["mapping_version"]) not in allowed_versions
         or str(values["mapping_hash"]) not in allowed_hashes
         or str(values["result_schema_version"]) not in supported_versions
     ):
