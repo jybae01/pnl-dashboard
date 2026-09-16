@@ -24,6 +24,7 @@ from .analysis.residual_rca import analyze_residual_rca
 from .analysis.sales_cogs_overlap import analyze_sales_cogs_basis_overlap
 from .analysis.sales_cogs_scope import analyze_sales_cogs_scope_reconciliation
 from .analysis.sales_effects import calculate_sales_effects
+from .analysis.schema import AnalysisScenario, ExpenseRecord, ScenarioMeta
 from .analysis.sga_effects import calculate_sga_effects
 from .provenance import mapping_hash
 from .sales_comparison import calculate_sales_effect_rows, sales_effect_totals
@@ -248,6 +249,7 @@ class GenericComparisonEngine:
         core_cogs_overlap_analysis: dict[str, Any] = {}
         sga_monthly_trace: list[dict[str, Any]] = []
         production_evidence: list[dict[str, Any]] = []
+        calculated_analysis_sga = None
         if baseline.get("adapted") is not None and target.get("adapted") is not None:
             full_base_scenario = baseline["adapted"].scenario
             full_comparison_scenario = target["adapted"].scenario
@@ -555,6 +557,11 @@ class GenericComparisonEngine:
             target.get("sga_accounts", []),
             baseline.get("cost_summary", {}),
             target.get("cost_summary", {}),
+            sga_details=(
+                calculated_analysis_sga.details
+                if calculated_analysis_sga is not None
+                else None
+            ),
         )
         inventory_mapping = (
             self.full_mapping.get("analysis_adapter", {}).get("inventory_timing", {})
@@ -748,68 +755,100 @@ class GenericComparisonEngine:
         comparison_rows: list[dict[str, Any]],
         baseline_costs: dict[str, float],
         comparison_costs: dict[str, float],
+        *,
+        sga_details: list[dict[str, Any]] | None = None,
     ) -> list[dict[str, Any]]:
-        baseline = self._account_map(baseline_rows)
-        comparison = self._account_map(comparison_rows)
-        output: list[dict[str, Any]] = []
-        for row_number in sorted(set(baseline) | set(comparison)):
-            left = baseline.get(row_number, {})
-            right = comparison.get(row_number, {})
-            account = str(right.get("account") or left.get("account") or f"행 {row_number}")
-            section = right.get("section") or left.get("section")
-            base_amount = float(left.get("amount") or 0.0)
-            comparison_amount = float(right.get("amount") or 0.0)
-            delta = comparison_amount - base_amount
-            short_account = account.split("_", 1)[-1]
-            is_transport = bool(
-                self.analysis_config
-                and section == "판매비"
-                and (
-                    self.analysis_config.is_transport(account)
-                    or self.analysis_config.is_transport(short_account)
+        if sga_details is None:
+            base_records = []
+            for r in baseline_rows:
+                sec = r.get("section") or ""
+                acc = r.get("account") or ""
+                norm_acc = (
+                    f"{sec}_{acc}"
+                    if (self.analysis_config and self.analysis_config.is_transport(acc))
+                    else acc
                 )
-            )
-            is_tariff = "관세" in account
-            is_variable = bool(
-                self.analysis_config
-                and (
-                    self.analysis_config.is_variable_sga(account)
-                    or self.analysis_config.is_variable_sga(short_account)
+                base_records.append(ExpenseRecord(
+                    year_month="PERIOD",
+                    account=norm_acc,
+                    amount=float(r.get("amount") or 0.0),
+                    category="sga",
+                    source_section=sec,
+                    source_row=int(r["row"]) if r.get("row") is not None else None,
+                    business_source=f"{sec} / {acc}",
+                ))
+            comp_records = []
+            for r in comparison_rows:
+                sec = r.get("section") or ""
+                acc = r.get("account") or ""
+                norm_acc = (
+                    f"{sec}_{acc}"
+                    if (self.analysis_config and self.analysis_config.is_transport(acc))
+                    else acc
                 )
+                comp_records.append(ExpenseRecord(
+                    year_month="PERIOD",
+                    account=norm_acc,
+                    amount=float(r.get("amount") or 0.0),
+                    category="sga",
+                    source_section=sec,
+                    source_row=int(r["row"]) if r.get("row") is not None else None,
+                    business_source=f"{sec} / {acc}",
+                ))
+            base_scen = AnalysisScenario(
+                meta=ScenarioMeta("base", "ACTUAL", "1.0"),
+                sga_expenses=base_records,
             )
-            if is_transport:
-                classification = "transport"
-                profit_effect = 0.0
-                bridge_position = "변동 판관비"
-            elif is_tariff:
-                classification = "tariff"
-                profit_effect = 0.0
-                bridge_position = "외부효과/관세"
-            else:
-                classification = "variable" if is_variable else "fixed"
-                profit_effect = base_amount - comparison_amount
-                bridge_position = "변동 판관비" if is_variable else "고정 판관비"
-            output.append({
-                "row": row_number,
-                "account": account,
-                "section": section,
-                "classification": classification,
-                "baseline_amount": base_amount,
-                "comparison_amount": comparison_amount,
-                "delta": delta,
-                "profit_effect": profit_effect,
-                "bridge_position": bridge_position,
-                "source_validation_status": (
-                    "SOURCE_MAPPED"
-                    if all(
-                        item.get("source_validation_status") == "SOURCE_MAPPED"
-                        for item in (left, right) if item
-                    )
-                    else "UNVALIDATED"
-                ),
-            })
-        # Web-entered tariff is outside the Golden Model account range, but is
-        # still a deterministic comparison input and must be visible exactly once.
+            comp_scen = AnalysisScenario(
+                meta=ScenarioMeta("comp", "FORECAST", "1.0"),
+                sga_expenses=comp_records,
+            )
+            sga_calc = calculate_sga_effects(base_scen, comp_scen, self.analysis_config)
+            sga_details = sga_calc.details
+
+        aggregated: dict[tuple[str, int | None, str], dict[str, Any]] = {}
+        for item in sga_details:
+            row_num = item.get("row")
+            if row_num is not None and not isinstance(row_num, int):
+                try:
+                    row_num = int(row_num)
+                except (ValueError, TypeError):
+                    row_num = None
+            key = (
+                str(item.get("section") or ""),
+                row_num,
+                str(item.get("account") or ""),
+            )
+            if key not in aggregated:
+                raw_cls = str(item.get("classification") or "")
+                bridge_pos = str(
+                    item.get("bridge_position")
+                    or ("변동 판관비" if raw_cls in ("variable", "transport") else "고정 판관비")
+                )
+                raw_account = (
+                    key[2].split("_", 1)[-1]
+                    if (key[0] and key[2].startswith(f"{key[0]}_"))
+                    else key[2]
+                )
+                aggregated[key] = {
+                    "row": row_num,
+                    "account": raw_account,
+                    "section": key[0],
+                    "classification": raw_cls,
+                    "baseline_amount": 0.0,
+                    "comparison_amount": 0.0,
+                    "delta": 0.0,
+                    "profit_effect": 0.0,
+                    "bridge_position": bridge_pos,
+                    "source_validation_status": "SOURCE_MAPPED",
+                }
+            entry = aggregated[key]
+            entry["baseline_amount"] += float(item.get("baseline_amount") or 0.0)
+            entry["comparison_amount"] += float(item.get("comparison_amount") or 0.0)
+            entry["delta"] += float(item.get("delta") or 0.0)
+            entry["profit_effect"] += float(item.get("profit_effect") or 0.0)
+
+        output = list(aggregated.values())
         base_tariff = float(baseline_costs.get("tariff") or 0.0)
         comparison_tariff = float(comparison_costs.get("tariff") or 0.0)
         output.append({

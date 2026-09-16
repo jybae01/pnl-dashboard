@@ -87,6 +87,6 @@ def calculate_sga_effects(
                 "comparison_amount": comparison_amount,
                 "delta": comparison_amount - baseline_amount,
                 "profit_effect": effect,
-                "bridge_position": "변동 판관비" if is_var else "판관비",
+                "bridge_position": "변동 판관비" if is_var else "고정 판관비",
             })
     return result
