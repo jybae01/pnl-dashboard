@@ -744,7 +744,13 @@ function validatePresentationEffect(value: unknown): AnalysisPresentationEffectD
       if (value.drilldown.rows.filter((row) => isRecord(row) && row.label === account).length !== 1) invalidPayload();
     }
     const manufacturingTotal = value.drilldown.rows.reduce(
-      (sum, row) => sum + (isRecord(row) && finite(row.profit_effect) ? Number(row.profit_effect) : 0),
+      (sum, row) => sum + (
+        isRecord(row)
+        && finite(row.profit_effect)
+        && !String(row.row_id).startsWith('manufacturing:subtotal:')
+          ? Number(row.profit_effect)
+          : 0
+      ),
       0,
     );
     if (!close(manufacturingTotal, Number(value.profit_effect))) invalidPayload();
